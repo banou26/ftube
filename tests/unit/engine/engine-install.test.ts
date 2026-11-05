@@ -19,7 +19,7 @@ describe('installing the agent', () => {
 
   it("the agent takes a port only from the app's origin, with the right type and one port", async () => {
     const page = fakeAgentPage()
-    installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript })
+    installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript, fetch: page.fetch, readCookie: page.readCookie })
 
     const refused = [
       // the page's own origin, which is what a message the page posted to itself carries

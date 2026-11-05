@@ -1,7 +1,8 @@
 import type { AgentCancel, AgentControl, AgentRequest, AgentResponse, EngineReport } from './agent-protocol'
 
 import { startPlatform } from './platform'
-import { AGENT_INSTALL, AGENT_PAGE_ORIGIN, AGENT_PAGE_URL, ENGINES, MINT_KINDS } from './agent-protocol'
+import { readSignedIn } from './signed-in'
+import { AGENT_INSTALL, AGENT_PAGE_ORIGIN, AGENT_PAGE_URL, DIRECT_STATES, ENGINES, MINT_KINDS } from './agent-protocol'
 
 /** What the host needs of an attached engine page: the part of `@fkn/lib`'s `Frame` it calls. */
 export type AgentFrame = {
@@ -15,7 +16,8 @@ export type AgentHostOptions = {
   attach: () => Promise<{ frame: AgentFrame, detach: () => void }>
   /** The agent bundle with its install call, as one classic script. */
   source: () => Promise<string>
-  publish: (name: 'ytMint' | 'ytEngine', value: string) => void
+  publish: (name: 'ytMint' | 'ytEngine' | 'ytDirect', value: string) => void
+  now?: () => number
 }
 
 /** The answer to every bridged call while the engine page cannot be had, so the frame falls back at once. */
@@ -26,6 +28,9 @@ export const AGENT_REPLACED = 'yt-client agent: the engine page was replaced dur
 const HEARTBEAT_MS = 5_000
 const SILENCE_MS = 15_000
 const INSTALL_TIMEOUT_MS = 5_000
+// after a failed attach or install, the next attach waits this long, doubled per failure in a row up to the cap
+export const RETRY_MS = 1_000
+export const RETRY_MAX_MS = 30_000
 const AGENT_SOURCE_URL = 'yt-client-botguard-agent.js'
 
 const waitForReady = (port: MessagePort) => new Promise<void>((resolve, reject) => {
@@ -45,16 +50,20 @@ const isCancel = (message: unknown): message is AgentCancel =>
   (message as AgentCancel | null)?.type === 'cancel'
 
 /**
- * The app realm's side of the engine page. One attachment per app realm, kept across engine resets;
+ * The app realm's side of the FKN page. One attachment per app realm, kept across engine resets;
  * each engine generation gets a bridge, whose frame end goes in `HOST_BOOTSTRAP` (or in
  * `HOST_RESTART` for an engine started again in the kept host), and the host relays it to whichever
  * agent port is current. A `document` event installs the agent again on the same attachment, and a
  * ping (sent every 5000 ms) that 15000 ms bring nothing back for attaches again. While the page is
- * attaching a call waits, unless the frame cancels it; once an attach or install has failed every
- * call is answered `AGENT_UNAVAILABLE`, for the frame to fall back to its own VM.
+ * attaching a call waits, unless the frame cancels it, and a cancel of a call in flight reaches the
+ * page. After a failed attach or install, calls are answered `AGENT_UNAVAILABLE` at once until the
+ * backoff (`RETRY_MS`, doubling) has passed; then the next call or bridge attaches again and the call
+ * waits for it. `stop` detaches for good.
  */
-export const createAgentHost = ({ attach, source, publish }: AgentHostOptions) => {
-  let state: 'attaching' | 'ready' | 'failed' = 'attaching'
+export const createAgentHost = ({ attach, source, publish, now = Date.now }: AgentHostOptions) => {
+  let state: 'attaching' | 'ready' | 'failed' | 'stopped' = 'attaching'
+  let failures = 0
+  let retryAt = 0
   let generation = 0
   let attachment: Awaited<ReturnType<AgentHostOptions['attach']>> | undefined
   let agent: MessagePort | undefined
@@ -79,12 +88,19 @@ export const createAgentHost = ({ attach, source, publish }: AgentHostOptions) =
   const fail = (error: unknown) => {
     dropAgent()
     state = 'failed'
+    failures++
+    retryAt = now() + Math.min(RETRY_MS * 2 ** (failures - 1), RETRY_MAX_MS)
     for (const request of queued.splice(0)) answerBridge(request.id, AGENT_UNAVAILABLE)
-    console.warn('[yt-client] the BotGuard engine page is unavailable, so BotGuard runs in the Scramjet frame:', error instanceof Error ? error.message : String(error))
+    console.warn('[yt-client] the FKN page is unavailable until it attaches again:', error instanceof Error ? error.message : String(error))
+  }
+
+  const retry = () => {
+    if (state === 'failed' && now() >= retryAt) void attachAgain()
   }
 
   const send = (request: AgentRequest) => {
-    if (state === 'failed') answerBridge(request.id, AGENT_UNAVAILABLE)
+    retry()
+    if (state === 'failed' || state === 'stopped') answerBridge(request.id, AGENT_UNAVAILABLE)
     else if (!agent) queued.push(request)
     else {
       inFlight.add(request.id)
@@ -95,6 +111,7 @@ export const createAgentHost = ({ attach, source, publish }: AgentHostOptions) =
   const take = (port: MessagePort) => {
     agent = port
     state = 'ready'
+    failures = 0
     unanswered = undefined
     port.addEventListener('message', (event) => {
       unanswered = undefined
@@ -159,11 +176,13 @@ export const createAgentHost = ({ attach, source, publish }: AgentHostOptions) =
     if (isReport(message)) {
       if (message.engine && ENGINES.includes(message.engine)) publish('ytEngine', message.engine)
       if (message.mint && MINT_KINDS.includes(message.mint)) publish('ytMint', message.mint)
+      if (message.direct && DIRECT_STATES.includes(message.direct)) publish('ytDirect', message.direct)
       return
     }
     if (isCancel(message)) {
       const index = queued.findIndex(({ id }) => id === message.id)
       if (index !== -1) queued.splice(index, 1)
+      else if (inFlight.has(message.id)) agent?.postMessage({ type: 'cancel', id: message.id } satisfies AgentCancel)
       return
     }
     const request = message as AgentRequest
@@ -182,29 +201,44 @@ export const createAgentHost = ({ attach, source, publish }: AgentHostOptions) =
     channel.port1.addEventListener('message', (event) => relay(event.data))
     channel.port1.start()
     if (previous && state === 'ready' && attachment) void install(attachment.frame)
+    retry()
     return channel.port2
   }
 
+  /** Detaches the page and attaches no other: every call from then on is answered `AGENT_UNAVAILABLE`. */
+  const stop = () => {
+    generation++
+    dropAgent()
+    state = 'stopped'
+    for (const request of queued.splice(0)) answerBridge(request.id, AGENT_UNAVAILABLE)
+    attachment?.detach()
+    attachment = undefined
+  }
+
   void attachAgain()
-  return { openBridge }
+  return { openBridge, stop }
 }
 
-let host: ReturnType<typeof createAgentHost> | undefined
-
 // rendered rather than display: none, as the brief has it; whether an off screen cross-origin frame's timers slow is measured at Y1
-const ENGINE_FRAME_STYLE = 'position: fixed; left: -10px; top: -10px; width: 1px; height: 1px; border: 0; pointer-events: none;'
+const HIDDEN_FRAME_STYLE = 'position: fixed; left: -10px; top: -10px; width: 1px; height: 1px; border: 0; pointer-events: none;'
 
-const attachEnginePage = async () => {
-  await startPlatform()
-  // the platform mounted the broker before its own import of the lib, so this import adds no second one
-  const { attachFrame } = await import('@fkn/lib')
+/** A frame for an FKN attachment, rendered 1 px off screen and out of the tab order. */
+export const mountHiddenFrame = () => {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.tabIndex = -1
-  iframe.style.cssText = ENGINE_FRAME_STYLE
+  iframe.style.cssText = HIDDEN_FRAME_STYLE
   document.body.appendChild(iframe)
+  return iframe
+}
+
+const attachEnginePage = async (signedIn: boolean) => {
+  await startPlatform()
+  // the platform mounted the broker before its own import of the lib, so this import adds no second one
+  const { attachFrame } = await import('@fkn/lib')
+  const iframe = mountHiddenFrame()
   try {
-    const frame = await attachFrame({ iframe, blank: { url: AGENT_PAGE_URL }, cookies: 'ephemeral' })
+    const frame = await attachFrame({ iframe, blank: { url: AGENT_PAGE_URL }, cookies: signedIn ? 'persistent' : 'ephemeral' })
     return { frame, detach: () => iframe.remove() }
   } catch (error) {
     iframe.remove()
@@ -212,12 +246,31 @@ const attachEnginePage = async () => {
   }
 }
 
-/** Starts attaching the engine page, once per app realm. Behind `yt-client:step:y1` (`step-flag.ts`). */
-export const startAgentHost = () => (host ??= createAgentHost({
-  attach: attachEnginePage,
-  source: () => import('./agent-source').then(({ agentSource }) => agentSource(location.origin)),
-  publish: (name, value) => { document.documentElement.dataset[name] = value },
-}))
+let host: (ReturnType<typeof createAgentHost> & { signedIn: boolean }) | undefined
+
+/**
+ * Starts attaching the FKN page, once per app realm until `stopAgentHost`. `signedIn` is the jar it attached on,
+ * read from `yt-client:signed-in` at that start, and it is what the engine is told.
+ */
+export const startAgentHost = () => {
+  if (host) return host
+  const signedIn = readSignedIn()
+  host = {
+    ...createAgentHost({
+      attach: () => attachEnginePage(signedIn),
+      source: () => import('./agent-source').then(({ agentSource }) => agentSource(location.origin)),
+      publish: (name, value) => { document.documentElement.dataset[name] = value },
+    }),
+    signedIn,
+  }
+  return host
+}
 
 /** The frame end of a new bridge to the agent, for the engine generation booting now. */
 export const openAgentBridge = () => startAgentHost().openBridge()
+
+/** Detaches the FKN page, so nothing in flight on its jar can set a cookie again; the next start attaches anew. */
+export const stopAgentHost = () => {
+  host?.stop()
+  host = undefined
+}

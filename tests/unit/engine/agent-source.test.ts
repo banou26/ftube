@@ -39,8 +39,8 @@ describe("the agent on BotGuard's page", () => {
   it('the install mark is no enumerable name on the page, and a second install still sees it', () => {
     const page = fakeAgentPage()
     const before = Object.keys(page.scope)
-    expect(installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript })).toBe('installed')
+    expect(installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript, fetch: page.fetch, readCookie: page.readCookie })).toBe('installed')
     expect(Object.keys(page.scope)).toEqual(before)
-    expect(installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript })).toBe('already')
+    expect(installAgent({ scope: page.scope, appOrigin: APP_ORIGIN, runScript: page.runScript, fetch: page.fetch, readCookie: page.readCookie })).toBe('already')
   })
 })

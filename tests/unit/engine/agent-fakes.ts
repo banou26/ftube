@@ -37,12 +37,24 @@ export const fakeBotguardVm = (label: string, log: string[] = []) => ({
 export const mintedBy = (label: string, identifier: string) =>
   Buffer.from(`${label}:it:${identifier}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
 
-/** A blank page as the agent sees it: a message target, a global, and inline scripts it can run and remove. `configs` is the `yt.config_` each interpreter found. */
+/** What the page's fetch was asked: its url and init, signal included. */
+export type PageFetchCall = { url: string, init: RequestInit }
+
+/**
+ * A blank page as the agent sees it: a message target, a global, inline scripts it can run and remove, its own fetch
+ * (answered by `answerFetch`, 200 with the url as body by default) and its cookies. `configs` is the `yt.config_` each
+ * interpreter found.
+ */
 export const fakeAgentPage = (label = 'agent') => {
   const listeners = new Set<(event: MessageEvent) => void>()
   const log: string[] = []
   const scripts: string[] = []
   const configs: unknown[] = []
+  const fetches: PageFetchCall[] = []
+  const page = {
+    cookie: '',
+    answerFetch: async (url: string, _init: RequestInit) => new Response(url),
+  }
   let removedScripts = 0
   const scope: AgentScope & Record<string, unknown> = {
     addEventListener: (_type: 'message', listener: (event: MessageEvent) => void) => { listeners.add(listener) },
@@ -58,7 +70,13 @@ export const fakeAgentPage = (label = 'agent') => {
   const deliver = (event: { origin: string, data: unknown, ports?: MessagePort[] }) => {
     for (const listener of listeners) listener({ ports: [], ...event } as unknown as MessageEvent)
   }
-  return { scope, runScript, deliver, listeners, log, scripts, configs, removed: () => removedScripts }
+  const fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input
+    fetches.push({ url, init })
+    return page.answerFetch(url, init)
+  }) as typeof globalThis.fetch
+  const readCookie = () => page.cookie
+  return { scope, runScript, fetch, readCookie, page, fetches, deliver, listeners, log, scripts, configs, removed: () => removedScripts }
 }
 
 type Answer = { id: number, result?: unknown, error?: string }

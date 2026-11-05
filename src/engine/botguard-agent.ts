@@ -1,4 +1,4 @@
-import type { AgentApi, AgentControl, AgentRequest, AgentResponse } from './agent-protocol'
+import type { AgentApi, AgentCancel, AgentControl, AgentRequest, AgentResponse, PageRequest, PageResponse } from './agent-protocol'
 
 import { BG } from 'bgutils-js'
 import type { WebPoSignalOutput } from 'bgutils-js'
@@ -16,6 +16,10 @@ export type AgentOptions = {
   appOrigin: string
   /** Runs an inline script in the page and answers how to remove it. */
   runScript: (source: string) => () => void
+  /** The page's own fetch, which sends its jar's cookies. */
+  fetch: typeof globalThis.fetch
+  /** The page's `document.cookie`. */
+  readCookie: () => string
 }
 
 const AGENT_MARK = '__ytClientAgent'
@@ -28,18 +32,19 @@ type Session = {
 }
 
 /**
- * Installs BotGuard's VM half in a page: a listener that takes one port from the app's origin and
- * answers `AgentApi` on it. Idempotent, since the page's `document` event can fire twice for one
- * document: a second call answers 'already' and adds nothing. A new port replaces the previous one
- * and shuts down every session made through it.
+ * Installs the agent in a page: BotGuard's VM half, the page's own fetch and its cookies, answered as
+ * `AgentApi` on one port taken from the app's origin. Idempotent, since the page's `document` event
+ * can fire twice for one document: a second call answers 'already' and adds nothing. A new port
+ * replaces the previous one, aborts its fetches and shuts down every session made through it.
  */
-export const installAgent = ({ scope, appOrigin, runScript }: AgentOptions): 'installed' | 'already' => {
+export const installAgent = ({ scope, appOrigin, runScript, fetch, readCookie }: AgentOptions): 'installed' | 'already' => {
   const global = scope as unknown as Record<string, unknown>
   if (global[AGENT_MARK]) return 'already'
   // not enumerable, so the page's own listing of its window shows nothing of ours
   Object.defineProperty(global, AGENT_MARK, { value: true })
 
   const sessions = new Map<number, Session>()
+  const fetches = new Map<number, AbortController>()
   let lastSession = 0
   let port: MessagePort | undefined
 
@@ -47,6 +52,13 @@ export const installAgent = ({ scope, appOrigin, runScript }: AgentOptions): 'in
     const session = sessions.get(id)
     if (!session) throw new Error(`yt-client agent: no session ${id}`)
     return session
+  }
+
+  const pageFetch = async (url: string, { method, headers = {}, body }: PageRequest, signal?: AbortSignal): Promise<PageResponse> => {
+    // the jar's own cookies go with credentials, so a cookie header the caller built from them is dropped
+    const sent = Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'cookie'))
+    const response = await fetch(url, { method, headers: sent, body, credentials: 'include', redirect: 'follow', signal })
+    return { status: response.status, statusText: response.statusText, headers: [...response.headers], body: await response.arrayBuffer() }
   }
 
   const methods: AgentApi = {
@@ -85,11 +97,21 @@ export const installAgent = ({ scope, appOrigin, runScript }: AgentOptions): 'in
       session.removeScript()
       await session.client.shutdown().catch(() => {})
     },
+    fetch: (url, request) => pageFetch(url, request),
+    cookie: async () => readCookie(),
   }
 
-  const answer = async (target: MessagePort, request: AgentRequest | AgentControl) => {
+  const run = (request: AgentRequest) => {
+    if (request.method !== 'fetch') return (methods[request.method] as (...args: unknown[]) => Promise<unknown>)(...request.args)
+    const abort = new AbortController()
+    fetches.set(request.id, abort)
+    return pageFetch(...request.args, abort.signal).finally(() => fetches.delete(request.id))
+  }
+
+  const answer = async (target: MessagePort, request: AgentRequest | AgentControl | AgentCancel) => {
     if ('type' in request) {
       if (request.type === 'ping') target.postMessage({ type: 'pong' } satisfies AgentControl)
+      if (request.type === 'cancel') fetches.get(request.id)?.abort()
       return
     }
     if (typeof request.id !== 'number') return
@@ -98,7 +120,7 @@ export const installAgent = ({ scope, appOrigin, runScript }: AgentOptions): 'in
       return
     }
     try {
-      const result = await (methods[request.method] as (...args: unknown[]) => Promise<unknown>)(...request.args)
+      const result = await run(request)
       target.postMessage({ id: request.id, result } satisfies AgentResponse)
     } catch (error) {
       target.postMessage({ id: request.id, error: error instanceof Error ? error.message : String(error) } satisfies AgentResponse)
@@ -107,10 +129,11 @@ export const installAgent = ({ scope, appOrigin, runScript }: AgentOptions): 'in
 
   const take = (next: MessagePort) => {
     port?.close()
+    for (const abort of fetches.values()) abort.abort()
     for (const id of sessions.keys()) void methods.shutdown(id)
     port = next
     next.addEventListener('message', (event) => {
-      if (event.data && typeof event.data === 'object') void answer(next, event.data as AgentRequest | AgentControl)
+      if (event.data && typeof event.data === 'object') void answer(next, event.data as AgentRequest | AgentControl | AgentCancel)
     })
     next.start()
     next.postMessage({ type: 'ready' } satisfies AgentControl)
@@ -136,4 +159,6 @@ export const install = (appOrigin: string) => installAgent({
     document.head.appendChild(element)
     return () => element.remove()
   },
+  fetch: (input, init) => fetch(input, init),
+  readCookie: () => document.cookie,
 })

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { AgentFrame } from '../../../src/engine/agent-host'
 
 import { AGENT_PAGE_ORIGIN } from '../../../src/engine/agent-protocol'
-import { AGENT_REPLACED, AGENT_UNAVAILABLE, createAgentHost } from '../../../src/engine/agent-host'
+import { AGENT_REPLACED, AGENT_UNAVAILABLE, createAgentHost, RETRY_MS } from '../../../src/engine/agent-host'
 import { installAgent } from '../../../src/engine/botguard-agent'
 import { agentClient, APP_ORIGIN, CHALLENGE, fakeAgentPage, INTEGRITY, mintedBy, turn } from './agent-fakes'
 
@@ -19,6 +19,8 @@ type EnginePage = {
   newDocument(): void
   /** What the page's BotGuard VMs did: a `load` line for each one created. */
   log(): string[]
+  /** The page's current document, as the agent sees it. */
+  realm(): ReturnType<typeof fakeAgentPage>
 }
 
 // an attachment as the app realm sees it, whose page runs the real agent; each document is a fresh realm with its own BotGuard
@@ -34,7 +36,7 @@ const enginePage = (label: string): EnginePage => {
     frame: {
       addScriptTag: async ({ content }) => {
         page.scriptTags.push(content)
-        installAgent({ scope: realm.scope, appOrigin: APP_ORIGIN, runScript: realm.runScript })
+        installAgent({ scope: realm.scope, appOrigin: APP_ORIGIN, runScript: realm.runScript, fetch: realm.fetch, readCookie: realm.readCookie })
       },
       postMessage: async (message, { targetOrigin, transfer }) => {
         page.targetOrigins.push(targetOrigin)
@@ -52,6 +54,7 @@ const enginePage = (label: string): EnginePage => {
     freeze: () => { frozen = true },
     thaw: () => { frozen = false },
     log: () => realm.log,
+    realm: () => realm,
     newDocument: () => {
       realm = fakeAgentPage(`${label}-document-${++documents}`)
       for (const listener of documentListeners) listener()
@@ -282,5 +285,98 @@ describe('the engine page heartbeat', () => {
     bridge.post({ type: 'report', mint: '<b>', engine: 'other' })
     await turn()
     expect(published).toEqual([['ytEngine', 'agent'], ['ytMint', 'session'], ['ytEngine', 'scramjet'], ['ytMint', 'cold']])
+  })
+
+  it('after a failed attach, the next call attaches again once the backoff passed, and the backoff doubles', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let refuse = true
+    let attaches = 0
+    const pages: EnginePage[] = []
+    const host = createAgentHost({
+      attach: async () => {
+        attaches++
+        if (refuse) throw new Error('cloud.attachFrame: the handshake did not finish')
+        const page = enginePage(`page-${pages.length + 1}`)
+        pages.push(page)
+        return { frame: page.frame, detach: () => { page.detached = true } }
+      },
+      source: async () => AGENT_SOURCE,
+      publish: () => {},
+    })
+    const bridge = bridgeOf(host)
+    await expect(bridge.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    expect(attaches).toBe(1)
+
+    vi.setSystemTime(Date.now() + RETRY_MS - 1)
+    await expect(bridge.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    expect(attaches).toBe(1)
+    vi.setSystemTime(Date.now() + 1)
+    await expect(bridge.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    expect(attaches).toBe(2)
+
+    // a second failure in a row waits twice as long
+    refuse = false
+    vi.setSystemTime(Date.now() + RETRY_MS)
+    await expect(bridge.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    expect(attaches).toBe(2)
+    vi.setSystemTime(Date.now() + RETRY_MS)
+    expect((await mintThrough(bridge, 'video-1')).token).toBe(mintedBy('page-1', 'video-1'))
+    expect(attaches).toBe(3)
+  })
+
+  it('after a failed attach, the next engine generation attaches again once the backoff passed', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let refuse = true
+    let attaches = 0
+    const host = createAgentHost({
+      attach: async () => {
+        attaches++
+        if (refuse) throw new Error('cloud.attachFrame: the handshake did not finish')
+        const page = enginePage('page-1')
+        return { frame: page.frame, detach: () => {} }
+      },
+      source: async () => AGENT_SOURCE,
+      publish: () => {},
+    })
+    const first = bridgeOf(host)
+    await expect(first.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    refuse = false
+    vi.setSystemTime(Date.now() + RETRY_MS)
+    const second = bridgeOf(host)
+    expect(attaches).toBe(2)
+    expect((await mintThrough(second, 'video-1')).token).toBe(mintedBy('page-1', 'video-1'))
+  })
+
+  it("a cancel for a fetch in flight reaches the page and aborts it", async () => {
+    const { host, pages } = startHost()
+    const bridge = bridgeOf(host)
+    await mintThrough(bridge, 'video-1')
+    const realm = pages[0]!.realm()
+    let signal: AbortSignal | undefined
+    realm.page.answerFetch = (_url, init) => new Promise((_resolve, reject) => {
+      signal = init.signal!
+      init.signal!.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')), { once: true })
+    })
+    const call = bridge.call('fetch', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', { method: 'GET' })
+    await turn()
+    expect(signal?.aborted).toBe(false)
+    // the bridge's fifth call: four went to the mint
+    bridge.post({ type: 'cancel', id: 5 })
+    await expect(call).rejects.toThrow(/aborted/)
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('stop detaches the page, answers every call unavailable and attaches nothing again', async () => {
+    const { host, pages } = startHost()
+    const bridge = bridgeOf(host)
+    await mintThrough(bridge, 'video-1')
+    host.stop()
+    expect(pages[0]!.detached).toBe(true)
+    await expect(bridge.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    vi.setSystemTime(Date.now() + 60_000)
+    await beat(4)
+    const next = bridgeOf(host)
+    await expect(next.call('create', CHALLENGE)).rejects.toThrow(AGENT_UNAVAILABLE)
+    expect(pages).toHaveLength(1)
   })
 })
