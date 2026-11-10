@@ -29,6 +29,7 @@ const SIGNED_IN_CHANNEL = 'yt-client-signed-in'
 const SIGNED_IN = 'signed-in'
 const SIGNED_OUT = 'signed-out'
 const SWITCHED = 'switched'
+const SIGNING_OUT = 'signing-out'
 
 let openWindow: WindowFrame | undefined
 let opening = false
@@ -42,6 +43,11 @@ const landSignedIn = () => {
 
 const tabs = new BroadcastChannel(SIGNED_IN_CHANNEL)
 tabs.addEventListener('message', (event: MessageEvent) => {
+  if (event.data === SIGNING_OUT) {
+    resetEngine()
+    stopAgentHost()
+    return
+  }
   if (event.data === SIGNED_OUT || event.data === SWITCHED) {
     location.reload()
     return
@@ -184,8 +190,8 @@ export const SIGN_OUT_DOMAINS = ['www.youtube.com', 'accounts.google.com']
 
 /**
  * Signs out of YouTube and Google in FKN's jar, the one every fkn.app app shares, so all of them are signed out on this
- * device. The engine is reset and the FKN page detached first, so no request in flight sets a cookie again; then the
- * cookies go, and every tab loads again. Google is not told. Rejects when the cookies could not be cleared, with the
+ * device. The engine is reset and the FKN page detached first, in this tab and every other, so no request in flight sets
+ * a cookie again; then the cookies go, and every tab loads again. Google is not told. Rejects when the cookies could not be cleared, with the
  * page still signed in: its next engine attaches the FKN page on the session's jar again.
  */
 export const signOut = async () => {
@@ -197,6 +203,7 @@ export const signOut = async () => {
   clearSignedIn()
   resetEngine()
   stopAgentHost()
+  tabs.postMessage(SIGNING_OUT)
   const iframe = mountHiddenFrame()
   try {
     const frame = await lib.attachFrame({ iframe, cookies: 'persistent', domains: SIGN_OUT_DOMAINS })

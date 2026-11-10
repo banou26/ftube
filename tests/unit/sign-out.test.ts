@@ -86,6 +86,24 @@ describe('signing out', () => {
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
   })
 
+  it('every other tab resets its engine and detaches its FKN page before the jar is cleared', async () => {
+    const { reload } = install()
+    // an attach takes longer than a message to the other tabs
+    attachFrame.mockImplementationOnce(async (options: { cookies: string }) => {
+      calls.push(`attach ${options.cookies}`)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return { clearCookies }
+    })
+    const tab = await import('../../src/sign-in')
+    vi.resetModules()
+    await import('../../src/sign-in')
+    await tab.signOut()
+    const beforeClear = calls.slice(0, calls.indexOf('clear cookies'))
+    expect(beforeClear.filter((call) => call === 'reset engine')).toHaveLength(2)
+    expect(beforeClear.filter((call) => call === 'detach the page')).toHaveLength(2)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+  })
+
   it('a clear that fails rejects, loads nothing again and keeps the tab signed in', async () => {
     const { stored, assign } = install()
     clearCookies.mockRejectedValueOnce(new Error('frame.clearCookies: the render proxy did not answer within 30000ms'))
