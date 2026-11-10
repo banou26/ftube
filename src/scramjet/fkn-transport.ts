@@ -6,10 +6,10 @@ import type {
 } from '@mercuryworkshop/proxy-transports'
 
 import type { EgressFetch } from './channel'
-import type { EgressApi, TransportRequest, TransportResponse } from './protocol'
+import type { EgressApi, TransportRequest, TransportResponse } from '../engine/protocol'
 
 import { actAsChannel } from './channel'
-import { SIGNIN_REQUEST_PREFIX } from './protocol'
+import { SIGNIN_REQUEST_PREFIX } from '../engine/protocol'
 
 export const FRAME_BOOTSTRAP_URL = 'https://www.youtube.com/__yt_client__/frame'
 

@@ -1,8 +1,8 @@
 import { expose } from 'osra'
 import { describe, expect, it } from 'vite-plus/test'
 
-import type { ExtFetchRequest, ExtFetchResponse, TransportResponse } from '../../../src/scramjet/protocol'
-import { releaseWhenOver, serveExtFetch } from '../../../src/scramjet/platform'
+import type { ExtFetchRequest, ExtFetchResponse, TransportResponse } from '../../../src/engine/protocol'
+import { releaseWhenOver, serveExtFetch } from '../../../src/engine/platform'
 
 type Extension = { fetch(url: string, init: { signal: AbortSignal }): Promise<ReadableStream<Uint8Array> | null> }
 

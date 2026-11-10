@@ -44,7 +44,7 @@ describe('starting the platform', () => {
   // @fkn/lib 0.9.13 made relayWorker async, and it rejects when the realm has no FKN transport; the real lib rejects again on a retry, so this pins only that the failure is not memoized
   it('fails the start when the worker cannot be relayed, without memoizing the failure', async () => {
     relayWorker.mockRejectedValue(new Error('FKN @fkn/lib: relayWorker found no FKN transport in this realm'))
-    const { startPlatform } = await import('../../../src/scramjet/platform')
+    const { startPlatform } = await import('../../../src/engine/platform')
     await expect(startPlatform()).rejects.toThrow(/no FKN transport/)
     await expect(startPlatform()).rejects.toThrow(/no FKN transport/)
     expect(relayWorker).toHaveBeenCalledTimes(2)
@@ -52,7 +52,7 @@ describe('starting the platform', () => {
 
   it('starts once the worker is relayed', async () => {
     relayWorker.mockResolvedValue(undefined)
-    const { startPlatform } = await import('../../../src/scramjet/platform')
+    const { startPlatform } = await import('../../../src/engine/platform')
     const platform = await startPlatform()
     expect(Object.keys(platform).sort()).toEqual(['abortEgress', 'browserSession', 'openEgressPort', 'openExtFetchPort', 'promptInstall'])
     expect(relayWorker).toHaveBeenCalledTimes(1)
@@ -61,7 +61,7 @@ describe('starting the platform', () => {
   // the history import's only way to the browser's YouTube session, and every call goes to the extension, never to the cloud
   it('binds the browser session calls to the extension', async () => {
     relayWorker.mockResolvedValue(undefined)
-    const { startPlatform } = await import('../../../src/scramjet/platform')
+    const { startPlatform } = await import('../../../src/engine/platform')
     const { browserSession } = await startPlatform()
     await browserSession.requestNetwork(['www.youtube.com'], 'reason')
     expect(requestPermissions).toHaveBeenCalledWith([{ category: 'network', hosts: ['www.youtube.com'], reason: 'reason' }])

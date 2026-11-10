@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import type { TransportRequest } from '../../../src/scramjet/protocol'
+import type { TransportRequest } from '../../../src/engine/protocol'
 
-import { createRelayFetch, RELAY_NONCE_HEADER } from '../../../src/scramjet/relay-nonce'
+import { createRelayFetch, RELAY_NONCE_HEADER } from '../../../src/engine/relay-nonce'
 
 type Sent = { url: string, init: RequestInit }
 

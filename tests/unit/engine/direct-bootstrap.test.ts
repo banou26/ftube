@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/scramjet/protocol'
+import { HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/engine/protocol'
 import { BUILD, querySelector } from '../fixtures/build-tag'
 
-vi.mock('../../../src/scramjet/platform', () => ({
+vi.mock('../../../src/engine/platform', () => ({
   startPlatform: async () => ({
     openEgressPort: () => new MessageChannel().port2,
     openExtFetchPort: () => new MessageChannel().port2,
@@ -71,7 +71,7 @@ describe('the engine bootstrap and the direct lane', () => {
 
   it('hands the host no direct lane and marks it off when the step is turned off', async () => {
     const window = installWindow({ 'yt-client:step:direct': '0' })
-    const { startEngine, resetEngine } = await import('../../../src/scramjet/client')
+    const { startEngine, resetEngine } = await import('../../../src/engine/client')
     void startEngine().catch(() => {})
     window.hello()
     await settle()
@@ -85,7 +85,7 @@ describe('the engine bootstrap and the direct lane', () => {
 
   it('hands the host the direct lane as its last port by default', async () => {
     const window = installWindow({})
-    const { startEngine, resetEngine } = await import('../../../src/scramjet/client')
+    const { startEngine, resetEngine } = await import('../../../src/engine/client')
     void startEngine().catch(() => {})
     window.hello()
     await settle()

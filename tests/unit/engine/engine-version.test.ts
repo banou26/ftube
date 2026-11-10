@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { buildId, ENGINE_BUILD_MISMATCH } from '../../../src/scramjet/engine-build'
-import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/scramjet/protocol'
+import { buildId, ENGINE_BUILD_MISMATCH } from '../../../src/engine/engine-build'
+import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/engine/protocol'
 import { BUILD, querySelector } from '../fixtures/build-tag'
 
-vi.mock('../../../src/scramjet/platform', () => ({
+vi.mock('../../../src/engine/platform', () => ({
   startPlatform: async () => ({
     openEgressPort: () => new MessageChannel().port2,
     openExtFetchPort: () => new MessageChannel().port2,
@@ -86,7 +86,7 @@ describe('an engine from another build', () => {
   })
 
   it('an app realm from another build reloads once instead of calling a method the frame no longer serves', async () => {
-    const { startEngine } = await import('../../../src/scramjet/client')
+    const { startEngine } = await import('../../../src/engine/client')
 
     const first = startEngine()
     window.fromFrame(window.frames[0]!, { type: HOST_HELLO, build: 'a-later-build' })
@@ -104,7 +104,7 @@ describe('an engine from another build', () => {
   })
 
   it('a host from before build ids reads as another build', async () => {
-    const { startEngine } = await import('../../../src/scramjet/client')
+    const { startEngine } = await import('../../../src/engine/client')
     const engine = startEngine()
     window.fromFrame(window.frames[0]!, { type: HOST_HELLO })
     expect(await settled(engine)).toEqual({ error: new Error(ENGINE_BUILD_MISMATCH) })
@@ -113,7 +113,7 @@ describe('an engine from another build', () => {
   })
 
   it('a host that refuses this realm by name reloads it once as well', async () => {
-    const { startEngine } = await import('../../../src/scramjet/client')
+    const { startEngine } = await import('../../../src/engine/client')
     const engine = startEngine()
     window.fromFrame(window.frames[0]!, { type: HOST_HELLO, build: BUILD })
     await settled(engine)
@@ -123,7 +123,7 @@ describe('an engine from another build', () => {
   })
 
   it('a host from this build gets its ports with this build named, and nothing reloads', async () => {
-    const { startEngine, resetEngine } = await import('../../../src/scramjet/client')
+    const { startEngine, resetEngine } = await import('../../../src/engine/client')
     const engine = startEngine()
     window.fromFrame(window.frames[0]!, { type: HOST_HELLO, build: BUILD })
     expect(await settled(engine)).toEqual({ pending: true })

@@ -2,10 +2,10 @@ import type { FrameApi, FrameMethod, FrameProgress, FrameRequest, FrameResponse 
 import type { HostBootstrap, HostControlEvent, HostControlRequest, HostHello, HostRestart } from './protocol'
 
 import { FRAME_METHODS } from '../frame/protocol'
-import { openAgentBridge, startAgentHost } from '../engine/agent-host'
-import { stepEnabled } from '../engine/step-flag'
+import { openAgentBridge, startAgentHost } from './agent-host'
+import { stepEnabled } from './step-flag'
 import { buildId, ENGINE_BUILD_MISMATCH, reloadOnceForBuild } from './engine-build'
-import { openDirectLane, reportDirectOff } from './direct-lane'
+import { openDirectLane, reportDirectOff } from '../scramjet/direct-lane'
 import { abortPlatformEgress, startPlatform } from './platform'
 import { CLEAR_COOKIES, COOKIES_CLEARED, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from './protocol'
 

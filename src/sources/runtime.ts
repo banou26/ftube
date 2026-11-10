@@ -1,6 +1,6 @@
 import type { SourceApi, SourceMethod } from './types'
 
-import { startEngine } from '../scramjet/client'
+import { startEngine } from '../engine/client'
 import { SOURCE_CURSOR_ARGUMENT, SOURCE_METHODS, SOURCE_REPLAY } from './types'
 
 let resolveSource: (source: SourceApi) => void = () => {}

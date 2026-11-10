@@ -165,7 +165,7 @@ test('live chat keeps polling across an engine reset', async ({ page }) => {
   await page.evaluate(async (module) => {
     const client = await import(/* @vite-ignore */ module) as { resetEngine: () => void }
     client.resetEngine()
-  }, '/src/scramjet/client.ts')
+  }, '/src/engine/client.ts')
   const resetAt = await page.evaluate(() => Date.now())
   const rows = await chatRows(page)
   await page.waitForTimeout(60_000)

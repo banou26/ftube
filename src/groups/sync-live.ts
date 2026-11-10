@@ -1,6 +1,6 @@
 import type { GroupSync } from './sync'
 
-import { startPlatform } from '../scramjet/platform'
+import { startPlatform } from '../engine/platform'
 import { groupStore } from './store'
 import { FKN_BOUND_MS, groupSync, within } from './sync'
 

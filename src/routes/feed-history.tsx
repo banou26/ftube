@@ -15,7 +15,7 @@ import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-
 import { gql } from '../generated'
 import { canImportBrowserHistory, dayHeading, importBrowserHistory, importFailure, keptBrowserHistory, SignedOutError } from '../history/browser-history'
 import { deleteImportedHistory, readImportedHistory } from '../history/store'
-import { startPlatform } from '../scramjet/platform'
+import { startPlatform } from '../engine/platform'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
 

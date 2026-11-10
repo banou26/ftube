@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { Actions, HTTPClient } from 'youtubei.js/web'
 
 import type { YoutubeClient } from '../../../src/sources/youtube'
-import type { TransportRequest } from '../../../src/scramjet/protocol'
+import type { TransportRequest } from '../../../src/engine/protocol'
 
 import { CHANNEL_KEY } from '../../../src/scramjet/channel'
-import { HOST_BOOTSTRAP } from '../../../src/scramjet/protocol'
+import { HOST_BOOTSTRAP } from '../../../src/engine/protocol'
 import { createYoutubeSource } from '../../../src/sources/youtube'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../fixtures/accounts-list'
 import { BUILD, querySelector } from '../fixtures/build-tag'

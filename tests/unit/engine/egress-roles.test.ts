@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import type { EgressApi } from '../../../src/scramjet/protocol'
+import type { EgressApi } from '../../../src/engine/protocol'
 
-import { EGRESS_ABORT_ALL, EGRESS_KEY } from '../../../src/scramjet/protocol'
+import { EGRESS_ABORT_ALL, EGRESS_KEY } from '../../../src/engine/protocol'
 
 const expose = vi.fn()
 // a libcurl request that never answers until it is aborted
@@ -20,7 +20,7 @@ type Port = { start: () => void, close: ReturnType<typeof vi.fn> }
 const loadWorker = async () => {
   const listeners: ((event: { data: unknown }) => void)[] = []
   vi.stubGlobal('self', { addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => listeners.push(listener) })
-  await import('../../../src/scramjet/egress.worker')
+  await import('../../../src/engine/egress.worker')
   const post = (data: unknown) => { for (const listener of listeners) listener({ data }) }
   const hand = (role?: string): Port => {
     const port = { start: () => {}, close: vi.fn() }

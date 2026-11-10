@@ -461,7 +461,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
     return () => narrow.removeEventListener('change', onChange)
   }, [])
 
-  // src/scramjet/client.ts has no cancellation path for a non-segment call, so the debounce is load-bearing rather than a nicety
+  // src/engine/client.ts has no cancellation path for a non-segment call, so the debounce is load-bearing rather than a nicety
   useEffect(() => {
     if (typed === undefined) return
     const timer = setTimeout(() => setDebounced(typed.trim()), SUGGEST_DEBOUNCE_MS)

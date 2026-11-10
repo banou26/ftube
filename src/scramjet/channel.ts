@@ -1,6 +1,6 @@
-import type { TransportRequest, TransportResponse } from './protocol'
+import type { TransportRequest, TransportResponse } from '../engine/protocol'
 
-import { carriesAccount } from './relay-nonce'
+import { carriesAccount } from '../engine/relay-nonce'
 
 /**
  * `localStorage['yt-client:channel']`, in the app's own storage: the page ID of the brand channel of the signed-in

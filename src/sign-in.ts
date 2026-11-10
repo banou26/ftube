@@ -1,12 +1,12 @@
-import type { SignInWindowMessage } from './scramjet/protocol'
+import type { SignInWindowMessage } from './engine/protocol'
 
 import { showToast } from './components/ui/toast'
 import { storeChannel } from './scramjet/channel'
-import { clearSessionCookies, startEngine } from './scramjet/client'
-import { buildId, reloadOnceForBuild } from './scramjet/engine-build'
+import { clearSessionCookies, startEngine } from './engine/client'
+import { buildId, reloadOnceForBuild } from './engine/engine-build'
 import { jarHoldsSession } from './scramjet/jar'
-import { startPlatform } from './scramjet/platform'
-import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from './scramjet/protocol'
+import { startPlatform } from './engine/platform'
+import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from './engine/protocol'
 
 /**
  * How a sign-in window ended: `'authed'` once its jar holds the session (the window is closed), `'closed'` when the

@@ -1,4 +1,4 @@
-import type { EgressApi, ExtFetchRequest, ExtFetchResponse, HostBootstrap, HostControlEvent, HostControlRequest, HostHello, HostRestart, TransportResponse } from './protocol'
+import type { EgressApi, ExtFetchRequest, ExtFetchResponse, HostBootstrap, HostControlEvent, HostControlRequest, HostHello, HostRestart, TransportResponse } from '../engine/protocol'
 import type { FrameEgressRequest, FrameEgressResponse } from '../frame/protocol'
 
 import { defaultConfigDev } from '@mercuryworkshop/scramjet'
@@ -6,10 +6,10 @@ import { Tap } from '@mercuryworkshop/scramjet'
 import { Controller } from '@mercuryworkshop/scramjet-controller'
 import { expose } from 'osra'
 
-import { CLEAR_COOKIES, COOKIES_CLEARED, EGRESS_KEY, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from './protocol'
+import { CLEAR_COOKIES, COOKIES_CLEARED, EGRESS_KEY, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from '../engine/protocol'
 import { FRAME_AGENT_CONNECT, FRAME_CONNECT, FRAME_DIRECT_CONNECT, FRAME_EGRESS_CONNECT } from '../frame/protocol'
 import { readChannel, storeChannel } from './channel'
-import { buildId, ENGINE_BUILD_MISMATCH } from './engine-build'
+import { buildId, ENGINE_BUILD_MISMATCH } from '../engine/engine-build'
 import { createFknTransport, FRAME_BOOTSTRAP_URL } from './fkn-transport'
 import { jarHoldsSession } from './jar'
 import { CONTROLLER_CONFIG, scramjetWorker } from './scramjet-setup'

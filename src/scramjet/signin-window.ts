@@ -1,12 +1,12 @@
-import type { EgressApi, SignInPorts, SignInWindowMessage } from './protocol'
+import type { EgressApi, SignInPorts, SignInWindowMessage } from '../engine/protocol'
 
 import { defaultConfigDev } from '@mercuryworkshop/scramjet'
 import { Controller } from '@mercuryworkshop/scramjet-controller'
 import { expose } from 'osra'
 
-import { buildId } from './engine-build'
+import { buildId } from '../engine/engine-build'
 import { createWebvpnTransport } from './fkn-transport'
-import { EGRESS_KEY, SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS } from './protocol'
+import { EGRESS_KEY, SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS } from '../engine/protocol'
 import { CONTROLLER_CONFIG, scramjetWorker } from './scramjet-setup'
 
 // Start on youtube.com and let ITS Sign in button carry the flow to Google: going straight to accounts.google.com leaves the login underconfigured (the Next/password step silently no-ops).

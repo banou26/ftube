@@ -1,6 +1,6 @@
 import type { AgentCancel, AgentControl, AgentRequest, AgentResponse, EngineReport } from './agent-protocol'
 
-import { startPlatform } from '../scramjet/platform'
+import { startPlatform } from './platform'
 import { AGENT_INSTALL, AGENT_PAGE_ORIGIN, AGENT_PAGE_URL, ENGINES, MINT_KINDS } from './agent-protocol'
 
 /** What the host needs of an attached engine page: the part of `@fkn/lib`'s `Frame` it calls. */

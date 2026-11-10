@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { CHANNEL_KEY } from '../../src/scramjet/channel'
-import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from '../../src/scramjet/protocol'
+import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from '../../src/engine/protocol'
 import { BRAND_PAGE_ID } from './fixtures/accounts-list'
 import { BUILD, querySelector } from './fixtures/build-tag'
 
@@ -18,9 +18,9 @@ const jarHoldsSession = vi.fn(async () => false)
 
 vi.mock('../../src/components/ui/toast', () => ({ showToast }))
 const clearSessionCookies = vi.fn(async () => { calls.push('clear') })
-vi.mock('../../src/scramjet/client', () => ({ startEngine: async () => ({ resetIdentity }), clearSessionCookies }))
+vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), clearSessionCookies }))
 const startPlatform = vi.fn(async () => ({ openEgressPort }))
-vi.mock('../../src/scramjet/platform', () => ({ startPlatform }))
+vi.mock('../../src/engine/platform', () => ({ startPlatform }))
 vi.mock('../../src/scramjet/jar', () => ({ jarHoldsSession }))
 
 const ORIGIN = 'https://youtube.fkn.app'

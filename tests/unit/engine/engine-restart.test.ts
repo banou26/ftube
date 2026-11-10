@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { FRAME_AGENT_CONNECT, FRAME_CONNECT, FRAME_DIRECT_CONNECT, FRAME_EGRESS_CONNECT } from '../../../src/frame/protocol'
-import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from '../../../src/scramjet/protocol'
+import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from '../../../src/engine/protocol'
 import { BUILD, querySelector } from '../fixtures/build-tag'
 
-vi.mock('../../../src/scramjet/platform', () => ({
+vi.mock('../../../src/engine/platform', () => ({
   startPlatform: async () => ({
     openEgressPort: () => new MessageChannel().port2,
     openExtFetchPort: () => new MessageChannel().port2,
@@ -119,7 +119,7 @@ describe('an engine started again in the app realm', () => {
   })
 
   const connect = async () => {
-    const client = await import('../../../src/scramjet/client')
+    const client = await import('../../../src/engine/client')
     const first = client.startEngine()
     realm.fromFrame(realm.frames[0]!, { type: HOST_HELLO, build: BUILD })
     await settled(first)
@@ -166,7 +166,7 @@ describe('an engine started again in the app realm', () => {
   })
 
   it('loads a new host in place of one that never started an engine', async () => {
-    const { startEngine } = await import('../../../src/scramjet/client')
+    const { startEngine } = await import('../../../src/engine/client')
     const first = startEngine()
     realm.fromFrame(realm.frames[0]!, { type: HOST_HELLO, build: BUILD })
     realm.fromFrame(realm.frames[0]!, { type: ENGINE_READY, error: 'yt-client: the controller did not start' })

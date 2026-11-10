@@ -18,7 +18,7 @@ import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
-import { resetEngine, startEngine } from '../scramjet/client'
+import { resetEngine, startEngine } from '../engine/client'
 import { warmShaka } from './prefetch'
 import { createRestartBudget, isStreamRefusal, resetsEngine } from './restart'
 import { revealCards } from './cards'

@@ -1,6 +1,6 @@
 import { useRef } from 'preact/hooks'
 
-import { startEngine } from '../scramjet/client'
+import { startEngine } from '../engine/client'
 
 // videoId is always the bare `v` param, never an href, so a hover prefetch and the later route-resolution prefetch share a key
 const prefetched = new Set<string>()

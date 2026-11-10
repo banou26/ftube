@@ -2,7 +2,7 @@ import { css } from '@emotion/react'
 import { Zap } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import { promptExtensionInstall } from '../scramjet/platform'
+import { promptExtensionInstall } from '../engine/platform'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { useDismiss } from './ui/popup'
 

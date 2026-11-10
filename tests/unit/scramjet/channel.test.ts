@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type { EgressFetch } from '../../../src/scramjet/channel'
-import type { TransportRequest } from '../../../src/scramjet/protocol'
+import type { TransportRequest } from '../../../src/engine/protocol'
 
 import { actAsChannel, CHANNEL_KEY, forgetChannel, readChannel, storeChannel } from '../../../src/scramjet/channel'
 import { accountsListAnswer, BRAND_PAGE_ID, OTHER_PAGE_ID, twoChannels } from '../fixtures/accounts-list'

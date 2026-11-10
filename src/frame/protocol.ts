@@ -1,5 +1,5 @@
 import type { Exhaustive, SourceApi } from '../sources/types'
-import type { TransportResponse } from '../scramjet/protocol'
+import type { TransportResponse } from '../engine/protocol'
 
 import type { CaptionTrack } from './captions'
 import type { EndScreenElement } from './end-screen'

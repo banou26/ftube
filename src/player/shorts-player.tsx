@@ -7,7 +7,7 @@ import { css } from '@emotion/react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
-import { startEngine } from '../scramjet/client'
+import { startEngine } from '../engine/client'
 import { warmShaka } from './prefetch'
 import { getSettings, updateSettings } from '../settings'
 

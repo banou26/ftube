@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import type { EgressApi } from '../../../src/scramjet/protocol'
+import type { EgressApi } from '../../../src/engine/protocol'
 
-import { EGRESS_KEY } from '../../../src/scramjet/protocol'
-import { RELAY_NONCE_HEADER } from '../../../src/scramjet/relay-nonce'
+import { EGRESS_KEY } from '../../../src/engine/protocol'
+import { RELAY_NONCE_HEADER } from '../../../src/engine/relay-nonce'
 
 const fetchWithFkn = vi.fn(async (_url: string, _init: RequestInit) => new Response('{}', { status: 200 }))
 const expose = vi.fn()
@@ -17,7 +17,7 @@ vi.mock('libcurl.js/bundled', () => ({ libcurl: { load_wasm: async () => {}, set
 const exposedApi = async () => {
   const listeners: ((event: { data: unknown }) => void)[] = []
   vi.stubGlobal('self', { addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => listeners.push(listener) })
-  await import('../../../src/scramjet/egress.worker')
+  await import('../../../src/engine/egress.worker')
   for (const listener of listeners) listener({ data: { type: EGRESS_KEY, port: { start: () => {}, close: () => {} } } })
   return expose.mock.lastCall![0] as EgressApi
 }

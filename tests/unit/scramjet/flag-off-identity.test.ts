@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/scramjet/protocol'
+import { ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from '../../../src/engine/protocol'
 import { FRAME_AGENT_CONNECT, FRAME_CONNECT, FRAME_EGRESS_CONNECT } from '../../../src/frame/protocol'
 import { BUILD, querySelector } from '../fixtures/build-tag'
 
@@ -10,7 +10,7 @@ const agentHost = vi.hoisted(() => ({
 }))
 vi.mock('../../../src/engine/agent-host', () => agentHost)
 
-vi.mock('../../../src/scramjet/platform', () => ({
+vi.mock('../../../src/engine/platform', () => ({
   startPlatform: async () => ({
     openEgressPort: () => new MessageChannel().port2,
     openExtFetchPort: () => new MessageChannel().port2,
@@ -97,7 +97,7 @@ describe('the app realm and yt-client:step:y1', () => {
 
   const boot = async () => {
     const realm = installAppRealm()
-    const { startEngine } = await import('../../../src/scramjet/client')
+    const { startEngine } = await import('../../../src/engine/client')
     void startEngine().catch(() => {})
     return realm.hello(realm.frames[0]!)
   }

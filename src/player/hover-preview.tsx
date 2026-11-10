@@ -8,7 +8,7 @@ import type { CaptionTrack, Storyboard } from '../frame/protocol'
 import { preferredTrack } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
-import { startEngine } from '../scramjet/client'
+import { startEngine } from '../engine/client'
 import { getSettings } from '../settings'
 import { cardState } from './card-params'
 import { clock } from './controls'

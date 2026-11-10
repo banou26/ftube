@@ -10,7 +10,7 @@ import { lazyCode } from './src/lazy-code'
 
 const fromRoot = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
-// one value for the app and the engine pages it serves, new on every build (src/scramjet/engine-build.ts). It goes in
+// one value for the app and the engine pages it serves, new on every build (src/engine/engine-build.ts). It goes in
 // the HTML because a value compiled into the code would rename every file that imports it, changed or not.
 const buildTag = { tag: 'meta', attrs: { name: 'yt-build', content: randomUUID() } }
 

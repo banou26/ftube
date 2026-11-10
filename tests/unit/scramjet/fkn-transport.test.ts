@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import type { TransportRequest } from '../../../src/scramjet/protocol'
+import type { TransportRequest } from '../../../src/engine/protocol'
 
 import { createFknTransport, createWebvpnTransport, FRAME_BOOTSTRAP_URL } from '../../../src/scramjet/fkn-transport'
 

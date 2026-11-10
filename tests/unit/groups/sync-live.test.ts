@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 
 const onChange = vi.fn(async () => () => {})
 
-vi.mock('../../../src/scramjet/platform', () => ({ startPlatform: async () => ({}) }))
+vi.mock('../../../src/engine/platform', () => ({ startPlatform: async () => ({}) }))
 vi.mock('@fkn/lib/account', () => ({ onChange }))
 vi.mock('@fkn/lib/cloud/fs', () => ({ availability: async () => 'disconnected' }))
 
