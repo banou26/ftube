@@ -62,6 +62,8 @@ const segment = (requestId: string, sessionId: string): SegmentRequest => ({
 })
 
 let call: <Method extends FrameRequest['method']>(method: Method, ...args: Extract<FrameRequest, { method: Method }>['args']) => Promise<FrameResponse>
+let disconnect: () => void
+const portClosed = vi.fn()
 
 // the frame as the app realm reaches it: its `connect`, handed a port
 beforeAll(async () => {
@@ -73,11 +75,12 @@ beforeAll(async () => {
   const port = {
     addEventListener: (_type: string, listener: typeof deliver) => { deliver = listener },
     start: () => {},
+    close: portClosed,
     postMessage: (message: FrameResponse | { progress: string }) => {
       if ('id' in message && !('progress' in message)) answers.get(message.id)?.(message)
     },
   }
-  connect(port as unknown as MessagePort)
+  disconnect = connect(port as unknown as MessagePort)
   let id = 0
   call = (method, ...args) => new Promise((resolve) => {
     answers.set(++id, resolve)
@@ -203,4 +206,17 @@ it('reads a card\'s playback again with the params its open read played with, an
     expect(vi.mocked(getSabrSource).mock.calls).toEqual([['video-1', 'params-1'], ['video-1', played]])
   }
   errors.mockRestore()
+})
+
+it('ends a connection with its port and every playback open in the engine', async () => {
+  vi.mocked(getSabrSource).mockReset().mockResolvedValue({ isLive: false, captions: [], storyboards: [] } as unknown as SabrSource)
+  const closed = vi.fn()
+  vi.mocked(createSabrSession).mockImplementation(() => ({ ...sessionOf(untilCancelled), close: closed }))
+  const session = (await call('openPlayback', 'video-1')).result as PlaybackSession
+  const request = call('requestSegment', segment('a', session.id))
+  disconnect()
+  expect(portClosed).toHaveBeenCalledTimes(1)
+  expect(closed).toHaveBeenCalledTimes(1)
+  expect(await request).toMatchObject({ error: 'youtube: segment request cancelled' })
+  expect(await call('requestSegment', segment('b', session.id))).toHaveProperty('error')
 })

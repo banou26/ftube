@@ -1,15 +1,16 @@
 import type { FrameApi, FrameMethod, FrameProgress, FrameRequest, FrameResponse } from '../frame/protocol'
-import type { EngineReady, HostBootstrap, HostHello } from './protocol'
+import type { EngineReady, HostBootstrap, HostHello, HostRestart } from './protocol'
 
 import { FRAME_METHODS } from '../frame/protocol'
 import { startAgentHost } from './agent-host'
 import { buildId, ENGINE_BUILD_MISMATCH, reloadOnceForBuild } from './engine-build'
 import { abortPlatformEgress, startPlatform } from './platform'
-import { ENGINE_PATH, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from './protocol'
+import { ENGINE_PATH, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from './protocol'
 import { stepEnabled } from './step-flag'
 
 let engine: Promise<FrameApi> | undefined
 let engineFrame: HTMLIFrameElement | undefined
+let keptFrame: HTMLIFrameElement | undefined
 let engineConnection: ReturnType<typeof createFrameApi> | undefined
 let engineCleanup: (() => void) | undefined
 let engineReject: ((error: Error) => void) | undefined
@@ -109,7 +110,8 @@ const invalidateEngine = (generation: number, error: Error) => {
   connection?.close(error)
   engineReject?.(error)
   engineReject = undefined
-  engineFrame?.remove()
+  if (connection) keptFrame = engineFrame
+  else engineFrame?.remove()
   engineFrame = undefined
   engine = undefined
 }
@@ -123,6 +125,9 @@ const fromAnotherBuild = (generation: number, engineBuild: unknown) => {
 /**
  * The engine, booting it in a hidden same-origin frame (`ENGINE_PATH`) once per generation: the FrameApi once the
  * frame said ENGINE_READY. The FKN page it reaches YouTube's session and BotGuard through outlives the generation.
+ * The frame that served the last engine is kept until the next frame says its build: when that is another build, a
+ * deploy since this page loaded, the next engine starts again in the kept frame (`HOST_RESTART`), from the code it
+ * loaded, rather than this page reloading to take the new build. Without a kept frame the page reloads once.
  */
 export const startEngine = () => {
   if (engine) return engine
@@ -139,6 +144,7 @@ export const startEngine = () => {
     engineFrame = frame
     frame.hidden = true
     frame.src = ENGINE_PATH
+    let current = frame
     let engineBuild: unknown
     const answerHello = async () => {
       try {
@@ -156,12 +162,27 @@ export const startEngine = () => {
         invalidateEngine(generation, error instanceof Error ? error : new Error(String(error)))
       }
     }
+    const restartIn = (kept: HTMLIFrameElement) => {
+      frame.remove()
+      current = kept
+      engineFrame = kept
+      kept.contentWindow?.postMessage(
+        { type: HOST_RESTART, signedIn: agentHost.signedIn } satisfies HostRestart,
+        location.origin,
+        [agentHost.openBridge()],
+      )
+    }
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== frame.contentWindow) return
+      if (event.origin !== location.origin || event.source !== current.contentWindow) return
       if (event.data?.type === HOST_HELLO) {
         engineBuild = (event.data as Partial<HostHello>).build
-        if (engineBuild !== buildId()) fromAnotherBuild(generation, engineBuild)
-        else void answerHello()
+        const kept = keptFrame
+        keptFrame = undefined
+        if (engineBuild === buildId()) {
+          kept?.remove()
+          void answerHello()
+        } else if (kept) restartIn(kept)
+        else fromAnotherBuild(generation, engineBuild)
         return
       }
       const ready = event.data as Partial<EngineReady> | undefined

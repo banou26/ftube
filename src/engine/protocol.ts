@@ -47,6 +47,15 @@ export type HostHello = { type: typeof HOST_HELLO, build: string }
 export type HostBootstrap = { type: typeof HOST_BOOTSTRAP, build: string, signedIn: boolean, direct: boolean }
 export type EngineReady = { type: typeof ENGINE_READY, error?: string, signedIn?: boolean }
 
+/**
+ * HOST_RESTART asks an engine frame that already served an engine for a new one in its place, and is answered by
+ * ENGINE_READY as the bootstrap is. Its one port is the new bridge to the FKN page, and `signedIn` the jar that page
+ * attached on; the frame keeps the bootstrap's egress and extension fetch ports, and refuses a jar it did not boot on.
+ */
+export const HOST_RESTART = 'yt-client-host-restart'
+
+export type HostRestart = { type: typeof HOST_RESTART, signedIn: boolean }
+
 export type ExtFetchRequest = {
   type: 'fetch'
   id: number

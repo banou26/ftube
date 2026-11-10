@@ -175,7 +175,10 @@ const dispatch = async (request: FrameRequest, progress: (phase: string) => void
   return (api[request.method] as (...args: unknown[]) => Promise<unknown>)(...request.args)
 }
 
-/** Serves the FrameApi on `port`, the one ENGINE_READY hands the app realm. */
+/**
+ * Serves the FrameApi on `port`, the one ENGINE_READY hands the app realm, and answers how to end it: the port closes,
+ * and so does every playback open in the engine.
+ */
 export const connect = (port: MessagePort) => {
   port.addEventListener('message', (event) => {
     const request = event.data as FrameRequest
@@ -203,4 +206,9 @@ export const connect = (port: MessagePort) => {
     )
   })
   port.start()
+  return () => {
+    port.close()
+    for (const entry of sessions.values()) closePlaybackEntry(entry)
+    sessions.clear()
+  }
 }

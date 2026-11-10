@@ -51,13 +51,14 @@ const isCancel = (message: unknown): message is AgentCancel =>
 
 /**
  * The app realm's side of the FKN page. One attachment per app realm, kept across engine resets;
- * each engine generation gets a bridge, whose frame end goes in `HOST_BOOTSTRAP`, and the host
- * relays it to whichever agent port is current. A `document` event installs the agent again on the
- * same attachment, and a ping (sent every 5000 ms) that 15000 ms bring nothing back for attaches
- * again. While the page is attaching a call waits, unless the frame cancels it, and a cancel of a
- * call in flight reaches the page. After a failed attach or install, calls are answered
- * `AGENT_UNAVAILABLE` at once until the backoff (`RETRY_MS`, doubling) has passed; then the next
- * call or bridge attaches again and the call waits for it. `stop` detaches for good.
+ * each engine generation gets a bridge, whose frame end goes in `HOST_BOOTSTRAP` (or in
+ * `HOST_RESTART` for an engine started again in a kept frame), and the host relays it to whichever
+ * agent port is current. A `document` event installs the agent again on the same attachment, and a
+ * ping (sent every 5000 ms) that 15000 ms bring nothing back for attaches again. While the page is
+ * attaching a call waits, unless the frame cancels it, and a cancel of a call in flight reaches the
+ * page. After a failed attach or install, calls are answered `AGENT_UNAVAILABLE` at once until the
+ * backoff (`RETRY_MS`, doubling) has passed; then the next call or bridge attaches again and the call
+ * waits for it. `stop` detaches for good.
  */
 export const createAgentHost = ({ attach, source, publish, now = Date.now }: AgentHostOptions) => {
   let state: 'attaching' | 'ready' | 'failed' | 'stopped' = 'attaching'

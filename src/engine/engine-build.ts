@@ -2,9 +2,10 @@
  * The id of this build, shared by the app realm and the engine frame it serves, and new on every build. The build
  * writes it into each page's `<meta name="yt-build">` (vite.config.ts), so this reads the document it runs in.
  *
- * The engine frame loads from a fixed path (`ENGINE_PATH`), so a tab opened before a deploy gets the NEW engine on
- * its next reset while its app realm stays OLD. Both ends name their build in `HOST_HELLO` and `HOST_BOOTSTRAP`, and
- * a pair that differs never connects: the app realm reloads instead of calling a protocol the frame no longer serves.
+ * The engine frame loads from a fixed path (`ENGINE_PATH`), so a tab opened before a deploy that loads it again gets
+ * the NEW engine while its app realm stays OLD. Both ends name their build in `HOST_HELLO` and `HOST_BOOTSTRAP`, and a
+ * pair that differs never connects: the next engine starts in the frame that served the last one (client.ts), or with
+ * none the app realm reloads instead of calling a protocol the frame no longer serves.
  */
 export const buildId = () => document.querySelector<HTMLMetaElement>('meta[name="yt-build"]')?.content ?? ''
 

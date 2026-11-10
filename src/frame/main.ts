@@ -1,9 +1,9 @@
-import type { EgressApi, EngineReady, HostBootstrap, HostHello } from '../engine/protocol'
+import type { EgressApi, EngineReady, HostBootstrap, HostHello, HostRestart } from '../engine/protocol'
 
 import { expose } from 'osra'
 
 import { buildId, ENGINE_BUILD_MISMATCH } from '../engine/engine-build'
-import { EGRESS_KEY, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from '../engine/protocol'
+import { EGRESS_KEY, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from '../engine/protocol'
 import { clearSignedIn, readChannel } from '../engine/signed-in'
 import { connectAgent, pageCookie, pageFetch, reportEngine } from './agent'
 import { connectEgress, egressFetch } from './egress'
@@ -77,9 +77,28 @@ const boot = async () => {
 
   stage('engine')
   const { connect } = await import('./index')
-  const api = new MessageChannel()
-  connect(api.port1)
-  toApp({ type: ENGINE_READY, signedIn: realm.cookie !== undefined }, [api.port2])
+  const serve = () => {
+    const api = new MessageChannel()
+    const disconnect = connect(api.port1)
+    toApp({ type: ENGINE_READY, signedIn: realm.cookie !== undefined }, [api.port2])
+    return disconnect
+  }
+  let disconnect = serve()
+  // a restart keeps this realm and the session it read, so it takes only a bridge on the jar it booted on
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || event.source !== window.parent) return
+    const message = event.data as Partial<HostRestart> | undefined
+    if (message?.type !== HOST_RESTART) return
+    disconnect()
+    const [next] = event.ports
+    if (!next || message.signedIn !== signedIn) {
+      for (const port of event.ports) port.close()
+      toApp({ type: ENGINE_READY, error: 'yt-client: the engine frame booted on another jar' })
+      return
+    }
+    connectAgent(next)
+    disconnect = serve()
+  })
   stage('ready')
 }
 

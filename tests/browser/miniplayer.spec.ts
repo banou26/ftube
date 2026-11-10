@@ -241,10 +241,10 @@ test('plays on after its engine is replaced, with a new release deployed since t
   const video = await startPlayback(page)
   await leaveForSettings(page)
   await page.evaluate(() => { window.sameDocument = true })
-  // the deploy: the engine host's fixed address now serves the page of another build
-  let hostLoads = 0
-  await page.route('**/__yt_scramjet__/host.html', async (route) => {
-    hostLoads += 1
+  // the deploy: the engine frame's fixed address now serves the page of another build
+  let engineLoads = 0
+  await page.route('**/__yt_engine__/engine.html', async (route) => {
+    engineLoads += 1
     const response = await route.fetch()
     await route.fulfill({ response, body: (await response.text()).replace(/(name="yt-build" content=")[^"]*/, '$1a-later-build') })
   })
@@ -259,5 +259,7 @@ test('plays on after its engine is replaced, with a new release deployed since t
   expect(await paused(video)).toBe(false)
   await expect(dock(page)).toBeVisible()
   expect(new URL(page.url()).pathname).toBe('/settings')
-  expect(hostLoads, 'the engine host was loaded again').toBe(0)
+  // the reset loaded the engine page once, found the later build there, and started again in the frame it had
+  expect(engineLoads).toBe(1)
+  await expect(page.locator('iframe[src="/__yt_engine__/engine.html"]')).toHaveCount(1)
 })

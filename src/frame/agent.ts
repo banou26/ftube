@@ -9,8 +9,11 @@ let port: MessagePort | undefined
 let requestId = 0
 const pending = new Map<number, { resolve(value: unknown): void, reject(error: Error): void }>()
 
-/** Connects the engine to the app realm's bridge to the FKN page (agent-host.ts). */
+/** Connects the engine to the app realm's bridge to the FKN page (agent-host.ts), ending every call left on the last one. */
 export const connectAgent = (next: MessagePort) => {
+  port?.close()
+  for (const request of pending.values()) request.reject(new Error('yt-client agent: the bridge to the FKN page was replaced'))
+  pending.clear()
   next.addEventListener('message', (event) => {
     const message = event.data as AgentResponse
     const request = pending.get(message.id)
