@@ -17,6 +17,7 @@ workerGlobal.global ??= globalThis
 import type { EgressApi } from './protocol'
 
 import { EGRESS_ABORT_ALL, EGRESS_KEY } from './protocol'
+import { withLanguage } from './accept-language'
 import { createRelayFetch } from './relay-nonce'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -129,15 +130,6 @@ const prepare = () => (ready ??= (async () => {
   libcurl.transport = WebvpnSocket
 })())
 
-const withLanguage = (headers: Record<string, string> = {}) => {
-  const result = { ...headers }
-  if (!Object.keys(result).some((name) => name.toLowerCase() === 'accept-language')) {
-    result['accept-language'] = navigator.languages
-      .map((language, index) => index === 0 ? language : `${language};q=${Math.max(0.1, 1 - index * 0.1).toFixed(1)}`)
-      .join(',')
-  }
-  return result
-}
 
 const requests = new Map<string, AbortController>()
 

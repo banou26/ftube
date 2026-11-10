@@ -291,6 +291,12 @@ describe('the engine fetch, signed in', () => {
 })
 
 describe('the catalog lane', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { languages: ['ja-JP', 'en-US', 'en'] })
+  })
+
+  afterEach(() => vi.unstubAllGlobals())
+
   const transport = (status = 200, body = 'answer'): TransportResponse => ({
     status,
     statusText: 'OK',
@@ -308,7 +314,7 @@ describe('the catalog lane', () => {
     expect(relayed[0]![1]).toBe(extFetch.mock.calls[0]![1])
     expect(relayed[0]![1]).toEqual({
       method: 'GET',
-      headers: { 'x-goog-visitor-id': VISITOR, referer: 'https://www.youtube.com/' },
+      headers: { 'x-goog-visitor-id': VISITOR, referer: 'https://www.youtube.com/', 'accept-language': 'ja-JP,en-US;q=0.9,en;q=0.8' },
       body: null,
       redirect: 'follow',
     })
@@ -318,6 +324,13 @@ describe('the catalog lane', () => {
     expect(relayed).toHaveLength(1)
   })
 
+  it('keeps the Accept-Language a call names, as youtubei.js\'s InnerTube calls do', async () => {
+    const relayed: TransportRequest[] = []
+    const lane = createCatalogLane({ extFetch: async () => null, relayFetch: async (_url, options) => { relayed.push(options); return transport() } })
+    await lane(SEARCH, { method: 'POST', headers: { 'accept-language': '*' }, body: new ArrayBuffer(0) })
+    expect(relayed[0]!.headers).toEqual({ 'accept-language': '*', referer: 'https://www.youtube.com/', origin: 'https://www.youtube.com' })
+  })
+
   it('sends a write with www.youtube.com as its origin, which InnerTube needs on a POST', async () => {
     const relayed: TransportRequest[] = []
     const lane = createCatalogLane({ extFetch: async () => null, relayFetch: async (_url, options) => { relayed.push(options); return transport() } })
@@ -325,7 +338,7 @@ describe('the catalog lane', () => {
     await lane(SEARCH, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
     expect(relayed[0]).toEqual({
       method: 'POST',
-      headers: { 'content-type': 'application/json', referer: 'https://www.youtube.com/', origin: 'https://www.youtube.com' },
+      headers: { 'content-type': 'application/json', referer: 'https://www.youtube.com/', origin: 'https://www.youtube.com', 'accept-language': 'ja-JP,en-US;q=0.9,en;q=0.8' },
       body,
       redirect: 'follow',
     })

@@ -3,6 +3,7 @@ import type { TransportRequest, TransportResponse } from '../engine/protocol'
 
 import type { ExtEgressFetch } from './egress-ports'
 
+import { withLanguage } from '../engine/accept-language'
 import { forgetChannel, readChannel } from '../engine/signed-in'
 
 export type DirectReport = (typeof DIRECT_STATES)[number]
@@ -174,7 +175,8 @@ export const createYoutubeFetch = ({ signedIn, direct, catalog, session, media, 
 /**
  * The catalog lane: the extension's fetch when it is exposed and can make the request, else the FKN relay, whose
  * nonce the egress worker adds (relay-nonce.ts). The referer, and on a write the origin, are www.youtube.com's, as
- * its own pages send them: InnerTube answers a POST with no Origin with a 403.
+ * its own pages send them: InnerTube answers a POST with no Origin with a 403. A call that names no Accept-Language
+ * asks in the browser's languages (accept-language.ts).
  */
 export const createCatalogLane = ({ extFetch, relayFetch }: {
   extFetch: ExtEgressFetch
@@ -182,7 +184,7 @@ export const createCatalogLane = ({ extFetch, relayFetch }: {
 }): Lane => async (url, { method, headers, body }, signal) => {
   const options: TransportRequest = {
     method,
-    headers: { ...headers, referer: `${YOUTUBE_ORIGIN}/`, ...(method === 'GET' || method === 'HEAD' ? {} : { origin: YOUTUBE_ORIGIN }) },
+    headers: withLanguage({ ...headers, referer: `${YOUTUBE_ORIGIN}/`, ...(method === 'GET' || method === 'HEAD' ? {} : { origin: YOUTUBE_ORIGIN }) }),
     body: body ?? null,
     redirect: 'follow',
   }
