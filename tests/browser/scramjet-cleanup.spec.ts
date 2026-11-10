@@ -65,3 +65,13 @@ test("one load removes Scramjet's worker, jar, prefixed databases, caches and ke
   expect(after.keys).not.toContain('www.youtube.com@yt-player-bandwidth')
   expect(after.keys).not.toContain('accounts.google.com@ACCOUNT_CHOOSER')
 })
+
+test("the old sign-in window's address tells the tab that opened it that it is from another build", async ({ page }) => {
+  await page.route(`**${SEED_PATH}`, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>seed</title>' }))
+  await page.goto(SEED_PATH)
+  const hello = await page.evaluate(() => new Promise((resolve) => {
+    addEventListener('message', (event) => resolve({ data: event.data as unknown, origin: event.origin }), { once: true })
+    open('/__yt_scramjet__/signin.html', '_blank', 'popup')
+  }))
+  expect(hello).toEqual({ data: { type: 'yt-client-signin-hello', build: 'scramjet-removed' }, origin: new URL(page.url()).origin })
+})

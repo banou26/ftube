@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { CHANNEL_KEY, SIGNED_IN_KEY } from '../../src/engine/signed-in'
+import scramjetSignInStub from '../../public/__yt_scramjet__/signin.html?raw'
 import { BRAND_PAGE_ID } from './fixtures/accounts-list'
 
 const calls: string[] = []
@@ -314,5 +315,17 @@ describe('switching channel', () => {
     switchChannel()
     expect(stored[CHANNEL_KEY]).toBeUndefined()
     expect(assign).toHaveBeenCalledWith('/')
+  })
+})
+
+describe("the page left at Scramjet's old sign-in window path", () => {
+  // the opener in a tab from before the deploy closes a window that names another build and reloads once into this one
+  it('says hello to its opener as another build, the message that tab waits for', () => {
+    const script = /<script>([\s\S]*?)<\/script>/.exec(scramjetSignInStub)?.[1]
+    expect(script).toBeDefined()
+    const posted: { message: unknown, origin: string }[] = []
+    // eslint-disable-next-line no-implied-eval
+    new Function('opener', 'location', script!)({ postMessage: (message: unknown, origin: string) => posted.push({ message, origin }) }, { origin: 'https://youtube.fkn.app' })
+    expect(posted).toEqual([{ message: { type: 'yt-client-signin-hello', build: 'scramjet-removed' }, origin: 'https://youtube.fkn.app' }])
   })
 })
