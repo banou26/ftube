@@ -4,13 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, lazyPlugins } from 'vite-plus'
 import preact from '@preact/preset-vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 import { lazyCode } from './src/lazy-code'
 
 const fromRoot = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
-// one value for the app and the engine pages it serves, new on every build (src/engine/engine-build.ts). It goes in
+// one value for the app and the engine frame it serves, new on every build (src/engine/engine-build.ts). It goes in
 // the HTML because a value compiled into the code would rename every file that imports it, changed or not.
 const buildTag = { tag: 'meta', attrs: { name: 'yt-build', content: randomUUID() } }
 
@@ -66,20 +65,6 @@ export default defineConfig({
     }),
     preact({
       jsxImportSource: '@emotion/react',
-    }),
-    viteStaticCopy({
-      targets: [
-        {
-          src: fromRoot('./node_modules/@mercuryworkshop/scramjet/dist/*'),
-          dest: '__yt_scramjet__/scramjet',
-          rename: { stripBase: true },
-        },
-        {
-          src: fromRoot('./node_modules/@mercuryworkshop/scramjet-controller/dist/*'),
-          dest: '__yt_scramjet__/controller',
-          rename: { stripBase: true },
-        },
-      ],
     }),
   ]),
   resolve: {

@@ -29,8 +29,6 @@ const nonceOf = ({ init }: Sent) => (init.headers as Record<string, string> | un
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).buffer as ArrayBuffer
 
-const signedIn = { 'content-type': 'application/json', authorization: 'SAPISIDHASH 1759550000_0123456789abcdef', 'x-goog-authuser': '0' }
-
 // youtubei.js's first-visit bootstrap (Session.js): a per-boot cookie and user agent the relay may never see, so two first visits can be byte-identical
 const firstVisit = { 'user-agent': 'Mozilla/5.0', cookie: 'PREF=tz=Europe.Prague;VISITOR_INFO1_LIVE=abc;' }
 
@@ -43,19 +41,6 @@ const FRESH: [string, string, TransportRequest][] = [
   ['a live chat replay poll', 'https://www.youtube.com/youtubei/v1/live_chat/get_live_chat_replay', { method: 'POST', headers: {}, body: json({ continuation: 'same' }) }],
   ['a signed-out Home read', 'https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', { method: 'POST', headers: { 'content-type': 'application/json' }, body: json({ context: { client: { visitorData: 'visitor' } }, browseId: 'FEwhat_to_watch' }) }],
   ['a player read with an empty authorization', 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', { method: 'POST', headers: { authorization: '', 'content-type': 'application/json' }, body: json({ videoId: 'FAlMdord_Fg' }) }],
-]
-
-// the jar Scramjet sends with a signed-in page load, which carries no authorization header
-const signedInJar = { cookie: 'PREF=tz=Europe.Prague; SAPISID=x/y; __Secure-3PAPISID=x/y' }
-
-const SIGNED: [string, string, TransportRequest][] = [
-  ['a signed player read', 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', { method: 'POST', headers: signedIn, body: json({ videoId: 'FAlMdord_Fg' }) }],
-  ['a signed session config', 'https://www.youtube.com/youtubei/v1/config?prettyPrint=false', { method: 'POST', headers: { ...signedIn, cookie: signedInJar.cookie }, body: json({ context: {} }) }],
-  ['a watch page read with the signed-in jar', 'https://www.youtube.com/watch?v=FAlMdord_Fg', { method: 'GET', headers: signedInJar }],
-  ['a session bootstrap with the signed-in jar', 'https://www.youtube.com/sw.js_data', { method: 'GET', headers: { 'user-agent': 'Mozilla/5.0', Cookie: signedInJar.cookie } }],
-  ['a write', 'https://www.youtube.com/youtubei/v1/like/like?prettyPrint=false', { method: 'POST', headers: signedIn, body: json({ target: { videoId: 'FAlMdord_Fg' } }) }],
-  ['a signed-in Home read', 'https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', { method: 'POST', headers: signedIn, body: json({ browseId: 'FEwhat_to_watch' }) }],
-  ['a signed-in read, as after a write', 'https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', { method: 'POST', headers: signedIn, body: json({ browseId: 'FEsubscriptions' }) }],
 ]
 
 const SHARED: [string, string, TransportRequest][] = [
@@ -94,16 +79,6 @@ describe('relay nonces', () => {
     await relayFetch(url, options)
     await relayFetch(url, options)
     expect(sent.map(nonceOf)).toEqual([undefined, undefined])
-    expect(signature(sent[0]!)).toBe(signature(sent[1]!))
-  })
-
-  it.each(SIGNED)('%s goes out exactly as it did before nonces', async (_, url, options) => {
-    const { sent, relayFetch } = relay()
-    await relayFetch(url, options)
-    await relayFetch(url, options)
-    for (const { init } of sent) {
-      expect(init).toEqual({ method: options.method, headers: options.headers, body: options.body, credentials: 'omit', redirect: options.redirect })
-    }
     expect(signature(sent[0]!)).toBe(signature(sent[1]!))
   })
 
@@ -165,7 +140,7 @@ describe("the relay's own rate limit refusal", () => {
   it('a refused write goes again with its method, headers and body', async () => {
     const { sent, relayFetch } = answering([relayRefusal])
     const body = json({ target: { videoId: 'FAlMdord_Fg' } })
-    const response = relayFetch('https://www.youtube.com/youtubei/v1/like/like', { method: 'POST', headers: signedIn, body })
+    const response = relayFetch('https://www.youtube.com/youtubei/v1/like/like', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://www.youtube.com' }, body })
     await vi.advanceTimersByTimeAsync(500)
     expect((await response).status).toBe(200)
     expect(sent).toHaveLength(2)

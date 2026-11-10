@@ -10,6 +10,7 @@ import { client } from './graphql'
 import { startGroupSync } from './groups/sync-live'
 import { markStartup } from './perf'
 import { startEngine } from './engine/client'
+import { cleanUpScramjet } from './engine/scramjet-cleanup'
 import { applyTheme, watchDeviceTheme } from './settings'
 import { setSource } from './sources/runtime'
 import { lazyCodeList, warmLazyCode } from './warm-code'
@@ -196,6 +197,8 @@ void startEngine().then(
     setSource(source)
     markStartup('engine-ready')
     document.documentElement.dataset.engine = 'ready'
+    const whenIdle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 1_000))
+    whenIdle(() => { void cleanUpScramjet() })
   },
   (error) => {
     document.documentElement.dataset.engine = 'error'

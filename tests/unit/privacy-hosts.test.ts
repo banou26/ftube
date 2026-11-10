@@ -20,7 +20,6 @@ const sources = import.meta.glob(
     '../../src/**/*.{ts,tsx,css,html}',
     '!../../src/generated/**',
     '../../index.html',
-    '../../__yt_scramjet__/*.html',
     '../../__yt_engine__/*.html',
     '../../public/**/*.{js,html}',
   ],
@@ -66,7 +65,7 @@ describe('the hosts the privacy page lists', () => {
         .map((host) => `${file}: ${host}`)
     })
     expect(Object.keys(sources).length).toBeGreaterThan(100)
-    expect(Object.keys(sources)).toContain('../../public/__yt_scramjet__/sw.js')
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(['../../__yt_engine__/engine.html', '../../public/__yt_scramjet__/host.html']))
     expect(unlisted).toEqual([])
   })
 

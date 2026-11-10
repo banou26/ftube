@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './tests/browser',
   timeout: 90_000,
-  // Each spec is a Scramjet engine and a SABR stream of its own, and the default of half the cores makes specs fail on contention
+  // Each spec is an engine and a SABR stream of its own, and the default of half the cores makes specs fail on contention
   workers: 2,
   use: {
     baseURL: 'http://localhost:4561',

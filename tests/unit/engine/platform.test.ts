@@ -12,7 +12,7 @@ describe('carriesIdentity', () => {
     })).toBe(false)
   })
 
-  it('tunnels a request carrying the Scramjet jar cookie', () => {
+  it('tunnels a request carrying a session cookie', () => {
     expect(carriesIdentity({ cookie: 'SAPISID=x; __Secure-3PAPISID=y' })).toBe(true)
   })
 

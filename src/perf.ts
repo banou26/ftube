@@ -5,7 +5,7 @@ const marked = new Set<string>()
 
 /** Every startup milestone worth a budget, in the order they can happen. */
 export type Milestone =
-  /** The Scramjet frame answers, so the app can query YouTube at all. */
+  /** The engine frame answers, so the app can query YouTube at all. */
   | 'engine-ready'
   /** Shaka is attached to the media element and owns the stream. */
   | 'player-attached'

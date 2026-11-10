@@ -37,20 +37,8 @@ const isHomeRead = (pathname: string, body: TransportRequest['body']) => {
   }
 }
 
-/**
- * Whether a call goes out as the signed-in Google account: a non-empty authorization, or the jar's SAPISID. The
- * headers are Scramjet's raw ones, so its jar arrives as `cookie`.
- */
-export const carriesAccount = (headers: Record<string, string> | undefined) =>
-  !!headers && Object.entries(headers).some(([name, value]) => {
-    const header = name.toLowerCase()
-    return (header === 'authorization' && value !== '') || (header === 'cookie' && /(?:^|;\s*)SAPISID=/.test(value))
-  })
-
-/** Whether a call must get an answer of its own from the relay rather than one it already holds. A signed-in call never does. */
+/** Whether a call must get an answer of its own from the relay rather than one it already holds. Only signed-out calls reach the relay. */
 export const needsFreshAnswer = (url: string, options: TransportRequest) => {
-  // a signed-in call goes out exactly as it did before nonces: its cache key already carries the account's cookies, and a change to it can only be judged from a signed-in session
-  if (carriesAccount(options.headers)) return false
   let parsed: URL
   try {
     parsed = new URL(url)

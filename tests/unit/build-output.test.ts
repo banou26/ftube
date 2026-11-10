@@ -110,12 +110,12 @@ describe('repeat visits take the build\'s hashed files from the browser cache', 
     expect(assets.filter(name => cacheControl(`/${name}`) !== YEAR)).toEqual([])
   })
 
-  it('index.html, the app\'s routes, the engine pages and every other public file keep Pages\' revalidation', () => {
+  it('index.html, the app\'s routes, the engine page and every other public file keep Pages\' revalidation', () => {
     const pages = [...files.keys()].filter(name => !name.startsWith('assets/')).map(name => `/${name}`)
     expect(pages).toEqual(expect.arrayContaining(['/index.html', '/__yt_engine__/engine.html']))
-    expect(publicFiles).toContain('/__yt_scramjet__/sw.js')
+    expect(publicFiles).toContain('/__yt_scramjet__/host.html')
     const others = publicFiles.filter(path => path !== '/_headers' && !path.startsWith('/assets/'))
-    const paths = ['/', '/watch', '/__yt_engine__/engine', '/__yt_scramjet__/scramjet/scramjet.wasm', ...pages, ...others]
+    const paths = ['/', '/watch', '/__yt_engine__/engine', ...pages, ...others]
     expect(paths.filter(path => cacheControl(path) !== undefined)).toEqual([])
   })
 
