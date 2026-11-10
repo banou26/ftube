@@ -2,32 +2,33 @@ import type { Page, Request } from '@playwright/test'
 
 import { chromium, firefox } from '@playwright/test'
 
+import { ENGINE_PATH } from '../../src/engine/protocol'
 import { extensionBuild } from './extension-build'
 import { dismissFknNotice, expect, laneOrigin, startCaptionsOff, test } from './test'
 
 // both arms run on laneOrigin, so the flag is the only difference
 const turnOff = (page: Page) => page.addInitScript(() => localStorage.setItem('yt-client:step:direct', '0'))
 
-type Seen = { url: string, method: string, mainFrame: boolean, headers: Record<string, string> }
+type Seen = { url: string, method: string, fromEngine: boolean, headers: Record<string, string> }
 
-// every request the page makes under a www.youtube.com path, sorted into those it sent itself and those its Scramjet frame sent through the proxy
+const sentByEngine = (request: Request) => {
+  try {
+    return new URL(request.frame().url(), 'http://base.invalid').pathname === ENGINE_PATH
+  } catch {
+    return false
+  }
+}
+
+// every request the browser sends itself under a www.youtube.com path, and whether the engine frame sent it; the
+// catalog lane's requests leave from the relay or the extension, so none of them is seen here
 const watchYoutube = (page: Page, path = '/youtubei/v1/') => {
   const direct: Promise<Seen>[] = []
-  const proxied: string[] = []
   page.on('request', (request: Request) => {
     const url = request.url()
-    if (url.startsWith(`https://www.youtube.com${path}`)) {
-      direct.push(request.allHeaders().then((headers) => ({
-        url,
-        method: request.method(),
-        mainFrame: request.frame() === page.mainFrame(),
-        headers,
-      })))
-    } else if (url.includes('/__yt_scramjet__/proxy/') && decodeURIComponent(url).includes(path)) {
-      proxied.push(decodeURIComponent(url))
-    }
+    if (!url.startsWith(`https://www.youtube.com${path}`)) return
+    direct.push(request.allHeaders().then((headers) => ({ url, method: request.method(), fromEngine: sentByEngine(request), headers })))
   })
-  return { direct: () => Promise.all(direct), proxied }
+  return { direct: () => Promise.all(direct) }
 }
 
 const homeSettled = (page: Page) => expect.poll(
@@ -43,40 +44,14 @@ const searchShown = async (page: Page) => {
 
 const expectSimple = (request: Seen) => {
   expect(request.method).toBe('POST')
-  expect(request.mainFrame).toBe(true)
+  expect(request.fromEngine).toBe(true)
   expect(request.headers['content-type']).toBe('text/plain;charset=UTF-8')
   for (const name of ['x-origin', 'x-goog-visitor-id', 'x-youtube-client-name', 'x-youtube-client-version', 'cookie', 'authorization']) {
     expect(request.headers, `${request.url} carried ${name}`).not.toHaveProperty(name)
   }
 }
 
-/* Writes a youtube.com SAPISID into the Scramjet jar the engine loads its cookies from (scramjet-controller's database,
-   read by src/scramjet/jar.ts), from a blank page on the app's origin, before the app first loads. The value is not a
-   real session, so YouTube may refuse what it signs; the lane each request takes is what is read. */
-const seedSession = async (page: Page, origin: string) => {
-  const blank = `${origin}/__seed-session`
-  await page.route(blank, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>seed</title>' }))
-  await page.goto(blank)
-  await page.evaluate(() => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open('__scramjet_controller', 1)
-    open.onupgradeneeded = () => open.result.createObjectStore('state')
-    open.onerror = () => reject(open.error)
-    open.onsuccess = () => {
-      const database = open.result
-      const cookie = { name: 'SAPISID', value: 'yt-client-test', domain: '.youtube.com', path: '/', sameSite: 'lax', secure: true }
-      const write = database.transaction('state', 'readwrite')
-      write.objectStore('state').put({ updatedAt: Date.now(), cookies: JSON.stringify({ '.youtube.com@/@SAPISID': cookie }) }, 'cookies')
-      write.oncomplete = () => {
-        database.close()
-        resolve()
-      }
-      write.onerror = () => reject(write.error)
-    }
-  }))
-  await page.unroute(blank)
-}
-
-test('signed out, home and a search send InnerTube from the page by default', async ({ page, baseURL }) => {
+test('signed out, home and a search send InnerTube from the engine frame by default', async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   const origin = laneOrigin(baseURL)
   const innertube = watchYoutube(page)
@@ -92,7 +67,6 @@ test('signed out, home and a search send InnerTube from the page by default', as
   const direct = await innertube.direct()
   expect(direct.map(({ url }) => new URL(url).pathname)).toEqual(expect.arrayContaining(['/youtubei/v1/browse', '/youtubei/v1/search']))
   for (const request of direct) expectSimple(request)
-  expect(innertube.proxied).toEqual([])
 })
 
 test('with the direct lane, a watch page plays and seeks', async ({ page, baseURL }) => {
@@ -109,10 +83,9 @@ test('with the direct lane, a watch page plays and seeks', async ({ page, baseUR
     .toBeGreaterThan(92)
   await expect(page.locator('html')).toHaveAttribute('data-yt-direct', 'on')
   expect((await innertube.direct()).length).toBeGreaterThan(0)
-  expect(innertube.proxied).toEqual([])
 })
 
-test('signed out, captions are read from the page and drawn', async ({ page, baseURL }) => {
+test('signed out, captions are read from the engine frame and drawn', async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   await startCaptionsOff(page)
   const captions = watchYoutube(page, '/api/timedtext')
@@ -126,16 +99,16 @@ test('signed out, captions are read from the page and drawn', async ({ page, bas
   expect(direct.length).toBeGreaterThan(0)
   for (const request of direct) {
     expect(request.method).toBe('GET')
-    expect(request.mainFrame).toBe(true)
+    expect(request.fromEngine).toBe(true)
     expect(new URL(request.url).searchParams.get('fmt')).toBe('json3')
     for (const name of ['cookie', 'authorization', 'content-type', 'x-goog-visitor-id']) {
       expect(request.headers, `${request.url} carried ${name}`).not.toHaveProperty(name)
     }
   }
-  expect(captions.proxied).toEqual([])
 })
 
-test('with the direct step turned off, InnerTube goes through the Scramjet frame as before (control)', async ({ page, baseURL }) => {
+// the other arms show the watch sees a direct request, so its empty list here means none was sent
+test('with the direct step turned off, InnerTube takes the catalog lane and nothing leaves from the engine frame (control)', async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   const origin = laneOrigin(baseURL)
   await turnOff(page)
@@ -146,22 +119,20 @@ test('with the direct step turned off, InnerTube goes through the Scramjet frame
   await searchShown(page)
   await expect(page.locator('html')).toHaveAttribute('data-yt-direct', 'off')
   expect(await innertube.direct()).toEqual([])
-  // the watch can see a proxied InnerTube request, so its empty list in the other arms means none was sent
-  expect(innertube.proxied.some((url) => url.includes('/youtubei/v1/search'))).toBe(true)
 })
 
-test('with direct requests failing, a search still shows through the Scramjet frame', async ({ page, baseURL }) => {
+test('with direct requests failing, a search still shows through the catalog lane, which pauses the direct one', async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   const innertube = watchYoutube(page)
   await page.route('https://www.youtube.com/youtubei/**', (route) => route.abort('failed'))
   await page.goto(`${laneOrigin(baseURL)}/results?search_query=blender`)
   await searchShown(page)
   await expect(page.locator('html')).toHaveAttribute('data-yt-direct', 'skipped')
-  expect(innertube.proxied.some((url) => url.includes('/youtubei/v1/search'))).toBe(true)
+  expect((await innertube.direct()).length).toBeGreaterThan(0)
 })
 
 // Firefox refuses youtubei.js's preflighted shape from this origin, so this is the case the simple shape exists for
-test('in Firefox, a search sends InnerTube from the page', async ({ baseURL }) => {
+test('in Firefox, a search sends InnerTube from the engine frame', async ({ baseURL }) => {
   test.setTimeout(240_000)
   // the runner hands every browser type the config's launch options, so Chrome's executable and arguments are cleared
   const browser = await firefox.launch({
@@ -180,32 +151,13 @@ test('in Firefox, a search sends InnerTube from the page', async ({ baseURL }) =
     const direct = await innertube.direct()
     expect(direct.map(({ url }) => new URL(url).pathname)).toContain('/youtubei/v1/search')
     for (const request of direct) expectSimple(request)
-    expect(innertube.proxied).toEqual([])
-  } finally {
+    } finally {
     await browser.close()
   }
 })
 
-test('with a YouTube session, InnerTube keeps the Scramjet frame and nothing leaves from the page', async ({ page, baseURL }) => {
-  test.setTimeout(240_000)
-  const origin = laneOrigin(baseURL)
-  await seedSession(page, origin)
-  const innertube = watchYoutube(page)
-  const signed: Promise<string | undefined>[] = []
-  page.on('request', (request: Request) => {
-    if (request.url().includes('/__yt_scramjet__/proxy/') && decodeURIComponent(request.url()).includes('/youtubei/v1/')) {
-      signed.push(request.allHeaders().then((headers) => headers.authorization))
-    }
-  })
-  await page.goto(`${origin}/results?search_query=blender`)
-  await expect.poll(async () => (await Promise.all(signed)).filter((value) => value?.startsWith('SAPISIDHASH ')).length, { timeout: 90_000 })
-    .toBeGreaterThan(0)
-  await expect(page.locator('html')).toHaveAttribute('data-yt-direct', 'off')
-  expect(await innertube.direct()).toEqual([])
-})
-
 test.describe('with the FKN extension installed', () => {
-  test('a search sends InnerTube from the page and the rest through the extension', async ({ baseURL }) => {
+  test('a search sends InnerTube from the engine frame and the rest through the extension', async ({ baseURL }) => {
     test.setTimeout(240_000)
     const build = extensionBuild(process.env)
     test.skip(build.skip !== undefined, `YT_EXTENSION_BUILD=skip: ${build.skip}`)
@@ -239,8 +191,7 @@ test.describe('with the FKN extension installed', () => {
       const direct = await innertube.direct()
       expect(direct.map(({ url }) => new URL(url).pathname)).toContain('/youtubei/v1/search')
       for (const request of direct) expectSimple(request)
-      expect(innertube.proxied).toEqual([])
-    } finally {
+        } finally {
       await context.close()
     }
   })

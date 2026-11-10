@@ -16,6 +16,9 @@
      turns that migration step on for the run (src/engine/step-flag.ts). --step=NAME:0 writes '0', which turns off a
      step that is on by default.
 
+   scramjet=N counts the app's requests under /__yt_scramjet__/, which only a tab of a build before the engine left
+   Scramjet makes.
+
    Headful under Xvfb, never a real window, muted, a fresh profile per run unless --profile names one. Prints one
    RESULT line and exits 0 on a pass, 1 on a wall, 2 with no verdict. Nothing identifiable is read or printed: the
    token store and the account menu are reported as present or absent only. */
@@ -152,6 +155,7 @@ const run = async () => {
     account: null, profile: PROFILE ? { entries: Object.keys(masterBefore).length, master: null, copy: null } : null,
     engineAt: null, playAt: null, before: null, after: null, maxBuffered: 0, t: null, atSeek: null, recovery: null,
     refresh: { seek: null, end: null }, status: null, poTokens: { seek: null, end: null }, verdict: null, reason: null, seekMs: null, total: null,
+    scramjet: 0,
   }
   const t0 = Date.now()
   const at = () => Math.round((Date.now() - t0) / 100) / 10
@@ -188,6 +192,11 @@ const run = async () => {
     }
     page = await context.newPage()
     for (const blank of context.pages()) if (blank !== page) await blank.close()
+    const appOrigin = new URL(BASE).origin
+    context.on('request', request => {
+      const url = new URL(request.url())
+      if (url.origin === appOrigin && url.pathname.startsWith('/__yt_scramjet__/')) r.scramjet++
+    })
     page.on('console', message => {
       const text = message.text()
       const egress = text.match(/\[yt-client\] egress → (.*)$/)
@@ -339,6 +348,6 @@ console.log(
     + `engine@${r.engineAt}s play@${r.playAt}s atSeek=${r.atSeek} recovery=${r.recovery} before=${JSON.stringify(r.before)} `
     + `after=${JSON.stringify(r.after)} max=${r.maxBuffered} t=${r.t} po-tokens=${atSeekAndEnd(r.poTokens, value => value ? 'yes' : 'no')} `
     + `=> ${String(r.verdict)}${r.reason ? ` (${String(r.reason)})` : ''} seekMs=${r.seekMs} refresh=${atSeekAndEnd(r.refresh, String)} `
-    + `status=${r.status ?? '-'} total=${r.total}s`,
+    + `status=${r.status ?? '-'} scramjet=${r.scramjet} total=${r.total}s`,
 )
 process.exitCode = r.verdict === 'pass' ? 0 : r.verdict === 'wall' ? 1 : 2

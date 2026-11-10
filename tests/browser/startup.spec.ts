@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from './test'
 
+import { ENGINE_PATH } from '../../src/engine/protocol'
+
 /* Startup budgets: every other suite's timeouts are sized so a run never flakes, so a change
    that made startup twice as slow would pass all of them. These ceilings are the only ones that fail. */
 
@@ -63,4 +65,31 @@ test('marks the first frame once, not on every later one', async ({ page }) => {
   await page.waitForTimeout(3_000)
   const count = await page.evaluate(() => performance.getEntriesByName('yt:first-frame', 'mark').length)
   expect(count).toBe(1)
+})
+
+test('a first visit reaches nothing under /__yt_scramjet__/ and registers no service worker there', async ({ page, baseURL }) => {
+  test.setTimeout(240_000)
+  const appOrigin = new URL(baseURL!).origin
+  const paths: string[] = []
+  page.context().on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.origin === appOrigin) paths.push(url.pathname)
+  })
+  await page.goto('/')
+  await expect(page.locator('main a[href^="/watch"], main .empty').first()).toBeVisible({ timeout: 90_000 })
+  await page.goto('/results?search_query=blender')
+  const card = page.locator('main a[href^="/watch"]').first()
+  await expect(card).toBeVisible({ timeout: 90_000 })
+  await card.hover()
+  await page.waitForTimeout(1_000)
+  await page.goto('/watch?v=dQw4w9WgXcQ')
+  const video = page.locator('[data-player-root] video')
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime), { timeout: 120_000 }).toBeGreaterThan(1)
+  await video.evaluate((element) => { (element as HTMLVideoElement).currentTime = 60 })
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime), { timeout: 60_000 }).toBeGreaterThan(61)
+
+  // the control: the watch sees the app's own requests, the engine frame among them
+  expect(paths).toContain(ENGINE_PATH)
+  expect(paths.filter((path) => path.startsWith('/__yt_scramjet__/'))).toEqual([])
+  expect(await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration('/__yt_scramjet__/')))).toBe(false)
 })
