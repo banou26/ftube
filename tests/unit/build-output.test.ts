@@ -98,7 +98,8 @@ describe('the app page lists the code it can import later, for src/warm-code.ts'
     const atStart = [...page.matchAll(/<(?:script type="module"|link rel="modulepreload") crossorigin (?:src|href)="([^"]+)"/g)].map(([, href]) => href)
     expect(atStart.length).toBeGreaterThan(1)
     expect(list.filter(href => atStart.includes(href))).toEqual([])
-    expect(['__yt_scramjet__/host.html', '__yt_scramjet__/signin.html'].filter(name => files.get(name)?.includes('lazy-code'))).toEqual([])
+    expect(files.get('__yt_engine__/engine.html')).toContain('yt-build')
+    expect(files.get('__yt_engine__/engine.html')).not.toContain('lazy-code')
   })
 })
 
