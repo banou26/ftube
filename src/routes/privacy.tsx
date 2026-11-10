@@ -148,9 +148,9 @@ export const PrivacyPage = () => {
             it. Only an identical request can find and open it.
           </li>
           <li>
-            Signed in, every request to YouTube except caption files goes from a page FKN runs for yt-client, which holds
-            your YouTube session, through WebVPN or the extension. These requests and their answers do not go through the
-            relay's cache.
+            Signed in, every request to youtube.com except caption files goes from a page FKN runs for yt-client, which
+            holds your YouTube session, through WebVPN or the extension. These requests and their answers do not go through
+            the relay's cache.
           </li>
           <li>
             Video, and the checks YouTube runs before playing it, go over WebVPN: your browser encrypts the connection to

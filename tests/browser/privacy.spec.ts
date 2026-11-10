@@ -20,7 +20,7 @@ test('Settings links the privacy page, which lists every server the browser reac
   await expect(main).toContainText(`FKN's own servers (${FKN_DOMAINS.join(' and ')})`)
   await expect(main).toContainText('signing out in yt-client signs all of them out of YouTube and Google on this device')
   // tests/unit/frame/lanes.test.ts: captions go direct whatever the session
-  await expect(main).toContainText('Signed in, every request to YouTube except caption files goes from a page FKN runs')
+  await expect(main).toContainText('Signed in, every request to youtube.com except caption files goes from a page FKN runs')
   await expect(main).not.toContainText('Signing in goes over WebVPN')
   await expect(main.getByRole('link', { name: 'FKN privacy policy' })).toHaveAttribute('href', 'https://fkn.app/privacy')
   await expect(main.getByRole('link', { name: 'extension privacy policy' })).toHaveAttribute('href', 'https://fkn.app/extension/privacy')
