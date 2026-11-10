@@ -201,20 +201,23 @@ const STATS_HOSTS = new Set(['s.youtube.com', 'www.youtube.com'])
 
 type PageFetch = (url: string, request: PageRequest, signal?: AbortSignal) => Promise<PageResponse>
 
-// where a call goes as the channel: InnerTube as it is, the playback registration on www.youtube.com, as youtubei.js
-// sends it; undefined for a call the channel does not touch
-const channelTarget = (url: string) => {
+// the playback registration on www.youtube.com, as youtubei.js sends it: s.youtube.com is another origin to the FKN
+// page, which a credentialed POST with its own header could reach only past a preflight
+const sessionTarget = (url: string) => {
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
-    return undefined
+    return url
   }
-  if (parsed.hostname === 'www.youtube.com' && parsed.pathname.startsWith('/youtubei/')) return url
-  if (!STATS_HOSTS.has(parsed.hostname) || parsed.pathname !== PLAYBACK_STATS_PATH) return undefined
+  if (!STATS_HOSTS.has(parsed.hostname) || parsed.pathname !== PLAYBACK_STATS_PATH) return url
   parsed.hostname = 'www.youtube.com'
   return parsed.href
 }
+
+// the calls the channel acts on: InnerTube and the playback registration
+const asChannel = (target: string) => target.startsWith('https://www.youtube.com/youtubei/')
+  || target.startsWith(`https://www.youtube.com${PLAYBACK_STATS_PATH}`)
 
 type AccountRow = { isSelected?: boolean, serviceEndpoint?: { selectActiveIdentityEndpoint?: { supportedTokens?: { pageIdToken?: { pageId?: string } }[] } } }
 
@@ -237,17 +240,17 @@ const selectsOther = (text: string, pageId: string) => {
 }
 
 /**
- * The session lane: the FKN page's own fetch on its jar. An accounts_list answer that says `loggedOut` means the jar's
- * session has ended, which `onSignedOut` hears.
+ * The session lane: the FKN page's own fetch on its jar, with the playback registration sent to www.youtube.com. An
+ * accounts_list answer that says `loggedOut` means the jar's session has ended, which `onSignedOut` hears.
  *
- * With `pageId`, the engine acts as that brand channel of the signed-in Google account: every InnerTube call carries it
- * as X-Goog-PageId, the one header youtube.com's own client sends for it, and the playback registration goes to
- * www.youtube.com with it, as youtubei.js sends that one. Alone the header picks the channel of the InnerTube reads
- * measured (accounts_list and browse, 2026-11-06); that it does the same for writes is inferred from youtube.com
- * sending it on them too. It acts as the channel only while `readChannel` still names `pageId`, so a sign-out or a new
- * pick in another tab stops it at once. accounts_list keeps the channel honest: an answer that selects another row
- * drops it, and a `loggedOut` answer to it, which is how YouTube answers a page ID another Google login owns (measured
- * 2026-11-06), drops it and asks once more without it, so only that second answer can say the session ended.
+ * With `pageId`, the engine acts as that brand channel of the signed-in Google account: every InnerTube call and the
+ * playback registration carry it as X-Goog-PageId, the one header youtube.com's own client sends for it. Alone the
+ * header picks the channel of the InnerTube reads measured (accounts_list and browse, 2026-11-06); that it does the
+ * same for writes is inferred from youtube.com sending it on them too. It acts as the channel only while `readChannel`
+ * still names `pageId`, so a sign-out or a new pick in another tab stops it at once. accounts_list keeps the channel
+ * honest: an answer that selects another row drops it, and a `loggedOut` answer to it, which is how YouTube answers a
+ * page ID another Google login owns (measured 2026-11-06), drops it and asks once more without it, so only that second
+ * answer can say the session ended.
  */
 export const createSessionLane = (fetchThroughPage: PageFetch, onSignedOut: () => void, pageId?: string): Lane => {
   let channel = pageId
@@ -260,17 +263,17 @@ export const createSessionLane = (fetchThroughPage: PageFetch, onSignedOut: () =
     return { answer, text: url.startsWith(ACCOUNTS_LIST) ? new TextDecoder().decode(answer.body) : undefined }
   }
   return async (url, request, signal) => {
-    const sent = channel !== undefined && readChannel() === channel ? channel : undefined
-    const target = sent ? channelTarget(url) : undefined
-    let { answer, text } = target
-      ? await read(target, { ...request, headers: { ...request.headers, 'x-goog-pageid': sent! } }, signal)
-      : await read(url, request, signal)
-    if (text !== undefined && target) {
+    const target = sessionTarget(url)
+    const sent = channel !== undefined && readChannel() === channel && asChannel(target) ? channel : undefined
+    let { answer, text } = sent
+      ? await read(target, { ...request, headers: { ...request.headers, 'x-goog-pageid': sent } }, signal)
+      : await read(target, request, signal)
+    if (text !== undefined && sent) {
       if (LOGGED_OUT.test(text)) {
-        drop(sent!)
-        ;({ answer, text } = await read(url, request, signal))
-      } else if (selectsOther(text, sent!)) {
-        drop(sent!)
+        drop(sent)
+        ;({ answer, text } = await read(target, request, signal))
+      } else if (selectsOther(text, sent)) {
+        drop(sent)
       }
     }
     if (text !== undefined && LOGGED_OUT.test(text)) onSignedOut()

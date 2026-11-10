@@ -414,13 +414,15 @@ describe('the session lane, as a brand channel', () => {
     expect(sent[0]).toMatchObject({ method: 'POST', headers: { 'x-goog-pageid': BRAND_PAGE_ID } })
   })
 
-  it('sends no X-Goog-PageId, and the registration where it was going, for the account\'s own channel', async () => {
+  it('sends no X-Goog-PageId for the account\'s own channel, and the registration to www.youtube.com still', async () => {
     const { sent, pageIds, fetchThroughPage } = fknPage({})
     const lane = createSessionLane(fetchThroughPage, () => {})
     await lane(BROWSE, post())
     await lane(PING, { method: 'POST', headers: {} })
     expect(pageIds()).toEqual([undefined, undefined])
-    expect(sent[1]!.url).toBe(PING)
+    const registration = new URL(sent[1]!.url)
+    expect(registration.origin + registration.pathname).toBe('https://www.youtube.com/api/stats/playback')
+    expect(registration.search).toBe(new URL(PING).search)
   })
 
   it('reads a loggedOut answer to a channel as an id of another login: drops the channel and asks once more without it', async () => {
@@ -486,7 +488,7 @@ describe('the session lane, as a brand channel', () => {
     await lane(PING, { method: 'POST', headers: {} })
     await listAccounts(lane)
     expect(pageIds()).toEqual([BRAND_PAGE_ID, undefined, undefined, undefined])
-    expect(sent[2]!.url).toBe(PING)
+    expect(new URL(sent[2]!.url).host).toBe('www.youtube.com')
   })
 })
 

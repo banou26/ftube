@@ -204,7 +204,7 @@ const registerPlayback = async (raw: Record<string, unknown>, nonce: string, for
   const video = formats.find((format) => format.has_video)
   if (audio) url.searchParams.set('afmt', String(audio.itag))
   if (video) url.searchParams.set('fmt', String(video.itag))
-  // as a brand channel, the session lane sends it to www.youtube.com with the channel's header (lanes.ts)
+  // signed in, the session lane sends it to www.youtube.com, as a brand channel with its header (lanes.ts)
   const response = await youtubeFetch(url, { method: 'POST', headers: { 'X-Goog-Visitor-Id': visitorData } })
   if (!response.ok) console.warn(`youtube: playback registration returned ${response.status}`)
 }
