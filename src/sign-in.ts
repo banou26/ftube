@@ -1,25 +1,28 @@
-import type { SignInWindowMessage } from './engine/protocol'
+import type { WindowFrame } from '@fkn/lib'
 
 import { showToast } from './components/ui/toast'
 import { mountHiddenFrame, stopAgentHost } from './engine/agent-host'
 import { resetEngine, startEngine } from './engine/client'
-import { buildId, reloadOnceForBuild } from './engine/engine-build'
 import { loadedLib, startPlatform } from './engine/platform'
 import { clearSignedIn, markSignedIn, readChannel, storeChannel } from './engine/signed-in'
-import { jarHoldsSession } from './scramjet/jar'
-import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from './engine/protocol'
 
 /**
- * How a sign-in window ended: `'authed'` once its jar holds the session (the window is closed), `'closed'` when the
- * person closed it first, `'blocked'` when the browser opened no window, `'outdated'` when the window is from another
- * build and this page already used its one reload for that pair of builds.
+ * How a sign-in through FKN's window ended: `'authed'` once youtube.com showed its avatar there, the window closed
+ * and its cookies committed to FKN's jar; `'closed'` when the window ended first; `'blocked'` when the browser opened
+ * no window; `'unsupported'` when FKN refused a window.
  */
-export type SignInOutcome = 'authed' | 'closed' | 'blocked' | 'outdated'
+export type SignInOutcome = 'authed' | 'closed' | 'blocked' | 'unsupported'
 
-// FKN's window size, the one stub's sign-in windows open at
-const WIDTH = 500
-const HEIGHT = 700
-const CLOSED_POLL_MS = 500
+// youtube.com first, where a click on its own Sign in link carries the hop to Google: a direct ServiceLogin entry
+// does not get past the identifier (projects/mirage-google-login.md)
+const SIGN_IN_URL = 'https://www.youtube.com/'
+const SIGN_IN_LINK = 'a[href*="ServiceLogin"]'
+// youtube.com's signed-in header; a SAPISID left in the jar by an ended session would read as signed in
+const AVATAR = '#avatar-btn'
+const POLL_MS = 1_000
+// a read across a redirect can wait on the lib's own retry for tens of seconds, so each one is bounded
+const READ_TIMEOUT_MS = 5_000
+const REFUSALS = new Set(['ExtensionOperationUnsupportedError', 'FrameWindowRefusedError'])
 
 // every tab's engine reads the session and the channel once at boot, so a sign-in, a sign-out or a switch in any tab reloads them all
 const SIGNED_IN_CHANNEL = 'yt-client-signed-in'
@@ -27,7 +30,8 @@ const SIGNED_IN = 'signed-in'
 const SIGNED_OUT = 'signed-out'
 const SWITCHED = 'switched'
 
-let openWindow: Window | undefined
+let openWindow: WindowFrame | undefined
+let opening = false
 let finishing = false
 
 // the /signin page has nothing left for a signed-in person
@@ -44,7 +48,7 @@ tabs.addEventListener('message', (event: MessageEvent) => {
   }
   if (event.data !== SIGNED_IN || finishing) return
   finishing = true
-  openWindow?.close()
+  void openWindow?.close()
   landSignedIn()
 })
 
@@ -57,73 +61,114 @@ const finishSignIn = async () => {
   landSignedIn()
 }
 
-/**
- * Opens Google's sign-in in a window of its own and resolves once it ends. Call it directly in the click handler:
- * an await before it would open the window without the click's activation.
- */
-export const openSignInWindow = (): Promise<SignInOutcome> => {
-  const left = Math.round(screenX + (outerWidth - WIDTH) / 2)
-  const top = Math.round(screenY + (outerHeight - HEIGHT) / 2)
-  // never a fixed name: another tab's click would load this tab's window, which answers only this tab
-  const win = window.open(SIGNIN_WINDOW_PATH, '_blank', `popup,width=${WIDTH},height=${HEIGHT},left=${left},top=${top}`)
-  if (!win) return Promise.resolve('blocked')
-  openWindow = win
-  return new Promise<SignInOutcome>((resolve) => {
-    let settled = false
-    const settle = (value: SignInOutcome) => {
-      if (settled) return
-      settled = true
-      clearInterval(poll)
-      removeEventListener('message', onMessage)
-      if (openWindow === win) openWindow = undefined
-      resolve(value)
-    }
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== win) return
-      const message = event.data as SignInWindowMessage | undefined
-      if (message?.type === SIGNIN_HELLO) {
-        if (message.build !== buildId()) {
-          win.close()
-          settle(reloadOnceForBuild(message.build) ? 'closed' : 'outdated')
-          return
-        }
-        // a platform that cannot start leaves the window open, to say so itself once its wait for the port runs out
-        void startPlatform().then(
-          (platform) => win.postMessage({ type: SIGNIN_PORTS }, location.origin, [platform.openEgressPort('signin')]),
-          () => {},
-        )
-      } else if (message?.type === SIGNIN_DONE) {
-        win.close()
-        settle('authed')
-      }
-    }
-    addEventListener('message', onMessage)
-    // a window closed after Google finished but before its own check fired has still left the session in the jar
-    const poll = setInterval(() => {
-      if (!win.closed) return
-      clearInterval(poll)
-      void jarHoldsSession().then((session) => settle(session ? 'authed' : 'closed'))
-    }, CLOSED_POLL_MS)
-  })
+const bounded = <T>(read: () => Promise<T>) => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    read().catch(() => undefined),
+    new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), READ_TIMEOUT_MS) }),
+  ]).finally(() => clearTimeout(timer))
 }
 
-/** What every Sign in control calls on its click. While a window is open, a click focuses it. */
+// every read is a severity-0 count, which asks no card; a host outside the attachment rejects it, which reads as not yet
+const signedInThere = async (login: WindowFrame) => await login.locator(AVATAR).count() > 0
+
+const showsSignInLink = async (login: WindowFrame) => await login.locator(SIGN_IN_LINK).count() > 0
+
+const isTerminal = (error: unknown) => loadedLib()?.isTerminalError(error) ?? false
+
+const outcomeOf = (error: unknown): SignInOutcome => {
+  const name = (error as Error | null)?.name
+  if (name === 'FrameWindowBlockedError') return 'blocked'
+  if (name && REFUSALS.has(name)) return 'unsupported'
+  // the lib's terminal detach error: the window closed or went away before it connected
+  if (isTerminal(error)) return 'closed'
+  throw error
+}
+
+const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutcome> => {
+  let login: WindowFrame
+  try {
+    login = await attaching
+  } catch (error) {
+    return outcomeOf(error)
+  }
+  openWindow = login
+  try {
+    // at 'commit': youtube.com's home page holds its load past the 30 s deadline (stub, measured 2026-09-27)
+    await login.goto(SIGN_IN_URL, { waitUntil: 'commit' })
+  } catch (error) {
+    if (!isTerminal(error)) {
+      await login.close()
+      throw error
+    }
+  }
+  const closed = login.closed.then(() => 'closed' as const)
+  let clicked = false
+  for (;;) {
+    const tick = await Promise.race([
+      closed,
+      new Promise((resolve) => setTimeout(resolve, POLL_MS)).then(() => bounded(() => signedInThere(login))),
+    ])
+    if (tick === 'closed') return 'closed'
+    if (tick === true) {
+      await login.close()
+      return 'authed'
+    }
+    if (!clicked && await bounded(() => showsSignInLink(login))) {
+      clicked = true
+      // a timer, so the call settles before the click takes the page away; the person can still click it themselves
+      void login.evaluate((selector) => { setTimeout(() => document.querySelector<HTMLElement>(selector)?.click(), 0) }, SIGN_IN_LINK).catch(() => {})
+    }
+  }
+}
+
+/**
+ * Opens youtube.com in FKN's window on the jar every fkn.app app shares ('persistent'), clicks its Sign in link, and
+ * resolves once youtube.com shows the account there, or the window ended. Asks for the Evaluation grant up front,
+ * which the FKN page that later reads the session needs too. Call it directly in the click handler, with the lib the
+ * platform loaded: an await before it would open the window without the click's activation.
+ */
+export const openSignInWindow = (lib: Pick<typeof import('@fkn/lib'), 'attachFrame'>): Promise<SignInOutcome> => {
+  // first statement on purpose
+  const attaching = lib.attachFrame({
+    window: {},
+    domains: ['www.youtube.com'],
+    cookies: 'persistent',
+    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in yt-client' }],
+  })
+  return waitInWindow(attaching).finally(() => { openWindow = undefined })
+}
+
+/** What every Sign in control calls on its click. While a window is open, a click does nothing more. */
 export const signIn = () => {
-  if (finishing) return
-  if (openWindow && !openWindow.closed) {
-    openWindow.focus()
+  if (finishing || opening) return
+  const lib = loadedLib()
+  if (!lib) {
+    void startPlatform().then(
+      () => showToast('Sign-in is ready.', { label: 'Sign in', onAction: signIn }),
+      () => showToast('Sign-in could not start.', { label: 'Try again', onAction: signIn }),
+    )
     return
   }
-  void openSignInWindow().then((outcome) => {
-    if (outcome === 'blocked') showToast('The browser blocked the sign-in window. Allow pop-ups for this site.', { label: 'Try again', onAction: signIn })
-    else if (outcome === 'outdated') showToast('The app was updated. Reload the page to sign in.', { label: 'Reload', onAction: () => location.reload() })
-    else if (outcome === 'authed') void finishSignIn()
-  })
+  opening = true
+  void openSignInWindow(lib).then(
+    (outcome) => {
+      opening = false
+      if (outcome === 'blocked') showToast('The browser blocked the sign-in window. Allow pop-ups for this site.', { label: 'Try again', onAction: signIn })
+      else if (outcome === 'unsupported') showToast('Sign-in could not open.', { label: 'Try again', onAction: signIn })
+      else if (outcome === 'authed') void finishSignIn()
+    },
+    (error: unknown) => {
+      opening = false
+      console.warn('[yt-client] sign-in failed:', error instanceof Error ? error.message : String(error))
+      showToast('Sign-in could not open.', { label: 'Try again', onAction: signIn })
+    },
+  )
 }
 
 /**
  * Makes every tab act as another channel of the signed-in Google account: a brand channel's page ID, or none for the
- * account's own channel. Each tab's next engine sends it (lanes.ts), so every tab loads again.
+ * account's own channel. The next engine of each tab sends it (lanes.ts), so every tab loads again.
  */
 export const switchChannel = (brandPageId?: string) => {
   storeChannel(brandPageId)

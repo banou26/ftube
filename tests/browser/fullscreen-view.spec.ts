@@ -166,7 +166,7 @@ test('its actions open what the watch page opens, signed out', async ({ page }) 
   const opened = page.context().waitForEvent('page', { timeout: 30_000 })
   await press(page, player.getByRole('button', { name: 'Like', exact: true }))
   const popup = await opened
-  await expect(popup).toHaveURL(/\/__yt_scramjet__\/signin(?:\.html)?$/)
+  await expect(popup).toHaveURL(/^https:\/\/fkn\.app\/attach-window\?/)
   await popup.close()
 })
 

@@ -37,7 +37,7 @@ const buildFiles = async (...plugins: Plugin[]) => {
 let files = new Map<string, string>()
 let imports = new Map<string, readonly string[]>()
 
-// as `vp build` runs for a deploy: outside production the Preact preset adds its debug module to whichever of the three
+// as `vp build` runs for a deploy: outside production the Preact preset adds its debug module to whichever of the two
 // pages it resolves first, which varies from one build to the next
 beforeAll(async () => {
   vi.stubEnv('NODE_ENV', 'production')
@@ -79,8 +79,8 @@ describe('a deploy renames only the files whose code changed', () => {
     expect(renamed(files, edited.files)).toEqual([...dependents].sort())
   }, 120_000)
 
-  it('the app and both engine pages name one build in their HTML, and no other file carries it', () => {
-    const builds = ['index.html', '__yt_engine__/engine.html', '__yt_scramjet__/signin.html'].map(page => buildOf(files.get(page)))
+  it('the app and its engine page name one build in their HTML, and no other file carries it', () => {
+    const builds = ['index.html', '__yt_engine__/engine.html'].map(page => buildOf(files.get(page)))
     expect(builds[0]).toMatch(/^[0-9a-f-]{36}$/)
     expect(new Set(builds)).toEqual(new Set([builds[0]]))
     expect([...files].filter(([name, text]) => !name.endsWith('.html') && text.includes(builds[0]!)).map(([name]) => name)).toEqual([])

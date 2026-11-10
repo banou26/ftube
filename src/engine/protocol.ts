@@ -66,20 +66,3 @@ export type ExtFetchResponse = {
   response?: never
   error: string
 }
-
-/* The sign-in window (`SIGNIN_WINDOW_PATH`) is a same-origin popup the app opens on the click. It says SIGNIN_HELLO to its
-   opener, which answers SIGNIN_PORTS with ports[0], an EgressApi port to the opener's egress worker, so every hop of the
-   sign-in leaves through the app's own libcurl over WebVPN, as it did inline. SIGNIN_DONE tells the opener the window's Scramjet jar holds
-   the session and was persisted, which the engine's controller reads through IndexedDB `__scramjet_controller`. */
-export const SIGNIN_WINDOW_PATH = '/__yt_scramjet__/signin.html'
-export const SIGNIN_HELLO = 'yt-client-signin-hello'
-export const SIGNIN_PORTS = 'yt-client-signin-ports'
-export const SIGNIN_DONE = 'yt-client-signin-done'
-
-// the window names its build as the engine host does (engine-build.ts): it loads from a fixed path, so a tab opened before a deploy gets the new one
-export type SignInWindowMessage = { type: typeof SIGNIN_HELLO, build: string } | { type: typeof SIGNIN_DONE }
-export type SignInPorts = { type: typeof SIGNIN_PORTS }
-
-export type EgressRole = 'engine' | 'signin'
-/** The sign-in window's libcurl request ids start with it, so an engine reset's abort leaves them alone. */
-export const SIGNIN_REQUEST_PREFIX = 'signin:'

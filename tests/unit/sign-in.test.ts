@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from '../../src/engine/protocol'
 import { CHANNEL_KEY, SIGNED_IN_KEY } from '../../src/engine/signed-in'
 import { BRAND_PAGE_ID } from './fixtures/accounts-list'
-import { BUILD, querySelector } from './fixtures/build-tag'
 
 const calls: string[] = []
 const showToast = vi.fn()
@@ -12,32 +10,47 @@ const resetIdentity = vi.fn(async () => {
   await new Promise((resolve) => setTimeout(resolve, 5))
   calls.push('reset')
 })
-const egressPort = { name: 'signin-port' }
-const openEgressPort = vi.fn((_role?: string) => egressPort)
-const jarHoldsSession = vi.fn(async () => false)
+
+type Options = Record<string, unknown>
+
+// youtube.com in FKN's window: its header shows the Sign in link until the person signed in, then the avatar
+const fakeLogin = () => {
+  let end = () => {}
+  const page = { avatar: false, link: true }
+  const login = {
+    page,
+    goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
+    locator: (selector: string) => ({
+      count: async () => (selector === '#avatar-btn' ? page.avatar : page.link) ? 1 : 0,
+    }),
+    evaluate: vi.fn(async (_run: unknown, selector: string) => { calls.push(`click ${selector}`) }),
+    close: vi.fn(async () => {
+      calls.push('close')
+      end()
+    }),
+    closed: new Promise<void>((resolve) => { end = resolve }),
+    end: () => end(),
+  }
+  return login
+}
+
+type Login = ReturnType<typeof fakeLogin>
+
+const blocked = () => Object.assign(new Error('window.open returned null'), { name: 'FrameWindowBlockedError' })
+const refused = () => Object.assign(new Error('the window refused to attach'), { name: 'FrameWindowRefusedError' })
+const terminal = new Error('cloud.attachFrame: the attached window closed; attach a fresh window')
+
+const lib = vi.hoisted(() => ({
+  attachFrame: vi.fn<(options: Record<string, unknown>) => Promise<unknown>>(),
+  isTerminalError: (error: unknown) => (error as Error).message.includes('attach a fresh window'),
+  loaded: true,
+}))
 
 vi.mock('../../src/components/ui/toast', () => ({ showToast }))
 vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), resetEngine: () => {} }))
 vi.mock('../../src/engine/agent-host', () => ({ mountHiddenFrame: () => ({ remove: () => {} }), stopAgentHost: () => {} }))
-const startPlatform = vi.fn(async () => ({ openEgressPort }))
-vi.mock('../../src/engine/platform', () => ({ startPlatform, loadedLib: () => undefined }))
-vi.mock('../../src/scramjet/jar', () => ({ jarHoldsSession }))
-
-const ORIGIN = 'https://youtube.fkn.app'
-
-const settle = () => new Promise((resolve) => setTimeout(resolve, 10))
-
-type FakeWindow = { closed: boolean, close: () => void, focus: ReturnType<typeof vi.fn>, postMessage: ReturnType<typeof vi.fn> }
-
-const fakeWindow = (): FakeWindow => {
-  const win: FakeWindow = {
-    closed: false,
-    close: () => { win.closed = true },
-    focus: vi.fn(),
-    postMessage: vi.fn(),
-  }
-  return win
-}
+const startPlatform = vi.fn(async () => ({}))
+vi.mock('../../src/engine/platform', () => ({ startPlatform, loadedLib: () => (lib.loaded ? lib : undefined) }))
 
 type Listener = (event: { data: unknown }) => void
 
@@ -59,53 +72,46 @@ class FakeBroadcastChannel {
   }
 }
 
-// each click opens the next of `opened`, and the last one from then on
-const install = (...opened: (FakeWindow | null)[]) => {
-  const listeners = new Set<(event: Partial<MessageEvent>) => void>()
-  const open = vi.fn((..._args: unknown[]) => opened.length > 1 ? opened.shift()! : opened[0]!)
+// each click attaches the next of `windows`, and the last one from then on
+const install = (...windows: (Login | Error)[]) => {
+  const stored: Record<string, string> = {}
+  lib.attachFrame.mockImplementation(async () => {
+    const next = windows.length > 1 ? windows.shift()! : windows[0]!
+    if (next instanceof Error) throw next
+    return next
+  })
   const reload = vi.fn(() => { calls.push('reload') })
   const assign = vi.fn()
-  const location = { origin: ORIGIN, pathname: '/watch', reload, assign }
-  vi.stubGlobal('window', { open })
-  vi.stubGlobal('document', { querySelector })
+  const location = { origin: 'https://youtube.fkn.app', pathname: '/watch', reload, assign }
   vi.stubGlobal('location', location)
-  const stored = new Map<string, string>()
-  vi.stubGlobal('sessionStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) })
-  const local = new Map<string, string>()
   vi.stubGlobal('localStorage', {
-    getItem: (key: string) => local.get(key) ?? null,
+    getItem: (key: string) => stored[key] ?? null,
     setItem: (key: string, value: string) => {
       calls.push(`store ${key}`)
-      local.set(key, value)
+      stored[key] = value
     },
-    removeItem: (key: string) => {
-      calls.push(`remove ${key}`)
-      local.delete(key)
-    },
+    removeItem: (key: string) => { delete stored[key] },
   })
-  vi.stubGlobal('screenX', 0)
-  vi.stubGlobal('screenY', 0)
-  vi.stubGlobal('outerWidth', 1280)
-  vi.stubGlobal('outerHeight', 800)
-  vi.stubGlobal('addEventListener', (_type: string, listener: (event: Partial<MessageEvent>) => void) => listeners.add(listener))
-  vi.stubGlobal('removeEventListener', (_type: string, listener: (event: Partial<MessageEvent>) => void) => listeners.delete(listener))
   vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
-  const send = (event: Partial<MessageEvent>) => { for (const listener of listeners) listener(event) }
-  return { open, reload, assign, location, send, listeners, local }
+  return { reload, assign, location, stored }
+}
+
+// the window's poll runs once a second; this moves it on by that much
+const poll = async (times = 1) => {
+  for (let index = 0; index < times; index++) await vi.advanceTimersByTimeAsync(1_000)
 }
 
 describe('the sign-in window', () => {
   beforeEach(() => {
     vi.resetModules()
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     calls.length = 0
     channels.clear()
     showToast.mockClear()
     resetIdentity.mockClear()
-    openEgressPort.mockClear()
     startPlatform.mockClear()
-    jarHoldsSession.mockReset()
-    jarHoldsSession.mockResolvedValue(false)
+    lib.attachFrame.mockReset()
+    lib.loaded = true
   })
 
   afterEach(() => {
@@ -113,194 +119,163 @@ describe('the sign-in window', () => {
     vi.unstubAllGlobals()
   })
 
-  it('opens the window inside the click, before anything is awaited', async () => {
-    const win = fakeWindow()
-    const { open } = install(win)
-    const { openSignInWindow } = await import('../../src/sign-in')
-    void openSignInWindow()
-    expect(open).toHaveBeenCalledOnce()
-    const [url, name, features] = open.mock.calls[0]! as [string, string, string]
-    expect(url).toBe(SIGNIN_WINDOW_PATH)
-    // a named window is one another tab's click would load, and its messages would still go to this tab
-    expect(name).toBe('_blank')
-    expect(features).toMatch(/^popup,width=500,height=700,/)
-  })
-
-  it('answers a blocked window with a toast whose button tries again', async () => {
-    const { open } = install(null)
-    const { openSignInWindow, signIn } = await import('../../src/sign-in')
-    await expect(openSignInWindow()).resolves.toBe('blocked')
-    signIn()
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce())
-    const [, action] = showToast.mock.calls[0]! as [string, { label: string, onAction: () => void }]
-    expect(action.label).toBe('Try again')
-    action.onAction()
-    expect(open).toHaveBeenCalledTimes(3)
-  })
-
-  it("hands the window's hello the sign-in egress port, and nobody else's", async () => {
-    const win = fakeWindow()
-    const { send } = install(win)
-    const { openSignInWindow } = await import('../../src/sign-in')
-    void openSignInWindow()
-    send({ origin: ORIGIN, source: {} as Window, data: { type: SIGNIN_HELLO, build: BUILD } })
-    send({ origin: 'https://evil.example', source: win as unknown as Window, data: { type: SIGNIN_HELLO, build: BUILD } })
-    // the answer waits on the platform, so give any answer time to land before reading that none did
-    await settle()
-    expect(win.postMessage).not.toHaveBeenCalled()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_HELLO, build: BUILD } })
-    await settle()
-    expect(win.postMessage).toHaveBeenCalledOnce()
-    expect(openEgressPort).toHaveBeenCalledWith('signin')
-    expect(win.postMessage).toHaveBeenCalledWith({ type: SIGNIN_PORTS }, ORIGIN, [egressPort])
-  })
-
-  it('leaves the window open to say sign-in could not start when the platform fails', async () => {
-    const win = fakeWindow()
-    const { send } = install(win)
-    startPlatform.mockRejectedValueOnce(new Error('the broker never loaded'))
-    const { openSignInWindow } = await import('../../src/sign-in')
-    const outcome = openSignInWindow()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_HELLO, build: BUILD } })
-    await settle()
-    vi.advanceTimersByTime(500)
-    expect(startPlatform).toHaveBeenCalledOnce()
-    expect(win.postMessage).not.toHaveBeenCalled()
-    expect(win.closed).toBe(false)
-    // the person closes it after reading its line, and that is all
-    win.closed = true
-    vi.advanceTimersByTime(500)
-    await expect(outcome).resolves.toBe('closed')
-  })
-
-  it('reloads, once, for a window from another build instead of handing it a port', async () => {
-    const win = fakeWindow()
-    const { send, reload } = install(win)
-    const { openSignInWindow } = await import('../../src/sign-in')
-    const outcome = openSignInWindow()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_HELLO, build: 'a-later-build' } })
-    await expect(outcome).resolves.toBe('closed')
-    await settle()
-    expect(win.closed).toBe(true)
-    expect(win.postMessage).not.toHaveBeenCalled()
-    expect(reload).toHaveBeenCalledOnce()
-  })
-
-  it('says to reload once the one reload for a window from another build is used', async () => {
-    const first = fakeWindow()
-    const second = fakeWindow()
-    const { send, reload } = install(first, second)
+  it("attaches FKN's window inside the click, before anything is awaited, on the shared jar with the Evaluation grant asked", async () => {
+    install(fakeLogin())
     const { signIn } = await import('../../src/sign-in')
     signIn()
-    send({ origin: ORIGIN, source: first as unknown as Window, data: { type: SIGNIN_HELLO, build: 'a-later-build' } })
-    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
-    // the reload landed on the same pair of builds, so this page cannot fix it by itself
-    signIn()
-    send({ origin: ORIGIN, source: second as unknown as Window, data: { type: SIGNIN_HELLO, build: 'a-later-build' } })
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce())
-    expect(second.closed).toBe(true)
-    expect(reload).toHaveBeenCalledOnce()
-    const [message, action] = showToast.mock.calls[0]! as [string, { label: string, onAction: () => void }]
-    expect(message).toBe('The app was updated. Reload the page to sign in.')
-    expect(action.label).toBe('Reload')
-    action.onAction()
-    expect(reload).toHaveBeenCalledTimes(2)
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
+    const [options] = lib.attachFrame.mock.calls[0]! as [Options]
+    expect(options).toEqual({
+      window: {},
+      domains: ['www.youtube.com'],
+      cookies: 'persistent',
+      permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in yt-client' }],
+    })
   })
 
-  it('closes the window on done, resets the identity and loads the page again', async () => {
-    const win = fakeWindow()
-    const { send, reload, listeners } = install(win)
+  it("opens youtube.com at commit, clicks its own Sign in link once, and is done when youtube.com shows the avatar: closed first, then signed in", async () => {
+    const login = fakeLogin()
+    const { reload, stored } = install(login)
     const { signIn } = await import('../../src/sign-in')
     signIn()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_DONE } })
-    expect(win.closed).toBe(true)
+    await poll(3)
+    expect(calls).toEqual(['goto https://www.youtube.com/ commit', 'click a[href*="ServiceLogin"]'])
+    // Google's pages: nothing there reads as signed in, however long they take
+    login.page.link = false
+    await poll(5)
+    expect(reload).not.toHaveBeenCalled()
+    login.page.avatar = true
+    await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
-    expect(resetIdentity).toHaveBeenCalledOnce()
-    expect(listeners.size).toBe(0)
+    expect(calls.slice(2)).toEqual(['close', `store ${SIGNED_IN_KEY}`, 'reset', 'reload'])
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
+  it('ends at once as signed in for a jar another fkn.app app already signed in, with no click', async () => {
+    const login = fakeLogin()
+    login.page.avatar = true
+    const { reload } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+    signIn()
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(calls).not.toContain('click a[href*="ServiceLogin"]')
   })
 
   it("starts a sign-in on the account's own channel, whatever channel an earlier session picked", async () => {
-    const win = fakeWindow()
-    const { send, reload, local } = install(win)
-    local.set(CHANNEL_KEY, BRAND_PAGE_ID)
+    const login = fakeLogin()
+    login.page.avatar = true
+    const { reload, stored } = install(login)
+    stored[CHANNEL_KEY] = BRAND_PAGE_ID
     const { signIn } = await import('../../src/sign-in')
     signIn()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_DONE } })
+    await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
-    expect(local.has(CHANNEL_KEY)).toBe(false)
-    expect(local.get(SIGNED_IN_KEY)).toBe('1')
-    expect(calls).toEqual([`store ${SIGNED_IN_KEY}`, `remove ${CHANNEL_KEY}`, 'reset', 'reload'])
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+    expect(stored[CHANNEL_KEY]).toBeUndefined()
   })
 
   it('goes home after a sign-in from /signin, which has nothing for a signed-in person', async () => {
-    const win = fakeWindow()
-    const { send, reload, assign, location } = install(win)
+    const login = fakeLogin()
+    login.page.avatar = true
+    const { reload, assign, location } = install(login)
     location.pathname = '/signin'
     const { signIn } = await import('../../src/sign-in')
     signIn()
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_DONE } })
+    await poll(1)
     await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/'))
     expect(reload).not.toHaveBeenCalled()
   })
 
   it('does nothing more when the person closes the window', async () => {
-    const win = fakeWindow()
-    const { reload } = install(win)
+    const login = fakeLogin()
+    const { reload, stored } = install(login)
     const { openSignInWindow } = await import('../../src/sign-in')
-    const outcome = openSignInWindow()
-    win.closed = true
-    vi.advanceTimersByTime(500)
+    const outcome = openSignInWindow(lib as unknown as Parameters<typeof openSignInWindow>[0])
+    await poll(2)
+    login.end()
     await expect(outcome).resolves.toBe('closed')
-    expect(jarHoldsSession).toHaveBeenCalledOnce()
     expect(reload).not.toHaveBeenCalled()
     expect(resetIdentity).not.toHaveBeenCalled()
+    expect(stored[SIGNED_IN_KEY]).toBeUndefined()
   })
 
-  it('signs in when the window closed after Google finished but before it said so', async () => {
-    const win = fakeWindow()
-    const { reload } = install(win)
-    jarHoldsSession.mockResolvedValue(true)
+  it('reads a window that went away before it connected as closed', async () => {
+    install(terminal)
+    const { openSignInWindow } = await import('../../src/sign-in')
+    await expect(openSignInWindow(lib as unknown as Parameters<typeof openSignInWindow>[0])).resolves.toBe('closed')
+  })
+
+  it('answers a blocked window with a toast whose button tries again', async () => {
+    install(blocked())
+    const { openSignInWindow, signIn } = await import('../../src/sign-in')
+    await expect(openSignInWindow(lib as unknown as Parameters<typeof openSignInWindow>[0])).resolves.toBe('blocked')
+    signIn()
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce())
+    const [message, action] = showToast.mock.calls[0]! as [string, { label: string, onAction: () => void }]
+    expect(message).toMatch(/Allow pop-ups/)
+    expect(action.label).toBe('Try again')
+    action.onAction()
+    expect(lib.attachFrame).toHaveBeenCalledTimes(3)
+  })
+
+  it('answers a window FKN refused with a toast whose button tries again', async () => {
+    install(refused())
     const { signIn } = await import('../../src/sign-in')
     signIn()
-    win.closed = true
-    vi.advanceTimersByTime(500)
-    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
-    expect(resetIdentity).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce())
+    const [, action] = showToast.mock.calls[0]! as [string, { label: string, onAction: () => void }]
+    action.onAction()
+    expect(lib.attachFrame).toHaveBeenCalledTimes(2)
+  })
+
+  it('before the platform loaded the lib, opens nothing and offers Sign in once it has', async () => {
+    install(fakeLogin())
+    lib.loaded = false
+    const { signIn } = await import('../../src/sign-in')
+    signIn()
+    expect(lib.attachFrame).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce())
+    lib.loaded = true
+    const [, action] = showToast.mock.calls[0]! as [string, { label: string, onAction: () => void }]
+    action.onAction()
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
   })
 
   it('settles one sign-in however many times Sign in is clicked', async () => {
-    const win = fakeWindow()
-    const { open, send, reload } = install(win)
+    const login = fakeLogin()
+    login.page.avatar = true
+    const { reload } = install(login)
     const { signIn } = await import('../../src/sign-in')
     signIn()
     signIn()
     signIn()
-    expect(open).toHaveBeenCalledOnce()
-    expect(win.focus).toHaveBeenCalledTimes(2)
-    send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_DONE } })
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
+    await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalled())
-    await settle()
     expect(resetIdentity).toHaveBeenCalledOnce()
     expect(reload).toHaveBeenCalledOnce()
     // the page is on its way to loading again, so a click now opens nothing
     signIn()
-    expect(open).toHaveBeenCalledOnce()
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
   })
 
   it('reaches every open tab: another one closes its own window and loads again, signed in', async () => {
-    const first = fakeWindow()
-    const second = fakeWindow()
-    const { send, reload } = install(first, second)
+    const first = fakeLogin()
+    const second = fakeLogin()
+    const { reload } = install(first, second)
     const tab = await import('../../src/sign-in')
     vi.resetModules()
     const otherTab = await import('../../src/sign-in')
     tab.signIn()
     otherTab.signIn()
-    send({ origin: ORIGIN, source: first as unknown as Window, data: { type: SIGNIN_DONE } })
+    await poll(1)
+    first.page.avatar = true
+    await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(2))
-    expect(second.closed).toBe(true)
-    // the channel goes and the reset runs once, in the tab that signed in, and before any tab loads again
-    expect(calls).toEqual([`store ${SIGNED_IN_KEY}`, `remove ${CHANNEL_KEY}`, 'reset', 'reload', 'reload'])
+    expect(second.close).toHaveBeenCalledOnce()
+    // the reset runs once, in the tab that signed in, and before any tab loads again
+    expect(calls.filter((call) => call === 'reset' || call === 'reload')).toEqual(['reset', 'reload', 'reload'])
   })
 })
 
@@ -319,12 +294,12 @@ describe('switching channel', () => {
   })
 
   it('stores the brand channel, then every other tab loads again and this one goes home', async () => {
-    const { reload, assign, local } = install(fakeWindow())
+    const { reload, assign, stored } = install(fakeLogin())
     const tab = await import('../../src/sign-in')
     vi.resetModules()
     await import('../../src/sign-in')
     tab.switchChannel(BRAND_PAGE_ID)
-    expect(local.get(CHANNEL_KEY)).toBe(BRAND_PAGE_ID)
+    expect(stored[CHANNEL_KEY]).toBe(BRAND_PAGE_ID)
     expect(assign).toHaveBeenCalledWith('/')
     await vi.advanceTimersByTimeAsync(0)
     expect(reload).toHaveBeenCalledOnce()
@@ -333,11 +308,11 @@ describe('switching channel', () => {
   })
 
   it("back to the account's own channel, keeps no channel", async () => {
-    const { assign, local } = install(fakeWindow())
-    local.set(CHANNEL_KEY, BRAND_PAGE_ID)
+    const { assign, stored } = install(fakeLogin())
+    stored[CHANNEL_KEY] = BRAND_PAGE_ID
     const { switchChannel } = await import('../../src/sign-in')
     switchChannel()
-    expect(local.has(CHANNEL_KEY)).toBe(false)
+    expect(stored[CHANNEL_KEY]).toBeUndefined()
     expect(assign).toHaveBeenCalledWith('/')
   })
 })

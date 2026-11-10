@@ -22,9 +22,9 @@ const loadWorker = async () => {
   vi.stubGlobal('self', { addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => listeners.push(listener) })
   await import('../../../src/engine/egress.worker')
   const post = (data: unknown) => { for (const listener of listeners) listener({ data }) }
-  const hand = (role?: string): Port => {
+  const hand = (): Port => {
     const port = { start: () => {}, close: vi.fn() }
-    post({ type: EGRESS_KEY, ...role ? { role } : {}, port })
+    post({ type: EGRESS_KEY, port })
     return port
   }
   return { post, hand, api: () => expose.mock.lastCall![0] as EgressApi }
@@ -41,36 +41,23 @@ describe('the egress worker ports', () => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps the engine port when the sign-in window takes one', async () => {
+  it('releases the previous port when the next engine takes one', async () => {
     const { hand } = await loadWorker()
-    const engine = hand()
-    const signIn = hand('signin')
-    expect(engine.close).not.toHaveBeenCalled()
-    expect(signIn.close).not.toHaveBeenCalled()
+    const first = hand()
+    const second = hand()
+    expect(first.close).toHaveBeenCalledOnce()
+    expect(second.close).not.toHaveBeenCalled()
   })
 
-  it('releases the previous port of the same role', async () => {
-    const { hand } = await loadWorker()
-    const firstEngine = hand()
-    const firstSignIn = hand('signin')
-    hand()
-    hand('signin')
-    expect(firstEngine.close).toHaveBeenCalledOnce()
-    expect(firstSignIn.close).toHaveBeenCalledOnce()
-  })
-
-  it("leaves the sign-in window's requests alone on an engine reset", async () => {
+  it("drops every request in flight on an engine reset", async () => {
     const { hand, post, api } = await loadWorker()
     hand()
     const egress = api()
-    const engineRequest = egress.libcurlFetch('frame:1:1', 'https://rr1.googlevideo.com/videoplayback', { method: 'GET' })
-    const signInRequest = egress.libcurlFetch('signin:1', 'https://accounts.google.com/v3/signin/identifier', { method: 'GET' })
-    const signInSettled = vi.fn()
-    void signInRequest.then(signInSettled, signInSettled)
+    const first = egress.libcurlFetch('frame:1:1', 'https://rr1.googlevideo.com/videoplayback', { method: 'GET' })
+    const second = egress.libcurlFetch('frame:1:2', 'https://www.google.com/js/th/interpreter.js', { method: 'GET' })
     await vi.waitFor(() => expect(libcurlFetch).toHaveBeenCalledTimes(2))
     post({ type: EGRESS_ABORT_ALL })
-    await expect(engineRequest).rejects.toThrow('aborted')
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(signInSettled).not.toHaveBeenCalled()
+    await expect(first).rejects.toThrow('aborted')
+    await expect(second).rejects.toThrow('aborted')
   })
 })

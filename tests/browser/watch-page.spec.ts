@@ -212,10 +212,13 @@ test('opens the sign-in window from Like and Dislike signed out', async ({ page 
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.engine), { timeout: 90_000 }).toBe('ready')
   await expect(page.locator('header').getByRole('button', { name: 'Sign in' })).toBeVisible({ timeout: 60_000 })
   for (const name of ['Like', 'Dislike']) {
-    const opened = page.context().waitForEvent('page', { timeout: 30_000 })
-    await page.locator('main').getByRole('button', { name, exact: true }).first().click()
-    const popup = await opened
-    await expect(popup).toHaveURL(/\/__yt_scramjet__\/signin(?:\.html)?$/)
-    await popup.close()
+    // a press before the last window's close was noticed opens nothing, so it is pressed again
+    await expect(async () => {
+      const opened = page.context().waitForEvent('page', { timeout: 5_000 })
+      await page.locator('main').getByRole('button', { name, exact: true }).first().click()
+      const popup = await opened
+      await expect(popup).toHaveURL(/^https:\/\/fkn\.app\/attach-window\?/)
+      await popup.close()
+    }).toPass({ timeout: 60_000 })
   }
 })
