@@ -1,4 +1,5 @@
 import { readAgain } from '../read-again'
+import { realm } from './realm'
 
 /**
  * A watch page's attestation challenge and the `ytcfg` it was issued with, which BotGuard reads as
@@ -109,11 +110,10 @@ const readPagePlayerId = (html: string) => html.match(/"PLAYER_JS_URL"\s*:\s*"([
 /** The id of the player the watch page answering `raw` was rendered with, from its PLAYER_JS_URL; undefined when it names none. */
 export const pagePlayerOf = (raw: object) => pagePlayers.get(raw)
 
-// a signed-in read through the relay carries no nonce, so a retry inside the relay's 60 s error TTL can get the same cached answer
 const fetchWatchPage = async (videoId: string, visitorData: string | undefined, playerParams: string | undefined) => {
   const params = playerParams ? `&pp=${encodeURIComponent(playerParams)}` : ''
   const response = await readAgain(
-    () => fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}`, {
+    () => realm.fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}`, {
       headers: visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {},
     }),
     ({ status }) => status === 429 || status >= 500,

@@ -1,20 +1,16 @@
-import type { AgentApi, AgentCancel, AgentMethod, AgentResponse, EngineReport } from '../engine/agent-protocol'
+import type { AgentApi, AgentCancel, AgentMethod, AgentResponse, EngineReport, PageRequest, PageResponse } from '../engine/agent-protocol'
 
 import { AGENT_METHODS } from '../engine/agent-protocol'
-import { FRAME_AGENT_CONNECT } from './protocol'
 
-type FrameWindow = Window & {
-  [FRAME_AGENT_CONNECT]?: (port: MessagePort) => void
-}
-
-// past this a call counts as the engine page's failure, and the session is built in this realm instead; under botguard.ts's 10000 ms wait so the fallback still lands inside it
+// past this a BotGuard call counts as the FKN page's failure; under botguard.ts's 10000 ms wait so a new session still lands inside it
 const AGENT_CALL_TIMEOUT_MS = 5_000
 
 let port: MessagePort | undefined
 let requestId = 0
 const pending = new Map<number, { resolve(value: unknown): void, reject(error: Error): void }>()
 
-const connect = (next: MessagePort) => {
+/** Connects the engine to the app realm's bridge to the FKN page (agent-host.ts). */
+export const connectAgent = (next: MessagePort) => {
   next.addEventListener('message', (event) => {
     const message = event.data as AgentResponse
     const request = pending.get(message.id)
@@ -27,38 +23,63 @@ const connect = (next: MessagePort) => {
   port = next
 }
 
-if (typeof window !== 'undefined') {
-  Object.defineProperty(window as FrameWindow, FRAME_AGENT_CONNECT, { configurable: true, value: connect })
-}
+const notConnected = () => new Error('yt-client agent: the FKN page is not connected')
 
-const call = (target: MessagePort, method: AgentMethod, args: unknown[]) => new Promise<unknown>((resolve, reject) => {
-  const id = ++requestId
-  const timeout = setTimeout(() => {
-    if (!pending.delete(id)) return
-    target.postMessage({ type: 'cancel', id } satisfies AgentCancel)
-    reject(new Error(`yt-client agent: ${method} timed out after ${AGENT_CALL_TIMEOUT_MS} ms`))
-  }, AGENT_CALL_TIMEOUT_MS)
-  pending.set(id, {
-    resolve: (value) => {
-      clearTimeout(timeout)
-      resolve(value)
-    },
-    reject: (error) => {
-      clearTimeout(timeout)
+// a call with no deadline ends with its signal: the page's fetch is then aborted where it runs
+const call = (target: MessagePort, method: AgentMethod, args: unknown[], { timeoutMs, signal }: { timeoutMs?: number, signal?: AbortSignal } = {}) =>
+  new Promise<unknown>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const id = ++requestId
+    const giveUp = (error: unknown) => {
+      if (!pending.delete(id)) return
+      target.postMessage({ type: 'cancel', id } satisfies AgentCancel)
       reject(error)
-    },
+    }
+    const timeout = timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => giveUp(new Error(`yt-client agent: ${method} timed out after ${timeoutMs} ms`)), timeoutMs)
+    const onAbort = () => giveUp(signal!.reason)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const settle = () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    pending.set(id, {
+      resolve: (value) => {
+        settle()
+        resolve(value)
+      },
+      reject: (error) => {
+        settle()
+        reject(error)
+      },
+    })
+    target.postMessage({ id, method, args })
   })
-  target.postMessage({ id, method, args })
-})
 
-/** The BotGuard agent in the engine page, or undefined when this engine was booted with no agent port (the step flag off). */
+/** BotGuard's half in the FKN page, each call bounded by 5000 ms, or undefined when no bridge was connected. */
 export const engineAgent = (): AgentApi | undefined => {
   const target = port
   if (!target) return undefined
-  return Object.fromEntries(AGENT_METHODS.map((method) => [method, (...args: unknown[]) => call(target, method, args)])) as AgentApi
+  return Object.fromEntries(AGENT_METHODS.map((method) => [method, (...args: unknown[]) => call(target, method, args, { timeoutMs: AGENT_CALL_TIMEOUT_MS })])) as AgentApi
 }
 
-/** Tells the app realm the last mint's kind and the session's VM; nothing is sent with no agent port. */
+/** A request through the FKN page's own fetch, on its jar. It has no deadline: `signal` ends it, in the page too. */
+export const pageFetch = async (url: string, request: PageRequest, signal?: AbortSignal) => {
+  if (!port) throw notConnected()
+  return await call(port, 'fetch', [url, request], { signal }) as PageResponse
+}
+
+/** The FKN page's `document.cookie`, bounded by `timeoutMs`. */
+export const pageCookie = async (timeoutMs = AGENT_CALL_TIMEOUT_MS) => {
+  if (!port) throw notConnected()
+  return await call(port, 'cookie', [], { timeoutMs }) as string
+}
+
+/** Tells the app realm the last mint's kind, the session's VM or the direct lane's state; nothing is sent with no bridge. */
 export const reportEngine = (report: Omit<EngineReport, 'type'>) => {
   port?.postMessage({ type: 'report', ...report } satisfies EngineReport)
 }

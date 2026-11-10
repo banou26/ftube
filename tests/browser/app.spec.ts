@@ -2,7 +2,9 @@ import type { ConsoleMessage } from '@playwright/test'
 
 import { expect, test } from './test'
 
-import { FRAME_BOOTSTRAP_URL } from '../../src/scramjet/fkn-transport'
+import { ENGINE_PATH } from '../../src/engine/protocol'
+
+const isEngineFrame = (url: string) => new URL(url, 'http://base.invalid').pathname === ENGINE_PATH
 
 test('plays a complete static YouTube video', async ({ page }) => {
   test.setTimeout(420_000)
@@ -12,7 +14,7 @@ test('plays a complete static YouTube video', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-engine', 'ready', { timeout: 30_000 })
   const video = page.locator('video')
   await expect(video).toBeVisible()
-  const currentFrame = () => page.frames().find((candidate) => candidate.url().includes('/proxy/'))
+  const currentFrame = () => page.frames().find((candidate) => isEngineFrame(candidate.url()))
   const fail = async (error: Error): Promise<never> => {
     const media = await video.evaluate((element) => {
       const player = element as HTMLVideoElement
@@ -88,7 +90,7 @@ test('starts repeated playback sessions in one frame', async ({ page }) => {
       () => video.evaluate((element) => (element as HTMLVideoElement).currentTime),
       { timeout: 100_000, message: `playback session ${attempt} did not start` },
     ).toBeGreaterThan(1).catch(async (error) => {
-      const frame = page.frames().find((candidate) => candidate.url().includes('/proxy/'))
+      const frame = page.frames().find((candidate) => isEngineFrame(candidate.url()))
       const api = await frame?.locator('html').getAttribute('data-frame-api').catch(() => null)
       throw new Error(`${error.message}\napi=${api}\nconsole=${JSON.stringify(logs)}`)
     })
@@ -173,8 +175,7 @@ test('boots the frame engine and loads YouTube search results', async ({ page })
     })))
     throw new Error(`${error.message}\nframes=${JSON.stringify(state)}\nconsole=${JSON.stringify(logs)}`)
   })
-  const frame = page.frames().find((candidate) => candidate.url().includes('/proxy/'))
-  expect(decodeURIComponent(frame?.url() ?? '')).toContain(FRAME_BOOTSTRAP_URL)
+  expect(page.frames().filter((candidate) => isEngineFrame(candidate.url()))).toHaveLength(1)
   await expect(page.getByRole('heading', { name: 'Results for rick astley' })).toBeVisible()
   await expect(page.locator('article').first()).toBeVisible({ timeout: 75_000 }).catch(async (error) => {
     const content = await page.locator('main').innerText()

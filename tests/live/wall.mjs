@@ -88,7 +88,7 @@ const observeRecovery = () => {
       videos.add(video)
       seen.videos++
     }
-    for (const frame of document.querySelectorAll('iframe[src$="/__yt_scramjet__/host.html"]')) {
+    for (const frame of document.querySelectorAll('iframe[src$="/__yt_engine__/engine.html"]')) {
       if (hosts.has(frame)) continue
       hosts.add(frame)
       seen.hosts++

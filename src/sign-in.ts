@@ -1,11 +1,12 @@
 import type { SignInWindowMessage } from './engine/protocol'
 
 import { showToast } from './components/ui/toast'
-import { storeChannel } from './scramjet/channel'
-import { clearSessionCookies, startEngine } from './engine/client'
+import { mountHiddenFrame, stopAgentHost } from './engine/agent-host'
+import { resetEngine, startEngine } from './engine/client'
 import { buildId, reloadOnceForBuild } from './engine/engine-build'
+import { loadedLib, startPlatform } from './engine/platform'
+import { clearSignedIn, markSignedIn, readChannel, storeChannel } from './engine/signed-in'
 import { jarHoldsSession } from './scramjet/jar'
-import { startPlatform } from './engine/platform'
 import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from './engine/protocol'
 
 /**
@@ -20,9 +21,10 @@ const WIDTH = 500
 const HEIGHT = 700
 const CLOSED_POLL_MS = 500
 
-// every tab's engine reads the cookies and the channel once at boot, so a sign-in or a switch in any tab reloads them all
+// every tab's engine reads the session and the channel once at boot, so a sign-in, a sign-out or a switch in any tab reloads them all
 const SIGNED_IN_CHANNEL = 'yt-client-signed-in'
 const SIGNED_IN = 'signed-in'
+const SIGNED_OUT = 'signed-out'
 const SWITCHED = 'switched'
 
 let openWindow: Window | undefined
@@ -36,7 +38,7 @@ const landSignedIn = () => {
 
 const tabs = new BroadcastChannel(SIGNED_IN_CHANNEL)
 tabs.addEventListener('message', (event: MessageEvent) => {
-  if (event.data === SWITCHED) {
+  if (event.data === SIGNED_OUT || event.data === SWITCHED) {
     location.reload()
     return
   }
@@ -49,7 +51,7 @@ tabs.addEventListener('message', (event: MessageEvent) => {
 const finishSignIn = async () => {
   if (finishing) return
   finishing = true
-  storeChannel()
+  markSignedIn()
   await startEngine().then((engine) => engine.resetIdentity()).catch(() => {})
   tabs.postMessage(SIGNED_IN)
   landSignedIn()
@@ -121,7 +123,7 @@ export const signIn = () => {
 
 /**
  * Makes every tab act as another channel of the signed-in Google account: a brand channel's page ID, or none for the
- * account's own channel. Each tab's next engine sends it (scramjet/channel.ts), so every tab loads again.
+ * account's own channel. Each tab's next engine sends it (lanes.ts), so every tab loads again.
  */
 export const switchChannel = (brandPageId?: string) => {
   storeChannel(brandPageId)
@@ -129,12 +131,41 @@ export const switchChannel = (brandPageId?: string) => {
   location.assign('/')
 }
 
-/** Signs out and goes home. The cookie clear IS the sign-out, so it throws, staying on the page, when the jar could not be cleared. */
+/**
+ * The domains whose sites sign-out clears in FKN's jar: `clearCookies` reaches each one's whole site, so every
+ * youtube.com and every google.com cookie.
+ */
+export const SIGN_OUT_DOMAINS = ['www.youtube.com', 'accounts.google.com']
+
+/**
+ * Signs out of YouTube and Google in FKN's jar, the one every fkn.app app shares, so all of them are signed out on this
+ * device. The engine is reset and the FKN page detached first, so no request in flight sets a cookie again; then the
+ * cookies go, and every tab loads again. Google is not told. Rejects when the cookies could not be cleared, with the
+ * page still signed in: its next engine attaches the FKN page on the session's jar again.
+ */
 export const signOut = async () => {
+  await startPlatform()
+  const lib = loadedLib()!
+  await startEngine().then((engine) => engine.resetIdentity()).catch(() => {})
+  const channel = readChannel()
+  // cleared first, so an engine started meanwhile attaches its page on a jar of its own
+  clearSignedIn()
+  resetEngine()
+  stopAgentHost()
+  const iframe = mountHiddenFrame()
   try {
-    await (await startEngine()).resetIdentity()
-  } catch {}
-  await clearSessionCookies()
-  storeChannel()
+    const frame = await lib.attachFrame({ iframe, cookies: 'persistent', domains: SIGN_OUT_DOMAINS })
+    await frame.clearCookies()
+  } catch (error) {
+    markSignedIn()
+    storeChannel(channel)
+    // an engine or page started while the attach was awaited read the cleared flag and runs signed out
+    resetEngine()
+    stopAgentHost()
+    throw error
+  } finally {
+    iframe.remove()
+  }
+  tabs.postMessage(SIGNED_OUT)
   location.assign('/')
 }

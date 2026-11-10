@@ -27,5 +27,4 @@ jobs:
 
       - run: npm run lint
 
-      # Kept because it includes the separate frame bundle, which has no HMR and is easy to leave stale after a src/frame change.
       - run: npm run build

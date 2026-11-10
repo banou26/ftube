@@ -70,7 +70,7 @@ export type AgentCancel = { type: 'cancel', id: number }
 export type AgentControl = { type: 'ready' } | { type: 'ping' } | { type: 'pong' }
 
 export const MINT_KINDS = ['session', 'stored', 'cold'] as const
-export const ENGINES = ['agent', 'scramjet'] as const
+export const ENGINES = ['agent'] as const
 export const DIRECT_STATES = ['on', 'off', 'skipped'] as const
 
 /**

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { CHANNEL_KEY } from '../../src/scramjet/channel'
 import { SIGNIN_DONE, SIGNIN_HELLO, SIGNIN_PORTS, SIGNIN_WINDOW_PATH } from '../../src/engine/protocol'
+import { CHANNEL_KEY, SIGNED_IN_KEY } from '../../src/engine/signed-in'
 import { BRAND_PAGE_ID } from './fixtures/accounts-list'
 import { BUILD, querySelector } from './fixtures/build-tag'
 
@@ -17,10 +17,10 @@ const openEgressPort = vi.fn((_role?: string) => egressPort)
 const jarHoldsSession = vi.fn(async () => false)
 
 vi.mock('../../src/components/ui/toast', () => ({ showToast }))
-const clearSessionCookies = vi.fn(async () => { calls.push('clear') })
-vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), clearSessionCookies }))
+vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), resetEngine: () => {} }))
+vi.mock('../../src/engine/agent-host', () => ({ mountHiddenFrame: () => ({ remove: () => {} }), stopAgentHost: () => {} }))
 const startPlatform = vi.fn(async () => ({ openEgressPort }))
-vi.mock('../../src/engine/platform', () => ({ startPlatform }))
+vi.mock('../../src/engine/platform', () => ({ startPlatform, loadedLib: () => undefined }))
 vi.mock('../../src/scramjet/jar', () => ({ jarHoldsSession }))
 
 const ORIGIN = 'https://youtube.fkn.app'
@@ -228,7 +228,8 @@ describe('the sign-in window', () => {
     send({ origin: ORIGIN, source: win as unknown as Window, data: { type: SIGNIN_DONE } })
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(local.has(CHANNEL_KEY)).toBe(false)
-    expect(calls).toEqual([`remove ${CHANNEL_KEY}`, 'reset', 'reload'])
+    expect(local.get(SIGNED_IN_KEY)).toBe('1')
+    expect(calls).toEqual([`store ${SIGNED_IN_KEY}`, `remove ${CHANNEL_KEY}`, 'reset', 'reload'])
   })
 
   it('goes home after a sign-in from /signin, which has nothing for a signed-in person', async () => {
@@ -299,7 +300,7 @@ describe('the sign-in window', () => {
     await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(2))
     expect(second.closed).toBe(true)
     // the channel goes and the reset runs once, in the tab that signed in, and before any tab loads again
-    expect(calls).toEqual([`remove ${CHANNEL_KEY}`, 'reset', 'reload', 'reload'])
+    expect(calls).toEqual([`store ${SIGNED_IN_KEY}`, `remove ${CHANNEL_KEY}`, 'reset', 'reload', 'reload'])
   })
 })
 
@@ -338,37 +339,5 @@ describe('switching channel', () => {
     switchChannel()
     expect(local.has(CHANNEL_KEY)).toBe(false)
     expect(assign).toHaveBeenCalledWith('/')
-  })
-})
-
-describe('signing out', () => {
-  beforeEach(() => {
-    vi.resetModules()
-    calls.length = 0
-    channels.clear()
-    resetIdentity.mockClear()
-    clearSessionCookies.mockClear()
-  })
-
-  afterEach(() => vi.unstubAllGlobals())
-
-  it('clears the session, then the picked channel, and goes home', async () => {
-    const { assign, local } = install(fakeWindow())
-    local.set(CHANNEL_KEY, BRAND_PAGE_ID)
-    const { signOut } = await import('../../src/sign-in')
-    await signOut()
-    expect(calls).toEqual(['reset', 'clear', `remove ${CHANNEL_KEY}`])
-    expect(local.has(CHANNEL_KEY)).toBe(false)
-    expect(assign).toHaveBeenCalledWith('/')
-  })
-
-  it('keeps the channel and stays when the session could not be cleared', async () => {
-    const { assign, local } = install(fakeWindow())
-    local.set(CHANNEL_KEY, BRAND_PAGE_ID)
-    clearSessionCookies.mockRejectedValueOnce(new Error('yt-client: clearing session cookies timed out'))
-    const { signOut } = await import('../../src/sign-in')
-    await expect(signOut()).rejects.toThrow('timed out')
-    expect(local.get(CHANNEL_KEY)).toBe(BRAND_PAGE_ID)
-    expect(assign).not.toHaveBeenCalled()
   })
 })

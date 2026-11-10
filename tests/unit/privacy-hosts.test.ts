@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from 'vite-plus/test'
 
-import { directMethod } from '../../src/frame/protocol'
+import { laneOf } from '../../src/frame/lanes'
 import { DIRECT_HOSTS, FKN_DOMAINS } from '../../src/privacy-hosts'
 import store from './fixtures/channel-store.json'
 import mrbeas from './fixtures/suggestions-mrbeas.txt?raw'
@@ -13,16 +13,16 @@ const within = (hostname: string, domain: string) => hostname === domain || host
 const listed = (hostname: string) => DIRECT_HOSTS.some(({ domain }) => within(hostname, domain))
 const fkn = (hostname: string) => FKN_DOMAINS.some((domain) => within(hostname, domain))
 
-// raw text through vite, since vite.config.ts shims node:fs to an empty module under vp test; the two build outputs
-// are left out (codegen's comments name its docs, and the frame bundle is src/frame, which is scanned as source)
+// raw text through vite, since vite.config.ts shims node:fs to an empty module under vp test; codegen's output is left
+// out, since its comments name its docs
 const sources = import.meta.glob(
   [
     '../../src/**/*.{ts,tsx,css,html}',
     '!../../src/generated/**',
     '../../index.html',
     '../../__yt_scramjet__/*.html',
-    '../../public/**/*.js',
-    '!../../public/__yt_scramjet__/youtube-frame.js',
+    '../../__yt_engine__/*.html',
+    '../../public/**/*.{js,html}',
   ],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
@@ -96,7 +96,7 @@ describe('the hosts the privacy page lists', () => {
   })
 
   it('name the captions the browser reads from www.youtube.com itself', () => {
-    expect(directMethod('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&fmt=json3')).toBe('GET')
+    expect(laneOf('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&fmt=json3', 'GET', false)).toBe('direct')
     expect(DIRECT_HOSTS.find(({ domain }) => domain === 'www.youtube.com')?.what).toMatch(/\bcaptions\b/)
   })
 

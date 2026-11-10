@@ -1,13 +1,12 @@
 import type { FrameApi, FrameMethod, FrameProgress, FrameRequest, FrameResponse } from '../frame/protocol'
-import type { HostBootstrap, HostControlEvent, HostControlRequest, HostHello, HostRestart } from './protocol'
+import type { EngineReady, HostBootstrap, HostHello } from './protocol'
 
 import { FRAME_METHODS } from '../frame/protocol'
-import { openAgentBridge, startAgentHost } from './agent-host'
-import { stepEnabled } from './step-flag'
+import { startAgentHost } from './agent-host'
 import { buildId, ENGINE_BUILD_MISMATCH, reloadOnceForBuild } from './engine-build'
-import { openDirectLane, reportDirectOff } from '../scramjet/direct-lane'
 import { abortPlatformEgress, startPlatform } from './platform'
-import { CLEAR_COOKIES, COOKIES_CLEARED, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO, HOST_RESTART } from './protocol'
+import { ENGINE_PATH, ENGINE_READY, HOST_BOOTSTRAP, HOST_HELLO } from './protocol'
+import { stepEnabled } from './step-flag'
 
 let engine: Promise<FrameApi> | undefined
 let engineFrame: HTMLIFrameElement | undefined
@@ -15,11 +14,6 @@ let engineConnection: ReturnType<typeof createFrameApi> | undefined
 let engineCleanup: (() => void) | undefined
 let engineReject: ((error: Error) => void) | undefined
 let engineGeneration = 0
-let engineControl: MessagePort | undefined
-let engineDirect: ReturnType<typeof openDirectLane> | undefined
-let controlRequestId = 0
-const CONTROL_TIMEOUT_MS = 15_000
-const clearPending = new Map<number, { resolve: () => void, reject: (error: Error) => void }>()
 
 type PendingCall = {
   method: FrameMethod
@@ -104,20 +98,6 @@ const createFrameApi = (port: MessagePort, onFatal: (error: Error) => void) => {
   }
 }
 
-const connectControl = (port: MessagePort) => {
-  engineControl = port
-  port.addEventListener('message', (event) => {
-    const message = event.data as HostControlEvent
-    if (message.type !== COOKIES_CLEARED) return
-    const pending = clearPending.get(message.id)
-    clearPending.delete(message.id)
-    if (!pending) return
-    if (message.error) pending.reject(new Error(`yt-client: clearing session cookies failed: ${message.error}`))
-    else pending.resolve()
-  })
-  port.start()
-}
-
 const invalidateEngine = (generation: number, error: Error) => {
   if (generation !== engineGeneration) return
   // the egress worker outlives the engine, so its in-flight work has to be dropped explicitly
@@ -129,18 +109,8 @@ const invalidateEngine = (generation: number, error: Error) => {
   connection?.close(error)
   engineReject?.(error)
   engineReject = undefined
-  engineControl?.close()
-  engineControl = undefined
-  engineDirect?.close()
-  engineDirect = undefined
-  for (const pending of clearPending.values()) pending.reject(error)
-  clearPending.clear()
-  // a host that served an engine is kept, and the next engine starts in it: the host's address serves the latest
-  // build, so after a deploy a new host would be another build, which this realm could only take by reloading the page
-  if (!connection) {
-    engineFrame?.remove()
-    engineFrame = undefined
-  }
+  engineFrame?.remove()
+  engineFrame = undefined
   engine = undefined
 }
 
@@ -150,43 +120,37 @@ const fromAnotherBuild = (generation: number, engineBuild: unknown) => {
   reloadOnceForBuild(engineBuild)
 }
 
+/**
+ * The engine, booting it in a hidden same-origin frame (`ENGINE_PATH`) once per generation: the FrameApi once the
+ * frame said ENGINE_READY. The FKN page it reaches YouTube's session and BotGuard through outlives the generation.
+ */
 export const startEngine = () => {
   if (engine) return engine
   const generation = ++engineGeneration
-  const kept = engineFrame
   engine = new Promise((resolve, reject) => {
     engineReject = reject
     const platformReady = startPlatform()
     // answerHello is the real handler; this only keeps a platform failure from surfacing as an unhandled rejection
     platformReady.catch(() => {})
-    const agentStep = stepEnabled('y1')
-    if (agentStep) startAgentHost()
-    const directStep = stepEnabled('direct')
-    if (!directStep) reportDirectOff()
+    const agentHost = startAgentHost()
+    const direct = stepEnabled('direct')
 
-    const frame = kept ?? document.createElement('iframe')
+    const frame = document.createElement('iframe')
     engineFrame = frame
+    frame.hidden = true
+    frame.src = ENGINE_PATH
     let engineBuild: unknown
     const answerHello = async () => {
       try {
         const platform = await platformReady
         if (generation !== engineGeneration) return
-        const agent = agentStep ? openAgentBridge() : undefined
-        engineDirect?.close()
-        engineDirect = directStep ? openDirectLane() : undefined
-        const ports = [...(agent ? [agent] : []), ...(engineDirect ? [engineDirect.port] : [])]
-        if (kept) {
-          frame.contentWindow?.postMessage(
-            { type: HOST_RESTART, ...(engineDirect && { direct: true }) } satisfies HostRestart,
-            location.origin,
-            ports,
-          )
-          return
-        }
+        const egress = platform.openEgressPort()
+        const extFetch = platform.openExtFetchPort()
+        const agent = agentHost.openBridge()
         frame.contentWindow?.postMessage(
-          { type: HOST_BOOTSTRAP, build: buildId(), ...(engineDirect && { direct: true }) } satisfies HostBootstrap,
+          { type: HOST_BOOTSTRAP, build: buildId(), signedIn: agentHost.signedIn, direct } satisfies HostBootstrap,
           location.origin,
-          [platform.openEgressPort(), platform.openExtFetchPort(), ...ports],
+          [egress, extFetch, agent],
         )
       } catch (error) {
         invalidateEngine(generation, error instanceof Error ? error : new Error(String(error)))
@@ -200,15 +164,16 @@ export const startEngine = () => {
         else void answerHello()
         return
       }
-      if (event.data?.type !== ENGINE_READY) return
+      const ready = event.data as Partial<EngineReady> | undefined
+      if (ready?.type !== ENGINE_READY) return
       engineCleanup?.()
       engineCleanup = undefined
-      if (event.data.error === ENGINE_BUILD_MISMATCH) {
+      if (ready.error === ENGINE_BUILD_MISMATCH) {
         fromAnotherBuild(generation, engineBuild)
         return
       }
-      if (event.data.error) {
-        invalidateEngine(generation, new Error(event.data.error))
+      if (ready.error) {
+        invalidateEngine(generation, new Error(ready.error))
         return
       }
       const port = event.ports[0]
@@ -218,51 +183,18 @@ export const startEngine = () => {
       }
       if (generation !== engineGeneration) {
         port.close()
-        event.ports[1]?.close()
         return
       }
       engineReject = undefined
-      const control = event.ports[1]
-      if (control) connectControl(control)
+      document.documentElement.dataset.ytSignedIn = String(ready.signedIn === true)
       engineConnection = createFrameApi(port, (error) => invalidateEngine(generation, error))
       resolve(engineConnection.api)
     }
     window.addEventListener('message', onMessage)
     engineCleanup = () => window.removeEventListener('message', onMessage)
-    // a kept host passed its build check when it said hello, and holds the bootstrap's ports
-    if (kept) {
-      void answerHello()
-      return
-    }
-    frame.hidden = true
-    frame.src = '/__yt_scramjet__/host.html'
     document.body.appendChild(frame)
   })
   return engine
 }
 
 export const resetEngine = () => invalidateEngine(engineGeneration, new Error('yt-client: engine reset'))
-
-export const clearSessionCookies = async () => {
-  await startEngine()
-  const control = engineControl
-  if (!control) throw new Error('yt-client: engine host control is missing')
-  const id = ++controlRequestId
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      clearPending.delete(id)
-      reject(new Error('yt-client: clearing session cookies timed out'))
-    }, CONTROL_TIMEOUT_MS)
-    clearPending.set(id, {
-      resolve: () => {
-        clearTimeout(timeout)
-        resolve()
-      },
-      reject: (error) => {
-        clearTimeout(timeout)
-        reject(error)
-      },
-    })
-    control.postMessage({ type: CLEAR_COOKIES, id } satisfies HostControlRequest)
-  })
-}

@@ -3,8 +3,8 @@ import type { EgressRole, ExtFetchRequest, ExtFetchResponse, TransportResponse }
 
 import { EGRESS_ABORT_ALL, EGRESS_KEY } from './protocol'
 
-// `@fkn/lib` lives in the APP realm rather than the host frame because importing it injects the `fkn.app/api` broker iframe into the importing document, and the broker renders the platform's own trusted UI (connect popup, relay picker, quota toast)
-// the host frame is `hidden`, so in there that iframe can be neither seen nor clicked and its overlay rAF loop does not tick: connecting an account was impossible, which left every WebVPN session on free-tier pacing, and free-tier pacing is what carries SABR media
+// `@fkn/lib` lives in the APP realm rather than the engine frame because importing it injects the `fkn.app/api` broker iframe into the importing document, and the broker renders the platform's own trusted UI (connect popup, relay picker, quota toast)
+// the engine frame is `hidden`, so in there that iframe can be neither seen nor clicked and its overlay rAF loop does not tick: connecting an account was impossible, which left every WebVPN session on free-tier pacing, and free-tier pacing is what carries SABR media
 // THIS REALM IS A RELAY: `relayWorker` hands the window's `fkn-api` channel to the worker, and since @fkn/lib 0.9.42 this realm's own broker calls (the install prompt, the overlay host) ride a channel of their own, `fkn-api-window`, never the relayed one
 
 const BROKER_URL = 'https://fkn.app/api'
@@ -41,7 +41,7 @@ export const isOpaqueRedirect = (response: { status: number, type?: string }) =>
   response.status === 0 || response.type === 'opaqueredirect'
 
 // falling back means RE-ISSUING, and the first attempt already reached the server, so only these may honour a manual redirect
-// writes are NOT kept off the extension path: Scramjet marks EVERY request `manual` and Innertube reads over POST, so refusing them there costs the direct path almost entirely (measured: search went from 1.2s back to 3.6s, level with the tunnel)
+// writes are NOT kept off the extension path: SABR's segment POSTs ask for `manual`, and refusing them there would send every segment through the tunnel
 // a write is sent with `follow` instead, so the browser resolves the redirect itself and the answer can never be the opaque one that would need replaying
 const REPLAYABLE_METHODS = ['GET', 'HEAD']
 
@@ -119,6 +119,14 @@ export const serveExtFetch = (port: MessagePort, run: (request: ExtFetch, signal
   port.start()
 }
 
+let fknLib: typeof import('@fkn/lib') | undefined
+
+/**
+ * `@fkn/lib`, once the platform's start imported it, else undefined. For a click handler that must call the lib
+ * before any await: the lib can only be imported after the broker frame is mounted, so it is never imported statically.
+ */
+export const loadedLib = () => fknLib
+
 const create = async () => {
   const worker = new Worker(new URL('./egress.worker.ts', import.meta.url), { type: 'module' })
   const relayAbort = new AbortController()
@@ -128,7 +136,7 @@ const create = async () => {
   }, { once: true })
 
   const brokerLoaded = mountBroker()
-  const [, lib] = await Promise.all([brokerLoaded, import('@fkn/lib')])
+  const [, lib] = await Promise.all([brokerLoaded, import('@fkn/lib').then((module) => (fknLib = module))])
   // the automatic install prompt is the one way the extension surface can pull the broker in, and a missing extension is the ORDINARY case here
   lib.setMissingExtensionHandler(null)
   // async since @fkn/lib 0.9.13, and awaited so a rejection fails this start rather than going unhandled
@@ -229,7 +237,7 @@ let platform: ReturnType<typeof create> | undefined
  *
  * Deliberately memoized rather than tied to the engine: surviving engine
  * resets is half the point of living up here. A FAILED start is not memoized,
- * though - the host frame used to get a fresh broker attempt on every boot, and
+ * though - the engine frame used to get a fresh broker attempt on every boot, and
  * caching the rejection would turn one transient failure into a dead client
  * until reload.
  */

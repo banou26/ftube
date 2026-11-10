@@ -114,13 +114,11 @@ describe('a step run', () => {
   })
 
   it('turns a step that is on by default off with :0, so a control arm runs without it', () => {
-    runWith('y1:0')
-    expect(stepEnabled('y1')).toBe(false)
     runWith('direct:0')
     expect(stepEnabled('direct')).toBe(false)
     expect(parseStep('direct:0').label).toBe('direct:0')
-    runWith('y1:1')
-    expect(stepEnabled('y1')).toBe(true)
+    runWith('direct:1')
+    expect(stepEnabled('direct')).toBe(true)
   })
 
   it('refuses a name that is not a step, and a value the app does not read', () => {

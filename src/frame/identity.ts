@@ -1,8 +1,9 @@
 import { clearStoredTokens, resetPoTokenSession } from './botguard'
 
-export const VISITOR_DATA_KEY = 'yt-client:visitor-data'
+// the names Scramjet's www.youtube.com realm stored these under (`<host>@<key>`), kept so a browser keeps its visitor id
+export const VISITOR_DATA_KEY = 'www.youtube.com@yt-client:visitor-data'
 
-export const GVS_ORIGIN_KEY = 'yt-client:gvs-origin'
+export const GVS_ORIGIN_KEY = 'www.youtube.com@yt-client:gvs-origin'
 
 const INNERTUBE_DB = 'youtubei.js'
 const INNERTUBE_STORE = 'kv-store'
@@ -40,7 +41,7 @@ const deleteInnertubeSessionData = () => new Promise<void>((resolve) => {
   }
 })
 
-// the cookie jar is scramjet's: it IS the auth state and is deliberately never touched here
+// the session is in FKN's jar, which only a sign-out clears (sign-in.ts)
 export const resetIdentity = async () => {
   try {
     localStorage.removeItem(VISITOR_DATA_KEY)

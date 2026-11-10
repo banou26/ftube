@@ -1,11 +1,5 @@
 import type { FrameEgressRequest, FrameEgressResponse } from './protocol'
 
-import { FRAME_EGRESS_CONNECT } from './protocol'
-
-type FrameWindow = Window & {
-  [FRAME_EGRESS_CONNECT]?: (port: MessagePort) => void
-}
-
 let resolvePort: (port: MessagePort) => void = () => {}
 const portReady = new Promise<MessagePort>((resolve) => {
   resolvePort = resolve
@@ -16,25 +10,21 @@ const pending = new Map<number, {
 }>()
 let requestId = 0
 
-if (typeof window !== 'undefined') {
-  Object.defineProperty(window as FrameWindow, FRAME_EGRESS_CONNECT, {
-    configurable: true,
-    value: (port: MessagePort) => {
-      port.addEventListener('message', (event) => {
-        const message = event.data as FrameEgressResponse
-        const request = pending.get(message.id)
-        if (!request) {
-          void message.response?.body?.cancel()
-          return
-        }
-        pending.delete(message.id)
-        if (message.error) request.reject(new Error(message.error))
-        else request.resolve(message.response!)
-      })
-      port.start()
-      resolvePort(port)
-    },
+/** Connects the media lane to the port egress-ports.ts serves; `egressFetch` waits for it. */
+export const connectEgress = (port: MessagePort) => {
+  port.addEventListener('message', (event) => {
+    const message = event.data as FrameEgressResponse
+    const request = pending.get(message.id)
+    if (!request) {
+      void message.response?.body?.cancel()
+      return
+    }
+    pending.delete(message.id)
+    if (message.error) request.reject(new Error(message.error))
+    else request.resolve(message.response!)
   })
+  port.start()
+  resolvePort(port)
 }
 
 const abortReason = (signal?: AbortSignal) => signal?.reason ?? new DOMException('The operation was aborted', 'AbortError')

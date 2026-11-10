@@ -276,15 +276,16 @@ describe('the engine page heartbeat', () => {
     await vi.advanceTimersByTimeAsync(10_000)
   })
 
-  it("publishes the frame's mint and engine reports on <html>, and nothing else", async () => {
+  it("publishes the frame's mint, engine and direct lane reports on <html>, and nothing else", async () => {
     const { host, published } = startHost()
     const bridge = bridgeOf(host)
     bridge.post({ type: 'report', engine: 'agent' })
     bridge.post({ type: 'report', mint: 'session' })
-    bridge.post({ type: 'report', mint: 'cold', engine: 'scramjet' })
-    bridge.post({ type: 'report', mint: '<b>', engine: 'other' })
+    bridge.post({ type: 'report', mint: 'cold', engine: 'scramjet' as 'agent' })
+    bridge.post({ type: 'report', direct: 'skipped' })
+    bridge.post({ type: 'report', mint: '<b>', engine: 'other', direct: 'sideways' })
     await turn()
-    expect(published).toEqual([['ytEngine', 'agent'], ['ytMint', 'session'], ['ytEngine', 'scramjet'], ['ytMint', 'cold']])
+    expect(published).toEqual([['ytEngine', 'agent'], ['ytMint', 'session'], ['ytMint', 'cold'], ['ytDirect', 'skipped']])
   })
 
   it('after a failed attach, the next call attaches again once the backoff passed, and the backoff doubles', async () => {

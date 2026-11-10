@@ -13,10 +13,10 @@ import { buildLiveManifest, liveAnchor, timelineEndMs } from './live-manifest'
 import { openLiveManifest } from './live-open'
 import { closePlaybackEntry, isCancellation, openPlaybackEntry, requestPlaybackSegment } from './playback'
 import { resetIdentity } from './identity'
-import { FRAME_CONNECT, isFrameMethod } from './protocol'
+import { isFrameMethod } from './protocol'
 
 const { id: _sourceId, ...sourceApi } = createYoutubeSource({
-  fetch: globalThis.fetch.bind(globalThis),
+  fetch: youtubeFetch,
   createClient: () => catalogInnertube() as unknown as Promise<YoutubeClient>,
   signedIn: hasSessionCookie,
 })
@@ -131,8 +131,7 @@ const api = {
     const track = entry.captions.find((candidate) => candidate.id === trackId)
     if (!track) throw new Error(`youtube: unknown caption track ${trackId}`)
     const source = await cueSourceFor(entry, track)
-    // off the direct lane, the frame's own fetch rather than `egressFetch`: same-origin here, and an explicit cookie header would route this onto the tunnel
-    const response = await youtubeFetch(timedTextUrl(source.url), { credentials: 'include' })
+    const response = await youtubeFetch(timedTextUrl(source.url))
     if (!response.ok) throw new Error(`youtube: caption track ${trackId} answered ${response.status}`)
     const body = await response.text()
     if (!body) throw new Error(`youtube: caption track ${trackId} was answered with no cues`)
@@ -176,7 +175,8 @@ const dispatch = async (request: FrameRequest, progress: (phase: string) => void
   return (api[request.method] as (...args: unknown[]) => Promise<unknown>)(...request.args)
 }
 
-const connect = (port: MessagePort) => {
+/** Serves the FrameApi on `port`, the one ENGINE_READY hands the app realm. */
+export const connect = (port: MessagePort) => {
   port.addEventListener('message', (event) => {
     const request = event.data as FrameRequest
     document.documentElement.dataset.frameApi = request.method
@@ -204,8 +204,3 @@ const connect = (port: MessagePort) => {
   })
   port.start()
 }
-
-Object.defineProperty(window, FRAME_CONNECT, {
-  configurable: true,
-  value: connect,
-})

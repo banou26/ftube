@@ -12,19 +12,7 @@ vi.mock('../../../src/engine/platform', () => ({
 }))
 
 vi.mock('../../../src/engine/agent-host', () => ({
-  startAgentHost: () => {},
-  openAgentBridge: () => new MessageChannel().port2,
-}))
-
-const lane = vi.hoisted(() => ({ port: undefined as MessagePort | undefined }))
-
-vi.mock('../../../src/scramjet/direct-lane', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../../../src/scramjet/direct-lane')>(),
-  openDirectLane: () => {
-    const channel = new MessageChannel()
-    lane.port = channel.port2
-    return { port: channel.port2, close: () => channel.port1.close() }
-  },
+  startAgentHost: () => ({ openBridge: () => new MessageChannel().port2, signedIn: false }),
 }))
 
 const ORIGIN = 'https://youtube.fkn.app'
@@ -62,39 +50,33 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 describe('the engine bootstrap and the direct lane', () => {
   beforeEach(() => {
     vi.resetModules()
-    lane.port = undefined
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('hands the host no direct lane and marks it off when the step is turned off', async () => {
+  it('tells the engine frame to send nothing direct when the step is turned off', async () => {
     const window = installWindow({ 'yt-client:step:direct': '0' })
     const { startEngine, resetEngine } = await import('../../../src/engine/client')
     void startEngine().catch(() => {})
     window.hello()
     await settle()
     const [bootstrap] = window.posted.filter(({ message }) => message.type === HOST_BOOTSTRAP)
-    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD })
+    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD, signedIn: false, direct: false })
     expect(bootstrap?.transfer).toHaveLength(3)
-    expect(lane.port).toBeUndefined()
-    expect(window.dataset.ytDirect).toBe('off')
     resetEngine()
   })
 
-  it('hands the host the direct lane as its last port by default', async () => {
+  it('lets the engine frame send direct by default', async () => {
     const window = installWindow({})
     const { startEngine, resetEngine } = await import('../../../src/engine/client')
     void startEngine().catch(() => {})
     window.hello()
     await settle()
     const [bootstrap] = window.posted.filter(({ message }) => message.type === HOST_BOOTSTRAP)
-    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD, direct: true })
-    expect(bootstrap?.transfer).toHaveLength(4)
-    expect(lane.port).toBeInstanceOf(MessagePort)
-    expect(bootstrap?.transfer.at(-1)).toBe(lane.port)
-    expect(window.dataset.ytDirect).toBeUndefined()
+    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD, signedIn: false, direct: true })
+    expect(bootstrap?.transfer).toHaveLength(3)
     resetEngine()
   })
 })

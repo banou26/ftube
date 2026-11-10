@@ -1604,15 +1604,16 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
       if (endpoint) await endpoint.call(active.actions)
       return id
     },
-    // Signed-in state comes from the cookie jar probe; the accounts_list call only decorates it, so its failure must not read back as signed out.
+    // Signed-in state comes from the session the engine booted with; the accounts_list call only decorates it, so its failure
+    // must not read back as signed out, but an answer that says the session ended (`signedIn` turns false) does.
     session: async () => {
       if (!signedIn?.()) return { signedIn: false, accounts: [] }
       try {
         // WEB's list holds every channel of the Google account; TV's, which account.getInfo() reads, only the current one (measured 2026-11-06)
         const list = await (await client).actions.execute('/account/accounts_list', { client: 'WEB', parse: true })
-        return normalizeSession(list.actions_memo?.get('AccountItem'))
+        return signedIn() ? normalizeSession(list.actions_memo?.get('AccountItem')) : { signedIn: false, accounts: [] }
       } catch {
-        return { signedIn: true, accounts: [] }
+        return { signedIn: signedIn(), accounts: [] }
       }
     },
   }

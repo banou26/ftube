@@ -12,7 +12,6 @@ import type { EndScreenElement } from './end-screen'
 import type { Storyboard } from './storyboard'
 
 import { parseCaptionTracks } from './captions'
-import { createYoutubeFetch, directLane, reportDirect } from './direct'
 import { egressFetch } from './egress'
 import { parseEndScreen } from './end-screen'
 import { playableFormats } from './formats'
@@ -20,6 +19,7 @@ import { PLAYBACK_REFUSED } from './protocol'
 import { readRefusal } from './refusal'
 import { parseStoryboards } from './storyboard'
 import { GVS_ORIGIN_KEY, VISITOR_DATA_KEY } from './identity'
+import { realm } from './realm'
 import { fetchPlayerResponse, pagePlayerOf } from './watch-page'
 
 export { GVS_ORIGIN_KEY }
@@ -79,25 +79,13 @@ const storeVisitorData = (visitorData: string) => {
   } catch {}
 }
 
-const readAuthCookie = () => {
-  try {
-    return document.cookie.includes('SAPISID=') ? document.cookie : undefined
-  } catch {
-    return undefined
-  }
-}
+/** Whether this engine reads YouTube signed in: the FKN page answered a session at boot, and no answer ended it since. */
+export const hasSessionCookie = () => realm.cookie !== undefined && !realm.signedOut
 
-export const hasSessionCookie = () => readAuthCookie() !== undefined
+const authCookie = realm.cookie
 
-const authCookie = readAuthCookie()
-
-/** The frame's fetch for InnerTube and captions: signed out, both leave from the app realm on the direct lane. */
-export const youtubeFetch = createYoutubeFetch({
-  fetch: (input, init) => globalThis.fetch(input, init),
-  direct: directLane,
-  signedIn: hasSessionCookie,
-  report: reportDirect,
-})
+/** The engine's fetch for youtubei.js, captions and the watch page: each request takes its lane (lanes.ts). */
+export const youtubeFetch = (input: RequestInfo | URL, init?: RequestInit) => realm.fetch(input, init)
 
 // One build per frame, but a failed build is dropped so the next call builds it again: a kept rejection fails every later playback in the frame.
 const keepOnSuccess = <T>(build: () => Promise<T>) => {
@@ -216,8 +204,8 @@ const registerPlayback = async (raw: Record<string, unknown>, nonce: string, for
   const video = formats.find((format) => format.has_video)
   if (audio) url.searchParams.set('afmt', String(audio.itag))
   if (video) url.searchParams.set('fmt', String(video.itag))
-  // as a brand channel, the engine's transport sends it to www.youtube.com with the channel's header (scramjet/channel.ts)
-  const response = await fetch(url, { method: 'POST', headers: { 'X-Goog-Visitor-Id': visitorData } })
+  // as a brand channel, the session lane sends it to www.youtube.com with the channel's header (lanes.ts)
+  const response = await youtubeFetch(url, { method: 'POST', headers: { 'X-Goog-Visitor-Id': visitorData } })
   if (!response.ok) console.warn(`youtube: playback registration returned ${response.status}`)
 }
 

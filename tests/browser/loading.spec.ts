@@ -9,7 +9,7 @@ const holdEngine = async (page: Page) => {
   const held = new Promise<void>((resolve) => {
     release = resolve
   })
-  await page.route('**/__yt_scramjet__/host.html', async (route) => {
+  await page.route('**/__yt_engine__/engine.html', async (route) => {
     await held
     await route.continue()
   })

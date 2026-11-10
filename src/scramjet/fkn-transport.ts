@@ -5,11 +5,11 @@ import type {
   WebSocketDataType,
 } from '@mercuryworkshop/proxy-transports'
 
-import type { EgressFetch } from './channel'
 import type { EgressApi, TransportRequest, TransportResponse } from '../engine/protocol'
 
-import { actAsChannel } from './channel'
 import { SIGNIN_REQUEST_PREFIX } from '../engine/protocol'
+
+type EgressFetch = (url: string, options: TransportRequest, signal: AbortSignal | undefined) => Promise<TransportResponse>
 
 export const FRAME_BOOTSTRAP_URL = 'https://www.youtube.com/__yt_client__/frame'
 
@@ -77,26 +77,6 @@ const createTransport = (ready: () => Promise<void>, egressFetch: EgressFetch): 
     },
   }
   return transport
-}
-
-export type ExtEgressFetch = (
-  url: string,
-  options: TransportRequest,
-  signal: AbortSignal | undefined,
-) => Promise<TransportResponse | null>
-
-/** The engine's transport: the FKN extension when it answers, else the relay, as the brand channel `pageId` when one is given. */
-export const createFknTransport = (
-  remote: Promise<Pick<EgressApi, 'fknFetch'>>,
-  extFetch?: ExtEgressFetch,
-  pageId?: string,
-): ProxyTransport => {
-  const egressFetch: EgressFetch = async (url, options, signal) => {
-    const viaExtension = await extFetch?.(url, options, signal)
-    if (viaExtension) return viaExtension
-    return (await remote).fknFetch(url, options)
-  }
-  return createTransport(async () => { await remote }, pageId ? actAsChannel(egressFetch, pageId) : egressFetch)
 }
 
 // takes NO extension fetch by design: `redirect: 'manual'` there yields an opaque redirect, and split hops are two sessions to Google

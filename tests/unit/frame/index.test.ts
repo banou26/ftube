@@ -6,7 +6,7 @@ import type { SabrSource } from '../../../src/frame/innertube'
 import type { FrameRequest, FrameResponse, PlaybackSession, SegmentRequest } from '../../../src/frame/protocol'
 import { parseEndScreen } from '../../../src/frame/end-screen'
 import { getSabrSource, prefetchInitialPlayerResponse } from '../../../src/frame/innertube'
-import { FRAME_CONNECT, STREAM_REFUSED } from '../../../src/frame/protocol'
+import { STREAM_REFUSED } from '../../../src/frame/protocol'
 import { createSabrSession } from '../../../src/frame/sabr'
 import endScreens from '../fixtures/end-screens.json'
 
@@ -16,6 +16,7 @@ vi.mock('../../../src/frame/innertube', () => ({
   getSabrSource: vi.fn(),
   hasSessionCookie: () => false,
   prefetchInitialPlayerResponse: vi.fn(),
+  youtubeFetch: vi.fn(),
 }))
 vi.mock('../../../src/frame/sabr', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../src/frame/sabr')>(),
@@ -62,11 +63,11 @@ const segment = (requestId: string, sessionId: string): SegmentRequest => ({
 
 let call: <Method extends FrameRequest['method']>(method: Method, ...args: Extract<FrameRequest, { method: Method }>['args']) => Promise<FrameResponse>
 
-// the frame as the app realm reaches it: its FRAME_CONNECT hook, handed a port
+// the frame as the app realm reaches it: its `connect`, handed a port
 beforeAll(async () => {
   vi.stubGlobal('window', {})
   vi.stubGlobal('document', { documentElement: { dataset: {} } })
-  await import('../../../src/frame/index')
+  const { connect } = await import('../../../src/frame/index')
   let deliver: (event: { data: FrameRequest }) => void = () => {}
   const answers = new Map<number, (response: FrameResponse) => void>()
   const port = {
@@ -76,7 +77,7 @@ beforeAll(async () => {
       if ('id' in message && !('progress' in message)) answers.get(message.id)?.(message)
     },
   }
-  ;(window as unknown as Record<string, (port: unknown) => void>)[FRAME_CONNECT]!(port)
+  connect(port as unknown as MessagePort)
   let id = 0
   call = (method, ...args) => new Promise((resolve) => {
     answers.set(++id, resolve)
