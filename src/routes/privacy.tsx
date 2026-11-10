@@ -17,8 +17,8 @@ const KEPT: { title: string, what: string }[] = [
     what: 'Each group\'s name and emoji, when it was last changed, and the name, ID and picture address of each channel in it. Kept until you delete the group on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While yt-client is signed in to FKN, also a random ID for your account\'s copy of the groups.',
   },
   {
-    title: 'Your YouTube session',
-    what: 'The cookies YouTube and Google set while you use yt-client, your sign-in included. Kept until they expire or you sign out, which removes all of them.',
+    title: 'Whether you are signed in',
+    what: 'A yes or no, so the next visit opens your YouTube session. Removed when you sign out, or when YouTube says the session has ended.',
   },
   {
     title: 'Your YouTube visitor ID',
@@ -35,10 +35,6 @@ const KEPT: { title: string, what: string }[] = [
   {
     title: 'YouTube\'s session details and player code',
     what: 'Kept by youtubei.js, the library yt-client reads YouTube with. The session details go when you sign in or sign out. The player code stays.',
-  },
-  {
-    title: 'What YouTube\'s and Google\'s pages keep',
-    what: 'The sign-in window opens youtube.com and Google\'s sign-in page, and their own code keeps its data in this browser, as it would on those sites. It stays until you clear this site\'s data.',
   },
   {
     title: 'Imported watch history',
@@ -138,28 +134,36 @@ export const PrivacyPage = () => {
       <section className='section'>
         <h2 className='section-title'>Where requests go</h2>
         <p>
-          Without the FKN browser extension, yt-client reaches YouTube's pages, API and video through FKN, the platform it
-          runs on, so YouTube sees FKN's address there rather than yours. Your browser makes some requests itself instead,
-          to the servers listed further down: YouTube's API and captions while yt-client is not signed in to YouTube,
-          without your youtube.com cookies; thumbnails and pictures; and dislike counts and sponsor segments while they
-          are on.
+          Without the FKN browser extension, yt-client reaches YouTube's pages and video through FKN, the platform it runs
+          on, so YouTube sees FKN's address there rather than yours. Your browser makes some requests itself instead, to
+          the servers listed further down: YouTube's API while yt-client is not signed in to YouTube, and captions, without
+          your youtube.com cookies; thumbnails and pictures; and dislike counts and sponsor segments while they are on.
         </p>
         <ul>
           <li>
-            YouTube's pages go through the FKN relay, which makes each request for you, and so do its API and captions
-            while you are signed in, or when your browser cannot reach them. When you are signed in, your YouTube cookies
-            go with each request. The relay keeps answers in a cache so it can serve the same request again, for about an
-            hour, less for an error. That includes answers to signed-in requests, which can hold your details on YouTube.
-            Each answer is sealed: it is encrypted with a key made from the whole request, cookies
-            included, and filed under a digest of that request, a short fingerprint of it, not under who sent it. Only an
-            identical request can find and open it.
+            Signed out, YouTube's pages and feeds go through the FKN relay, which makes each request for you, and so do its
+            API and captions when your browser cannot reach them. The relay keeps answers in a cache so it can serve the
+            same request again, for about an hour, less for an error. Each answer is sealed: it is encrypted with a key made
+            from the whole request and filed under a digest of that request, a short fingerprint of it, not under who sent
+            it. Only an identical request can find and open it.
+          </li>
+          <li>
+            Signed in, every request to YouTube except caption files goes from a page FKN runs for yt-client, which holds
+            your YouTube session, through WebVPN or the extension. These requests and their answers do not go through the
+            relay's cache.
           </li>
           <li>
             Video, and the checks YouTube runs before playing it, go over WebVPN: your browser encrypts the connection to
             YouTube's servers end to end, so the WebVPN relay carrying it cannot read it. The relay sees which server and
             port it reaches and how much data passes.
           </li>
-          <li>Signing in goes over WebVPN the same way, with or without the extension.</li>
+          <li>
+            Signing in happens in a window FKN opens on youtube.com and Google's sign-in page. Your YouTube and Google
+            sign-in is then kept in FKN's cookie jar for fkn.app on this device, sealed, and not in yt-client. Every fkn.app
+            app you allow to run code on youtube.com uses that same sign-in, and signing out in yt-client signs all of them
+            out of YouTube and Google on this device. Google is not told, so the session stays valid at Google until it
+            lapses.
+          </li>
         </ul>
         <p>
           With the FKN browser extension installed, the other requests to YouTube go from your browser too, through the
