@@ -9,8 +9,8 @@ type Endpoint = 'search' | 'browse' | 'next'
 const endpointUrl = (endpoint: Endpoint) => new RegExp(`^https://www\\.youtube\\.com/youtubei/v1/${endpoint}\\?`)
 
 /* Signed out on laneOrigin, InnerTube is asked from the page itself, so these routes are the page's data requests.
-   An answer is final whatever its status; a request that gets no answer at all is sent again through the Scramjet
-   frame, which a route here cannot reach, so the failures below are answers. */
+   An answer is final whatever its status; a request that gets no answer at all is sent again through the catalog
+   lane (the extension or FKN's relay), which a route here cannot reach, so the failures below are answers. */
 const fail = (page: Page, endpoint: Endpoint, answer: (route: Route) => Promise<void>) => page.route(endpointUrl(endpoint), answer)
 
 const failWhen = (page: Page, endpoint: Endpoint, matches: (body: string) => boolean, answer: (route: Route) => Promise<void>) =>
