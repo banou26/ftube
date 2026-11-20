@@ -231,7 +231,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [sharing, setSharing] = useState(false)
-  const { rate, rating, presses } = useRateVideo(details.videoId, details.likeStatus)
+  const { rate, rating, presses, burst } = useRateVideo(details.videoId, details.likeStatus)
   const latest = useRef({ grid, setGrid, sharing })
   latest.current = { grid, setGrid, sharing }
 
@@ -285,7 +285,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
           disabled={rating}
           onClick={() => rate('LIKE')}
         >
-          <RateGlyph status='LIKE' size={20} on={liked} presses={presses('LIKE')} />
+          <RateGlyph status='LIKE' size={20} on={liked} presses={presses('LIKE')} burst={burst('LIKE')} />
         </button>
         <button
           type='button'
@@ -295,7 +295,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
           disabled={rating}
           onClick={() => rate('DISLIKE')}
         >
-          <RateGlyph status='DISLIKE' size={20} on={disliked} presses={presses('DISLIKE')} />
+          <RateGlyph status='DISLIKE' size={20} on={disliked} presses={presses('DISLIKE')} burst={burst('DISLIKE')} />
         </button>
         {details.commentsHidden
           ? undefined

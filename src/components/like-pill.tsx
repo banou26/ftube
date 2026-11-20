@@ -49,7 +49,7 @@ export const LikePill = ({ videoId, likeStatus, likeCountText }: {
   likeStatus?: LikeStatus | null
   likeCountText?: string | null
 }) => {
-  const { rate, rating, presses } = useRateVideo(videoId, likeStatus)
+  const { rate, rating, presses, burst } = useRateVideo(videoId, likeStatus)
   const dislikes = useDislikes(videoId)
   const liked = likeStatus === 'LIKE'
   const disliked = likeStatus === 'DISLIKE'
@@ -64,7 +64,7 @@ export const LikePill = ({ videoId, likeStatus, likeCountText }: {
         disabled={rating}
         onClick={() => rate('LIKE')}
       >
-        <RateGlyph status='LIKE' size={20} on={liked} presses={presses('LIKE')} />
+        <RateGlyph status='LIKE' size={20} on={liked} presses={presses('LIKE')} burst={burst('LIKE')} />
         {likeCountText ? <span>{likeCountText}</span> : undefined}
       </button>
       <button
@@ -75,7 +75,7 @@ export const LikePill = ({ videoId, likeStatus, likeCountText }: {
         disabled={rating}
         onClick={() => rate('DISLIKE')}
       >
-        <RateGlyph status='DISLIKE' size={20} on={disliked} presses={presses('DISLIKE')} />
+        <RateGlyph status='DISLIKE' size={20} on={disliked} presses={presses('DISLIKE')} burst={burst('DISLIKE')} />
         {dislikes !== undefined ? <span>{formatCompact(dislikes)}</span> : undefined}
       </button>
     </div>

@@ -25,13 +25,13 @@ const RATE_VIDEO = gql(`
 /**
  * Like and Dislike for one video, as the watch page and the full screen view both draw them. Signed out, `rate` opens
  * the sign-in window; otherwise it sets the rating, or clears it when the same one is pressed again. `rating` is true
- * while a change is on its way. `presses` counts the person's own presses of one button on this video, for its
- * `RateGlyph`.
+ * while a change is on its way. For each button's `RateGlyph`, `presses` counts the person's own presses of it, and
+ * `burst` says whether the last of them turned its rating on.
  */
 export const useRateVideo = (videoId: string, likeStatus: LikeStatus | null | undefined) => {
   const [state, rateVideo] = useMutation(RATE_VIDEO)
   const { ready, signedIn } = useSession()
-  const [pressed, setPressed] = useState<{ videoId: string, status: Rating, count: number }>()
+  const [pressed, setPressed] = useState<{ status: Rating, count: number, on: boolean }>()
 
   const rate = (status: Rating) => {
     // a signed-out read says INDIFFERENT like a signed-in one, so the status alone cannot tell them apart
@@ -39,16 +39,17 @@ export const useRateVideo = (videoId: string, likeStatus: LikeStatus | null | un
       signIn()
       return
     }
-    setPressed(last => ({ videoId, status, count: (last?.count ?? 0) + 1 }))
     const next = likeStatus === status ? 'INDIFFERENT' : status
+    setPressed(last => ({ status, count: (last?.count ?? 0) + 1, on: next === status }))
     void rateVideo({ id: videoId, status: next }).then((result) => {
       if (result.error) showToast(lineFor(result.error))
     })
   }
 
-  const presses = (status: Rating) => pressed?.videoId === videoId && pressed.status === status ? pressed.count : 0
+  const presses = (status: Rating) => pressed?.status === status ? pressed.count : 0
+  const burst = (status: Rating) => pressed?.status === status && pressed.on
 
-  return { rate, rating: state.fetching, presses }
+  return { rate, rating: state.fetching, presses, burst }
 }
 
 const glyphStyle = css`
@@ -106,16 +107,21 @@ const glyphStyle = css`
 
 /**
  * The thumb of a Like or Dislike button, filled while `on`. Each new `presses` count (from `useRateVideo`) bounces it,
- * with a burst around it when the press turned it on, so a rating that loads with the page or comes from YouTube shows
- * still.
+ * with a burst around it when `burst`, so a rating that loads with the page or comes back from YouTube shows still.
  */
-export const RateGlyph = ({ status, size, on, presses }: { status: Rating, size: number, on: boolean, presses: number }) => {
+export const RateGlyph = ({ status, size, on, presses, burst }: {
+  status: Rating
+  size: number
+  on: boolean
+  presses: number
+  burst: boolean
+}) => {
   const Icon = status === 'LIKE' ? ThumbsUp : ThumbsDown
   return (
     // a new element for each press: a class that is already on would not start the animation again
     <span css={glyphStyle} key={presses} className={presses ? 'pop' : undefined}>
       <Icon size={size} strokeWidth={1.5} fill={on ? 'currentColor' : 'none'} />
-      {presses && on ? <span className='burst' /> : undefined}
+      {burst ? <span className='burst' /> : undefined}
     </span>
   )
 }

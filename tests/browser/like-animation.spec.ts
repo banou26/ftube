@@ -116,13 +116,18 @@ test('under reduced motion a press fills the thumb and nothing moves', async ({ 
   expect(await animations(page)).toEqual([])
 })
 
-test('a rating YouTube refuses goes back', async ({ page }) => {
+test('a take-back YouTube refuses bounces at the press, then goes back still', async ({ page }) => {
   const ratings = await routeRatings(page, 500)
-  const { like } = await mount(page, 'INDIFFERENT')
+  const { like } = await mount(page, 'LIKE')
   ratings.hold()
   await like.click()
-  await expect(like).toHaveAttribute('aria-pressed', 'true')
-  await ratings.release()
   await expect(like).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => animations(page)).toEqual(['Like:rate-bounce'])
+
+  await clearAnimations(page)
+  await ratings.release()
+  await expect(like).toHaveAttribute('aria-pressed', 'true')
   await expect(like).toBeEnabled()
+  await settle(page)
+  expect(await animations(page)).toEqual([])
 })
