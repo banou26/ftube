@@ -79,6 +79,10 @@ export const createCache = () => cacheExchange({
     Author: () => null,
     Session: () => null,
   },
+  // a rating shows at the press, as on youtube.com, and goes back if YouTube refuses it
+  optimistic: {
+    rateVideo: ({ id, status }) => ({ __typename: 'WatchMeta', id: id as string, likeStatus: status as string }),
+  },
   updates: {
     Mutation: {
       // every cursor page of that playlist is invalidated, because a removal shifts rows across page boundaries
