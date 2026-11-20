@@ -117,11 +117,20 @@ export const RateGlyph = ({ status, size, on, presses, burst }: {
   burst: boolean
 }) => {
   const Icon = status === 'LIKE' ? ThumbsUp : ThumbsDown
+  // the animation comes off once played: one left on starts again whenever the button comes back from display: none,
+  // as the full screen view's settings menu does to it. The bounce outlasts the burst, so its end takes both off.
+  const [played, setPlayed] = useState(0)
+  const pop = presses > played
   return (
     // a new element for each press: a class that is already on would not start the animation again
-    <span css={glyphStyle} key={presses} className={presses ? 'pop' : undefined}>
+    <span
+      css={glyphStyle}
+      key={presses}
+      className={pop ? 'pop' : undefined}
+      onAnimationEnd={(event: AnimationEvent) => { if (event.animationName === 'rate-bounce') setPlayed(presses) }}
+    >
       <Icon size={size} strokeWidth={1.5} fill={on ? 'currentColor' : 'none'} />
-      {burst ? <span className='burst' /> : undefined}
+      {pop && burst ? <span className='burst' /> : undefined}
     </span>
   )
 }

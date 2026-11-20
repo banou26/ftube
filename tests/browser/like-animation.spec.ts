@@ -38,6 +38,7 @@ const mount = async (page: Page, likeStatus: LikeStatus) => {
     await expect(host.getByRole('button', { name: 'Like', exact: true })).toBeVisible({ timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
   return {
+    host,
     like: host.getByRole('button', { name: 'Like', exact: true }),
     dislike: host.getByRole('button', { name: 'Dislike', exact: true }),
   }
@@ -130,4 +131,27 @@ test('a take-back YouTube refuses bounces at the press, then goes back still', a
   await expect(like).toBeEnabled()
   await settle(page)
   expect(await animations(page)).toEqual([])
+})
+
+// the full screen view hides its buttons with display: none while a settings menu is open
+test('a press plays once, not again when the buttons are hidden and shown', async ({ page }) => {
+  await routeRatings(page)
+  const { host, like } = await mount(page, 'INDIFFERENT')
+  await like.click()
+  await expect(like).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => animations(page)).toEqual(['Like:rate-bounce', 'Like:rate-burst'])
+  await expect(like).toBeEnabled()
+  await expect.poll(() => host.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+
+  await clearAnimations(page)
+  await host.evaluate((element: HTMLElement) => { element.style.display = 'none' })
+  await settle(page)
+  await host.evaluate((element: HTMLElement) => { element.style.display = '' })
+  await settle(page)
+  expect(await animations(page)).toEqual([])
+
+  // the next press still plays, so the empty list above is the thumb staying still
+  await like.click()
+  await expect(like).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => animations(page)).toEqual(['Like:rate-bounce'])
 })
