@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
+import type { PageRequest, PageResponse } from '../../../src/engine/agent-protocol'
+
 import { streamed, watchPage } from './watch-page-fakes'
 
 // youtubei.js as the frame sees it: a catalog build, then a player build that fetches /iframe_api and base.js
@@ -15,7 +17,7 @@ const youtube = vi.hoisted(() => ({
 
 vi.mock('youtubei.js/web', () => {
   // a player marks what it deciphered, so a test can read which one did
-  const player = (id: string) => ({ player_id: id, decipher: async (url: string) => `${url}&player=${id}` })
+  const player = (id: string) => ({ player_id: id, signature_timestamp: 20774, decipher: async (url: string) => `${url}&player=${id}` })
   const context = {
     client: { visitorData: 'visitor', clientVersion: '2.20261008.00.00', clientName: 'WEB', osName: 'X11', osVersion: '', userAgent: 'agent' },
   }
@@ -41,14 +43,23 @@ vi.mock('youtubei.js/web', () => {
     Utils: { generateRandomString: () => 'nonce' },
     YT: { VideoInfo: class { constructor() { return info } } },
     Innertube: {
-      create: async (options: { retrieve_player: boolean, cache?: unknown, fetch?: unknown }) => {
+      create: async (options: { retrieve_player: boolean, cache?: unknown, fetch?: typeof fetch }) => {
         const kind = options.retrieve_player ? 'player' : 'catalog'
         youtube.builds.push(kind)
         if (kind === 'catalog' && youtube.failCatalog-- > 0) throw new TypeError('Failed to fetch')
         if (kind === 'player' && youtube.failPlayer-- > 0) throw new TypeError('Failed to fetch')
         if (kind === 'player') youtube.playerSession = options
+        // youtubei.js's Actions.execute: a JSON POST to /youtubei/v1<endpoint> through the client's fetch, answered as `data`
+        const execute = async (endpoint: string, args: object) => {
+          const response = await options.fetch!(`https://www.youtube.com/youtubei/v1${endpoint}?prettyPrint=false&alt=json`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-goog-visitor-id': context.client.visitorData },
+            body: JSON.stringify(args),
+          })
+          return { success: response.ok, status_code: response.status, data: await response.json() }
+        }
         // the session keeps the cache and the fetch it was built with, as youtubei.js's Session and HTTPClient do
-        return { session: { context, cache: options.cache, http: { fetch_function: options.fetch }, player: player('ef321720') }, actions: {} }
+        return { session: { context, cache: options.cache, http: { fetch_function: options.fetch }, player: player('ef321720') }, actions: { execute } }
       },
     },
   }
@@ -148,6 +159,72 @@ describe('the frame Innertube sessions', () => {
     ])
     const registration = new URL(sent[1]!.url).searchParams
     expect(Object.fromEntries(registration)).toEqual({ docid: VIDEO, ei: 'event-1', ver: '2', cpn: 'nonce' })
+  })
+
+  describe('the playback registration, signed in', () => {
+    const PAGE_ID = '112233445566778899001'
+    const ping = (event: string) => `https://s.youtube.com/api/stats/playback?docid=${VIDEO}&ei=${event}`
+    let sent: { url: string, method: string, headers: Record<string, string> }[]
+
+    // the FKN page as YouTube answered it on 2026-11-20: the watch page as the account's own channel whatever
+    // X-Goog-PageId says, a /player read as the channel the header names
+    const fknPage = async (url: string, { method = 'GET', headers = {} }: PageRequest): Promise<PageResponse> => {
+      sent.push({ url, method, headers })
+      const answer = (status: number, body: string) => ({ status, statusText: '', headers: [], body: new TextEncoder().encode(body).buffer as ArrayBuffer })
+      if (url.includes('/api/stats/')) return answer(204, '')
+      if (url.startsWith('https://www.youtube.com/youtubei/v1/player')) {
+        const event = headers['x-goog-pageid'] === PAGE_ID ? 'channel-event' : 'account-event'
+        return answer(200, JSON.stringify({ playabilityStatus: { status: 'OK' }, playbackTracking: { videostatsPlaybackUrl: { baseUrl: ping(event) } } }))
+      }
+      return answer(200, watchPage({ playbackUrl: ping('account-event') }))
+    }
+
+    const signIn = async (channel?: string) => {
+      sent = []
+      if (channel) localStorage.setItem('yt-client:channel', channel)
+      const { realm } = await import('../../../src/frame/realm')
+      const { createSessionLane, createYoutubeFetch } = await import('../../../src/frame/lanes')
+      const refuse = async () => { throw new Error('signed in, only the session lane may answer') }
+      realm.cookie = 'SAPISID=sapisid'
+      realm.fetch = createYoutubeFetch({
+        signedIn: true,
+        direct: undefined,
+        catalog: refuse,
+        session: createSessionLane(fknPage, () => {}, channel),
+        media: refuse,
+        report: () => {},
+      })
+    }
+
+    const registration = () => vi.waitFor(() => {
+      const found = sent.find(({ url }) => url.includes('/api/stats/playback'))
+      if (!found) throw new Error('no registration yet')
+      return found
+    })
+
+    it('registers a brand channel\'s playback from a player answer read as that channel, sent as it through the FKN page', async () => {
+      await signIn(PAGE_ID)
+      const { getSabrSource } = await loadFrame()
+      await getSabrSource(VIDEO)
+      const { url, method, headers } = await registration()
+      expect(url).toMatch(/^https:\/\/www\.youtube\.com\/api\/stats\/playback\?/)
+      expect(method).toBe('POST')
+      expect(headers['x-goog-pageid']).toBe(PAGE_ID)
+      expect(new URL(url).searchParams.get('ei')).toBe('channel-event')
+      const read = sent.find(({ url }) => url.startsWith('https://www.youtube.com/youtubei/v1/player'))
+      expect(read?.headers['x-goog-pageid']).toBe(PAGE_ID)
+    })
+
+    it('registers the account\'s own channel\'s playback from its watch page, with no player read', async () => {
+      await signIn()
+      const { getSabrSource } = await loadFrame()
+      await getSabrSource(VIDEO)
+      const { url, headers } = await registration()
+      expect(url).toMatch(/^https:\/\/www\.youtube\.com\/api\/stats\/playback\?/)
+      expect(headers['x-goog-pageid']).toBeUndefined()
+      expect(new URL(url).searchParams.get('ei')).toBe('account-event')
+      expect(sent.map(({ url }) => new URL(url).pathname)).not.toContain('/youtubei/v1/player')
+    })
   })
 
   describe('deciphering the stream URL', () => {

@@ -5,6 +5,7 @@ import { Constants, Innertube, Platform, Player, Types, UniversalCache, Utils, Y
 
 import type { PlaybackFormat } from './protocol'
 
+import { readChannel } from '../engine/signed-in'
 import { WEB_CLIENT_VERSION } from '../sources/youtube/client-version'
 import { mintPoToken, recoverPoTokenSession, warmPoTokenSession } from './botguard'
 import type { CaptionSource } from './captions'
@@ -209,6 +210,23 @@ const registerPlayback = async (raw: Record<string, unknown>, nonce: string, for
   if (!response.ok) console.warn(`youtube: playback registration returned ${response.status}`)
 }
 
+/* A brand channel's playback is filed only from tracking addresses YouTube issued to that channel. The watch page is
+   the account's own channel's whatever X-Goog-PageId says, and a registration from it sent as the brand landed in
+   neither channel's history; one from a /player answer the session lane read as the brand landed in the brand's within
+   a minute (measured 2026-11-20). Without a signature timestamp, the account's own /player answer that day was "The
+   page needs to be reloaded", with no tracking. */
+const trackingAnswer = async (videoId: string, raw: Record<string, unknown>) => {
+  if (!hasSessionCookie() || readChannel() === undefined) return raw
+  const client = await innertube()
+  const { data } = await client.actions.execute('/player', {
+    videoId,
+    racyCheckOk: true,
+    contentCheckOk: true,
+    playbackContext: { contentPlaybackContext: { signatureTimestamp: client.session.player?.signature_timestamp } },
+  })
+  return data as Record<string, unknown>
+}
+
 const beaconFormats = (raw: Record<string, unknown>): BeaconFormat[] => {
   const adaptive = (raw as {
     streamingData?: { adaptiveFormats?: { itag?: number, mimeType?: string }[] }
@@ -296,9 +314,9 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
   const catalogContext = catalogClient.session.context as unknown as InnertubeContext
   warmPoTokenSession(catalogContext.client.visitorData)
   const nonce = Utils.generateRandomString(16)
-  void rawPromise.then((raw) => {
+  void rawPromise.then(async (raw) => {
     if (playerParams && !playsWithParams(raw)) return
-    return registerPlayback(raw, nonce, beaconFormats(raw), catalogContext.client.visitorData)
+    return registerPlayback(await trackingAnswer(videoId, raw), nonce, beaconFormats(raw), catalogContext.client.visitorData)
   }).catch(() => {})
   const client = await innertube()
   const context = client.session.context as unknown as InnertubeContext
