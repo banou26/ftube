@@ -48,7 +48,8 @@ test('shows the dislike count in the Dislike button, written like the like count
   const sent = Object.keys(await requests[0]!.allHeaders())
   expect(sent.filter(name => !/^(accept|accept-language|origin|referer|user-agent|sec-[a-z-]+)$/.test(name))).toEqual([])
 
-  const text = (button: typeof like) => button.locator('span').evaluate((element) => {
+  // the count, not the thumb's own span
+  const text = (button: typeof like) => button.locator('span', { hasText: /\S/ }).evaluate((element) => {
     const style = getComputedStyle(element)
     return `${style.fontSize} ${style.fontWeight}`
   })

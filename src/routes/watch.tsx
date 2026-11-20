@@ -4,7 +4,7 @@ import type { RelatedVideosQuery } from '../generated/graphql'
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { EllipsisVertical, Link2, Share2, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { EllipsisVertical, Link2, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
@@ -15,10 +15,10 @@ import { ChatReplay, ChatReplayTeaser } from '../components/chat-replay'
 import Comments from '../components/comments'
 import { DataFailure } from '../components/data-failure'
 import DescriptionBox from '../components/description-box'
-import { formatCompact, parseStartSeconds } from '../components/format'
+import { parseStartSeconds } from '../components/format'
+import { LikePill } from '../components/like-pill'
 import LiveChat from '../components/live-chat'
 import PlaylistPanel from '../components/playlist-panel'
-import { useRateVideo } from '../components/rate-video'
 import { MembersOnly } from '../components/row-marks'
 import SaveMenu from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
@@ -27,7 +27,6 @@ import { FeedSentinel } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
 import { watchPanel } from '../components/watch-panel'
-import { useDislikes } from '../dislikes'
 import { gql } from '../generated'
 import { cardParamsIn } from '../player/card-params'
 import { prefetchPlayback } from '../player/prefetch'
@@ -256,43 +255,6 @@ const style = css`
     margin-left: auto;
   }
 
-  .like-pill {
-    display: flex;
-    align-items: stretch;
-    height: 3.6rem;
-    border-radius: 1.8rem;
-    background: var(--bg-chip);
-    overflow: hidden;
-  }
-
-  .like,
-  .dislike {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    border: none;
-    background: transparent;
-    color: var(--text-primary);
-    font-size: 1.4rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .like {
-    padding: 0 1.2rem 0 1.6rem;
-    border-right: 1px solid var(--border-subtle);
-  }
-
-  .dislike {
-    padding: 0 1.6rem;
-  }
-
-  .like:hover,
-  .dislike:hover {
-    background: var(--bg-chip-hover);
-  }
-
   .pill {
     display: flex;
     align-items: center;
@@ -468,8 +430,6 @@ const WatchPage = () => {
     requestPolicy: 'cache-and-network',
     pause: videoId === ''
   })
-  const { rate, rating } = useRateVideo(videoId, watchData?.watch?.likeStatus)
-  const dislikes = useDislikes(videoId)
   const playerSession = usePlayerSession()
   const theater = playerSession.theater
   const toggleTheater = useCallback(() => {
@@ -512,8 +472,6 @@ const WatchPage = () => {
   // gated on the URL: WatchMeta is keyed by video id, so its one `playlist` slot can hold another queue's panel
   const playlist: PlaylistPanelData | undefined =
     listId === undefined || watch?.playlist?.id !== listId ? undefined : watch.playlist
-  const liked = watch?.likeStatus === 'LIKE'
-  const disliked = watch?.likeStatus === 'DISLIKE'
 
   const [sharing, setSharing] = useState(false)
   // held as the video it was opened on, so the next video starts with the panel closed
@@ -612,30 +570,7 @@ const WatchPage = () => {
                   )
                   : undefined}
                 <div className='actions'>
-                  <div className='like-pill'>
-                    <button
-                      type='button'
-                      className='like'
-                      aria-label='Like'
-                      aria-pressed={liked}
-                      disabled={rating}
-                      onClick={() => rate('LIKE')}
-                    >
-                      <ThumbsUp size={20} strokeWidth={1.5} fill={liked ? 'currentColor' : 'none'} />
-                      {watch?.likeCountText ? <span>{watch.likeCountText}</span> : undefined}
-                    </button>
-                    <button
-                      type='button'
-                      className='dislike'
-                      aria-label='Dislike'
-                      aria-pressed={disliked}
-                      disabled={rating}
-                      onClick={() => rate('DISLIKE')}
-                    >
-                      <ThumbsDown size={20} strokeWidth={1.5} fill={disliked ? 'currentColor' : 'none'} />
-                      {dislikes !== undefined ? <span>{formatCompact(dislikes)}</span> : undefined}
-                    </button>
-                  </div>
+                  <LikePill videoId={videoId} likeStatus={watch?.likeStatus} likeCountText={watch?.likeCountText} />
                   <button type='button' className='pill' onClick={() => setSharing(true)}>
                     <Share2 size={20} strokeWidth={1.5} />
                     Share

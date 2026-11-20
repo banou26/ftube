@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, Forward, ListPlus, MessageSquareText, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Forward, ListPlus, MessageSquareText, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import type { FrameDetails } from './player-frame'
@@ -7,7 +7,7 @@ import type { FrameDetails } from './player-frame'
 import Comments from '../components/comments'
 import { DescriptionBox } from '../components/description-box'
 import { formatDuration, formatMeta } from '../components/format'
-import { useRateVideo } from '../components/rate-video'
+import { RateGlyph, useRateVideo } from '../components/rate-video'
 import SaveMenu from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
 import { Thumbnail } from '../components/thumbnail'
@@ -118,7 +118,6 @@ const style = css`
   }
 
   .fs-action:disabled {
-    opacity: 0.5;
     cursor: default;
   }
 
@@ -232,7 +231,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [sharing, setSharing] = useState(false)
-  const { rate, rating } = useRateVideo(details.videoId, details.likeStatus)
+  const { rate, rating, presses } = useRateVideo(details.videoId, details.likeStatus)
   const latest = useRef({ grid, setGrid, sharing })
   latest.current = { grid, setGrid, sharing }
 
@@ -286,7 +285,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
           disabled={rating}
           onClick={() => rate('LIKE')}
         >
-          <ThumbsUp size={20} strokeWidth={1.5} fill={liked ? 'currentColor' : 'none'} />
+          <RateGlyph status='LIKE' size={20} on={liked} presses={presses('LIKE')} />
         </button>
         <button
           type='button'
@@ -296,7 +295,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
           disabled={rating}
           onClick={() => rate('DISLIKE')}
         >
-          <ThumbsDown size={20} strokeWidth={1.5} fill={disliked ? 'currentColor' : 'none'} />
+          <RateGlyph status='DISLIKE' size={20} on={disliked} presses={presses('DISLIKE')} />
         </button>
         {details.commentsHidden
           ? undefined
