@@ -418,8 +418,10 @@ const style = css`
   }
 
   .channel-name {
-    display: block;
+    display: flex;
+    align-items: center;
     width: fit-content;
+    max-width: 100%;
     font-size: 1.4rem;
     font-weight: 400;
     color: var(--text-secondary);
@@ -430,8 +432,17 @@ const style = css`
     color: var(--text-primary);
   }
 
+  /* the badge stays after the ellipsis, as on youtube.com */
+  .channel-name .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* a collaboration's names stay on one line, cut as youtube.com cuts them */
-  .names {
+  .channel-name.names {
+    display: block;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -605,7 +616,7 @@ export const VideoCard = (
           {byline === 'names'
             ? <Link href={watchHref} state={state} className='channel-name names' tabIndex={-1}><BylineNames parts={video.byline} /></Link>
             : byline === 'channel' && video.channel && channelHref
-            ? <Link href={channelHref} className='channel-name'>{video.channel.name}<VerifiedBadge channel={video.channel} /></Link>
+            ? <Link href={channelHref} className='channel-name'><span className='name'>{video.channel.name}</span><VerifiedBadge channel={video.channel} /></Link>
             : undefined}
           <RowMeta video={video} />
           {video.isMembersOnly ? <MembersOnly /> : undefined}

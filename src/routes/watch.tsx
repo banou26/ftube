@@ -25,6 +25,7 @@ import ShareDialog from '../components/share-dialog'
 import SubscribeButton, { subscribeStyle } from '../components/subscribe-button'
 import { FeedSentinel } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
+import { VideoCard, VideoCardSkeleton } from '../components/video-card'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
 import { watchPanel } from '../components/watch-panel'
 import { gql } from '../generated'
@@ -66,13 +67,14 @@ const style = css`
      shared out across intrinsic rows, so a min-content plus auto pair still
      inflated row 1 (measured: a 2007px gap). A flexible track absorbs that
      excess instead. */
-  grid-template-rows: min-content 1fr;
+  grid-template-rows: min-content min-content 1fr;
   align-items: start;
   gap: 0 1.6rem;
   padding: 1.2rem 1.6rem 2.4rem;
 
   .stage {
     grid-column: 1;
+    grid-row: 1;
   }
 
   /* Reserves the player's box. The player is moved in as a child rather than
@@ -86,6 +88,13 @@ const style = css`
 
   .primary {
     grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .comments-slot {
+    grid-column: 1;
+    grid-row: 3;
     min-width: 0;
   }
 
@@ -96,12 +105,44 @@ const style = css`
 
   .secondary {
     grid-column: 2;
-    grid-row: 1 / span 2;
+    grid-row: 1 / span 3;
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
     /* youtube.com's 62.5% of the row at every width: 200 of 320, 220 of 352, 330 of 528 */
     --compact-thumb-width: 62.5%;
+  }
+
+  /* One-column related cards matching youtube.com (measured 2026-11-11):
+     999 px -> 3 cards (311.66 px), 800 px -> 2 cards (376 px), 600 px -> 1 card (568 px). */
+  .related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 31rem), 1fr));
+    column-gap: 1.6rem;
+    row-gap: 2.4rem;
+  }
+
+  .show-more-related {
+    width: 100%;
+    height: 3.6rem;
+    margin-top: 1.2rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .show-more-related:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .show-more-related:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   /* The columns join this grid in the default view. youtube.com's theater, measured 2026-11-10, runs the player edge
@@ -113,6 +154,7 @@ const style = css`
 
   &.theater {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
     padding: 0 0 2.4rem;
   }
 
@@ -123,10 +165,19 @@ const style = css`
   &.theater .columns {
     display: grid;
     grid-template-columns: minmax(64rem, var(--player-max)) var(--sidebar);
+    grid-template-rows: min-content 1fr;
     justify-content: center;
     align-items: start;
     gap: 0 1.6rem;
     padding: 0 1.6rem;
+  }
+
+  &.theater .primary {
+    grid-row: 1;
+  }
+
+  &.theater .comments-slot {
+    grid-row: 2;
   }
 
   /* Keeps a tall window from pushing the title below the fold. Excluded in
@@ -147,7 +198,7 @@ const style = css`
   }
 
   &.theater .secondary {
-    grid-row: 1;
+    grid-row: 1 / span 2;
     padding-top: 2.4rem;
   }
 
@@ -300,6 +351,7 @@ const style = css`
   @media ${ONE_COLUMN} {
     --margin: 1.6rem;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
 
     &,
     &.theater {
@@ -308,8 +360,11 @@ const style = css`
 
     .stage,
     .primary,
+    &.theater .primary,
     .secondary,
-    &.theater .secondary {
+    &.theater .secondary,
+    .comments-slot,
+    &.theater .comments-slot {
       grid-column: 1;
       grid-row: auto;
     }
@@ -322,7 +377,6 @@ const style = css`
     &.theater .secondary {
       margin-top: 2.4rem;
       padding-top: 0;
-      --compact-thumb-width: 16.8rem;
     }
 
     .stage {
@@ -613,9 +667,6 @@ const WatchPage = () => {
               : undefined}
             {watch?.hasChatReplay ? <ChatReplayTeaser open={replayOpen} onOpen={() => setReplayFor(videoId)} /> : undefined}
           </div>
-          {!watchFetching && watch && !watch.commentsHidden
-            ? <Comments key={`comments:${videoId}`} videoId={videoId} commentCountText={watch.commentCountText} />
-            : undefined}
         </div>
         {watchFetching || playlist || watch?.isLive || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
           ? (
@@ -624,25 +675,54 @@ const WatchPage = () => {
               {oneColumn ? undefined : videoPanel}
               {playlist ? <PlaylistPanel playlist={playlist} /> : undefined}
               {watch?.isLive ? <LiveChat key={`chat:${videoId}`} videoId={videoId} /> : undefined}
-              {related
+              {oneColumn
+                ? (
+                  <div className='related-grid'>
+                    {related
+                      ? related.map(item => <VideoCard key={item.id} video={item} variant='shelf' />)
+                      : RELATED_SKELETON_KEYS.map(key => <VideoCardSkeleton key={key} />)}
+                  </div>
+                )
+                : related
                 ? related.map(item => <VideoCardCompact key={item.id} video={item} />)
                 : RELATED_SKELETON_KEYS.map(key => <VideoCardCompactSkeleton key={key} />)}
               {relatedCursor
-                ? (
-                  <FeedSentinel
-                    onVisible={() => {
-                      if (!wantMoreRelated) setWantMoreRelated(true)
-                      else if (morePage && !moreFetching) {
-                        setRelatedPages(pages => pages[pages.length - 1] === morePage ? pages : [...pages, morePage])
-                      }
-                    }}
-                    disabled={moreFetching}
-                  />
-                )
+                ? oneColumn
+                  ? (
+                    <button
+                      type='button'
+                      className='show-more-related'
+                      disabled={moreFetching}
+                      onClick={() => {
+                        if (!wantMoreRelated) setWantMoreRelated(true)
+                        else if (morePage && !moreFetching) {
+                          setRelatedPages(pages => pages[pages.length - 1] === morePage ? pages : [...pages, morePage])
+                        }
+                      }}
+                    >
+                      {moreFetching ? 'Loading…' : 'Show more'}
+                    </button>
+                  )
+                  : (
+                    <FeedSentinel
+                      onVisible={() => {
+                        if (!wantMoreRelated) setWantMoreRelated(true)
+                        else if (morePage && !moreFetching) {
+                          setRelatedPages(pages => pages[pages.length - 1] === morePage ? pages : [...pages, morePage])
+                        }
+                      }}
+                      disabled={moreFetching}
+                    />
+                  )
                 : undefined}
             </aside>
           )
           : undefined}
+        <div className='comments-slot'>
+          {!watchFetching && watch && !watch.commentsHidden
+            ? <Comments key={`comments:${videoId}`} videoId={videoId} commentCountText={watch.commentCountText} />
+            : undefined}
+        </div>
       </div>
       {sharing ? <ShareDialog videoId={videoId} title={watch?.title ?? undefined} list={listId} onClose={() => setSharing(false)} /> : undefined}
     </main>

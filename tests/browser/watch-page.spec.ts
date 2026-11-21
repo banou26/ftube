@@ -68,11 +68,11 @@ const YOUTUBE_SIZES = [
 // header with square corners as in theater, the window height less 169 px at most and never under 240 px, the title
 // 12 px under it, the sidebar under that, 16 px margins
 const YOUTUBE_ONE_COLUMN = [
-  { width: 999, height: 800, player: { x: 0, y: 56, width: 999, height: 561.94, radius: 0 }, title: { x: 16, width: 967 } },
-  { width: 800, height: 600, player: { x: 0, y: 56, width: 800, height: 431, radius: 0 }, title: { x: 16, width: 768 } },
-  { width: 600, height: 800, player: { x: 0, y: 56, width: 600, height: 337.5, radius: 0 }, title: { x: 16, width: 568 } },
+  { width: 999, height: 800, player: { x: 0, y: 56, width: 999, height: 561.94, radius: 0 }, title: { x: 16, width: 967 }, cardsPerRow: 3, cardWidth: 311.67 },
+  { width: 800, height: 600, player: { x: 0, y: 56, width: 800, height: 431, radius: 0 }, title: { x: 16, width: 768 }, cardsPerRow: 2, cardWidth: 376 },
+  { width: 600, height: 800, player: { x: 0, y: 56, width: 600, height: 337.5, radius: 0 }, title: { x: 16, width: 568 }, cardsPerRow: 1, cardWidth: 568 },
   // the title there is yt-client's own, with 12 px margins: youtube.com holds a 426.67 px column and scrolls sideways
-  { width: 412, height: 800, player: { x: 0, y: 56, width: 412, height: 240, radius: 0 } },
+  { width: 412, height: 800, player: { x: 0, y: 56, width: 412, height: 240, radius: 0 }, cardsPerRow: 1, cardWidth: 388 },
 ] as const
 
 // youtube.com's theater on this video, signed out, 2026-11-10: the window height less 169 px, never under 480 px in two
@@ -129,6 +129,7 @@ test('sizes the player, the sidebar and its thumbnails like youtube.com', async 
   }
 
   const oneColumnAbove = new Map<string, number>()
+  await expect(page.locator('main .comments-slot .heading')).toBeVisible({ timeout: 90_000 })
   for (const size of YOUTUBE_ONE_COLUMN) {
     await page.setViewportSize({ width: size.width, height: size.height })
     const at = `${size.width}x${size.height}`
@@ -137,6 +138,27 @@ test('sizes the player, the sidebar and its thumbnails like youtube.com', async 
     expectClose(layout.player, size.player, `the player in one column at ${at}`)
     expect(layout.title.below, `the title's gap under the player in one column at ${at}`).toBeCloseTo(12, 0)
     if ('title' in size) expectClose(layout.title, size.title, `the title in one column at ${at}`)
+    const oneColCards = await page.evaluate(() => {
+      const about = document.querySelector('main .about')!.getBoundingClientRect()
+      const aside = document.querySelector('main aside')!.getBoundingClientRect()
+      const comments = document.querySelector('main .comments-slot')!.getBoundingClientRect()
+      const cards = [...document.querySelectorAll('main aside article')].map(el => el.getBoundingClientRect())
+      const firstRow = cards.filter(box => Math.abs(box.top - cards[0]!.top) < 2)
+      const firstThumb = document.querySelector('main aside article .thumb')!.getBoundingClientRect()
+      const firstTitle = document.querySelector('main aside article .title')!.getBoundingClientRect()
+      return {
+        afterAbout: aside.top >= about.bottom - 1,
+        beforeComments: aside.bottom <= comments.top + 1,
+        cardsPerRow: firstRow.length,
+        cardWidth: cards[0]!.width,
+        thumbAboveTitle: firstThumb.bottom <= firstTitle.top + 1,
+      }
+    })
+    expect(oneColCards.afterAbout, `related starts after description at ${at}`).toBe(true)
+    expect(oneColCards.beforeComments, `related sits before comments at ${at}`).toBe(true)
+    expect(oneColCards.thumbAboveTitle, `related card thumbnail is on top at ${at}`).toBe(true)
+    expect(oneColCards.cardsPerRow, `cards per row at ${at}`).toBe(size.cardsPerRow)
+    expect(oneColCards.cardWidth, `card width at ${at}`).toBeCloseTo(size.cardWidth, 0)
     oneColumnAbove.set(at, layout.aside.above)
   }
 
