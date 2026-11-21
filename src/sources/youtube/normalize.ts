@@ -549,18 +549,38 @@ export const normalizeFeedChannel = (input: unknown): SourceChannel | undefined 
     id?: string
     author?: Author
     subscribers?: Text
+    subscriber_count?: Text
     video_count?: Text
+    description_snippet?: Text
+    subscribe_button?: {
+      subscribed?: boolean
+      notification_preference_button?: { current_state_id?: string | number }
+    }
   }
   const id = node.author?.id ?? node.id
-  const name = node.author?.name
+  const name = presentText(node.author?.name)
   if (!id || !name) return undefined
+  // On Channel nodes (parser/classes/Channel.js), subscriber_count can hold '@handle' while video_count holds subscribers
+  const rawSub = presentText(node.subscriber_count)
+  const swapped = rawSub?.startsWith('@') === true
+  const rawHandle = handleFromUrl(node.author?.url) ?? (swapped ? rawSub : undefined)
+  const handle = rawHandle?.startsWith('@') ? rawHandle : undefined
+  const subscriberCountText = presentText(node.subscribers) ?? (swapped ? presentText(node.video_count) : rawSub)
+  const videoCountText = swapped ? undefined : presentText(node.video_count)
+  const description = presentText(node.description_snippet)
+  const isSubscribed = node.subscribe_button?.subscribed
+  const level = notificationLevel(node.subscribe_button?.notification_preference_button?.current_state_id)
   return {
     id,
     name,
     avatar: thumbnail(node.author?.thumbnails, AVATAR_WIDTH),
-    handle: handleFromUrl(node.author?.url),
-    subscriberCountText: presentText(node.subscribers),
-    videoCountText: presentText(node.video_count),
+    handle,
+    subscriberCountText,
+    videoCountText,
+    ...(description ? { description } : {}),
+    ...(isSubscribed !== undefined ? { isSubscribed } : {}),
+    ...(level ? { notificationLevel: level } : {}),
+    ...authorBadges(node.author),
   }
 }
 

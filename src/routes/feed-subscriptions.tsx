@@ -46,12 +46,37 @@ type SubscriptionsPage = SubscriptionsFeedQuery['subscriptions']
 const style = css`
   padding: 2.4rem 1.6rem;
 
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.6rem;
+    margin-bottom: 2.4rem;
+  }
+
   .heading {
-    margin: 0 0 2.4rem;
+    margin: 0;
     font-size: 2rem;
     font-weight: 700;
     line-height: 2.8rem;
     color: var(--text-primary);
+  }
+
+  .all-subscriptions {
+    display: inline-flex;
+    align-items: center;
+    height: 3.6rem;
+    padding: 0 1.6rem;
+    border-radius: 1.8rem;
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--accent);
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+
+  .all-subscriptions:hover {
+    background: var(--accent-hover);
   }
 
   .filters {
@@ -213,7 +238,9 @@ const SubscriptionsFeedPage = () => {
   if (!ready) {
     return (
       <main css={style}>
-        <h1 className='heading'>Subscriptions</h1>
+        <div className='head'>
+          <h1 className='heading'>Subscriptions</h1>
+        </div>
         <VideoGrid videos={[]} fetching />
       </main>
     )
@@ -222,7 +249,9 @@ const SubscriptionsFeedPage = () => {
   if (!signedIn) {
     return (
       <main css={style}>
-        <h1 className='heading'>Subscriptions</h1>
+        <div className='head'>
+          <h1 className='heading'>Subscriptions</h1>
+        </div>
         <div className='card'>
           <h2>Sign in to see your subscriptions</h2>
           <button type='button' className='sign-in' onClick={signIn}>
@@ -236,7 +265,10 @@ const SubscriptionsFeedPage = () => {
 
   return (
     <main css={style}>
-      <h1 className='heading'>Subscriptions</h1>
+      <div className='head'>
+        <h1 className='heading'>Subscriptions</h1>
+        <Link href='/feed/channels' className='all-subscriptions'>All subscriptions</Link>
+      </div>
       <div className='filters'>
         <div className='chips' role='group' aria-label='Groups'>
           <button type='button' className='chip' aria-pressed={!group} onClick={() => setGroupId(undefined)}>All</button>

@@ -11,6 +11,7 @@ const ROUTES = [
   ['account', '/account'],
   ['sign in', '/signin'],
   ['subscriptions', '/feed/subscriptions'],
+  ['channels', '/feed/channels'],
   ['history', '/feed/history'],
   ['playlists', '/feed/playlists'],
   ['groups', '/feed/groups'],

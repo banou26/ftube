@@ -1211,6 +1211,49 @@ describe('youtube source', () => {
     ])
   })
 
+  it('normalizes full Channel nodes from getChannelsFeed with handle, subscribers, description and subscribe state', async () => {
+    const client = createFakeClient()
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => ({
+        ...client,
+        getChannelsFeed: async () => ({
+          channels: [{
+            id: 'UCfull',
+            author: {
+              id: 'UCfull',
+              name: 'Full Channel',
+              thumbnails: [{ url: 'https://yt3.ggpht.com/a', width: 88 }],
+              is_verified: true,
+            },
+            subscriber_count: { text: '@fullchan' },
+            video_count: { text: '1.5M subscribers' },
+            description_snippet: { text: 'Weekly science videos' },
+            subscribe_button: {
+              subscribed: true,
+              notification_preference_button: { current_state_id: 'SUBSCRIPTION_NOTIFICATION_STATE_ALL' },
+            },
+          }],
+          has_continuation: false,
+        }),
+      }) as never,
+      signedIn: () => true,
+    })
+    await expect(source.subscribedChannels(true)).resolves.toEqual([{
+      id: 'UCfull',
+      name: 'Full Channel',
+      avatar: 'https://yt3.ggpht.com/a',
+      handle: '@fullchan',
+      subscriberCountText: '1.5M subscribers',
+      videoCountText: undefined,
+      description: 'Weekly science videos',
+      isSubscribed: true,
+      notificationLevel: 'ALL',
+      isVerified: true,
+      isVerifiedArtist: undefined,
+    }])
+  })
+
   it('pages the subscribed channels only when asked for all of them, and stops at 20 pages', async () => {
     let browses = 0
     const channelsPage = (index: number): { channels: unknown[], has_continuation: boolean, getContinuation(): Promise<unknown> } => {

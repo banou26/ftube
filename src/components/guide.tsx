@@ -100,9 +100,18 @@ const SubscriptionRail = () => {
 
   if (!signedIn || channels.length === 0) return null
 
+  const channelsActive = isActive('/feed/channels', path, '')
+
   return (
     <div className='section'>
-      <div className='section-title'>Subscriptions</div>
+      <Link
+        href='/feed/channels'
+        className={channelsActive ? 'section-title section-link active' : 'section-title section-link'}
+        aria-current={channelsActive ? 'page' : undefined}
+      >
+        Subscriptions
+        <ChevronRight size={20} strokeWidth={1.5} />
+      </Link>
       {channels.map(channel => {
         const href = `/channel/${channel.id}`
         const active = isActive(href, path, '')

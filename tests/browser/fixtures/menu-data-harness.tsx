@@ -3,14 +3,18 @@ import type { SourceApi } from '../../../src/sources/types'
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
+import { Route, Switch } from 'wouter'
 
 import GroupDialog from '../../../src/components/group-dialog'
+import { Guide } from '../../../src/components/guide'
 import NotificationsMenu from '../../../src/components/notifications-menu'
 import { SaveMenu } from '../../../src/components/save-menu'
 import SubscribeButton from '../../../src/components/subscribe-button'
 import { TranscriptPanel } from '../../../src/components/transcript'
 import { VideoCardMenu } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
+import FeedChannelsPage from '../../../src/routes/feed-channels'
+import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
 import { resolvers } from '../../../src/worker/resolvers'
 import typeDefs from '../../../src/worker/schema.gql?raw'
 
@@ -125,6 +129,78 @@ export const mountGroupPicker = () => {
   render(
     <Provider value={client}>
       <GroupDialog onClose={close} />
+    </Provider>,
+    host,
+  )
+}
+
+/** Renders the guide, /feed/subscriptions and /feed/channels over a signed-in mock source for YTB-124 tests. */
+export const mountChannelsSurface = () => {
+  const host = document.createElement('div')
+  host.setAttribute('data-channels-harness', 'true')
+  host.style.cssText = 'position: fixed; inset: 0; z-index: 10000; background: var(--bg-base); overflow: auto; padding-left: 24rem'
+  document.body.append(host)
+  const now = Date.now()
+  const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString()
+  const channels = [
+    {
+      id: 'UCaaaaaaaaaaaaaaaaaaaaaa',
+      name: 'Alpha Tech',
+      handle: '@alphatech',
+      subscriberCountText: '120K subscribers',
+      description: 'Weekly hardware teardowns.',
+      isSubscribed: true,
+    },
+    {
+      id: 'UCbbbbbbbbbbbbbbbbbbbbbb',
+      name: 'Beta Music',
+      handle: '@betamusic',
+      subscriberCountText: '2.4M subscribers',
+      description: 'Live synth sessions.',
+      isSubscribed: true,
+    },
+    {
+      id: 'UCcccccccccccccccccccccc',
+      name: 'Old Archive',
+      handle: '@oldarchive',
+      subscriberCountText: '15K subscribers',
+      description: 'Classic uploads.',
+      isSubscribed: true,
+    },
+  ]
+  const uploadsByChannel: Record<string, { id: string, title: string, publishedAt: string, badges: string[] }[]> = {
+    UCaaaaaaaaaaaaaaaaaaaaaa: [{ id: 'vid11111111', title: 'New build', publishedAt: daysAgo(2), badges: [] }],
+    UCbbbbbbbbbbbbbbbbbbbbbb: [{ id: 'vid22222222', title: 'Monthly jam', publishedAt: daysAgo(20), badges: [] }],
+    UCcccccccccccccccccccccc: [{ id: 'vid33333333', title: 'Old clip', publishedAt: daysAgo(450), badges: [] }],
+  }
+  const channelsSource = {
+    session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
+    subscribedChannels: async () => channels,
+    subscriptions: async () => ({ items: [], playlists: [] }),
+    channelUploads: async (channelId: string) => uploadsByChannel[channelId] ?? [],
+    setSubscribed: async (id: string, isSubscribed: boolean) => ({
+      ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
+      isSubscribed,
+    }),
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: 'http://channels-harness.local/graphql',
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source: channelsSource }),
+  })
+  document.documentElement.dataset.engine = 'ready'
+  render(
+    <Provider value={client}>
+      <Guide variant='expanded' />
+      <Switch>
+        <Route path='/feed/subscriptions' component={SubscriptionsFeedPage} />
+        <Route path='/feed/channels' component={FeedChannelsPage} />
+      </Switch>
     </Provider>,
     host,
   )
