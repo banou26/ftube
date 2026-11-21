@@ -131,20 +131,51 @@ describe('channelUploads', () => {
     vi.useRealTimers()
   })
 
-  const sourceWith = (fetch: (url: string) => Promise<Response>) => createYoutubeSource({
+  const sourceWith = (
+    fetch: (url: string) => Promise<Response>,
+    execute: (endpoint: string, args: unknown) => Promise<unknown> = async () => ({}),
+  ) => createYoutubeSource({
     fetch: fetch as typeof globalThis.fetch,
-    createClient: () => new Promise(() => {}),
+    createClient: async () => ({ actions: { execute } }) as never,
   })
 
-  it('reads the feed through the source fetch', async () => {
+  it('reads the feed through the source fetch and fills in durations from the Videos tab', async () => {
     const urls: string[] = []
-    const source = sourceWith(async (url) => {
-      urls.push(url)
-      return new Response(feed)
-    })
+    const browsed: unknown[] = []
+    const source = sourceWith(
+      async (url) => {
+        urls.push(url)
+        return new Response(feed)
+      },
+      async (endpoint, args) => {
+        browsed.push([endpoint, args])
+        return {
+          contents_memo: new Map([['Video', [
+            { video_id: 'NDgS__J1U-M', title: { text: 'Ignored' }, duration: { seconds: 1476 } },
+            { video_id: 'cI8IquVEyVY', title: { text: 'Ignored' }, duration: { seconds: 612 } },
+          ]]]),
+        }
+      },
+    )
     const videos = await source.channelUploads(CHANNEL)
     expect(videos).toHaveLength(15)
     expect(new URL(urls[0]!).searchParams.get('playlist_id')).toBe('UULF9-y-6csu5WGm29I7JiwpnA')
+    expect(browsed).toEqual([['/browse', { browseId: CHANNEL, params: 'EgZ2aWRlb3PyBgQKAjoA', parse: true }]])
+    expect(videos[0]?.durationSeconds).toBe(1476)
+    expect(videos[0]?.publishedAt).toBe('2026-10-30T15:47:25.000Z')
+    expect(videos[0]?.viewCount).toBe('173007')
+    expect(videos[1]?.durationSeconds).toBe(612)
+  })
+
+  it('keeps the feed results when the Videos tab browse for durations fails', async () => {
+    const source = sourceWith(
+      async () => new Response(feed),
+      async () => { throw new Error('browse failed') },
+    )
+    const videos = await source.channelUploads(CHANNEL)
+    expect(videos).toHaveLength(15)
+    expect(videos[0]?.id).toBe('NDgS__J1U-M')
+    expect(videos[0]?.durationSeconds).toBeUndefined()
   })
 
   const BLENDER = 'UCSMOQeBJ2RAnuFungnQOxLg'
@@ -188,18 +219,31 @@ describe('channelUploads', () => {
     expect(urls).toEqual([])
   })
 
-  it('spaces the feeds of one source 100 ms apart', async () => {
+  it('spaces the feeds and duration browses of one source 100 ms apart', async () => {
     vi.useFakeTimers()
     const begin = Date.now()
-    const starts: number[] = []
-    const source = sourceWith(async () => {
-      starts.push(Date.now() - begin)
-      return new Response(feed)
-    })
-    const reads = [0, 1, 2].map(() => source.channelUploads(CHANNEL))
-    await vi.advanceTimersByTimeAsync(250)
-    expect(starts).toEqual([0, 100, 200])
-    await Promise.all(reads)
+    const starts: [string, number][] = []
+    const source = sourceWith(
+      async () => {
+        starts.push(['feed', Date.now() - begin])
+        return new Response(feed)
+      },
+      async () => {
+        starts.push(['browse', Date.now() - begin])
+        return {}
+      },
+    )
+    const reads = Promise.all([0, 1, 2].map(() => source.channelUploads(CHANNEL)))
+    await vi.runAllTimersAsync()
+    await reads
+    expect(starts).toEqual([
+      ['feed', 0],
+      ['feed', 100],
+      ['feed', 200],
+      ['browse', 300],
+      ['browse', 400],
+      ['browse', 500],
+    ])
   })
 
   it('spaces each browse of a failed feed\'s Videos tab 100 ms apart from every other request', async () => {

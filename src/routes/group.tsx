@@ -15,13 +15,14 @@ import { gql } from '../generated'
 import { useGroups } from '../groups/store'
 import { mergeUploads } from '../groups/uploads'
 
-// the feed has no duration, live state or avatar, and Video is keyed by id: selecting those would write nulls over other views
+// the feed has no live state or avatar, and Video is keyed by id: selecting those would write nulls over other views
 const CHANNEL_UPLOADS_QUERY = gql(`
   query ChannelUploads($channelId: ID!) {
     channelUploads(channelId: $channelId) {
       id
       title
       thumbnail
+      durationSeconds
       viewCount
       publishedAt
     }

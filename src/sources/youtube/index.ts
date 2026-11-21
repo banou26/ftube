@@ -297,6 +297,9 @@ export type YoutubeClient = {
 // the guide's Shorts entry, read off youtube.com signed out (2026-11-01): params `CA8%3D`, decoded
 const SEEDLESS_REEL = { params: 'CA8=', inputType: 'REEL_WATCH_INPUT_TYPE_SEEDLESS' }
 
+// a channel's Videos tab in one /browse call (long uploads newest first, with durations)
+const VIDEOS_TAB_PARAMS = 'EgZ2aWRlb3PyBgQKAjoA'
+
 export type YoutubeSourceOptions = {
   fetch: typeof globalThis.fetch
   createClient?: () => Promise<YoutubeClient>
@@ -827,6 +830,20 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
     return result
   }
 
+  const browseVideosTab = async (channelId: string): Promise<SourceVideo[]> => {
+    const response = await paceFeed(async () => (await client).actions.execute('/browse', {
+      browseId: channelId,
+      params: VIDEOS_TAB_PARAMS,
+      parse: true,
+    }))
+    const memo = response.contents_memo
+    return [
+      ...(memo?.get('Video') ?? []).map(normalizeFeedVideo),
+      ...(memo?.get('GridVideo') ?? []).map(normalizeFeedVideo),
+      ...(memo?.get('LockupView') ?? []).map((node) => normalizeLockupVideo(node, { own: true })),
+    ].filter((video) => video !== undefined)
+  }
+
   // YouTube's feed server answers 404 to every feed for hours at a time (public reports since 2025-12), so the Videos
   // tab stands in, dated only as finely as its '6d ago'
   const tabUploads = async (channelId: string): Promise<SourceVideo[]> => {
@@ -1240,7 +1257,21 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
     channelUploads: async (channelId) => {
       if (!isChannelId(channelId)) throw new Error(`youtube: ${channelId} is not a channel id`)
       const response = await paceFeed(() => fetch(channelFeedUrl(channelId, Date.now())))
-      if (response.ok) return parseChannelFeed(await response.text())
+      if (response.ok) {
+        const feedVideos = parseChannelFeed(await response.text())
+        if (feedVideos.length === 0) return feedVideos
+        // The XML feed carries exact timestamps and view counts, never durations. One direct Videos-tab browse fills
+        // in each video's duration without losing that exact ordering; if it fails, the feed still stands on its own.
+        const tabbed = await browseVideosTab(channelId).catch(() => [])
+        const durations = new Map<string, number>()
+        for (const video of tabbed) if (video.durationSeconds !== undefined) durations.set(video.id, video.durationSeconds)
+        return durations.size === 0
+          ? feedVideos
+          : feedVideos.map((video) => {
+              const durationSeconds = durations.get(video.id)
+              return durationSeconds === undefined ? video : { ...video, durationSeconds }
+            })
+      }
       void response.body?.cancel().catch(() => {})
       return tabUploads(channelId)
     },
