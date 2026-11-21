@@ -457,4 +457,41 @@ describe('a live SABR session on a stream with a DVR window', () => {
     expect(Math.max(...sequences)).toBeGreaterThanOrEqual(HEAD + 4)
     session.close()
   })
+
+  it('serves a rangeless live init segment straight from cache once the opening response delivered it', async () => {
+    const ftyp = [0, 0, 0, 12, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]
+    const moov = [0, 0, 0, 10, 0x6d, 0x6f, 0x6f, 0x76, 0x01, 0x02]
+    const initBytes = [...ftyp, ...moov]
+    const mediaPayload = [...initBytes, 0, 0, 0, 8, 0x6d, 0x64, 0x61, 0x74]
+    vi.mocked(egressFetch).mockImplementation(async (_url, options) => {
+      await sleep(50)
+      const body = new Uint8Array(options.body as ArrayBuffer)
+      const request = VideoPlaybackAbrRequest.decode(body)
+      asked.push({ playerTimeMs: Number(request.clientAbrState?.playerTimeMs ?? 0), video: request.preferredVideoFormatIds[0]?.itag, at: Date.now(), cuepoints: [] })
+      const metadata = { headSequenceNumber: String(HEAD), headTimeMs: String(startMsOf(HEAD)), minSeekableTimeTicks: String(startMsOf(HEAD - WINDOW) * 1_000), minSeekableTimescale: 1_000_000 }
+      const answer = [
+        ...part(UMPPartId.LIVE_METADATA, LiveMetadata.encode(metadata).finish()),
+        ...part(UMPPartId.MEDIA_HEADER, MediaHeader.encode({ headerId: 0, itag: 134, formatId: { itag: 134, lastModified: '1' }, sequenceNumber: HEAD - 2, startMs: String(startMsOf(HEAD - 2)), durationMs: '5000', contentLength: String(mediaPayload.length) }).finish()),
+        ...part(UMPPartId.MEDIA, [0, ...mediaPayload]),
+        ...part(UMPPartId.MEDIA_END, [0]),
+        ...part(UMPPartId.MEDIA_HEADER, MediaHeader.encode({ headerId: 1, itag: 140, formatId: { itag: 140, lastModified: '1' }, isInitSeg: true, contentLength: String(initBytes.length) }).finish()),
+        ...part(UMPPartId.MEDIA, [1, ...initBytes]),
+        ...part(UMPPartId.MEDIA_END, [1]),
+      ]
+      return new Response(new Uint8Array(answer))
+    })
+    const session = createSabrSession(source, 360)
+    const openReq = session.requestSegment(opening)
+    await vi.advanceTimersByTimeAsync(100)
+    await openReq
+    expect(asked).toHaveLength(1)
+
+    // both video (extracted from moov prefix) and audio (explicit isInitSeg) answer with zero extra network fetches
+    const videoInit = await session.requestSegment({ ...base, requestId: 'v-init', track: 'video', kind: 'init', formatKey: '134:' })
+    const audioInit = await session.requestSegment({ ...base, requestId: 'a-init', track: 'audio', kind: 'init', formatKey: '140:' })
+    expect(new Uint8Array(videoInit.data!)).toEqual(new Uint8Array(initBytes))
+    expect(new Uint8Array(audioInit.data!)).toEqual(new Uint8Array(initBytes))
+    expect(asked).toHaveLength(1)
+    session.close()
+  })
 })

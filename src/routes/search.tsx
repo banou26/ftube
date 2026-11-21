@@ -694,14 +694,14 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
     <article
       className='result'
       onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
-        prefetch.onPointerEnter()
+        if (!playerParams) prefetch.onPointerEnter()
         if (event.pointerType === 'mouse') setHovered(true)
       }}
       onPointerLeave={() => {
-        prefetch.onPointerLeave()
+        if (!playerParams) prefetch.onPointerLeave()
         setHovered(false)
       }}
-      onPointerDown={prefetch.onPointerDown}
+      onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {row.thumbnail ? <Thumbnail src={row.thumbnail} srcSet={row.thumbnailSrcset} sizes='50rem' /> : undefined}

@@ -346,7 +346,7 @@ export const startShakaPlayback = async ({
       activePlayer.configure({
         streaming: {
           bufferingGoal: 10,
-          rebufferingGoal: 2,
+          rebufferingGoal: 0.5,
           bufferBehind: 30,
           gapDetectionThreshold: 0.3,
           gapPadding: 0.1,
@@ -364,15 +364,28 @@ export const startShakaPlayback = async ({
     // no goToLive(): it seeks to the availability end, which is where the NEXT segment will begin, not where the newest one is
     if (session.isLive) {
       activePlayer.configure({ abr: { restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } } })
-      const settle = Date.now() + 10_000
-      while (!destroyed && !signal.aborted && Date.now() < settle) {
-        const buffered = video.buffered
-        if (buffered.length > 0) {
-          const start = buffered.start(0)
-          if (video.currentTime < start) video.currentTime = start + 0.1
-          break
+      const waitForBuffered = () => new Promise<void>((resolve) => {
+        if (destroyed || signal.aborted || video.buffered.length > 0) return resolve()
+        const events = ['progress', 'loadeddata', 'canplay', 'loadedmetadata'] as const
+        const done = () => {
+          clearTimeout(deadline)
+          clearInterval(poll)
+          signal.removeEventListener('abort', done)
+          for (const event of events) video.removeEventListener(event, check)
+          resolve()
         }
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        const check = () => {
+          if (destroyed || signal.aborted || video.buffered.length > 0) done()
+        }
+        const deadline = setTimeout(done, 10_000)
+        const poll = setInterval(check, 50)
+        signal.addEventListener('abort', done, { once: true })
+        for (const event of events) video.addEventListener(event, check)
+      })
+      await waitForBuffered()
+      if (!destroyed && !signal.aborted && video.buffered.length > 0) {
+        const start = video.buffered.start(0)
+        if (video.currentTime < start) video.currentTime = start + 0.1
       }
       const stalled = createStallWatch()
       if (!destroyed) stallTimer = setInterval(() => {

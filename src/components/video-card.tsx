@@ -555,14 +555,14 @@ export const VideoCard = (
       className={classes || undefined}
       /* Called through rather than spread: `{...prefetch}` lets the handlers below overwrite the hook's own. */
       onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
-        prefetch.onPointerEnter()
+        if (!playerParams) prefetch.onPointerEnter()
         if (event.pointerType === 'mouse') setHovered(true)
       }}
       onPointerLeave={() => {
-        prefetch.onPointerLeave()
+        if (!playerParams) prefetch.onPointerLeave()
         setHovered(false)
       }}
-      onPointerDown={prefetch.onPointerDown}
+      onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {video.thumbnail

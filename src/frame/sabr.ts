@@ -295,13 +295,13 @@ const createPlayerAdapter = (state: AdapterState): SabrPlayerAdapter => ({
   dispose: () => {},
 })
 
-// rangeless (live) only: a VOD range answer ends with a sidx that cutting at moov would drop
-const initSegmentPrefix = (data: Uint8Array) => {
+// Returns the MP4 init prefix through `moov` when `data` actually carries one, else undefined (never treats WebM or plain media boxes as init).
+const extractMoovInit = (data: Uint8Array): Uint8Array | undefined => {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   let offset = 0
   while (offset + 8 <= view.byteLength) {
     const size = view.getUint32(offset)
-    if (size < 8) break
+    if (size < 8 || offset + size > view.byteLength) return undefined
     const type = String.fromCharCode(
       view.getUint8(offset + 4),
       view.getUint8(offset + 5),
@@ -309,10 +309,13 @@ const initSegmentPrefix = (data: Uint8Array) => {
       view.getUint8(offset + 7),
     )
     offset += size
-    if (type === 'moov') return data.subarray(0, Math.min(offset, data.byteLength))
+    if (type === 'moov') return data.subarray(0, offset)
   }
-  return data
+  return undefined
 }
+
+// rangeless (live) only: a VOD range answer ends with a sidx that cutting at moov would drop
+const initSegmentPrefix = (data: Uint8Array) => extractMoovInit(data) ?? data
 
 /**
  * One SABR playback session over a source.
@@ -456,6 +459,15 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
     resolve()
   }
 
+  const initCacheKey = (formatKey: string) => {
+    const sabrFormat = byKey.get(formatKey)
+    return sabrFormat && FormatKeyUtils.createSegmentCacheKey({
+      itag: sabrFormat.itag,
+      xtags: sabrFormat.xtags,
+      isInitSeg: true,
+    } as never, sabrFormat)
+  }
+
   const storeCollectedSegment = (segment: CollectedUmpSegment, askedMs: number) => {
     const sabrFormat = byKey.get(segment.formatKey)
     if (!sabrFormat) return
@@ -483,7 +495,14 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
       track: format.width ? 'video' : 'audio',
     }
     mediaCache.set(cacheKey, cached)
-    if (source.isLive) recordLiveSegment(cached, targetDurationMs)
+    if (source.isLive) {
+      recordLiveSegment(cached, targetDurationMs)
+      const initKey = initCacheKey(segment.formatKey)
+      if (initKey && !bytes(state.cache?.getInitSegment(initKey))?.byteLength) {
+        const moov = extractMoovInit(segment.data)
+        if (moov?.byteLength) state.cache?.setInitSegment(initKey, moov)
+      }
+    }
     mediaCacheBytes += segment.data.byteLength
     while (mediaCacheBytes > MAX_MEDIA_CACHE_BYTES) {
       const oldest = mediaCache.entries().next().value as [string, CachedMedia] | undefined
@@ -827,15 +846,6 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
   // init blob fetches are shared between requesters, so they die with the session, not with one signal
   const closeController = new AbortController()
 
-  const initCacheKey = (formatKey: string) => {
-    const sabrFormat = byKey.get(formatKey)
-    return sabrFormat && FormatKeyUtils.createSegmentCacheKey({
-      itag: sabrFormat.itag,
-      xtags: sabrFormat.xtags,
-      isInitSeg: true,
-    } as never, sabrFormat)
-  }
-
   const fetchInitBlob = async (
     track: 'audio' | 'video',
     format: PlaybackFormat,
@@ -912,10 +922,23 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
         : request.startTimeMs
       const range = requestedRange ? `bytes=${requestedRange.start}-${requestedRange.end}` : undefined
       const getCachedSegment = (): SegmentEnvelope | undefined => {
-        if (request.kind === 'init' && requestedRange) {
+        if (request.kind === 'init') {
           const cacheKey = initCacheKey(format.key)
           const cached = cacheKey ? bytes(state.cache?.getInitSegment(cacheKey)) : undefined
-          if (!cached || requestedRange.end >= cached.byteLength) return
+          if (!cached?.byteLength) return
+          if (requestedRange) {
+            if (requestedRange.end >= cached.byteLength) return
+            return {
+              generation: request.generation,
+              track: request.track,
+              kind: request.kind,
+              formatKey: format.key,
+              mimeType: format.mimeType,
+              elapsedMs: 0,
+              end: false as const,
+              data: cached.slice(requestedRange.start, requestedRange.end + 1).buffer,
+            }
+          }
           return {
             generation: request.generation,
             track: request.track,
@@ -924,7 +947,7 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
             mimeType: format.mimeType,
             elapsedMs: 0,
             end: false as const,
-            data: cached.slice(requestedRange.start, requestedRange.end + 1).buffer,
+            data: Uint8Array.from(cached).buffer as ArrayBuffer,
           }
         }
         if (request.kind === 'media') {

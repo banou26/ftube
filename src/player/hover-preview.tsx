@@ -19,7 +19,8 @@ import type { startShakaPlayback } from './shaka'
 // only ONE preview can be live at a time: module scope because no single card can know about the others
 let activeToken = 0
 
-const DWELL_MS = 700
+// youtube.com asks its inline preview player ~150 ms after hover (measured 2026-11-11)
+const DWELL_MS = 150
 
 // carried between previews and deliberately NOT persisted: a feed may never start talking on its own
 let preferMuted = true
