@@ -79,3 +79,53 @@ export const mountMenuData = (which: Which) => {
   }[which]
   render(<Provider value={client}>{shown()}</Provider>, host)
 }
+
+/** Renders GroupDialog with multiple subscribed channels and a channel preview resolver for filter/select-all/preview tests. */
+export const mountGroupPicker = () => {
+  const host = document.createElement('div')
+  host.setAttribute('data-group-picker-harness', 'true')
+  document.body.append(host)
+  const channels = [
+    { id: 'UCaaaaaaaaaaaaaaaaaaaaaa', name: 'Alpha Tech', handle: '@alphatech', subscriberCountText: '120K subscribers', videoCountText: '42 videos', description: 'Tech builds and reviews.' },
+    { id: 'UCbbbbbbbbbbbbbbbbbbbbbb', name: 'Beta Tech', handle: '@betatech', subscriberCountText: '50K subscribers', videoCountText: '18 videos', description: 'More tech content.' },
+    { id: 'UCcccccccccccccccccccccc', name: 'Gamma Music', handle: '@gammamusic', subscriberCountText: '1M subscribers', videoCountText: '200 videos', description: 'Music channel.' },
+  ]
+  const pickerSource = {
+    session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
+    subscribedChannels: async () => channels,
+    channel: async (id: string) => {
+      const found = channels.find(entry => entry.id === id) ?? channels[0]!
+      return {
+        channel: found,
+        videos: {
+          items: [
+            { id: 'vid12345678', title: `${found.name} latest video`, durationSeconds: 325, publishedText: '2 days ago', badges: [] },
+          ],
+          playlists: [],
+        },
+        availableTabs: ['VIDEOS'],
+        tab: 'VIDEOS',
+        sortOptions: [],
+        filterOptions: [],
+      }
+    },
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: 'http://group-picker-harness.local/graphql',
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source: pickerSource }),
+  })
+  document.documentElement.dataset.engine = 'ready'
+  const close = () => render(null, host)
+  render(
+    <Provider value={client}>
+      <GroupDialog onClose={close} />
+    </Provider>,
+    host,
+  )
+}
