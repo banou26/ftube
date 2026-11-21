@@ -43,13 +43,19 @@ const channel = () => {
   return made
 }
 
-type Posted = { message: { type?: string, signedIn?: boolean }, transfer: unknown[] }
-type FakeFrame = { contentWindow: { postMessage(message: Posted['message'], origin: string, transfer?: unknown[]): void }, posted: Posted[], removed: boolean }
+type Posted = { message: { type?: string, signedIn?: boolean, attempt?: number }, transfer: unknown[] }
+type FakeFrame = {
+  contentWindow: { postMessage(message: Posted['message'], origin: string, transfer?: unknown[]): void }
+  contentDocument?: unknown
+  posted: Posted[]
+  removed: boolean
+}
 
-// the app realm: one iframe per engine frame loaded, and the window's message listeners
+// the app realm: one iframe per engine frame loaded, and the window's message/online listeners
 const installAppRealm = () => {
   const frames: FakeFrame[] = []
-  const listeners = new Set<(event: MessageEvent) => void>()
+  const messageListeners = new Set<(event: MessageEvent) => void>()
+  const onlineListeners = new Set<(event: Event) => void>()
   const reload = vi.fn()
   vi.stubGlobal('document', {
     createElement: () => {
@@ -68,8 +74,14 @@ const installAppRealm = () => {
     querySelector,
   })
   vi.stubGlobal('window', {
-    addEventListener: (_type: string, listener: (event: MessageEvent) => void) => listeners.add(listener),
-    removeEventListener: (_type: string, listener: (event: MessageEvent) => void) => listeners.delete(listener),
+    addEventListener: (type: string, listener: (event: never) => void) => {
+      if (type === 'message') messageListeners.add(listener as (event: MessageEvent) => void)
+      if (type === 'online') onlineListeners.add(listener as (event: Event) => void)
+    },
+    removeEventListener: (type: string, listener: (event: never) => void) => {
+      if (type === 'message') messageListeners.delete(listener as (event: MessageEvent) => void)
+      if (type === 'online') onlineListeners.delete(listener as (event: Event) => void)
+    },
   })
   vi.stubGlobal('location', { origin: ORIGIN, reload })
   const storage = new Map<string, string>()
@@ -78,16 +90,19 @@ const installAppRealm = () => {
     setItem: (key: string, value: string) => { storage.set(key, value) },
   })
   const fromFrame = (frame: FakeFrame, data: unknown, ports: MessagePort[] = []) => {
-    for (const listener of listeners) {
+    for (const listener of messageListeners) {
       listener({ origin: ORIGIN, source: frame.contentWindow, data, ports } as unknown as MessageEvent)
     }
   }
-  const ready = (frame: FakeFrame) => {
+  const fireOnline = () => {
+    for (const listener of [...onlineListeners]) listener({ type: 'online' } as Event)
+  }
+  const ready = (frame: FakeFrame, attempt?: number) => {
     const api = channel()
-    fromFrame(frame, { type: ENGINE_READY, signedIn: false }, [api.port2])
+    fromFrame(frame, { type: ENGINE_READY, signedIn: false, ...(attempt !== undefined ? { attempt } : {}) }, [api.port2])
     return api.port2
   }
-  return { frames, reload, fromFrame, ready }
+  return { frames, reload, fromFrame, fireOnline, ready }
 }
 
 const settled = <T>(promise: Promise<T>) => Promise.race([
@@ -107,6 +122,7 @@ describe('the next engine of an app realm', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     for (const port of open.splice(0)) port.close()
   })
@@ -130,7 +146,7 @@ describe('the next engine of an app realm', () => {
     expect(realm.frames[1]!.removed).toBe(true)
     expect(realm.frames[0]!.removed).toBe(false)
     const [restart] = sent(realm.frames[0]!, HOST_RESTART)
-    expect(restart?.message).toEqual({ type: HOST_RESTART, signedIn: false })
+    expect(restart?.message).toEqual({ type: HOST_RESTART, signedIn: false, attempt: 2 })
     // the new engine's bridge alone: the frame keeps the bootstrap's egress and extension ports
     expect(restart?.transfer).toEqual([bridges.at(-1)])
     expect(sent(realm.frames[0]!, HOST_BOOTSTRAP)).toHaveLength(1)
@@ -190,6 +206,90 @@ describe('the next engine of an app realm', () => {
     realm.fromFrame(realm.frames[2]!, { type: HOST_HELLO, build: LATER_BUILD })
     expect(realm.reload).toHaveBeenCalledTimes(1)
   })
+
+  it('retries on timer and on online when a frame never says hello, and ignores a late answer from an earlier attempt', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { startEngine, HELLO_TIMEOUT_MS } = await import('../../../src/engine/client')
+    const pending = startEngine()
+    expect(realm.frames).toHaveLength(1)
+
+    // first attempt times out waiting for HOST_HELLO -> schedules backoff retry
+    await vi.advanceTimersByTimeAsync(HELLO_TIMEOUT_MS)
+    expect(realm.frames[0]!.removed).toBe(true)
+    expect(realm.frames).toHaveLength(1)
+
+    // firing `online` retries immediately instead of waiting out the timer
+    realm.fireOnline()
+    expect(realm.frames).toHaveLength(2)
+
+    // second attempt also times out -> timer retries automatically
+    await vi.advanceTimersByTimeAsync(HELLO_TIMEOUT_MS)
+    expect(realm.frames[1]!.removed).toBe(true)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(realm.frames).toHaveLength(3)
+
+    // third attempt answers hello and receives attempt: 3
+    realm.fromFrame(realm.frames[2]!, { type: HOST_HELLO, build: BUILD })
+    await vi.waitFor(() => expect(sent(realm.frames[2]!, HOST_BOOTSTRAP)).toHaveLength(1))
+    const attempt = sent(realm.frames[2]!, HOST_BOOTSTRAP)[0]!.message.attempt!
+    expect(attempt).toBe(3)
+
+    // a late answer carrying an older attempt id is ignored and its port is closed
+    const stale = channel()
+    let staleClosed = false
+    stale.port1.addEventListener('close', () => { staleClosed = true })
+    stale.port1.start()
+    realm.fromFrame(realm.frames[2]!, { type: ENGINE_READY, signedIn: false, attempt: 1 }, [stale.port2])
+    await vi.waitFor(() => expect(staleClosed).toBe(true))
+
+    // matching attempt resolves the engine
+    realm.ready(realm.frames[2]!, attempt)
+    expect(await pending).toBeDefined()
+  })
+
+  it('retries on a transient module fetch failure reported in ENGINE_READY', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { startEngine } = await import('../../../src/engine/client')
+    const pending = startEngine()
+    realm.fromFrame(realm.frames[0]!, { type: HOST_HELLO, build: BUILD })
+    await vi.waitFor(() => expect(sent(realm.frames[0]!, HOST_BOOTSTRAP)).toHaveLength(1))
+    realm.fromFrame(realm.frames[0]!, {
+      type: ENGINE_READY,
+      attempt: 1,
+      error: 'Failed to fetch dynamically imported module: https://youtube.fkn.app/assets/frame.js',
+    })
+    expect(realm.frames[0]!.removed).toBe(true)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(realm.frames).toHaveLength(2)
+    realm.fromFrame(realm.frames[1]!, { type: HOST_HELLO, build: BUILD })
+    await vi.waitFor(() => expect(sent(realm.frames[1]!, HOST_BOOTSTRAP)).toHaveLength(1))
+    realm.ready(realm.frames[1]!, 2)
+    expect(await pending).toBeDefined()
+  })
+
+  it('drops a silent kept frame once its restart deadline runs out and loads a fresh frame', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const client = await import('../../../src/engine/client')
+    const first = client.startEngine()
+    realm.fromFrame(realm.frames[0]!, { type: HOST_HELLO, build: BUILD })
+    await vi.waitFor(() => expect(sent(realm.frames[0]!, HOST_BOOTSTRAP)).toHaveLength(1))
+    realm.ready(realm.frames[0]!, 1)
+    await first
+
+    client.resetEngine()
+    const next = client.startEngine()
+    realm.fromFrame(realm.frames[1]!, { type: HOST_HELLO, build: LATER_BUILD })
+    expect(sent(realm.frames[0]!, HOST_RESTART)).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(client.RESTART_TIMEOUT_MS)
+    expect(realm.frames[0]!.removed).toBe(true)
+    expect(realm.frames).toHaveLength(3)
+
+    realm.fromFrame(realm.frames[2]!, { type: HOST_HELLO, build: BUILD })
+    await vi.waitFor(() => expect(sent(realm.frames[2]!, HOST_BOOTSTRAP)).toHaveLength(1))
+    realm.ready(realm.frames[2]!, 3)
+    expect(await next).toBeDefined()
+  })
 })
 
 describe('the engine frame asked for another engine', () => {
@@ -230,6 +330,7 @@ describe('the engine frame asked for another engine', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     for (const port of open.splice(0)) port.close()
   })
@@ -270,5 +371,18 @@ describe('the engine frame asked for another engine', () => {
       { type: ENGINE_READY, error: 'yt-client: the engine frame booted on another jar' },
     ])
     expect(engineModule.connected).toHaveLength(1)
+  })
+
+  it('echoes the attempt id in ENGINE_READY on bootstrap and restart', async () => {
+    const frame = installFrame()
+    await import('../../../src/frame/main')
+    const [egress, extFetch, agent, nextAgent] = [channel(), channel(), channel(), channel()]
+    frame.fromApp({ type: HOST_BOOTSTRAP, build: BUILD, signedIn: false, direct: true, attempt: 7 }, [egress.port2, extFetch.port2, agent.port2])
+    await vi.waitFor(() => expect(frame.readies()).toHaveLength(1))
+    frame.fromApp({ type: HOST_RESTART, signedIn: false, attempt: 9 }, [nextAgent.port2])
+    expect(frame.readies().map(({ message }) => message)).toEqual([
+      { type: ENGINE_READY, signedIn: false, attempt: 7 },
+      { type: ENGINE_READY, signedIn: false, attempt: 9 },
+    ])
   })
 })

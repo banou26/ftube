@@ -44,8 +44,8 @@ export const HOST_BOOTSTRAP = 'yt-client-host-bootstrap'
 export const ENGINE_PATH = '/__yt_engine__/engine.html'
 
 export type HostHello = { type: typeof HOST_HELLO, build: string }
-export type HostBootstrap = { type: typeof HOST_BOOTSTRAP, build: string, signedIn: boolean, direct: boolean }
-export type EngineReady = { type: typeof ENGINE_READY, error?: string, signedIn?: boolean }
+export type HostBootstrap = { type: typeof HOST_BOOTSTRAP, build: string, signedIn: boolean, direct: boolean, attempt?: number }
+export type EngineReady = { type: typeof ENGINE_READY, error?: string, signedIn?: boolean, attempt?: number }
 
 /**
  * HOST_RESTART asks an engine frame that already served an engine for a new one in its place, and is answered by
@@ -54,7 +54,7 @@ export type EngineReady = { type: typeof ENGINE_READY, error?: string, signedIn?
  */
 export const HOST_RESTART = 'yt-client-host-restart'
 
-export type HostRestart = { type: typeof HOST_RESTART, signedIn: boolean }
+export type HostRestart = { type: typeof HOST_RESTART, signedIn: boolean, attempt?: number }
 
 export type ExtFetchRequest = {
   type: 'fetch'

@@ -133,7 +133,7 @@ describe('an engine from another build', () => {
     window.fromFrame(window.frames[0]!, { type: HOST_HELLO, build: BUILD })
     expect(await settled(engine)).toEqual({ pending: true })
     const [bootstrap] = bootstraps(window.frames[0]!)
-    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD, signedIn: false, direct: true })
+    expect(bootstrap?.message).toEqual({ type: HOST_BOOTSTRAP, build: BUILD, signedIn: false, direct: true, attempt: 1 })
     expect(bootstrap?.transfer).toHaveLength(3)
 
     const api = new MessageChannel()

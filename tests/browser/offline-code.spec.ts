@@ -137,3 +137,38 @@ test('a docked video keeps playing while a page opens during a network drop', as
   expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(false)
   await expect(dock).toBeVisible()
 })
+
+test('recovers playback when the engine resets during a network drop', async ({ page }) => {
+  test.setTimeout(300_000)
+  await page.addInitScript(() => {
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'yt-client-engine-ready' && event.ports[0]) {
+        Object.assign(window, { lastEnginePort: event.ports[0] })
+      }
+    })
+  })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page, '/watch?v=dQw4w9WgXcQ')
+  const video = page.locator('video')
+  const time = () => video.evaluate(element => (element as HTMLVideoElement).currentTime)
+  await expect(video).toBeVisible({ timeout: 60_000 })
+  await expect.poll(time, { timeout: 120_000, message: 'playback did not start' }).toBeGreaterThan(1)
+
+  // Drop the app's own engine page and assets, then force an engine reset
+  await page.route(`${origin}/__yt_engine__/**`, drop)
+  await page.route(`${origin}/assets/**`, drop)
+  await page.evaluate(() => {
+    const port = (window as unknown as { lastEnginePort?: MessagePort }).lastEnginePort
+    if (!port) throw new Error('missing engine port')
+    port.dispatchEvent(new MessageEvent('messageerror'))
+  })
+
+  // Stay dropped long enough for the first reset attempt to fail before connectivity returns
+  await page.waitForTimeout(7_000)
+  const before = await time()
+  await page.unroute(`${origin}/__yt_engine__/**`, drop)
+  await page.unroute(`${origin}/assets/**`, drop)
+
+  await expect.poll(time, { timeout: 120_000, message: 'playback did not recover after the drop ended' }).toBeGreaterThan(before + 1)
+  expect(await page.evaluate(() => 'sameDocument' in window), 'the page reloaded').toBe(true)
+})

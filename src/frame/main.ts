@@ -21,7 +21,9 @@ const stage = (value: string) => {
 
 const toApp = (message: HostHello | EngineReady, transfer: Transferable[] = []) => window.parent.postMessage(message, location.origin, transfer)
 
-const bootstrap = new Promise<{ egress: MessagePort, extFetch: MessagePort, agent: MessagePort, signedIn: boolean, direct: boolean }>((resolve, reject) => {
+let bootAttempt: number | undefined
+
+const bootstrap = new Promise<{ egress: MessagePort, extFetch: MessagePort, agent: MessagePort, signedIn: boolean, direct: boolean, attempt?: number }>((resolve, reject) => {
   const timeout = setTimeout(() => reject(new Error('yt-client: engine bootstrap ports never arrived')), BOOTSTRAP_TIMEOUT_MS)
   const onMessage = (event: MessageEvent) => {
     if (event.origin !== location.origin || event.source !== window.parent) return
@@ -29,6 +31,7 @@ const bootstrap = new Promise<{ egress: MessagePort, extFetch: MessagePort, agen
     if (message?.type !== HOST_BOOTSTRAP) return
     window.removeEventListener('message', onMessage)
     clearTimeout(timeout)
+    bootAttempt = message.attempt
     if (message.build !== buildId()) {
       for (const port of event.ports) port.close()
       reject(new Error(ENGINE_BUILD_MISMATCH))
@@ -39,15 +42,17 @@ const bootstrap = new Promise<{ egress: MessagePort, extFetch: MessagePort, agen
       reject(new Error('yt-client: engine bootstrap ports are missing'))
       return
     }
-    resolve({ egress, extFetch, agent, signedIn: message.signedIn === true, direct: message.direct !== false })
+    resolve({ egress, extFetch, agent, signedIn: message.signedIn === true, direct: message.direct !== false, attempt: message.attempt })
   }
   window.addEventListener('message', onMessage)
   toApp({ type: HOST_HELLO, build: buildId() })
 })
 
+const readyFields = (attempt: number | undefined) => (attempt !== undefined ? { attempt } : {})
+
 const boot = async () => {
   stage('bootstrap')
-  const { egress, extFetch: extFetchPort, agent, signedIn, direct } = await bootstrap
+  const { egress, extFetch: extFetchPort, agent, signedIn, direct, attempt } = await bootstrap
   egress.start()
   const remote = expose<EgressApi>({}, { key: EGRESS_KEY, transport: { receive: egress, emit: egress } })
   const extFetch = createExtFetch(extFetchPort)
@@ -77,13 +82,13 @@ const boot = async () => {
 
   stage('engine')
   const { connect } = await import('./index')
-  const serve = () => {
+  const serve = (forAttempt: number | undefined) => {
     const api = new MessageChannel()
     const disconnect = connect(api.port1)
-    toApp({ type: ENGINE_READY, signedIn: realm.cookie !== undefined }, [api.port2])
+    toApp({ type: ENGINE_READY, signedIn: realm.cookie !== undefined, ...readyFields(forAttempt) }, [api.port2])
     return disconnect
   }
-  let disconnect = serve()
+  let disconnect = serve(attempt)
   // a restart keeps this realm and the session it read, so it takes only a bridge on the jar it booted on
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.source !== window.parent) return
@@ -93,16 +98,16 @@ const boot = async () => {
     const [next] = event.ports
     if (!next || message.signedIn !== signedIn) {
       for (const port of event.ports) port.close()
-      toApp({ type: ENGINE_READY, error: 'yt-client: the engine frame booted on another jar' })
+      toApp({ type: ENGINE_READY, error: 'yt-client: the engine frame booted on another jar', ...readyFields(message.attempt) })
       return
     }
     connectAgent(next)
-    disconnect = serve()
+    disconnect = serve(message.attempt)
   })
   stage('ready')
 }
 
 void boot().catch((error: unknown) => {
   stage('error')
-  toApp({ type: ENGINE_READY, error: error instanceof Error ? error.message : String(error) })
+  toApp({ type: ENGINE_READY, error: error instanceof Error ? error.message : String(error), ...readyFields(bootAttempt) })
 })

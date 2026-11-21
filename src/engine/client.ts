@@ -15,6 +15,16 @@ let engineConnection: ReturnType<typeof createFrameApi> | undefined
 let engineCleanup: (() => void) | undefined
 let engineReject: ((error: Error) => void) | undefined
 let engineGeneration = 0
+let lastAttemptId = 0
+
+/** How long a fresh engine frame has to say HOST_HELLO before it is treated as dropped and retried. */
+export const HELLO_TIMEOUT_MS = 5_000
+/** How long a kept frame asked to HOST_RESTART has to answer ENGINE_READY before it is dropped. */
+export const RESTART_TIMEOUT_MS = 5_000
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000]
+
+const isTransientLoadError = (message: string) =>
+  /failed to fetch|dynamically imported module|importing a module script failed|networkerror|load failed/i.test(message)
 
 type PendingCall = {
   method: FrameMethod
@@ -128,6 +138,10 @@ const fromAnotherBuild = (generation: number, engineBuild: unknown) => {
  * The frame that served the last engine is kept until the next frame says its build: when that is another build, a
  * deploy since this page loaded, the next engine starts again in the kept frame (`HOST_RESTART`), from the code it
  * loaded, rather than this page reloading to take the new build. Without a kept frame the page reloads once.
+ *
+ * When a start attempt fails to load or answer (for example during a network drop), it retries on `online` or a
+ * backoff timer; each attempt carries an id echoed in `ENGINE_READY` so late answers from earlier attempts are ignored.
+ * A kept-frame restart that misses its deadline drops the kept frame and falls back to loading a fresh one.
  */
 export const startEngine = () => {
   if (engine) return engine
@@ -140,21 +154,110 @@ export const startEngine = () => {
     const agentHost = startAgentHost()
     const direct = stepEnabled('direct')
 
-    const frame = document.createElement('iframe')
-    engineFrame = frame
-    frame.hidden = true
-    frame.src = ENGINE_PATH
-    let current = frame
+    let current: HTMLIFrameElement | undefined
+    let activeAttempt = 0
+    let awaitingHello = false
+    let retryCount = 0
     let engineBuild: unknown
-    const answerHello = async () => {
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let onOnlineListener: ((event?: Event) => void) | undefined
+    let onFrameLoad: (() => void) | undefined
+    let loadedFrame: HTMLIFrameElement | undefined
+
+    const clearDeadline = () => {
+      clearTimeout(deadlineTimer)
+      deadlineTimer = undefined
+    }
+
+    const clearFrameLoad = () => {
+      if (loadedFrame && onFrameLoad) loadedFrame.removeEventListener?.('load', onFrameLoad)
+      loadedFrame = undefined
+      onFrameLoad = undefined
+    }
+
+    const clearRetry = () => {
+      clearTimeout(retryTimer)
+      retryTimer = undefined
+      if (onOnlineListener) {
+        window.removeEventListener('online', onOnlineListener)
+        onOnlineListener = undefined
+      }
+    }
+
+    const cleanupAll = () => {
+      clearDeadline()
+      clearFrameLoad()
+      clearRetry()
+      window.removeEventListener('message', onMessage)
+    }
+
+    const scheduleRetry = () => {
+      if (generation !== engineGeneration || retryTimer !== undefined) return
+      clearDeadline()
+      clearFrameLoad()
+      const delay = RETRY_DELAYS_MS[Math.min(retryCount, RETRY_DELAYS_MS.length - 1)]!
+      retryCount += 1
+      const go = (event?: Event) => {
+        if (event && ('data' in event || (event.type && event.type !== 'online'))) return
+        clearRetry()
+        if (generation !== engineGeneration) return
+        launchAttempt()
+      }
+      onOnlineListener = go
+      window.addEventListener('online', go)
+      retryTimer = setTimeout(() => go(), delay)
+    }
+
+    const launchAttempt = () => {
+      if (generation !== engineGeneration) return
+      clearDeadline()
+      clearFrameLoad()
+      clearRetry()
+      if (current && current !== keptFrame) current.remove()
+      const attempt = ++lastAttemptId
+      activeAttempt = attempt
+      awaitingHello = true
+      engineBuild = undefined
+      const frame = document.createElement('iframe')
+      current = frame
+      engineFrame = frame
+      frame.hidden = true
+      frame.src = ENGINE_PATH
+      const failHello = () => {
+        if (!awaitingHello || generation !== engineGeneration || attempt !== activeAttempt) return
+        awaitingHello = false
+        frame.remove()
+        if (current === frame) current = undefined
+        if (engineFrame === frame) engineFrame = undefined
+        scheduleRetry()
+      }
+      onFrameLoad = () => {
+        if (!awaitingHello || generation !== engineGeneration || attempt !== activeAttempt) return
+        let errorDocument = false
+        try {
+          // A same-origin engine.html exposes contentDocument; a failed navigation (chrome-error://) returns null or throws.
+          errorDocument = frame.contentDocument === null
+        } catch {
+          errorDocument = true
+        }
+        if (errorDocument) failHello()
+      }
+      loadedFrame = frame
+      frame.addEventListener?.('load', onFrameLoad)
+      deadlineTimer = setTimeout(failHello, HELLO_TIMEOUT_MS)
+      document.body.appendChild(frame)
+    }
+
+    const answerHello = async (frame: HTMLIFrameElement, attempt: number) => {
       try {
         const platform = await platformReady
-        if (generation !== engineGeneration) return
+        if (generation !== engineGeneration || attempt !== activeAttempt) return
         const egress = platform.openEgressPort()
         const extFetch = platform.openExtFetchPort()
         const agent = agentHost.openBridge()
         frame.contentWindow?.postMessage(
-          { type: HOST_BOOTSTRAP, build: buildId(), signedIn: agentHost.signedIn, direct } satisfies HostBootstrap,
+          { type: HOST_BOOTSTRAP, build: buildId(), signedIn: agentHost.signedIn, direct, attempt } satisfies HostBootstrap,
           location.origin,
           [egress, extFetch, agent],
         )
@@ -162,37 +265,67 @@ export const startEngine = () => {
         invalidateEngine(generation, error instanceof Error ? error : new Error(String(error)))
       }
     }
-    const restartIn = (kept: HTMLIFrameElement) => {
-      frame.remove()
+
+    const restartIn = (probe: HTMLIFrameElement, kept: HTMLIFrameElement, attempt: number) => {
+      probe.remove()
+      clearFrameLoad()
+      clearDeadline()
       current = kept
       engineFrame = kept
+      deadlineTimer = setTimeout(() => {
+        if (generation !== engineGeneration || attempt !== activeAttempt) return
+        kept.remove()
+        if (current === kept) current = undefined
+        if (engineFrame === kept) engineFrame = undefined
+        launchAttempt()
+      }, RESTART_TIMEOUT_MS)
       kept.contentWindow?.postMessage(
-        { type: HOST_RESTART, signedIn: agentHost.signedIn } satisfies HostRestart,
+        { type: HOST_RESTART, signedIn: agentHost.signedIn, attempt } satisfies HostRestart,
         location.origin,
         [agentHost.openBridge()],
       )
     }
+
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== current.contentWindow) return
+      if (!current || event.origin !== location.origin || event.source !== current.contentWindow) return
       if (event.data?.type === HOST_HELLO) {
+        awaitingHello = false
+        clearDeadline()
+        clearFrameLoad()
+        const frame = current
+        const attempt = activeAttempt
         engineBuild = (event.data as Partial<HostHello>).build
         const kept = keptFrame
         keptFrame = undefined
         if (engineBuild === buildId()) {
           kept?.remove()
-          void answerHello()
-        } else if (kept) restartIn(kept)
+          void answerHello(frame, attempt)
+        } else if (kept) restartIn(frame, kept, attempt)
         else fromAnotherBuild(generation, engineBuild)
         return
       }
       const ready = event.data as Partial<EngineReady> | undefined
       if (ready?.type !== ENGINE_READY) return
-      engineCleanup?.()
-      engineCleanup = undefined
+      if (ready.error !== ENGINE_BUILD_MISMATCH && ready.attempt !== undefined && ready.attempt !== activeAttempt) {
+        for (const port of event.ports) port.close()
+        return
+      }
       if (ready.error === ENGINE_BUILD_MISMATCH) {
+        cleanupAll()
+        engineCleanup = undefined
         fromAnotherBuild(generation, engineBuild)
         return
       }
+      if (ready.error && isTransientLoadError(ready.error)) {
+        for (const port of event.ports) port.close()
+        if (current !== keptFrame) current.remove()
+        current = undefined
+        engineFrame = undefined
+        scheduleRetry()
+        return
+      }
+      cleanupAll()
+      engineCleanup = undefined
       if (ready.error) {
         invalidateEngine(generation, new Error(ready.error))
         return
@@ -212,8 +345,8 @@ export const startEngine = () => {
       resolve(engineConnection.api)
     }
     window.addEventListener('message', onMessage)
-    engineCleanup = () => window.removeEventListener('message', onMessage)
-    document.body.appendChild(frame)
+    engineCleanup = cleanupAll
+    launchAttempt()
   })
   return engine
 }
