@@ -214,4 +214,55 @@ describe('reading a watch page', () => {
     await expect(fetchPlayerResponse('video-1')).rejects.toThrow('youtube: the watch page returned 404')
     expect(fetched).toHaveLength(1)
   })
+
+  it('resolves the challenge and notifies onPlayerId before ytInitialPlayerResponse arrives when they lead the stream', async () => {
+    let send: (text: string) => void = () => {}
+    let close = () => {}
+    vi.stubGlobal('fetch', async () => new Response(new ReadableStream({
+      start: (controller) => {
+        send = (text) => controller.enqueue(new TextEncoder().encode(text))
+        close = () => controller.close()
+      },
+    })))
+    const { fetchPlayerResponse, takePageChallenge } = await import('../../../src/frame/watch-page')
+    const base = watchPage({ playerJsUrl: '\\/s\\/player\\/a5c2aafe\\/player_ias.vflset\\/en_US\\/base.js' })
+    const ytcfgEnd = base.indexOf('</script>') + '</script>'.length
+    const prStart = base.indexOf('<script>var ytInitialPlayerResponse')
+    const prEnd = base.indexOf('</script>', prStart) + '</script>'.length
+    const challengePart = base.slice(prEnd)
+    const prPart = base.slice(prStart, prEnd)
+    const seenPlayers: string[] = []
+    let resolvedPlayer = false
+    const player = fetchPlayerResponse('video-1', undefined, undefined, (id) => seenPlayers.push(id))
+      .then((value) => { resolvedPlayer = true; return value })
+    const challengePromise = takePageChallenge()
+    await immediate()
+    send(base.slice(0, ytcfgEnd) + challengePart)
+    expect(await challengePromise).toEqual({
+      ...CHALLENGE,
+      config: { ...CHALLENGE.config, PLAYER_JS_URL: '/s/player/a5c2aafe/player_ias.vflset/en_US/base.js' },
+    })
+    expect(seenPlayers).toEqual(['a5c2aafe'])
+    expect(resolvedPlayer).toBe(false)
+    send(prPart)
+    close()
+    expect(await player).toHaveProperty('videoDetails')
+  })
+
+  it('warmChallengePage reads youtube.com once only before any watch read starts', async () => {
+    const { fetchPlayerResponse, takePageChallenge, warmChallengePage } = await import('../../../src/frame/watch-page')
+    const seen: string[] = []
+    pages.push(watchPage({ playerJsUrl: '/s/player/a5c2aafe/player_es6.vflset/en_US/base.js' }))
+    expect(warmChallengePage(Promise.resolve('visitor-1'), (id) => seen.push(id))).toBe(true)
+    expect(warmChallengePage(Promise.resolve('visitor-1'))).toBe(false)
+    expect(await takePageChallenge()).toEqual({
+      ...CHALLENGE,
+      config: { ...CHALLENGE.config, PLAYER_JS_URL: '/s/player/a5c2aafe/player_es6.vflset/en_US/base.js' },
+    })
+    expect(seen).toEqual(['a5c2aafe'])
+    expect(fetched).toEqual(['https://www.youtube.com/'])
+    // a later watch read replaces the challenge source
+    await fetchPlayerResponse('video-2')
+    expect(fetched).toEqual(['https://www.youtube.com/', 'https://www.youtube.com/watch?v=video-2'])
+  })
 })

@@ -8,7 +8,7 @@ import type { PlaybackEntry } from './playback'
 import { createYoutubeSource } from '../sources/youtube'
 import { json3ToWebVtt, parseCaptionTracks, timedTextUrl } from './captions'
 import { parseEndScreen } from './end-screen'
-import { catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, youtubeFetch } from './innertube'
+import { catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
 import { buildLiveManifest, liveAnchor, timelineEndMs } from './live-manifest'
 import { openLiveManifest } from './live-open'
 import { closePlaybackEntry, isCancellation, openPlaybackEntry, requestPlaybackSegment } from './playback'
@@ -77,6 +77,9 @@ const api = {
   resetIdentity,
   prefetchPlayback: async (videoId) => {
     prefetchInitialPlayerResponse(videoId)
+  },
+  warmPlayback: async () => {
+    warmPlaybackResources()
   },
   openPlayback: async (videoId, maxHeight, playerParams) => {
     const id = `playback:${++sessionId}`

@@ -129,6 +129,7 @@ export type SegmentEnvelope = SegmentMetadata & ({
 
 export type FrameApi = SourceApi & {
   prefetchPlayback(videoId: string): Promise<void>
+  warmPlayback(): Promise<void>
   /**
    * Opens a playback of the video; a card's hover preview, or a click on the card, passes its inline playback params
    * as `playerParams`.
@@ -148,6 +149,7 @@ export type FrameApi = SourceApi & {
 export const FRAME_METHODS = [
   ...SOURCE_METHODS,
   'prefetchPlayback',
+  'warmPlayback',
   'openPlayback',
   'endScreen',
   'requestSegment',

@@ -73,9 +73,45 @@ const YOUTUBE_ORIGIN_HEADERS = {
   referer: 'https://www.youtube.com/',
 } as const
 
+const INTERPRETER_CACHE = 'yt-client-bg-interpreter-v1'
+
+const readCachedInterpreter = async (url: string): Promise<string | undefined> => {
+  if (typeof caches === 'undefined') return undefined
+  try {
+    const cache = await caches.open(INTERPRETER_CACHE)
+    const hit = await cache.match(url)
+    if (!hit) return undefined
+    const text = await hit.text()
+    return text || undefined
+  } catch {
+    return undefined
+  }
+}
+
+const writeCachedInterpreter = async (url: string, text: string) => {
+  if (typeof caches === 'undefined' || !text) return
+  try {
+    const cache = await caches.open(INTERPRETER_CACHE)
+    const existing = await cache.keys()
+    await cache.put(url, new Response(text, { headers: { 'content-type': 'text/javascript; charset=utf-8' } }))
+    for (const request of existing) {
+      if (request.url !== url) void cache.delete(request).catch(() => {})
+    }
+  } catch {}
+}
+
+const fetchInterpreter = async (url: string) => {
+  const cached = await readCachedInterpreter(url)
+  if (cached) return cached
+  const response = await attestFetch(url)
+  const text = await response.text()
+  if (response.ok !== false && text) void writeCachedInterpreter(url, text)
+  return text
+}
+
 const fetchChallenge = async () => {
   const page = await takePageChallenge()
-  const interpreter = await attestFetch(page.interpreterUrl).then((result) => result.text())
+  const interpreter = await fetchInterpreter(page.interpreterUrl)
   return { ...page, interpreter }
 }
 

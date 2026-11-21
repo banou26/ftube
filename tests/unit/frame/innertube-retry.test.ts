@@ -110,10 +110,11 @@ describe('the frame Innertube sessions', () => {
     vi.unstubAllGlobals()
   })
 
-  it('builds the player session again after one build failed, in the same frame', async () => {
+  it('builds the fallback player session again after one build failed, in the same frame', async () => {
     youtube.failPlayer = 1
     const { getSabrSource } = await loadFrame()
-    expect(youtube.builds).toEqual(['catalog', 'player'])
+    expect(youtube.builds).toEqual(['catalog'])
+    await expect(getSabrSource(VIDEO)).rejects.toThrow('Failed to fetch')
     const source = await getSabrSource(VIDEO)
     expect(source.streamingUrl).toContain('rr1.googlevideo.com/videoplayback')
     expect(youtube.builds).toEqual(['catalog', 'player', 'player'])
@@ -235,27 +236,27 @@ describe('the frame Innertube sessions', () => {
       playerJsUrl: playerId && `\\/s\\/player\\/${playerId}\\/player_ias.vflset\\/en_US\\/base.js`,
     })]))
 
-    it("uses the watch page's player when it is another than the session's, built once through the session's fetch and cache", async () => {
+    it("uses the watch page's player directly without building an unused /iframe_api session, built once with persistent cache and fetch", async () => {
       servePage('a5c2aafe')
       const { getSabrSource } = await loadFrame()
       expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
       expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
       expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
+      expect(youtube.builds).toEqual(['catalog'])
       const [from] = youtube.pagePlayerFrom
       expect(from?.fetch).toBeTypeOf('function')
-      expect(from?.fetch).toBe(youtube.playerSession?.fetch)
       expect(from?.cache).toBeTypeOf('object')
-      expect(from?.cache).toBe(youtube.playerSession?.cache)
     })
 
-    it.each([['the same player', 'ef321720'], ['no player', undefined]])("uses the session's player for a page naming %s", async (_, playerId) => {
-      servePage(playerId)
+    it("falls back to the session's player when a watch page names no PLAYER_JS_URL", async () => {
+      servePage(undefined)
       const { getSabrSource } = await loadFrame()
       expect(await decipheredBy(getSabrSource)).toBe('ef321720')
       expect(youtube.pagePlayers).toEqual([])
+      expect(youtube.builds).toEqual(['catalog', 'player'])
     })
 
-    it("uses the session's player when the page's fails to build, and builds it again for the next playback", async () => {
+    it("uses the fallback session's player when the page's fails to build, and builds it again for the next playback", async () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       youtube.failPagePlayer = 1
       servePage('a5c2aafe')
@@ -263,6 +264,28 @@ describe('the frame Innertube sessions', () => {
       expect(await decipheredBy(getSabrSource)).toBe('ef321720')
       expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
       expect(youtube.pagePlayers).toEqual(['a5c2aafe', 'a5c2aafe'])
+    })
+
+    it('warms the page player and attestation challenge from youtube.com before the first watch read', async () => {
+      const fetched: string[] = []
+      vi.stubGlobal('fetch', async (url: string) => {
+        fetched.push(url)
+        return streamed([watchPage({
+          playerJsUrl: '\\/s\\/player\\/a5c2aafe\\/player_ias.vflset\\/en_US\\/base.js',
+        })])
+      })
+      const { getSabrSource, warmPlaybackResources } = await loadFrame()
+      const { takePageChallenge } = await import('../../../src/frame/watch-page')
+      warmPlaybackResources()
+      const taken = await takePageChallenge()
+      expect(taken).toMatchObject({ config: { EVENT_ID: 'event-1' } })
+      await settle()
+      expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
+      expect(youtube.builds).toEqual(['catalog'])
+      expect(fetched).toEqual(['https://www.youtube.com/'])
+      // subsequent video with the same player id reuses the warmed player without rebuilding
+      expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
+      expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
     })
   })
 

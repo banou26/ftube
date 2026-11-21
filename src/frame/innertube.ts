@@ -1,5 +1,6 @@
 import type { SabrFormat } from 'googlevideo/shared-types'
 
+import { buildURL } from 'bgutils-js'
 import { buildSabrFormat, FormatKeyUtils } from 'googlevideo/utils'
 import { Constants, Innertube, Platform, Player, Types, UniversalCache, Utils, YT } from 'youtubei.js/web'
 
@@ -21,7 +22,7 @@ import { readRefusal } from './refusal'
 import { parseStoryboards } from './storyboard'
 import { GVS_ORIGIN_KEY, VISITOR_DATA_KEY } from './identity'
 import { realm } from './realm'
-import { fetchPlayerResponse, pagePlayerOf } from './watch-page'
+import { fetchPlayerResponse, pagePlayerOf, warmChallengePage } from './watch-page'
 
 export { GVS_ORIGIN_KEY }
 
@@ -115,6 +116,10 @@ export const catalogInnertube = keepOnSuccess(() => Innertube.create({
   return client
 }))
 
+const playerCache = new UniversalCache(true)
+
+// Fallback only: used when a watch page names no PLAYER_JS_URL or its page player fails to build.
+// Building this eagerly on boot downloads /iframe_api + a 2.5 MB base.js that matched the watch page's player 0 of 78 times (2026-11-05).
 const innertube = keepOnSuccess(() => catalogInnertube().then((client) => {
   const context = client.session.context as unknown as InnertubeContext
   return Innertube.create({
@@ -122,7 +127,7 @@ const innertube = keepOnSuccess(() => catalogInnertube().then((client) => {
     generate_session_locally: true,
     retrieve_innertube_config: false,
     retrieve_player: true,
-    cache: new UniversalCache(true),
+    cache: playerCache,
     visitor_data: context.client.visitorData,
     user_agent: context.client.userAgent,
     ...(authCookie && { cookie: authCookie }),
@@ -136,41 +141,62 @@ void catalogInnertube()
   })
   .catch(() => {})
 
-void innertube().catch(() => {})
+const prewarmEgress = (origin: string) => {
+  void Promise.resolve(egressFetch(`${origin}/generate_204`, { method: 'GET' }))
+    .then((response) => response?.body?.cancel())
+    .catch(() => {})
+}
 
 try {
   const gvsOrigin = localStorage.getItem(GVS_ORIGIN_KEY)
-  if (gvsOrigin) {
-    void egressFetch(`${gvsOrigin}/generate_204`, { method: 'GET' })
-      .then((response) => response.body?.cancel())
-      .catch(() => {})
-  }
+  if (gvsOrigin) prewarmEgress(gvsOrigin)
 } catch {}
+// Prewarm libcurl/WebVPN sockets for BotGuard's interpreter and GenerateIT while the first page streams.
+prewarmEgress('https://www.google.com')
+prewarmEgress(new URL(buildURL('GenerateIT', true)).origin)
 
 const pagePlayers = new Map<string, () => Promise<Player>>()
 
-/* The session's player is the one /iframe_api names, and YouTube serves several at once: a stream URL deciphered by
-   another player than its watch page's answered 403 to every request, 7 of 7 times, and 0 of 78 matched (2026-11-05). */
-const decipherPlayer = async (session: Innertube['session'], pageId: string | undefined) => {
-  const player = session.player!
-  if (!pageId || pageId === player.player_id) return player
+const loadPagePlayer = (pageId: string) => {
   let build = pagePlayers.get(pageId)
   if (!build) {
-    // the fetch the session's own player came through: Session.create hands options.fetch to both Player.create and HTTPClient
-    build = keepOnSuccess(() => Player.create(session.cache, session.http.fetch_function, undefined, pageId))
+    build = keepOnSuccess(() => Player.create(playerCache, youtubeFetch, undefined, pageId))
     pagePlayers.set(pageId, build)
   }
-  return build().catch((error: unknown) => {
-    console.warn(`youtube: player ${pageId} failed to build, deciphering with ${player.player_id}`, error)
-    return player
+  return build()
+}
+
+/* The watch page names the exact player that deciphers its stream URLs (`PLAYER_JS_URL`); /iframe_api's player
+   answered 403 to every request 7 of 7 times when it differed, and 0 of 78 matched (2026-11-05). Building the page's
+   player directly avoids downloading and parsing an unused /iframe_api player on cold start. */
+const decipherPlayer = async (pageId: string | undefined, started?: Promise<Player>) => {
+  if (!pageId) return (await innertube()).session.player!
+  return (started ?? loadPagePlayer(pageId)).catch(async (error: unknown) => {
+    const fallback = (await innertube()).session.player!
+    console.warn(`youtube: player ${pageId} failed to build, deciphering with ${fallback.player_id}`, error)
+    return fallback
   })
+}
+
+const warmPagePlayer = (pageId: string) => {
+  void loadPagePlayer(pageId).catch(() => {})
 }
 
 // youtubei.js keeps a visitor_data it is given, so a stored visitor is the catalog's and only a first visit waits for its build
 const catalogVisitor = async () =>
   readVisitorData() ?? ((await catalogInnertube()).session.context as unknown as InnertubeContext).client.visitorData
 
+/**
+ * Warms the BotGuard session and web player script from youtube.com while the viewer browses non-watch pages, so the
+ * first video opened after start does not wait ~1 s for attestation and player compilation.
+ */
+export const warmPlaybackResources = () => {
+  if (!warmChallengePage(catalogVisitor(), warmPagePlayer)) return
+  warmPoTokenSession('warmup')
+}
+
 const playbackResponseCache = new Map<string, Promise<Record<string, unknown>>>()
+const prefetchedPlayerFor = new WeakMap<Promise<Record<string, unknown>>, () => Promise<Player> | undefined>()
 
 /* YouTube counts a playback toward the Home of the visitor its watch page was read as, and only when the registration
    names that visitor too. In fresh youtube.com profiles, registrations sent with both filled Home 3 of 3 times (34 to
@@ -179,7 +205,12 @@ const playbackResponseCache = new Map<string, Promise<Record<string, unknown>>>(
 export const prefetchInitialPlayerResponse = (videoId: string) => {
   const cached = playbackResponseCache.get(videoId)
   if (cached) return cached
-  const promise = fetchPlayerResponse(videoId, catalogVisitor())
+  let startedPlayer: Promise<Player> | undefined
+  const promise = fetchPlayerResponse(videoId, catalogVisitor(), undefined, (pageId) => {
+    startedPlayer = loadPagePlayer(pageId)
+    void startedPlayer.catch(() => {})
+  })
+  prefetchedPlayerFor.set(promise, () => startedPlayer)
   playbackResponseCache.set(videoId, promise)
   promise.catch(() => {
     if (playbackResponseCache.get(videoId) === promise) playbackResponseCache.delete(videoId)
@@ -215,14 +246,18 @@ const registerPlayback = async (raw: Record<string, unknown>, nonce: string, for
    neither channel's history; one from a /player answer the session lane read as the brand landed in the brand's within
    a minute (measured 2026-11-20). Without a signature timestamp, the account's own /player answer that day was "The
    page needs to be reloaded", with no tracking. */
-const trackingAnswer = async (videoId: string, raw: Record<string, unknown>) => {
+const trackingAnswer = async (
+  videoId: string,
+  raw: Record<string, unknown>,
+  client: Innertube,
+  signatureTimestamp: () => Promise<number | undefined>,
+) => {
   if (!hasSessionCookie() || readChannel() === undefined) return raw
-  const client = await innertube()
   const { data } = await client.actions.execute('/player', {
     videoId,
     racyCheckOk: true,
     contentCheckOk: true,
-    playbackContext: { contentPlaybackContext: { signatureTimestamp: client.session.player?.signature_timestamp } },
+    playbackContext: { contentPlaybackContext: { signatureTimestamp: await signatureTimestamp() } },
   })
   return data as Record<string, unknown>
 }
@@ -298,7 +333,13 @@ const playsWithParams = (raw: Record<string, unknown>) => {
  */
 export const getSabrSource = async (videoId: string, playerParams?: string): Promise<SabrSource> => {
   // The /player API alternative is NOT an option: anonymous /player calls yield preview-tier (~60s) SABR sessions.
-  const rawPromise = playerParams ? fetchPlayerResponse(videoId, catalogVisitor(), playerParams) : prefetchInitialPlayerResponse(videoId)
+  let startedPlayer: Promise<Player> | undefined
+  const rawPromise = playerParams
+    ? fetchPlayerResponse(videoId, catalogVisitor(), playerParams, (pageId) => {
+        startedPlayer = loadPagePlayer(pageId)
+        void startedPlayer.catch(() => {})
+      })
+    : prefetchInitialPlayerResponse(videoId)
   // Consumed and EVICTED: a session refresh or retry re-enters here needing fresh streaming URLs and must not reuse the cached response.
   if (!playerParams) playbackResponseCache.delete(videoId)
   void rawPromise.catch(() => {})
@@ -307,22 +348,18 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
       streamingData?: { serverAbrStreamingUrl?: string }
     }).streamingData?.serverAbrStreamingUrl
     if (!streamingUrl) return
-    return egressFetch(`${new URL(streamingUrl).origin}/generate_204`, { method: 'GET' })
-      .then((response) => response.body?.cancel())
+    return Promise.resolve(egressFetch(`${new URL(streamingUrl).origin}/generate_204`, { method: 'GET' }))
+      .then((response) => response?.body?.cancel())
   }).catch(() => {})
-  const catalogClient = await catalogInnertube()
-  const catalogContext = catalogClient.session.context as unknown as InnertubeContext
-  warmPoTokenSession(catalogContext.client.visitorData)
-  const nonce = Utils.generateRandomString(16)
-  void rawPromise.then(async (raw) => {
-    if (playerParams && !playsWithParams(raw)) return
-    return registerPlayback(await trackingAnswer(videoId, raw), nonce, beaconFormats(raw), catalogContext.client.visitorData)
-  }).catch(() => {})
-  const client = await innertube()
-  const context = client.session.context as unknown as InnertubeContext
-  const raw = await rawPromise
+  // The WEB GVS/streaming poToken is bound to the VIDEO ID, not the visitor or datasync id; the botguard session itself stays visitor/attestation-bound.
+  const mintIdentifier = videoId
+  warmPoTokenSession(mintIdentifier)
+  const [catalogClient, raw] = await Promise.all([catalogInnertube(), rawPromise])
+  const context = catalogClient.session.context as unknown as InnertubeContext
+  warmPoTokenSession(context.client.visitorData)
   if (playerParams && !playsWithParams(raw)) return getSabrSource(videoId)
-  const info = new YT.VideoInfo([{ data: raw } as never], client.actions, Utils.generateRandomString(16))
+  const nonce = Utils.generateRandomString(16)
+  const info = new YT.VideoInfo([{ data: raw } as never], catalogClient.actions, Utils.generateRandomString(16))
   if (info.playability_status?.status !== 'OK') throw new Error(`${PLAYBACK_REFUSED}${JSON.stringify(readRefusal(raw))}`)
   const streaming = info.streaming_data
   /* `is_live` rather than `is_live_content`, which stays true for the VOD a finished stream leaves behind. */
@@ -334,6 +371,11 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
     .filter((format) => format !== undefined)
   // The manifest must advertise EXACTLY the formats the SABR session can serve, so it is filtered by format KEY rather than by itag: a DRC or dubbed audio track shares itag 251 with the plain one and differs only in xtags.
   const allowedKeys = new Set(playbackFormats.map((format) => format.key))
+  const playerPromise = decipherPlayer(pagePlayerOf(raw), startedPlayer ?? prefetchedPlayerFor.get(rawPromise)?.())
+  void Promise.resolve().then(async () => {
+    const answer = await trackingAnswer(videoId, raw, catalogClient, () => playerPromise.then((player) => player.signature_timestamp))
+    return registerPlayback(answer, nonce, beaconFormats(raw), context.client.visitorData)
+  }).catch(() => {})
   const [manifest, decipheredUrl] = await Promise.all([
     isLive ? Promise.resolve('') : info.toDash({
       format_filter: (format: YoutubeFormat) => {
@@ -342,16 +384,13 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
       },
       manifest_options: { is_sabr: true, include_thumbnails: false },
     } as never),
-    decipherPlayer(client.session, pagePlayerOf(raw)).then((player) => player.decipher(streaming.server_abr_streaming_url)),
+    playerPromise.then((player) => player.decipher(streaming.server_abr_streaming_url)),
   ])
   const url = new URL(decipheredUrl)
   url.searchParams.set('alr', 'yes')
   url.searchParams.set('cpn', nonce)
   const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config
   if (!ustreamerConfig) throw new Error('youtube: ustreamer configuration is missing')
-  // The WEB GVS/streaming poToken is bound to the VIDEO ID, not the visitor or datasync id; the botguard session itself stays visitor/attestation-bound.
-  const mintIdentifier = videoId
-  warmPoTokenSession(mintIdentifier)
   return {
     videoId,
     isLive,

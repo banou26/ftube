@@ -197,6 +197,10 @@ void startEngine().then(
     setSource(source)
     markStartup('engine-ready')
     document.documentElement.dataset.engine = 'ready'
+    const path = location.pathname
+    if (!path.startsWith('/watch') && !path.startsWith('/shorts') && path !== '/privacy' && path !== '/settings') {
+      void source.warmPlayback().catch(() => {})
+    }
     const whenIdle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 1_000))
     whenIdle(() => { void cleanUpScramjet() })
   },

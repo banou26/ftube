@@ -16,6 +16,7 @@ vi.mock('../../../src/frame/innertube', () => ({
   getSabrSource: vi.fn(),
   hasSessionCookie: () => false,
   prefetchInitialPlayerResponse: vi.fn(),
+  warmPlaybackResources: vi.fn(),
   youtubeFetch: vi.fn(),
 }))
 vi.mock('../../../src/frame/sabr', async (importOriginal) => ({

@@ -110,10 +110,9 @@ const readPagePlayerId = (html: string) => html.match(/"PLAYER_JS_URL"\s*:\s*"([
 /** The id of the player the watch page answering `raw` was rendered with, from its PLAYER_JS_URL; undefined when it names none. */
 export const pagePlayerOf = (raw: object) => pagePlayers.get(raw)
 
-const fetchWatchPage = async (videoId: string, visitorData: string | undefined, playerParams: string | undefined) => {
-  const params = playerParams ? `&pp=${encodeURIComponent(playerParams)}` : ''
+const fetchYoutubePage = async (url: string, visitorData: string | undefined) => {
   const response = await readAgain(
-    () => realm.fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}`, {
+    () => realm.fetch(url, {
       headers: visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {},
     }),
     ({ status }) => status === 429 || status >= 500,
@@ -124,30 +123,48 @@ const fetchWatchPage = async (videoId: string, visitorData: string | undefined, 
   throw new Error(`youtube: the watch page returned ${response.status}`)
 }
 
-// the player response is answered as soon as it arrives; the read goes on to the challenge, about 78 KB further on a 1.58 MB page
-const readWatchPage = (videoId: string, visitorData: Promise<string> | undefined, playerParams: string | undefined) => {
+const watchUrl = (videoId: string, playerParams: string | undefined) => {
+  const params = playerParams ? `&pp=${encodeURIComponent(playerParams)}` : ''
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}`
+}
+
+// Each part (PLAYER_JS_URL, ytInitialPlayerResponse, window.ytAtN) resolves as soon as its chunk arrives so player deciphering and BotGuard start without waiting for the rest of the document.
+const readWatchPage = (
+  videoId: string,
+  visitorData: Promise<string> | undefined,
+  playerParams: string | undefined,
+  onPlayerId?: (playerId: string) => void,
+) => {
   const playerResponse = Promise.withResolvers<Record<string, unknown>>()
   const challenge = Promise.withResolvers<PageChallenge>()
   void (async () => {
-    const response = await fetchWatchPage(videoId, await visitorData, playerParams)
+    const response = await fetchYoutubePage(watchUrl(videoId, playerParams), await visitorData)
     const reader = response.body?.getReader()
     const decoder = new TextDecoder()
     let html = reader ? '' : await response.text()
     let player: Record<string, unknown> | undefined
+    let playerId: string | undefined
+    let foundChallenge: PageChallenge | undefined
     for (;;) {
       const chunk = reader ? await reader.read() : { done: true as const }
       html += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true })
+      if (!playerId) {
+        playerId = readPagePlayerId(html)
+        if (playerId) onPlayerId?.(playerId)
+      }
       if (!player) {
         player = readPlayerResponse(html)
         if (player) {
-          const pagePlayer = readPagePlayerId(html)
-          if (pagePlayer) pagePlayers.set(player, pagePlayer)
+          playerId ??= readPagePlayerId(html)
+          if (playerId) pagePlayers.set(player, playerId)
           playerResponse.resolve(player)
         }
       }
-      const page = player && readPageChallenge(html)
-      if (page) {
-        challenge.resolve(page)
+      if (!foundChallenge) {
+        foundChallenge = readPageChallenge(html)
+        if (foundChallenge) challenge.resolve(foundChallenge)
+      }
+      if (player && foundChallenge) {
         void reader?.cancel().catch(() => {})
         return
       }
@@ -162,21 +179,80 @@ const readWatchPage = (videoId: string, visitorData: Promise<string> | undefined
   return { playerResponse: playerResponse.promise, challenge: challenge.promise }
 }
 
+const readChallengeOnlyPage = (
+  url: string,
+  visitorData: Promise<string> | undefined,
+  onPlayerId?: (playerId: string) => void,
+) => {
+  const challenge = Promise.withResolvers<PageChallenge>()
+  void (async () => {
+    const response = await fetchYoutubePage(url, await visitorData)
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+    let html = reader ? '' : await response.text()
+    let playerId: string | undefined
+    for (;;) {
+      const chunk = reader ? await reader.read() : { done: true as const }
+      html += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true })
+      if (!playerId) {
+        playerId = readPagePlayerId(html)
+        if (playerId) onPlayerId?.(playerId)
+      }
+      const page = readPageChallenge(html)
+      if (page) {
+        challenge.resolve(page)
+        void reader?.cancel().catch(() => {})
+        return
+      }
+      if (chunk.done) throw new Error('youtube: the watch page carries no challenge')
+    }
+  })().catch((error: unknown) => {
+    challenge.reject(error)
+  })
+  void challenge.promise.catch(() => {})
+  return challenge.promise
+}
+
 let lastRead: { videoId: string, visitorData: Promise<string> | undefined, playerParams: string | undefined } | undefined
+let lastWarm: { visitorData: Promise<string> | undefined } | undefined
 let unusedChallenge: Promise<PageChallenge> | undefined
+let hasStartedRead = false
 const firstRead = Promise.withResolvers<void>()
 
 /**
  * A watch page's player response, the page read as the visitor `visitorData` names once it resolves, and with a
  * card's inline playback params as its `pp` when `playerParams` is given. The page's challenge is kept for the next
- * BotGuard session (`takePageChallenge`).
+ * BotGuard session (`takePageChallenge`), and `onPlayerId` fires as soon as `PLAYER_JS_URL` arrives in the stream.
  */
-export const fetchPlayerResponse = (videoId: string, visitorData?: Promise<string>, playerParams?: string) => {
-  const page = readWatchPage(videoId, visitorData, playerParams)
+export const fetchPlayerResponse = (
+  videoId: string,
+  visitorData?: Promise<string>,
+  playerParams?: string,
+  onPlayerId?: (playerId: string) => void,
+) => {
+  const page = readWatchPage(videoId, visitorData, playerParams, onPlayerId)
+  hasStartedRead = true
   lastRead = { videoId, visitorData, playerParams }
   unusedChallenge = page.challenge
   firstRead.resolve()
   return page.playerResponse
+}
+
+/**
+ * Reads youtube.com's home HTML once before any watch page has been opened to feed its `window.ytAtN` challenge and
+ * `PLAYER_JS_URL` to BotGuard and the player cache while the viewer is browsing non-watch pages. Returns false if a
+ * watch read or warmup has already started.
+ */
+export const warmChallengePage = (
+  visitorData?: Promise<string>,
+  onPlayerId?: (playerId: string) => void,
+) => {
+  if (hasStartedRead) return false
+  hasStartedRead = true
+  lastWarm = { visitorData }
+  unusedChallenge = readChallengeOnlyPage('https://www.youtube.com/', visitorData, onPlayerId)
+  firstRead.resolve()
+  return true
 }
 
 /**
@@ -185,7 +261,9 @@ export const fetchPlayerResponse = (videoId: string, visitorData?: Promise<strin
  */
 export const takePageChallenge = async () => {
   await firstRead.promise
-  const challenge = unusedChallenge ?? readWatchPage(lastRead!.videoId, lastRead!.visitorData, lastRead!.playerParams).challenge
+  const challenge = unusedChallenge ?? (lastRead
+    ? readWatchPage(lastRead.videoId, lastRead.visitorData, lastRead.playerParams).challenge
+    : readChallengeOnlyPage('https://www.youtube.com/', lastWarm?.visitorData))
   unusedChallenge = undefined
   return challenge
 }

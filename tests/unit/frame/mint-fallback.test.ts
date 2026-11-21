@@ -531,3 +531,45 @@ describe('a session that never settles', () => {
     expect(await mintPoToken('video-3')).not.toMatch(/^token-of-/)
   })
 })
+
+describe('the interpreter cache', () => {
+  let agent: Awaited<ReturnType<typeof sessionAgent>> | undefined
+
+  beforeEach(() => {
+    vi.resetModules()
+    egress.egressFetch.mockReset()
+    egress.egressFetch.mockImplementation(async (url: string) => answerEgress(url))
+  })
+
+  afterEach(() => {
+    agent?.close()
+    agent = undefined
+    cleanUp()
+  })
+
+  it('reuses a cached content-addressed interpreter from CacheStorage without re-fetching it over egress', async () => {
+    const stored = new Map<string, string>()
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async (url: string) => {
+          const text = stored.get(url)
+          return text === undefined ? undefined : new Response(text)
+        },
+        put: async (url: string, response: Response) => {
+          stored.set(url, await response.text())
+        },
+        keys: async () => [...stored.keys()].map((url) => ({ url })),
+        delete: async (request: { url: string }) => stored.delete(request.url),
+      }),
+    })
+    installRealm()
+    const { mintPoToken, recoverPoTokenSession } = await import('../../../src/frame/botguard')
+    agent = await sessionAgent()
+    await readWatchPage()
+    expect(await mintPoToken('video-1')).toBe('token-of-1')
+    expect(egress.egressFetch.mock.calls.map(([url]) => endpoint(url as string))).toEqual(['interpreter', 'GenerateIT'])
+
+    await recoverPoTokenSession()
+    expect(egress.egressFetch.mock.calls.map(([url]) => endpoint(url as string))).toEqual(['interpreter', 'GenerateIT', 'GenerateIT'])
+  })
+})
