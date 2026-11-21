@@ -1,20 +1,23 @@
 import type { ShortsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, MessageCircle, MonitorPlay, MoreVertical, Share2, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, MessageCircle, MonitorPlay, MoreVertical, Share2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useMutation, useQuery } from 'urql'
+import { useQuery } from 'urql'
 import { Link, useLocation, useRoute } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { Comments } from '../components/comments'
 import { DataFailure } from '../components/data-failure'
-import { safeDecode } from '../components/format'
+import { formatCompact, safeDecode } from '../components/format'
+import { RateGlyph, useRateVideo } from '../components/rate-video'
 import ShareDialog from '../components/share-dialog'
 import { shortsSequenceIn } from '../components/shorts-tile'
 import SubscribeButton from '../components/subscribe-button'
 import { Menu, MenuItem } from '../components/ui/menu'
 import useInfiniteFeed from '../components/use-infinite-feed'
+import { VerifiedBadge } from '../components/verified-badge'
+import { useDislikes } from '../dislikes'
 import { gql } from '../generated'
 import { isTypingTarget } from '../player/controls'
 import { shortsHrefFor } from '../player/links'
@@ -40,17 +43,7 @@ const SHORT_META_QUERY = gql(`
       likeCountText
       commentCountText
       likeStatus
-      channel { id name avatar handle isSubscribed notificationLevel }
-    }
-  }
-`)
-
-const RATE_SHORT = gql(`
-  mutation RateShort($id: ID!, $status: LikeStatus!) {
-    rateVideo(id: $id, status: $status) {
-      id
-      likeStatus
-      likeCountText
+      channel { id name avatar handle isSubscribed notificationLevel isVerified isVerifiedArtist }
     }
   }
 `)
@@ -83,17 +76,14 @@ const style = css`
   }
 
   /* A Short's video and its buttons, positioned so that below the breakpoint
-     the buttons sit on that Short's video. */
+     the buttons sit on that Short's video. Uses the full slide height below
+     the header, matching youtube.com's Shorts stage (984px at 1440x1080). */
   .reel {
     position: relative;
     display: flex;
+    align-items: stretch;
     gap: 1.6rem;
     height: 100%;
-    /* The cap is on the HEIGHT, and the video's width follows from its aspect
-       ratio. Capping the width instead leaves height at 100% and the box stops
-       being 9:16 at all: on a tall viewport it became 460x1165 and cropped the
-       sides off every short. */
-    max-height: calc(46rem * 16 / 9);
     max-width: 100%;
     flex: none;
   }
@@ -106,7 +96,7 @@ const style = css`
     position: relative;
     height: 100%;
     aspect-ratio: 9 / 16;
-    max-width: 100%;
+    max-width: calc(100vw - 10rem);
     flex: none;
   }
 
@@ -114,8 +104,9 @@ const style = css`
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
+    align-items: center;
     gap: 1.6rem;
-    padding-bottom: 1.2rem;
+    padding-bottom: 0.4rem;
   }
 
   .rail-button {
@@ -123,11 +114,13 @@ const style = css`
     flex-direction: column;
     align-items: center;
     gap: 0.4rem;
+    padding: 0;
     border: none;
     background: transparent;
     color: var(--text-primary);
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     font-weight: 500;
+    line-height: 1.8rem;
     cursor: pointer;
   }
 
@@ -137,16 +130,34 @@ const style = css`
     width: 4.8rem;
     height: 4.8rem;
     border-radius: 50%;
-    background: var(--bg-subtle);
-    transition: background 0.15s ease;
+    background: var(--bg-chip);
+    transition: background 0.15s ease, color 0.15s ease;
   }
 
   .rail-button:hover .glyph {
-    background: var(--bg-hover, var(--border-subtle));
+    background: var(--bg-chip-hover);
   }
 
   .rail-button.on .glyph {
-    color: var(--accent);
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+  }
+
+  .rail-channel {
+    display: block;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 0.8rem;
+    overflow: hidden;
+    background: var(--bg-chip);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .rail-channel img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .meta {
@@ -155,11 +166,11 @@ const style = css`
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
-    padding: 4.8rem 1.6rem 2.4rem;
+    padding: 5.6rem 1.6rem 2.4rem;
     /* The scrubber owns the bottom edge, so this overlay must not swallow the
        pointer before it gets there. */
     pointer-events: none;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.38) 40%, rgba(0, 0, 0, 0.78));
     color: #fff;
   }
 
@@ -171,20 +182,35 @@ const style = css`
   .byline {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.8rem;
   }
 
-  .byline img {
-    width: 3.2rem;
-    height: 3.2rem;
+  .byline .avatar-link {
+    flex: none;
+    width: 3.6rem;
+    height: 3.6rem;
     border-radius: 50%;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  .byline .avatar-link img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .byline .name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     color: #fff;
     font-size: 1.4rem;
     font-weight: 700;
     text-decoration: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   }
 
   .short-title {
@@ -231,6 +257,18 @@ const style = css`
     font-size: 1.6rem;
     font-weight: 700;
     color: var(--text-primary);
+  }
+
+  .comments-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+  }
+
+  .comments-count {
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: var(--text-secondary);
   }
 
   .comments-panel .body {
@@ -302,11 +340,9 @@ const style = css`
     visibility: hidden;
   }
 
-  /* With the comments open, the slide reaches under the pager below this
-     width, which would cover the comments. Measured 2026-11-02 with the stage
-     at its height cap: up to 1192px under the mini guide, and up to 1360px
-     under the expanded guide that starts at 1313px. */
-  @media (max-width: 1440px) {
+  /* With the comments open and a full-height stage, the slide reaches under the
+     pager below this width, which would cover the comments. */
+  @media (max-width: 1560px) {
     &.comments-open .pager {
       display: none;
     }
@@ -316,6 +352,10 @@ const style = css`
     /* a wheel over the comments sheet's backdrop would otherwise move to the next Short */
     &.comments-open {
       overflow-y: hidden;
+    }
+
+    .stage {
+      max-width: 100%;
     }
 
     .rail {
@@ -340,6 +380,11 @@ const style = css`
     .rail-button .glyph {
       background: rgba(0, 0, 0, 0.5);
       color: #fff;
+    }
+
+    .rail-button.on .glyph {
+      background: #fff;
+      color: #0f0f0f;
     }
 
     .pager {
@@ -377,44 +422,63 @@ const style = css`
  * visited slide's data alive for the life of the route.
  */
 const Slide = (
-  { id, poster, fallbackTitle, active, onComments, onShare, onRefused }: {
+  { id, poster, fallbackTitle, active, shortcutsDisabled, onComments, onShare, onCommentCount, onRefused }: {
     id: string
     poster?: string | null
     fallbackTitle?: string | null
     active: boolean
+    shortcutsDisabled?: boolean
     onComments: () => void
     onShare: () => void
+    onCommentCount?: (count?: string) => void
     onRefused?: () => void
   },
 ) => {
   const [, navigate] = useLocation()
-  const [rateState, rate] = useMutation(RATE_SHORT)
   const [{ data }] = useQuery({
     query: SHORT_META_QUERY,
     variables: { id },
     pause: !active,
   })
   const meta = data?.watch
+  const { rate, rating, presses, burst } = useRateVideo(id, meta?.likeStatus)
+  const dislikes = useDislikes(active ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
   const disliked = meta?.likeStatus === 'DISLIKE'
+  const handle = meta?.channel?.handle
+    ? meta.channel.handle.startsWith('@') ? meta.channel.handle : `@${meta.channel.handle}`
+    : undefined
 
-  const onRate = (status: 'LIKE' | 'DISLIKE') => {
-    if (!meta || rateState.fetching) return
-    const next = meta.likeStatus === status ? 'INDIFFERENT' : status
-    void rate({ id, status: next })
-  }
+  useEffect(() => {
+    if (active) onCommentCount?.(meta?.commentCountText ?? undefined)
+  }, [active, meta?.commentCountText, onCommentCount])
 
   return (
     <div className='reel'>
       <div className='stage'>
-        <ShortsPlayer videoId={id} poster={poster ?? undefined} active={active} onRefused={onRefused} />
+        <ShortsPlayer
+          videoId={id}
+          poster={poster ?? undefined}
+          active={active}
+          shortcutsDisabled={shortcutsDisabled}
+          onRefused={onRefused}
+        />
         <div className='meta'>
           <div className='byline'>
             {meta?.channel?.avatar
-              ? <img src={meta.channel.avatar} alt='' loading='lazy' />
+              ? (
+                <Link className='avatar-link' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name}>
+                  <img src={meta.channel.avatar} alt='' loading='lazy' />
+                </Link>
+              )
               : undefined}
             {meta?.channel
-              ? <Link className='name' href={`/channel/${meta.channel.id}`}>{meta.channel.name}</Link>
+              ? (
+                <Link className='name' href={`/channel/${meta.channel.id}`}>
+                  {handle ?? meta.channel.name}
+                  <VerifiedBadge channel={meta.channel} size={14} />
+                </Link>
+              )
               : undefined}
             <SubscribeButton
               channelId={meta?.channel?.id}
@@ -432,9 +496,12 @@ const Slide = (
           className={liked ? 'rail-button on' : 'rail-button'}
           aria-pressed={liked}
           aria-label='Like'
-          onClick={() => onRate('LIKE')}
+          disabled={rating}
+          onClick={() => rate('LIKE')}
         >
-          <span className='glyph'><ThumbsUp size={24} strokeWidth={1.5} fill={liked ? 'currentColor' : 'none'} /></span>
+          <span className='glyph'>
+            <RateGlyph status='LIKE' size={24} on={liked} presses={presses('LIKE')} burst={burst('LIKE')} />
+          </span>
           {meta?.likeCountText ?? 'Like'}
         </button>
         <button
@@ -442,16 +509,19 @@ const Slide = (
           className={disliked ? 'rail-button on' : 'rail-button'}
           aria-pressed={disliked}
           aria-label='Dislike'
-          onClick={() => onRate('DISLIKE')}
+          disabled={rating}
+          onClick={() => rate('DISLIKE')}
         >
-          <span className='glyph'><ThumbsDown size={24} strokeWidth={1.5} fill={disliked ? 'currentColor' : 'none'} /></span>
-          Dislike
+          <span className='glyph'>
+            <RateGlyph status='DISLIKE' size={24} on={disliked} presses={presses('DISLIKE')} burst={burst('DISLIKE')} />
+          </span>
+          {dislikes !== undefined ? formatCompact(dislikes) : 'Dislike'}
         </button>
         <button type='button' className='rail-button' aria-label='Comments' onClick={onComments}>
           <span className='glyph'><MessageCircle size={24} strokeWidth={1.5} /></span>
           {meta?.commentCountText ?? 'Comments'}
         </button>
-        <button type='button' className='rail-button' onClick={onShare}>
+        <button type='button' className='rail-button' aria-label='Share' onClick={onShare}>
           <span className='glyph'><Share2 size={24} strokeWidth={1.5} /></span>
           Share
         </button>
@@ -472,6 +542,13 @@ const Slide = (
             onSelect={() => navigate(`/watch?v=${encodeURIComponent(id)}`)}
           />
         </Menu>
+        {meta?.channel?.avatar
+          ? (
+            <Link className='rail-channel' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name}>
+              <img src={meta.channel.avatar} alt='' loading='lazy' />
+            </Link>
+          )
+          : undefined}
       </div>
     </div>
   )
@@ -487,6 +564,7 @@ const ShortsPage = () => {
   const [loaded, setLoaded] = useState<ShortsPage[]>([])
   const [activeId, setActiveId] = useState<string | undefined>(seed)
   const [showComments, setShowComments] = useState(false)
+  const [activeCommentCount, setActiveCommentCount] = useState<string | undefined>(undefined)
   const [sharing, setSharing] = useState<string | undefined>(undefined)
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -598,8 +676,10 @@ const ShortsPage = () => {
             poster={short.poster}
             fallbackTitle={short.title}
             active={short.id === activeId}
+            shortcutsDisabled={Boolean(sharing)}
             onComments={() => setShowComments(value => !value)}
             onShare={() => setSharing(short.id)}
+            onCommentCount={setActiveCommentCount}
             onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
           />
           {showComments && short.id === activeId
@@ -608,7 +688,10 @@ const ShortsPage = () => {
                 <div className='comments-scrim' onClick={() => setShowComments(false)} />
                 <aside className='comments-panel' aria-label='Comments'>
                   <header>
-                    Comments
+                    <span className='comments-title'>
+                      Comments
+                      {activeCommentCount ? <span className='comments-count'>{activeCommentCount}</span> : undefined}
+                    </span>
                     <button type='button' className='icon-button' aria-label='Close comments' onClick={() => setShowComments(false)}>
                       <X size={24} strokeWidth={1.5} />
                     </button>

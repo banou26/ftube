@@ -214,3 +214,30 @@ test('a Short opened from a channel\'s Shorts tab moves on through that channel\
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(next[0])
 })
+
+test('Shorts fills full viewport height and renders play, volume bar, fullscreen and counts', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.addInitScript(holdPlayback)
+  await page.setViewportSize({ width: 1440, height: 1080 })
+  await page.goto(`/shorts/${NAMED_SHORT}`)
+  const slide = page.locator(`[data-short-id="${NAMED_SHORT}"]`)
+  await expect(slide.locator('.views')).toBeVisible({ timeout: 120_000 })
+
+  const stage = (await slide.locator('.stage').boundingBox())!
+  // 1080 - 56 header - 24 vertical padding = 1000px (previously capped at 817px)
+  expect(stage.height).toBeGreaterThanOrEqual(960)
+  expect(stage.width / stage.height).toBeCloseTo(9 / 16, 2)
+
+  // Top-left play/pause + volume bar and top-right fullscreen
+  await expect(slide.getByRole('button', { name: /^(Play|Pause)$/ })).toBeVisible()
+  const muteBtn = slide.getByRole('button', { name: /^(Mute|Unmute)$/ })
+  await expect(muteBtn).toBeVisible()
+  await muteBtn.hover()
+  const volumeSlider = slide.getByRole('slider', { name: 'Volume' })
+  await expect(volumeSlider).toBeVisible()
+  await expect(slide.getByRole('button', { name: 'Full screen' })).toBeVisible()
+
+  // Action rail shows numeric counts for likes and comments
+  await expect(slide.getByRole('button', { name: 'Like', exact: true })).toContainText(/\d/)
+  await expect(slide.getByRole('button', { name: 'Comments', exact: true })).toContainText(/\d/)
+})

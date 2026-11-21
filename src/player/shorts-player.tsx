@@ -1,13 +1,15 @@
-import type { TargetedMouseEvent, TargetedPointerEvent } from 'preact'
+import type { TargetedEvent, TargetedMouseEvent, TargetedPointerEvent } from 'preact'
 
 // must stay type-only: a value import puts the on-demand shaka chunk back in the entry
 import type { startShakaPlayback } from './shaka'
 
 import { css } from '@emotion/react'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { Maximize, Minimize, Pause, Play, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
 import { startEngine } from '../engine/client'
+import { isTypingTarget } from './controls'
 import { warmShaka } from './prefetch'
 import { getSettings, updateSettings } from '../settings'
 
@@ -18,6 +20,10 @@ const playerStyle = css`
   border-radius: 12px;
   overflow: hidden;
   background: #000;
+
+  &:fullscreen {
+    border-radius: 0;
+  }
 
   video,
   .poster {
@@ -75,11 +81,116 @@ const playerStyle = css`
     pointer-events: none;
   }
 
-  .paused-glyph svg {
-    width: 5.6rem;
-    height: 5.6rem;
-    fill: rgba(255, 255, 255, 0.9);
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
+  .paused-glyph .badge {
+    display: grid;
+    place-items: center;
+    width: 6.4rem;
+    height: 6.4rem;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+  }
+
+  /* Top overlay bar matching youtube.com Shorts: Play/Pause and expanding volume
+     pill on the left, Full screen on the right. */
+  .top-bar {
+    position: absolute;
+    inset: 0 0 auto 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2rem;
+    background: linear-gradient(rgba(0, 0, 0, 0.48), transparent);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .top-group {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    pointer-events: auto;
+  }
+
+  .control-btn {
+    display: grid;
+    place-items: center;
+    width: 4.8rem;
+    height: 4.8rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--text-on-media, #fff);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .control-btn:hover {
+    background: rgba(0, 0, 0, 0.78);
+  }
+
+  .volume-pill {
+    display: flex;
+    align-items: center;
+    height: 4.8rem;
+    border-radius: 2.4rem;
+    background: rgba(0, 0, 0, 0.55);
+    transition: background 0.15s ease;
+  }
+
+  .volume-pill:hover,
+  .volume-pill:focus-within {
+    background: rgba(0, 0, 0, 0.78);
+  }
+
+  .volume-pill .control-btn {
+    background: transparent;
+  }
+
+  .volume-pill .control-btn:hover {
+    background: transparent;
+  }
+
+  .volume-slider {
+    width: 0;
+    height: 0.4rem;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    appearance: none;
+    border-radius: 0.2rem;
+    background: linear-gradient(
+      to right,
+      #fff calc(var(--vol, 1) * 100%),
+      rgba(255, 255, 255, 0.35) calc(var(--vol, 1) * 100%)
+    );
+    cursor: pointer;
+    transition: width 0.18s ease, opacity 0.15s ease, margin-right 0.18s ease;
+  }
+
+  .volume-pill:hover .volume-slider,
+  .volume-pill:focus-within .volume-slider {
+    width: 7.2rem;
+    opacity: 1;
+    margin-right: 1.4rem;
+  }
+
+  .volume-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .volume-slider::-moz-range-thumb {
+    width: 1.2rem;
+    height: 1.2rem;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
   }
 
   /* Full-bleed progress line pinned to the bottom edge, the way the Shorts
@@ -88,14 +199,16 @@ const playerStyle = css`
   .scrubber {
     position: absolute;
     inset: auto 0 0 0;
-    height: 1.4rem;
+    height: 1.6rem;
     display: flex;
     align-items: flex-end;
     cursor: pointer;
     touch-action: none;
+    z-index: 2;
   }
 
   .scrubber .track {
+    position: relative;
     width: 100%;
     height: 0.3rem;
     background: rgba(255, 255, 255, 0.3);
@@ -108,48 +221,56 @@ const playerStyle = css`
   }
 
   .scrubber .fill {
+    position: relative;
     height: 100%;
     background: var(--brand, #f00);
   }
 
-  .mute {
+  .scrubber .fill::after {
+    content: '';
     position: absolute;
-    top: 1rem;
-    right: 1rem;
-    display: grid;
-    place-items: center;
-    width: 3.2rem;
-    height: 3.2rem;
-    border: none;
+    right: -0.6rem;
+    top: 50%;
+    width: 1.2rem;
+    height: 1.2rem;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.6);
-    color: var(--text-on-media);
-    cursor: pointer;
+    background: var(--brand, #f00);
+    transform: translateY(-50%) scale(0);
+    transition: transform 0.12s ease;
   }
 
-  .mute svg {
-    width: 1.8rem;
-    height: 1.8rem;
-    fill: currentColor;
+  .scrubber:hover .fill::after,
+  .scrubber.scrubbing .fill::after {
+    transform: translateY(-50%) scale(1);
+  }
+
+  @media (max-width: 600px) {
+    .control-btn {
+      width: 4rem;
+      height: 4rem;
+    }
+
+    .volume-pill {
+      height: 4rem;
+      border-radius: 2rem;
+    }
   }
 `
 
-const MuteIcon = ({ muted }: { muted: boolean }) => (
-  <svg viewBox='0 0 24 24' aria-hidden='true'>
-    {muted
-      ? <path d='M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.94 8.94 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z' />
-      : <path d='M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z' />}
-  </svg>
-)
+const VolumeIcon = ({ muted, volume }: { muted: boolean, volume: number }) => {
+  if (muted || volume === 0) return <VolumeX size={22} strokeWidth={1.75} />
+  if (volume < 0.5) return <Volume1 size={22} strokeWidth={1.75} />
+  return <Volume2 size={22} strokeWidth={1.75} />
+}
 
 // only the visible slide may hold a SABR session: each one pins a per-session media cache in the frame
 /**
  * The Shorts player.
  *
  * A separate component from `VideoPlayer` rather than a mode of it: the two
- * share only the Shaka startup call. This one loops, has no control bar, no
- * quality menu, no fullscreen and no keyboard map, and it is mounted and torn
- * down as slides scroll rather than living for a route.
+ * share only the Shaka startup call. This one loops, uses Shorts' top-bar
+ * play/volume/fullscreen controls and full-bleed scrubber, and is mounted and
+ * torn down as slides scroll rather than living for a route.
  *
  * `active` is what gates playback. Only the visible slide is allowed to hold a
  * SABR session, because each open session pins a per-session media cache in the
@@ -159,13 +280,22 @@ const MuteIcon = ({ muted }: { muted: boolean }) => (
  * showing it.
  */
 const ShortsPlayer = (
-  { videoId, poster, active, onRefused }: { videoId: string, poster?: string, active: boolean, onRefused?: () => void },
+  { videoId, poster, active, shortcutsDisabled, onRefused }: {
+    videoId: string
+    poster?: string
+    active: boolean
+    shortcutsDisabled?: boolean
+    onRefused?: () => void
+  },
 ) => {
+  const rootRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState('')
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(() => getSettings().muted)
+  const [volume, setVolume] = useState(() => getSettings().volume)
+  const [fullscreen, setFullscreen] = useState(false)
   const [progress, setProgress] = useState(0)
   const [scrubbing, setScrubbing] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -175,11 +305,19 @@ const ShortsPlayer = (
   }, [active])
 
   useEffect(() => {
+    const onFullscreen = () => setFullscreen(document.fullscreenElement === rootRef.current)
+    document.addEventListener('fullscreenchange', onFullscreen)
+    return () => document.removeEventListener('fullscreenchange', onFullscreen)
+  }, [])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video || !active) return
     const settings = getSettings()
     video.volume = settings.volume
     video.muted = settings.muted
+    setVolume(settings.volume)
+    setMuted(settings.muted)
     // the loop MUST be on the element: restarting through currentTime re-enters the SABR chain as a seek
     video.loop = true
     const abort = new AbortController()
@@ -234,6 +372,7 @@ const ShortsPlayer = (
     const sync = () => {
       setPaused(video.paused)
       setMuted(video.muted)
+      setVolume(video.volume)
     }
     const tick = () => {
       if (scrubbing) return
@@ -262,15 +401,80 @@ const ShortsPlayer = (
     video.currentTime = ratio * video.duration
   }
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     const video = videoRef.current
     if (!video) return
     if (video.paused) void video.play().catch(() => {})
     else video.pause()
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current
+    const currentlyMuted = video ? video.muted || video.volume === 0 : muted || volume === 0
+    const nextMuted = !currentlyMuted
+    const nextVolume = !nextMuted && (video?.volume ?? volume) === 0 ? 1 : (video?.volume ?? volume)
+    if (video) {
+      video.volume = nextVolume
+      video.muted = nextMuted
+    }
+    setMuted(nextMuted)
+    setVolume(nextVolume)
+    updateSettings({ muted: nextMuted, volume: nextVolume })
+  }, [muted, volume])
+
+  const onVolumeInput = (event: TargetedEvent<HTMLInputElement>) => {
+    const nextVolume = Number(event.currentTarget.value)
+    if (!Number.isFinite(nextVolume)) return
+    const nextMuted = nextVolume === 0
+    const video = videoRef.current
+    if (video) {
+      video.volume = nextVolume
+      video.muted = nextMuted
+    }
+    setVolume(nextVolume)
+    setMuted(nextMuted)
+    updateSettings({ volume: nextVolume, muted: nextMuted })
   }
 
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement === rootRef.current) {
+      void document.exitFullscreen().catch(() => {})
+    } else {
+      void rootRef.current?.requestFullscreen?.().catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!active || shortcutsDisabled) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+      if (isTypingTarget(event.target)) return
+      const key = event.key.toLowerCase()
+      if (key === 'k' || (event.key === ' ' && !(event.target instanceof HTMLElement && event.target.closest('button, a, input, select')))) {
+        event.preventDefault()
+        togglePlay()
+      } else if (key === 'm') {
+        event.preventDefault()
+        toggleMute()
+      } else if (key === 'f') {
+        event.preventDefault()
+        toggleFullscreen()
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        const video = videoRef.current
+        if (!video || !Number.isFinite(video.duration)) return
+        event.preventDefault()
+        const delta = event.key === 'ArrowRight' ? 5 : -5
+        video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + delta))
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [active, shortcutsDisabled, togglePlay, toggleMute, toggleFullscreen])
+
+  const effectiveVolume = muted ? 0 : volume
+
   return (
-    <div css={playerStyle} onClick={togglePlay}>
+    <div ref={rootRef} css={playerStyle} onClick={togglePlay}>
       {poster && !ready ? <img className='poster' src={poster} alt='' /> : undefined}
       <video key={attempt} ref={videoRef} playsInline preload='auto' />
       {active && !ready && !status ? <div className='spinner' /> : undefined}
@@ -278,26 +482,62 @@ const ShortsPlayer = (
       {ready && paused
         ? (
           <div className='paused-glyph'>
-            <svg viewBox='0 0 24 24' aria-hidden='true'><path d='M8 5v14l11-7z' /></svg>
+            <span className='badge'>
+              <Play size={30} fill='currentColor' strokeWidth={1.5} />
+            </span>
           </div>
         )
         : undefined}
-      {ready
+      {!status
         ? (
-          <button
-            type='button'
-            className='mute'
-            aria-label={muted ? 'Unmute' : 'Mute'}
-            onClick={(event: TargetedMouseEvent<HTMLButtonElement>) => {
-              event.stopPropagation()
-              const video = videoRef.current
-              if (!video) return
-              video.muted = !video.muted
-              updateSettings({ muted: video.muted })
-            }}
-          >
-            <MuteIcon muted={muted} />
-          </button>
+          <div className='top-bar'>
+            <div className='top-group' onClick={(event: TargetedMouseEvent<HTMLDivElement>) => event.stopPropagation()}>
+              <button
+                type='button'
+                className='control-btn'
+                aria-label={paused ? 'Play' : 'Pause'}
+                title={paused ? 'Play (k)' : 'Pause (k)'}
+                onClick={togglePlay}
+              >
+                {paused
+                  ? <Play size={22} fill='currentColor' strokeWidth={1.5} />
+                  : <Pause size={22} fill='currentColor' strokeWidth={1.5} />}
+              </button>
+              <div className='volume-pill'>
+                <button
+                  type='button'
+                  className='control-btn mute'
+                  aria-label={effectiveVolume === 0 ? 'Unmute' : 'Mute'}
+                  title={effectiveVolume === 0 ? 'Unmute (m)' : 'Mute (m)'}
+                  onClick={toggleMute}
+                >
+                  <VolumeIcon muted={muted} volume={volume} />
+                </button>
+                <input
+                  type='range'
+                  className='volume-slider'
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={effectiveVolume}
+                  aria-label='Volume'
+                  style={{ '--vol': effectiveVolume } as Record<string, number>}
+                  onInput={onVolumeInput}
+                />
+              </div>
+            </div>
+            <div className='top-group' onClick={(event: TargetedMouseEvent<HTMLDivElement>) => event.stopPropagation()}>
+              <button
+                type='button'
+                className='control-btn'
+                aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                title={fullscreen ? 'Exit full screen (f)' : 'Full screen (f)'}
+                onClick={toggleFullscreen}
+              >
+                {fullscreen ? <Minimize size={20} strokeWidth={1.75} /> : <Maximize size={20} strokeWidth={1.75} />}
+              </button>
+            </div>
+          </div>
         )
         : undefined}
       {ready
