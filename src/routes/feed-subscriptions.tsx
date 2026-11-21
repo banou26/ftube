@@ -12,7 +12,7 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { EMPTY_PAGES_LIMIT, emptyPagesInARow, matchesFilter } from '../groups/filter'
-import { useGroups } from '../groups/store'
+import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
 
@@ -225,8 +225,13 @@ const SubscriptionsFeedPage = () => {
   // urql keeps the previous result while the next page is in flight, so the live page can repeat one already consumed
   const pages = page && loaded[loaded.length - 1] !== page ? [...loaded, page] : loaded
   const { items, cursor } = useInfiniteFeed({ pages, key: video => video.id })
+  const orderedGroups = groupTreeOrder(groups)
   const group = groups.find(candidate => candidate.id === groupId)
-  const filter = { channelIds: group ? new Set(group.channels.map(channel => channel.id)) : undefined, hideLive, hideWatched }
+  const filter = {
+    channelIds: group ? new Set(groupChannelsWithDescendants(groups, group.id).map(channel => channel.id)) : undefined,
+    hideLive,
+    hideWatched,
+  }
   const shown = items.filter(item => matchesFilter(item, filter))
   const stalled = emptyPagesInARow(pages, filter) >= EMPTY_PAGES_LIMIT
 
@@ -272,7 +277,7 @@ const SubscriptionsFeedPage = () => {
       <div className='filters'>
         <div className='chips' role='group' aria-label='Groups'>
           <button type='button' className='chip' aria-pressed={!group} onClick={() => setGroupId(undefined)}>All</button>
-          {groups.map(candidate => (
+          {orderedGroups.map(({ group: candidate }) => (
             <button
               key={candidate.id}
               type='button'

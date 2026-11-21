@@ -53,9 +53,15 @@ describe('filterAndSortChannels', () => {
     expect(filterAndSortChannels(channels, { ...base, query: 'systems' }).map(c => c.id)).toEqual(['UC1'])
   })
 
-  it('filters by group membership or ungrouped', () => {
+  it('filters by group membership (including subfolders) or ungrouped', () => {
     expect(filterAndSortChannels(channels, { ...base, groupId: 'g1' }).map(c => c.id)).toEqual(['UC1'])
     expect(filterAndSortChannels(channels, { ...base, groupId: 'ungrouped' }).map(c => c.id)).toEqual(['UC2', 'UC3', 'UC4'])
+    const nested: Group[] = [
+      ...groups,
+      { id: 'g2', name: 'Art', emoji: '🎨', parentId: 'g1', channels: [{ id: 'UC2', name: 'Alpha Art' }], updatedAt: 2 },
+    ]
+    expect(filterAndSortChannels(channels, { ...base, groups: nested, groupId: 'g1' }).map(c => c.id)).toEqual(['UC1', 'UC2'])
+    expect(filterAndSortChannels(channels, { ...base, groups: nested, groupId: 'g2' }).map(c => c.id)).toEqual(['UC2'])
   })
 
   it('filters by last video posted window and inactivity', () => {

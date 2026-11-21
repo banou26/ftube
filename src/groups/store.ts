@@ -5,10 +5,10 @@ import { isChannelId } from '../sources/youtube/channel-feed'
 /** A channel as a group keeps it: enough to draw it without asking YouTube. */
 export type GroupChannel = { id: string, name: string, avatar?: string }
 
-/** A named set of channels. Groups are flat. `updatedAt` (ms) decides which copy wins when two browsers edited it. */
-export type Group = { id: string, name: string, emoji: string, channels: GroupChannel[], updatedAt: number }
+/** A named set of channels, optionally nested under a parent folder (`parentId`). `updatedAt` (ms) decides which copy wins when two browsers edited it. */
+export type Group = { id: string, name: string, emoji: string, channels: GroupChannel[], updatedAt: number, parentId?: string }
 
-export type GroupFields = { name: string, emoji?: string, channels?: GroupChannel[] }
+export type GroupFields = { name: string, emoji?: string, channels?: GroupChannel[], parentId?: string }
 
 export const GROUPS_KEY = 'yt-client:groups'
 
@@ -46,17 +46,122 @@ const uniqueById = <Item extends { id: string }>(items: (Item | undefined)[]) =>
 
 const coerceGroup = (value: unknown): Group | undefined => {
   if (!value || typeof value !== 'object') return undefined
-  const { id, name, emoji, channels, updatedAt } = value as Record<string, unknown>
+  const { id, name, emoji, channels, updatedAt, parentId } = value as Record<string, unknown>
   const groupId = text(id, 64)
   const label = text(name, NAME_LIMIT)
   if (!groupId || !label) return undefined
+  const parent = text(parentId, 64)
   return {
     id: groupId,
     name: label,
     emoji: text(emoji, 16) ?? DEFAULT_EMOJI,
     channels: Array.isArray(channels) ? uniqueById(channels.map(coerceChannel)) : [],
     updatedAt: typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? updatedAt : 0,
+    ...(parent && parent !== groupId ? { parentId: parent } : {}),
   }
+}
+
+export type GroupTreeNode = {
+  group: Group
+  depth: number
+  parentId?: string
+  hasChildren: boolean
+}
+
+// A valid parent exists in the list and does not lead back into a cycle.
+const validParentId = (group: Group, byId: ReadonlyMap<string, Group>): string | undefined => {
+  if (!group.parentId || group.parentId === group.id || !byId.has(group.parentId)) return undefined
+  const seen = new Set<string>([group.id])
+  let cursor: string | undefined = group.parentId
+  while (cursor) {
+    if (seen.has(cursor)) return undefined
+    seen.add(cursor)
+    cursor = byId.get(cursor)?.parentId
+  }
+  return group.parentId
+}
+
+/** True when `candidateId` is `ancestorId` itself or nested anywhere inside it. */
+export const isDescendant = (groups: readonly Group[], candidateId: string, ancestorId: string): boolean => {
+  if (candidateId === ancestorId) return true
+  const byId = new Map(groups.map(group => [group.id, group]))
+  const seen = new Set<string>()
+  let cursor = byId.get(candidateId)?.parentId
+  while (cursor && !seen.has(cursor)) {
+    if (cursor === ancestorId) return true
+    seen.add(cursor)
+    cursor = byId.get(cursor)?.parentId
+  }
+  return false
+}
+
+/** Groups in depth-first tree order, with orphans and cyclic references safely lifted to depth 0. */
+export const groupTreeOrder = (groups: readonly Group[]): GroupTreeNode[] => {
+  const byId = new Map(groups.map(group => [group.id, group]))
+  const childrenByParent = new Map<string | undefined, Group[]>()
+  for (const group of groups) {
+    const parent = validParentId(group, byId)
+    const list = childrenByParent.get(parent)
+    if (list) list.push(group)
+    else childrenByParent.set(parent, [group])
+  }
+  const ordered: GroupTreeNode[] = []
+  const visit = (parentId: string | undefined, depth: number) => {
+    for (const group of childrenByParent.get(parentId) ?? []) {
+      const children = childrenByParent.get(group.id) ?? []
+      ordered.push({ group, depth, parentId, hasChildren: children.length > 0 })
+      visit(group.id, depth + 1)
+    }
+  }
+  visit(undefined, 0)
+  return ordered
+}
+
+/** Ancestor folders of `groupId` from outermost root to direct parent. */
+export const groupAncestors = (groups: readonly Group[], groupId: string): Group[] => {
+  const byId = new Map(groups.map(group => [group.id, group]))
+  const chain: Group[] = []
+  const seen = new Set<string>([groupId])
+  let cursor = byId.get(groupId)?.parentId
+  while (cursor && !seen.has(cursor)) {
+    const parent = byId.get(cursor)
+    if (!parent) break
+    seen.add(cursor)
+    chain.unshift(parent)
+    cursor = parent.parentId
+  }
+  return chain
+}
+
+/** Direct child folders of `parentId`. */
+export const directSubgroups = (groups: readonly Group[], parentId: string): Group[] => {
+  const byId = new Map(groups.map(group => [group.id, group]))
+  return groups.filter(group => validParentId(group, byId) === parentId)
+}
+
+/** Unique channels belonging to `groupId` and all of its nested subfolders. */
+export const groupChannelsWithDescendants = (groups: readonly Group[], groupId: string): GroupChannel[] => {
+  const byId = new Map(groups.map(group => [group.id, group]))
+  const root = byId.get(groupId)
+  if (!root) return []
+  const childrenByParent = new Map<string, Group[]>()
+  for (const group of groups) {
+    const parent = validParentId(group, byId)
+    if (!parent) continue
+    const list = childrenByParent.get(parent)
+    if (list) list.push(group)
+    else childrenByParent.set(parent, [group])
+  }
+  const collected: GroupChannel[] = []
+  const seenGroups = new Set<string>()
+  const walk = (group: Group) => {
+    if (seenGroups.has(group.id)) return
+    seenGroups.add(group.id)
+    collected.push(...group.channels)
+    for (const child of childrenByParent.get(group.id) ?? []) walk(child)
+  }
+  walk(root)
+  return uniqueById(collected)
 }
 
 /** Groups out of anything: storage is user-editable, so each bad group or channel drops alone and the rest stand. */
@@ -140,16 +245,28 @@ export const createGroupStore = (storage?: Storage, events?: EventTarget) => {
       }
     },
     createGroup: (fields: GroupFields) => {
-      const group = coerceGroup({ id: crypto.randomUUID(), ...fields, updatedAt: stamp() })
+      const parent = fields.parentId && current.some(kept => kept.id === fields.parentId) ? fields.parentId : undefined
+      const group = coerceGroup({ id: crypto.randomUUID(), ...fields, parentId: parent, updatedAt: stamp() })
       if (!group) throw new Error('A group needs a name')
       edit([...current, group])
       return group
     },
-    updateGroup: (id: string, fields: Partial<GroupFields>) => update(id, group => ({ ...group, ...fields })),
+    updateGroup: (id: string, fields: Partial<GroupFields>) => update(id, (group) => {
+      if (!('parentId' in fields)) return { ...group, ...fields }
+      const nextParent = fields.parentId && current.some(kept => kept.id === fields.parentId) && !isDescendant(current, fields.parentId, id)
+        ? fields.parentId
+        : undefined
+      return { ...group, ...fields, parentId: nextParent }
+    }),
     deleteGroup: (id: string) => {
       const gone = current.find(group => group.id === id)
       if (!gone) return
-      edit(current.filter(group => group.id !== id), { ...sync, deleted: { ...sync.deleted, [id]: stamp(gone.updatedAt) } })
+      const promoted = current
+        .filter(group => group.id !== id)
+        .map(group => group.parentId === id
+          ? coerceGroup({ ...group, parentId: gone.parentId, updatedAt: stamp(group.updatedAt) }) ?? group
+          : group)
+      edit(promoted, { ...sync, deleted: { ...sync.deleted, [id]: stamp(gone.updatedAt) } })
     },
     setChannel: (groupId: string, channel: GroupChannel, included: boolean) => update(groupId, group => ({
       ...group,

@@ -1,5 +1,7 @@
 import type { Group } from '../groups/store'
 
+import { groupChannelsWithDescendants } from '../groups/store'
+
 export type ChannelSort = 'default' | 'name-asc' | 'name-desc' | 'subscribers' | 'latest-upload' | 'oldest-upload'
 
 export type ActivityWindow = 'all' | '7d' | '30d' | '90d' | '365d' | 'inactive-365d'
@@ -66,7 +68,7 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     ? new Set(groups.flatMap(group => group.channels.map(channel => channel.id)))
     : undefined
   const selectedGroupIds = groupId !== 'all' && groupId !== 'ungrouped'
-    ? new Set(groups.find(group => group.id === groupId)?.channels.map(channel => channel.id) ?? [])
+    ? new Set(groupChannelsWithDescendants(groups, groupId).map(channel => channel.id))
     : undefined
 
   const filtered = channels.filter(channel => {

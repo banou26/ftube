@@ -122,3 +122,63 @@ test('group edit selects all filtered channels, previews a channel on hover and 
   await expect(page).toHaveURL('/channel/UCaaaaaaaaaaaaaaaaaaaaaa')
   await expect(dialog).toHaveCount(0)
 })
+
+test('nests subfolders, collapses in the guide, rolls up child uploads on the parent, and promotes on delete', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.goto('/feed/groups')
+  const main = page.locator('main')
+  await expect(main.getByText('No groups yet')).toBeVisible({ timeout: 30_000 })
+
+  // create parent folder
+  await main.getByRole('button', { name: 'New group' }).click()
+  const parentDialog = page.getByRole('dialog', { name: 'New group' })
+  await parentDialog.getByLabel('Name').fill('Graphics')
+  await parentDialog.getByRole('button', { name: 'Create' }).click()
+  await expect(main.getByRole('link', { name: /Graphics/ })).toBeVisible()
+
+  // create subfolder inside Graphics from the row action
+  await main.getByRole('button', { name: 'New subfolder in Graphics' }).click()
+  const childDialog = page.getByRole('dialog', { name: 'New group' })
+  await expect(childDialog.getByLabel('Parent folder')).not.toHaveValue('')
+  await childDialog.getByLabel('Name').fill('Blender3D')
+  await childDialog.getByRole('button', { name: 'Create' }).click()
+
+  await expect(main.locator('li[data-depth="1"]').getByRole('link', { name: /Blender3D/ })).toBeVisible()
+  await expect(main.getByRole('link', { name: /Graphics/ })).toContainText('1 subfolder')
+
+  // guide shows nested row and collapses/expands child folder
+  const guide = page.getByRole('navigation', { name: 'Guide' })
+  await expect(guide.locator('[data-depth="1"]').getByRole('link', { name: 'Blender3D' })).toBeVisible()
+  await guide.getByRole('button', { name: 'Collapse Graphics' }).click()
+  await expect(guide.getByRole('link', { name: 'Blender3D' })).toHaveCount(0)
+  await guide.getByRole('button', { name: 'Expand Graphics' }).click()
+  await expect(guide.getByRole('link', { name: 'Blender3D' })).toBeVisible()
+
+  // add Blender channel to the subfolder from the channel page
+  await page.goto(`/channel/${BLENDER}`)
+  await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
+  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Blender3D' }).click()
+  await expect(page.getByText('Added to Blender3D')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // parent folder shows subfolder chip and aggregates child channel uploads
+  await guide.getByRole('link', { name: 'Graphics' }).click()
+  await expect(page.locator('h1')).toHaveText('Graphics')
+  await expect(page.getByText('1 channel • 1 subfolder')).toBeVisible()
+  await expect(main.locator('.subgroups').getByRole('link', { name: /Blender3D/ })).toBeVisible()
+  await expect(main.locator('article').first().locator('a[href^="/watch?v="]').first()).toBeVisible({ timeout: 90_000 })
+
+  // clicking subfolder chip shows parent breadcrumb
+  await main.locator('.subgroups').getByRole('link', { name: /Blender3D/ }).click()
+  await expect(page.locator('h1')).toHaveText('Blender3D')
+  await expect(main.getByRole('navigation', { name: 'Parent folders' }).getByRole('link', { name: /Graphics/ })).toBeVisible()
+
+  // deleting parent promotes subfolder back to top level
+  await page.goto('/feed/groups')
+  await main.getByRole('button', { name: 'Delete Graphics' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Delete Graphics?' })
+  await expect(confirm.getByText('Subfolders will move up one level.')).toBeVisible()
+  await confirm.getByRole('button', { name: 'Delete' }).click()
+  await expect(main.locator('li[data-depth="0"]').getByRole('link', { name: /Blender3D/ })).toBeVisible()
+})

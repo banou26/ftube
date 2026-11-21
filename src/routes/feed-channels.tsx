@@ -15,7 +15,7 @@ import { GroupsButton } from '../components/groups-button'
 import { SubscribeButton } from '../components/subscribe-button'
 import { VerifiedBadge } from '../components/verified-badge'
 import { gql } from '../generated'
-import { useGroups } from '../groups/store'
+import { groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
 import { filterAndSortChannels } from './feed-channels-filter'
@@ -395,7 +395,11 @@ const FeedChannelsPage = () => {
         >
           <option value='all'>All groups</option>
           <option value='ungrouped'>Not in any group</option>
-          {groups.map(group => <option key={group.id} value={group.id}>{group.emoji} {group.name}</option>)}
+          {groupTreeOrder(groups).map(({ group, depth }) => (
+            <option key={group.id} value={group.id}>
+              {depth > 0 ? `${'\u00a0\u00a0'.repeat(depth)}↳ ` : ''}{group.emoji} {group.name}
+            </option>
+          ))}
         </select>
         <select
           className='select'

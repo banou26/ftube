@@ -2,7 +2,7 @@ import { E2E_INTEGRITY_MESSAGE, E2E_RETIRED_FORMAT_MESSAGE, E2E_STALE_EPOCH_MESS
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { createGroupStore, GROUPS_SYNC_KEY } from '../../../src/groups/store'
-import { GROUPS_PATH, groupSync, mergeGroups, type GroupsCloud } from '../../../src/groups/sync'
+import { GROUPS_PATH, GROUPS_V1_PATH, groupSync, mergeGroups, type GroupsCloud } from '../../../src/groups/sync'
 
 const BETA = { id: 'UCbbbbbbbbbbbbbbbbbbbbbb', name: 'Beta' }
 
@@ -449,10 +449,11 @@ describe('groupSync', () => {
     expect(store.snapshot().file).toBe(file)
     device.state.hang.clear()
 
+    const readsBefore = device.state.calls.read
     device.state.hang.add('unlocked')
     store.createGroup({ name: 'News' })
     await sync.check()
-    expect(device.state.calls.read).toBe(1)
+    expect(device.state.calls.read).toBe(readsBefore)
     device.state.hang.clear()
 
     for (const call of ['read', 'write'] as const) {
@@ -612,5 +613,29 @@ describe('groupSync', () => {
     expect(warn).toHaveBeenCalled()
     const logged = warn.mock.calls.map(call => call.map(part => part instanceof Error ? part.message : part))
     expect(JSON.stringify(logged)).not.toContain('private')
+  })
+
+  it('migrates an existing v1 account file to v2 on first sync without modifying v1, and syncs parentId across devices', async () => {
+    const world = fknWorld()
+    const v1Payload = JSON.stringify({
+      file: 'legacy-file',
+      groups: [{ id: 'legacy-1', name: 'Legacy', emoji: '📁', channels: [BETA], updatedAt: 100 }],
+      deleted: {},
+    })
+    world.files.set(`ann:${GROUPS_V1_PATH}`, v1Payload)
+
+    const laptop = world.browser('ann')
+    const phone = world.browser('ann')
+    const onLaptop = laptop.open()
+    await onLaptop.sync.check()
+    expect(names(onLaptop.store)).toEqual(['Legacy'])
+    expect(world.files.get(`ann:${GROUPS_V1_PATH}`)).toBe(v1Payload)
+    expect(world.fileOf('ann')?.file).toBe('legacy-file')
+
+    const sub = onLaptop.store.createGroup({ name: 'Sub', parentId: 'legacy-1' })
+    await onLaptop.sync.check()
+    const onPhone = phone.open()
+    await onPhone.sync.check()
+    expect(onPhone.store.getGroups().find(kept => kept.id === sub.id)?.parentId).toBe('legacy-1')
   })
 })

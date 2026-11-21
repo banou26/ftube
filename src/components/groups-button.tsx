@@ -4,7 +4,7 @@ import { css } from '@emotion/react'
 import { FolderCheck, FolderPlus, Plus } from 'lucide-react'
 import { useState } from 'preact/hooks'
 
-import { groupStore, useGroups } from '../groups/store'
+import { groupStore, groupTreeOrder, useGroups } from '../groups/store'
 import GroupDialog from './group-dialog'
 import { Menu, MenuItem, MenuSeparator } from './ui/menu'
 import { showToast } from './ui/toast'
@@ -60,10 +60,15 @@ export const GroupsButton = ({ channel }: { channel: GroupChannel }) => {
         trigger={<button type='button' css={triggerStyle}><Icon size={18} strokeWidth={1.5} />Groups</button>}
       >
         <div css={panelStyle} role='presentation'>
-          {groups.map(group => (
+          {groupTreeOrder(groups).map(({ group, depth }) => (
             <MenuItem
               key={group.id}
-              label={<><span className='emoji' aria-hidden='true'>{group.emoji}</span>{group.name}</>}
+              label={(
+                <span style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.4}rem` } : undefined}>
+                  <span className='emoji' aria-hidden='true'>{group.emoji}</span>
+                  {group.name}
+                </span>
+              )}
               ariaLabel={group.name}
               checked={includes(group, channel.id)}
               onSelect={() => onToggle(group)}

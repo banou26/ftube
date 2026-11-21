@@ -3,13 +3,13 @@ import type { FunctionComponent } from 'preact'
 import type { Group } from '../groups/store'
 
 import { css } from '@emotion/react'
-import { ChevronRight, CircleUserRound, Clapperboard, Clock, Gamepad2, History, House, Library, ListVideo, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Gamepad2, History, House, Library, ListVideo, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { gql } from '../generated'
-import { groupHrefFor, useGroups } from '../groups/store'
+import { groupHrefFor, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
 import GroupDialog from './group-dialog'
@@ -137,6 +137,24 @@ const GroupsSection = () => {
   const groups = useGroups()
   const [path, navigate] = useLocation()
   const [creating, setCreating] = useState(false)
+  const [collapsed, setCollapsed] = useState<string[]>([])
+
+  const collapsedSet = new Set(collapsed)
+  const tree = groupTreeOrder(groups)
+  const visible: typeof tree = []
+  let hiddenBelow: number | undefined
+  for (const node of tree) {
+    if (hiddenBelow !== undefined) {
+      if (node.depth > hiddenBelow) continue
+      hiddenBelow = undefined
+    }
+    visible.push(node)
+    if (node.hasChildren && collapsedSet.has(node.group.id)) hiddenBelow = node.depth
+  }
+
+  const toggleCollapse = (id: string) => {
+    setCollapsed(current => current.includes(id) ? current.filter(kept => kept !== id) : [...current, id])
+  }
 
   return (
     <div className='section'>
@@ -144,19 +162,39 @@ const GroupsSection = () => {
         Groups
         <ChevronRight size={20} strokeWidth={1.5} />
       </Link>
-      {groups.map(group => {
+      {visible.map(({ group, depth, hasChildren }) => {
         const href = groupHrefFor(group.id)
         const active = path === href
+        const isCollapsed = collapsedSet.has(group.id)
         return (
-          <Link
+          <div
             key={group.id}
-            href={href}
-            className={active ? 'item active' : 'item'}
-            aria-current={active ? 'page' : undefined}
+            className={depth > 0 ? 'group-row nested' : 'group-row'}
+            data-depth={depth}
+            style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.6}rem` } : undefined}
           >
-            <span className='emoji' aria-hidden='true'>{group.emoji}</span>
-            <span className='label channel-name'>{group.name}</span>
-          </Link>
+            <Link
+              href={href}
+              className={active ? 'item active' : 'item'}
+              aria-current={active ? 'page' : undefined}
+            >
+              <span className='emoji' aria-hidden='true'>{group.emoji}</span>
+              <span className='label channel-name'>{group.name}</span>
+            </Link>
+            {hasChildren
+              ? (
+                <button
+                  type='button'
+                  className='folder-toggle'
+                  aria-label={isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleCollapse(group.id)}
+                >
+                  {isCollapsed ? <ChevronRight size={16} strokeWidth={1.5} /> : <ChevronDown size={16} strokeWidth={1.5} />}
+                </button>
+              )
+              : undefined}
+          </div>
         )
       })}
       {groups.length === 0
@@ -266,6 +304,41 @@ const sectionsStyle = css`
   .item.active {
     background: var(--bg-selected);
     font-weight: 500;
+  }
+
+  .group-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .group-row .item {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .group-row.nested .item {
+    gap: 1.2rem;
+    height: 3.6rem;
+  }
+
+  .folder-toggle {
+    flex: none;
+    width: 2.8rem;
+    height: 2.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .folder-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .avatar {

@@ -7,10 +7,11 @@ import { coerceGroups, coerceSync } from './store'
 /**
  * The account's groups: one file, which FKN seals in this browser before it is stored.
  *
- * A new group field moves the file to groups/v2, which reads v1 once: a build that does not know the field would
- * otherwise write the file back without it.
+ * v2 adds `parentId` for nested folders and reads v1 once on migration, leaving v1 untouched so older builds do not
+ * overwrite v2 without `parentId`.
  */
-export const GROUPS_PATH = 'groups/v1/groups.json'
+export const GROUPS_V1_PATH = 'groups/v1/groups.json'
+export const GROUPS_PATH = 'groups/v2/groups.json'
 
 /** The file. `file` is a random id minted with it, so a browser can tell another account's groups from this one's. */
 export type GroupsFile = { file: string, groups: Group[], deleted: Deleted }
@@ -134,8 +135,16 @@ export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => c
     if (!await within(boundMs, cloud.unlocked, () => false) || !current()) return
     let text: string | null = null
     let gone = false
+    let migratedFromV1 = false
     try {
       text = await within(boundMs, () => cloud.read(GROUPS_PATH))
+      if (text === null) {
+        const legacy = await within(boundMs, () => cloud.read(GROUPS_V1_PATH))
+        if (legacy !== null) {
+          text = legacy
+          migratedFromV1 = true
+        }
+      }
     } catch (error) {
       if (!goneForGood(error)) throw error
       gone = true
@@ -148,7 +157,7 @@ export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => c
     const ours = before.file && before.file !== theirs?.file && !mine ? NONE : before
     const merged = mergeGroups(theirs ?? NONE, ours)
     const file = theirs?.file ?? newId()
-    const changed = gone || (theirs
+    const changed = gone || migratedFromV1 || (theirs
       ? !same({ file, ...merged }, theirs)
       : merged.groups.length > 0 || Object.keys(merged.deleted).length > 0)
     let held = theirs !== undefined

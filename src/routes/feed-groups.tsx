@@ -1,7 +1,7 @@
 import type { Group } from '../groups/store'
 
 import { css } from '@emotion/react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
@@ -9,7 +9,7 @@ import { useDocumentTitle } from '../app'
 import { formatCount } from '../components/format'
 import GroupDialog from '../components/group-dialog'
 import Dialog from '../components/ui/dialog'
-import { groupHrefFor, groupStore, useGroups } from '../groups/store'
+import { directSubgroups, groupChannelsWithDescendants, groupHrefFor, groupStore, groupTreeOrder, useGroups } from '../groups/store'
 
 const style = css`
   max-width: 96rem;
@@ -133,9 +133,17 @@ const style = css`
 `
 
 const confirmStyle = css`
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.8rem;
+  .confirm-note {
+    margin: 0 0 1.6rem;
+    font-size: 1.4rem;
+    color: var(--text-secondary);
+  }
+
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.8rem;
+  }
 
   button {
     height: 3.6rem;
@@ -169,7 +177,8 @@ const confirmStyle = css`
 const FeedGroupsPage = () => {
   useDocumentTitle('Groups')
   const groups = useGroups()
-  const [editing, setEditing] = useState<Group | 'new' | undefined>(undefined)
+  const tree = groupTreeOrder(groups)
+  const [editing, setEditing] = useState<{ group?: Group, parentId?: string } | undefined>(undefined)
   const [deleting, setDeleting] = useState<Group | undefined>(undefined)
 
   const onDelete = () => {
@@ -177,45 +186,75 @@ const FeedGroupsPage = () => {
     setDeleting(undefined)
   }
 
+  const deletingChildren = deleting ? directSubgroups(groups, deleting.id).length : 0
+
   return (
     <main css={style}>
       <div className='bar'>
         <h1 className='page-heading'>Groups</h1>
-        <button type='button' className='new' onClick={() => setEditing('new')}>
+        <button type='button' className='new' onClick={() => setEditing({})}>
           <Plus size={20} strokeWidth={1.5} />
           New group
         </button>
       </div>
-      {groups.length === 0
+      {tree.length === 0
         ? <p className='empty'>No groups yet</p>
         : (
           <ul className='list'>
-            {groups.map(group => (
-              <li key={group.id} className='row'>
-                <Link href={groupHrefFor(group.id)} className='group'>
-                  <span className='emoji' aria-hidden='true'>{group.emoji}</span>
-                  <span className='name'>{group.name}</span>
-                  <span className='count'>{formatCount(group.channels.length, 'channel')}</span>
-                </Link>
-                <button type='button' className='icon' aria-label={`Edit ${group.name}`} onClick={() => setEditing(group)}>
-                  <Pencil size={20} strokeWidth={1.5} />
-                </button>
-                <button type='button' className='icon' aria-label={`Delete ${group.name}`} onClick={() => setDeleting(group)}>
-                  <Trash2 size={20} strokeWidth={1.5} />
-                </button>
-              </li>
-            ))}
+            {tree.map(({ group, depth }) => {
+              const subfolders = directSubgroups(groups, group.id).length
+              const channelCount = subfolders > 0
+                ? groupChannelsWithDescendants(groups, group.id).length
+                : group.channels.length
+              const countLabel = subfolders > 0
+                ? `${formatCount(channelCount, 'channel')} • ${formatCount(subfolders, 'subfolder')}`
+                : formatCount(channelCount, 'channel')
+              return (
+                <li
+                  key={group.id}
+                  className='row'
+                  data-depth={depth}
+                  style={depth > 0 ? { paddingLeft: `${Math.min(depth, 5) * 2.4}rem` } : undefined}
+                >
+                  <Link href={groupHrefFor(group.id)} className='group'>
+                    <span className='emoji' aria-hidden='true'>{group.emoji}</span>
+                    <span className='name'>{group.name}</span>
+                    <span className='count'>{countLabel}</span>
+                  </Link>
+                  <button
+                    type='button'
+                    className='icon'
+                    aria-label={`New subfolder in ${group.name}`}
+                    title='New subfolder'
+                    onClick={() => setEditing({ parentId: group.id })}
+                  >
+                    <FolderPlus size={20} strokeWidth={1.5} />
+                  </button>
+                  <button type='button' className='icon' aria-label={`Edit ${group.name}`} onClick={() => setEditing({ group })}>
+                    <Pencil size={20} strokeWidth={1.5} />
+                  </button>
+                  <button type='button' className='icon' aria-label={`Delete ${group.name}`} onClick={() => setDeleting(group)}>
+                    <Trash2 size={20} strokeWidth={1.5} />
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       {editing
-        ? <GroupDialog group={editing === 'new' ? undefined : editing} onClose={() => setEditing(undefined)} />
+        ? <GroupDialog group={editing.group} parentId={editing.parentId} onClose={() => setEditing(undefined)} />
         : undefined}
       {deleting
         ? (
           <Dialog title={`Delete ${deleting.name}?`} onClose={() => setDeleting(undefined)}>
             <div css={confirmStyle}>
-              <button type='button' className='cancel' onClick={() => setDeleting(undefined)}>Cancel</button>
-              <button type='button' className='delete' onClick={onDelete}>Delete</button>
+              {deletingChildren > 0
+                ? <p className='confirm-note'>Subfolders will move up one level.</p>
+                : undefined}
+              <div className='confirm-actions'>
+                <button type='button' className='cancel' onClick={() => setDeleting(undefined)}>Cancel</button>
+                <button type='button' className='delete' onClick={onDelete}>Delete</button>
+              </div>
             </div>
           </Dialog>
         )

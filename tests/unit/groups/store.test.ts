@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 
-import { createGroupStore, DEFAULT_EMOJI, GROUPS_KEY, GROUPS_SYNC_KEY } from '../../../src/groups/store'
+import {
+  createGroupStore,
+  DEFAULT_EMOJI,
+  directSubgroups,
+  GROUPS_KEY,
+  GROUPS_SYNC_KEY,
+  groupAncestors,
+  groupChannelsWithDescendants,
+  groupTreeOrder,
+  isDescendant,
+} from '../../../src/groups/store'
 
 const ALPHA = { id: 'UCaaaaaaaaaaaaaaaaaaaaaa', name: 'Alpha', avatar: 'https://yt3.ggpht.com/alpha' }
 const BETA = { id: 'UCbbbbbbbbbbbbbbbbbbbbbb', name: 'Beta' }
@@ -162,5 +172,48 @@ describe('group store', () => {
     store.settle([], { file: 'account-file', deleted: {} })
     expect(edits).toBe(2)
     expect(createGroupStore(storage).snapshot()).toEqual({ groups: [], file: 'account-file', deleted: {} })
+  })
+
+  it('nests folders, prevents cycles, aggregates descendant channels, and promotes children on delete', () => {
+    const store = createGroupStore(memoryStorage().storage)
+    const root = store.createGroup({ name: 'Tech', channels: [ALPHA] })
+    const child = store.createGroup({ name: 'Programming', parentId: root.id, channels: [BETA] })
+    const grand = store.createGroup({ name: 'Systems', parentId: child.id, channels: [ALPHA] })
+
+    expect(groupTreeOrder(store.getGroups()).map(node => [node.group.name, node.depth, node.hasChildren])).toEqual([
+      ['Tech', 0, true],
+      ['Programming', 1, true],
+      ['Systems', 2, false],
+    ])
+    expect(groupAncestors(store.getGroups(), grand.id).map(group => group.name)).toEqual(['Tech', 'Programming'])
+    expect(directSubgroups(store.getGroups(), root.id).map(group => group.name)).toEqual(['Programming'])
+    expect(groupChannelsWithDescendants(store.getGroups(), root.id)).toEqual([ALPHA, BETA])
+    expect(isDescendant(store.getGroups(), grand.id, root.id)).toBe(true)
+    expect(isDescendant(store.getGroups(), root.id, grand.id)).toBe(false)
+
+    // reparenting a folder under its own descendant is rejected (moves to root rather than creating a cycle)
+    store.updateGroup(root.id, { parentId: grand.id })
+    expect(store.getGroups().find(group => group.id === root.id)?.parentId).toBeUndefined()
+
+    // deleting a parent promotes direct subfolders up one level rather than orphaning or deleting them
+    store.deleteGroup(child.id)
+    const remaining = store.getGroups()
+    expect(remaining.find(group => group.id === grand.id)?.parentId).toBe(root.id)
+    expect(directSubgroups(remaining, root.id).map(group => group.name)).toEqual(['Systems'])
+  })
+
+  it('lifts orphaned or cyclic stored parentIds safely to top level', () => {
+    const stored = [
+      { id: 'a', name: 'A', parentId: 'b', channels: [ALPHA] },
+      { id: 'b', name: 'B', parentId: 'a', channels: [BETA] },
+      { id: 'orphan', name: 'Orphan', parentId: 'missing', channels: [] },
+    ]
+    const store = createGroupStore(memoryStorage({ [GROUPS_KEY]: JSON.stringify(stored) }).storage)
+    const tree = groupTreeOrder(store.getGroups())
+    expect(tree.map(node => [node.group.id, node.depth])).toEqual([
+      ['a', 0],
+      ['b', 0],
+      ['orphan', 0],
+    ])
   })
 })

@@ -8,7 +8,7 @@ import { useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { gql } from '../generated'
-import { DEFAULT_EMOJI, groupStore, NAME_LIMIT } from '../groups/store'
+import { DEFAULT_EMOJI, groupStore, groupTreeOrder, isDescendant, NAME_LIMIT, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { ChannelPreviewCard } from './channel-preview'
 import { DataFailure } from './data-failure'
@@ -353,14 +353,16 @@ const SubscriptionPicker = (
  * `onSaved` gets the group as stored, after the dialog has asked to close.
  */
 export const GroupDialog = (
-  { group, channels: initialChannels = [], onClose, onSaved }: {
+  { group, parentId: initialParentId, channels: initialChannels = [], onClose, onSaved }: {
     group?: Group
+    parentId?: string
     channels?: GroupChannel[]
     onClose: () => void
     onSaved?: (group: Group) => void
   },
 ) => {
   const { signedIn } = useSession()
+  const allGroups = useGroups()
   const iconLabel = useId()
   // Dialog re-runs its focus effect whenever onClose changes, which would pull focus out of the field being typed in
   const latestClose = useRef(onClose)
@@ -368,10 +370,13 @@ export const GroupDialog = (
   const close = useCallback(() => latestClose.current(), [])
   const [name, setName] = useState(group?.name ?? '')
   const [emoji, setEmoji] = useState(group?.emoji ?? DEFAULT_EMOJI)
+  const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
   const [choices] = useState(() => EMOJI.includes(emoji) ? EMOJI : [emoji, ...EMOJI])
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const parentOptions = groupTreeOrder(allGroups)
+    .filter(({ group: candidate }) => !group || !isDescendant(allGroups, candidate.id, group.id))
 
   useEffect(() => () => clearTimeout(previewTimer.current), [])
 
@@ -405,7 +410,7 @@ export const GroupDialog = (
   const onSubmit = (event: Event) => {
     event.preventDefault()
     if (name.trim().length === 0) return
-    const fields = { name, emoji, channels }
+    const fields = { name, emoji, channels, parentId: parentId || undefined }
     let saved: Group | undefined
     if (group) {
       groupStore.updateGroup(group.id, fields)
@@ -432,6 +437,25 @@ export const GroupDialog = (
               onInput={(event: Event) => setName((event.currentTarget as HTMLInputElement).value)}
             />
           </label>
+          {parentOptions.length > 0
+            ? (
+              <label className='field'>
+                <span className='field-label'>Parent folder</span>
+                <select
+                  className='text'
+                  value={parentId}
+                  onChange={(event: Event) => setParentId((event.currentTarget as HTMLSelectElement).value)}
+                >
+                  <option value=''>None (top level)</option>
+                  {parentOptions.map(({ group: candidate, depth }) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {`${'\u00a0\u00a0'.repeat(depth)}${candidate.emoji} ${candidate.name}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )
+            : undefined}
           <div className='field'>
             <span className='field-label' id={iconLabel}>Icon</span>
             <div className='emoji-row' role='radiogroup' aria-labelledby={iconLabel}>
