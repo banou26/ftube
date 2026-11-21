@@ -126,3 +126,74 @@ test('Settings turns the counts off, crediting Return YouTube Dislike', async ({
   await expect(toggle).not.toBeChecked()
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').showDislikes)).toBe(false)
 })
+
+test('shows Return YouTube Dislike comments, replies and sorting when YouTube comments are turned off', async ({ page }) => {
+  test.setTimeout(240_000)
+  const DISABLED_VIDEO = '3iRFdxH-yS0'
+  const seenUrls: string[] = []
+  await page.route('https://returnyoutubedislikeapi.com/**', (route) => {
+    const url = route.request().url()
+    seenUrls.push(url)
+    if (url.includes(`/api/discussion/videos/${DISABLED_VIDEO}/comments`)) {
+      const sort = new URL(url).searchParams.get('sort')
+      return route.fulfill({
+        headers: { 'access-control-allow-origin': '*' },
+        json: {
+          items: [{
+            id: sort === 'new' ? 'ryd-new-1' : 'ryd-top-1',
+            author: { id: 'u1', nickname: sort === 'new' ? 'NewestUser' : 'TopUser' },
+            text: sort === 'new' ? 'Fresh RYD comment' : 'Top RYD comment',
+            createdAt: '2026-11-20T12:00:00Z',
+            editedAt: null,
+            deleted: false,
+            hidden: false,
+            likes: 42,
+            dislikes: 4,
+            replyCount: 1,
+          }],
+          nextCursor: null,
+        },
+      })
+    }
+    if (url.includes('/api/discussion/comments/ryd-top-1/replies')) {
+      return route.fulfill({
+        headers: { 'access-control-allow-origin': '*' },
+        json: {
+          items: [{
+            id: 'ryd-reply-1',
+            parentId: 'ryd-top-1',
+            author: { id: 'u2', nickname: 'Replier' },
+            text: 'Reply on disabled video',
+            createdAt: '2026-11-21T12:00:00Z',
+            editedAt: null,
+            deleted: false,
+            hidden: false,
+            likes: 5,
+            dislikes: 0,
+            replyCount: 0,
+          }],
+          nextCursor: null,
+        },
+      })
+    }
+    return route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { likes: 100, dislikes: 25 } })
+  })
+
+  await page.goto(`/watch?v=${DISABLED_VIDEO}`)
+  const section = page.locator('[data-ryd-comments="true"]')
+  await expect(section).toBeVisible({ timeout: 120_000 })
+  await expect(section).toContainText('TopUser')
+  await expect(section).toContainText('Top RYD comment')
+
+  // Expand replies from RYD
+  await section.getByRole('button', { name: '1 reply' }).click()
+  await expect(section).toContainText('Replier')
+  await expect(section).toContainText('Reply on disabled video')
+
+  // Switch sort to Newest first
+  await section.getByRole('button', { name: 'Sort by' }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Newest first' }).click()
+  await expect(section).toContainText('NewestUser')
+  await expect(section).toContainText('Fresh RYD comment')
+  expect(seenUrls.some(url => url.includes('sort=new'))).toBe(true)
+})

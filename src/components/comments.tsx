@@ -2,15 +2,20 @@ import type { TargetedEvent } from 'preact'
 
 import type { CommentRepliesQuery, CommentSort, CommentsQuery } from '../generated/graphql'
 
+import type { RydComment, RydCommentSort } from '../ryd-comments'
+
 import { css } from '@emotion/react'
 import { ChevronDown, ChevronUp, ListFilter, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { gql } from '../generated'
+import { fetchRydComments, fetchRydReplies } from '../ryd-comments'
 import { useSession } from '../session'
+import { getSettings, subscribeSettings } from '../settings'
 import { DataFailure, lineFor } from './data-failure'
+import { formatAgo, formatCompact } from './format'
 import { showToast } from './ui/toast'
 import { ReadMore } from './read-more'
 import { RichText } from './rich-text'
@@ -703,6 +708,196 @@ const Replies = (
   )
 }
 
+const RYD_SORTS: { value: RydCommentSort, label: string }[] = [
+  { value: 'top', label: 'Top comments' },
+  { value: 'new', label: 'Newest first' },
+]
+
+const RydReplies = ({ rootId, count }: { rootId: string, count: number }) => {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<RydComment[]>([])
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const load = async (nextCursor?: string) => {
+    setLoading(true)
+    const page = await fetchRydReplies(rootId, nextCursor)
+    setLoading(false)
+    setLoaded(true)
+    if (!page) return
+    setItems(current => {
+      const seen = new Set(current.map(item => item.id))
+      return [...current, ...page.items.filter(item => !seen.has(item.id))]
+    })
+    setCursor(page.nextCursor)
+  }
+
+  const toggle = () => {
+    const next = !open
+    setOpen(next)
+    if (next && !loaded && !loading) void load()
+  }
+
+  const label = count === 1 ? '1 reply' : `${count} replies`
+
+  return (
+    <div className='replies-block'>
+      <button type='button' className='replies' aria-expanded={open} onClick={toggle}>
+        {label}
+        {open ? <ChevronUp size={20} strokeWidth={1.5} /> : <ChevronDown size={20} strokeWidth={1.5} />}
+      </button>
+      {open
+        ? (
+          <div className='reply-list'>
+            {items.map(reply => (
+              <div className='reply-row' key={reply.id}>
+                <span className='avatar fallback' aria-hidden='true'>{reply.authorName.slice(0, 1).toUpperCase()}</span>
+                <div className='body'>
+                  <div className='byline'>
+                    <span className='name'>{reply.authorName}</span>
+                    {reply.createdAt ? <span className='age'>{formatAgo(reply.createdAt)}{reply.edited ? ' (edited)' : ''}</span> : undefined}
+                  </div>
+                  <div className='comment-text'>
+                    <ReadMore>{reply.text}</ReadMore>
+                  </div>
+                  {reply.likes > 0 || reply.dislikes > 0
+                    ? (
+                      <div className='actions'>
+                        {reply.likes > 0 ? <span className='age'><ThumbsUp size={14} strokeWidth={1.5} /> {formatCompact(reply.likes)}</span> : undefined}
+                        {reply.dislikes > 0 ? <span className='age'><ThumbsDown size={14} strokeWidth={1.5} /> {formatCompact(reply.dislikes)}</span> : undefined}
+                      </div>
+                    )
+                    : undefined}
+                </div>
+              </div>
+            ))}
+            {loading ? <div className='age'>Loading replies…</div> : undefined}
+            {cursor && !loading
+              ? <button type='button' className='replies' onClick={() => void load(cursor)}>Show more replies</button>
+              : undefined}
+          </div>
+        )
+        : undefined}
+    </div>
+  )
+}
+
+const RydComments = ({ videoId }: { videoId: string }) => {
+  const [enabled, setEnabled] = useState(() => getSettings().showDislikes)
+  const [sort, setSort] = useState<RydCommentSort>('top')
+  const [items, setItems] = useState<RydComment[]>([])
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => subscribeSettings(settings => setEnabled(settings.showDislikes)), [])
+
+  useEffect(() => {
+    if (!enabled) {
+      setItems([])
+      setCursor(undefined)
+      return
+    }
+    const controller = new AbortController()
+    setLoading(true)
+    setItems([])
+    setCursor(undefined)
+    void fetchRydComments(videoId, sort, undefined, controller.signal).then((page) => {
+      if (controller.signal.aborted) return
+      setLoading(false)
+      if (!page) return
+      setItems(page.items)
+      setCursor(page.nextCursor)
+    })
+    return () => controller.abort()
+  }, [videoId, sort, enabled])
+
+  const onMore = () => {
+    if (!cursor || loading) return
+    setLoading(true)
+    void fetchRydComments(videoId, sort, cursor).then((page) => {
+      setLoading(false)
+      if (!page) return
+      setItems(current => {
+        const seen = new Set(current.map(item => item.id))
+        return [...current, ...page.items.filter(item => !seen.has(item.id))]
+      })
+      setCursor(page.nextCursor)
+    })
+  }
+
+  if (!enabled || (!loading && items.length === 0)) {
+    return (
+      <section css={style}>
+        <p className='disabled-notice'>Comments are turned off.</p>
+      </section>
+    )
+  }
+
+  if (loading && items.length === 0) {
+    return (
+      <section css={style}>
+        <p className='disabled-notice'>Comments are turned off.</p>
+      </section>
+    )
+  }
+
+  return (
+    <section css={style} data-ryd-comments='true'>
+      <p className='disabled-notice'>Comments are turned off on YouTube. Showing Return YouTube Dislike comments.</p>
+      <div className='heading-row'>
+        <h2 className='heading'>Return YouTube Dislike comments</h2>
+        <Menu
+          align='start'
+          trigger={
+            <button type='button' className='sort'>
+              <ListFilter size={24} strokeWidth={1.5} />
+              <span className='sort-label'>Sort by</span>
+            </button>
+          }
+        >
+          {RYD_SORTS.map(option => (
+            <MenuItem
+              key={option.value}
+              label={option.label}
+              checked={option.value === sort}
+              onSelect={() => setSort(option.value)}
+            />
+          ))}
+        </Menu>
+      </div>
+      <div className='list'>
+        {items.map(comment => (
+          <div className='comment' key={comment.id}>
+            <span className='avatar fallback' aria-hidden='true'>{comment.authorName.slice(0, 1).toUpperCase()}</span>
+            <div className='body'>
+              <div className='byline'>
+                <span className='author'>{comment.authorName}</span>
+                {comment.createdAt ? <span className='age'>{formatAgo(comment.createdAt)}{comment.edited ? ' (edited)' : ''}</span> : undefined}
+              </div>
+              <div className='comment-text'>
+                <ReadMore>{comment.text}</ReadMore>
+              </div>
+              <div className='actions'>
+                <span className='age'><ThumbsUp size={16} strokeWidth={1.5} /> {formatCompact(comment.likes)}</span>
+                <span className='age'><ThumbsDown size={16} strokeWidth={1.5} /> {formatCompact(comment.dislikes)}</span>
+              </div>
+              {comment.replyCount > 0 ? <RydReplies rootId={comment.id} count={comment.replyCount} /> : undefined}
+            </div>
+          </div>
+        ))}
+      </div>
+      {cursor
+        ? (
+          <button type='button' className='show-more' disabled={loading} onClick={onMore}>
+            Show more
+          </button>
+        )
+        : undefined}
+    </section>
+  )
+}
+
 /** A video's comments, or with `post` instead, a channel post's, where a signed-in viewer gets no comment box. */
 export const Comments = ({ videoId, post, commentCountText }: {
   videoId?: string
@@ -748,6 +943,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
   }
   if (!fetching && !error && items.length === 0 && !page?.disabled) return null
   if (page?.disabled && items.length === 0) {
+    if (videoId && !post) return <RydComments videoId={videoId} />
     return (
       <section css={style}>
         <p className='disabled-notice'>Comments are turned off.</p>

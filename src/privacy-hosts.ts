@@ -15,7 +15,7 @@ export const DIRECT_HOSTS: readonly DirectHost[] = [
   { domain: 'ggpht.com', what: 'Channel pictures, post images and channel emoji' },
   { domain: 'googleusercontent.com', what: 'Channel pictures, banners and song covers' },
   { domain: 'gstatic.com', what: 'Live chat emoji, the pictures of the products in a channel\'s store and the photos in search suggestions' },
-  { domain: 'returnyoutubedislikeapi.com', what: 'Dislike counts from Return YouTube Dislike, which gets the ID of each video you open' },
+  { domain: 'returnyoutubedislikeapi.com', what: 'Dislike counts, and comments when YouTube comments are turned off, from Return YouTube Dislike, which gets the ID of each video you open' },
   {
     domain: 'ajay.app',
     what: 'SponsorBlock\'s sponsor segments, asked for with the first 4 characters of a hash of the video\'s ID, which about 150 videos in SponsorBlock share',
