@@ -29,6 +29,8 @@ type Channel {
   banner: String
   description: String
   isSubscribed: Boolean
+  # True when the signed-in viewer owns this channel, read off its Studio header actions.
+  isOwnChannel: Boolean
   notificationLevel: NotificationLevel
   isVerified: Boolean
   # An official artist channel, badged with a music note instead of the check.

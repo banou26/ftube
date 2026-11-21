@@ -80,3 +80,38 @@ test('navigates to /feed/channels from Subscriptions feed and left guide categor
   await expect(rows.nth(1)).toContainText('Alpha Tech')
   await expect(rows.nth(2)).toContainText('Old Archive')
 })
+
+test('own channel page hides Subscribe and shows Customize channel and Manage videos', async ({ page }) => {
+  test.setTimeout(120_000)
+  for (const [mode, id] of [
+    ['own-flag', 'UCown1111111111111111111'],
+    ['own-handle', 'UCown2222222222222222222'],
+  ] as const) {
+    await page.goto('/privacy')
+    await page.evaluate(async ([path, currentMode]) => {
+      const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+      harness.mountChannelHeader(currentMode)
+    }, ['/tests/browser/fixtures/menu-data-harness.tsx', mode] as const)
+    const harness = page.locator(`[data-channel-header-harness="${mode}"]`)
+    await expect(harness.getByRole('link', { name: 'Customize channel' })).toHaveAttribute(
+      'href',
+      `https://studio.youtube.com/channel/${id}/editing`,
+    )
+    await expect(harness.getByRole('link', { name: 'Manage videos' })).toHaveAttribute(
+      'href',
+      `https://studio.youtube.com/channel/${id}/videos`,
+    )
+    await expect(harness.getByRole('button', { name: /^Subscribe/ })).toHaveCount(0)
+    await expect(harness.getByRole('button', { name: 'Groups' })).toHaveCount(0)
+  }
+
+  await page.goto('/privacy')
+  await page.evaluate(async (path) => {
+    const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+    harness.mountChannelHeader('other')
+  }, '/tests/browser/fixtures/menu-data-harness.tsx')
+  const other = page.locator('[data-channel-header-harness="other"]')
+  await expect(other.getByRole('button', { name: 'Subscribe', exact: true })).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Groups', exact: true })).toBeVisible()
+  await expect(other.getByRole('link', { name: 'Customize channel' })).toHaveCount(0)
+})

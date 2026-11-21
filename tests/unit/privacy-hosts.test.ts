@@ -31,6 +31,7 @@ const sources = import.meta.glob(
 const SHARE_TARGETS = ['src/components/share-dialog.tsx']
 const NOT_FETCHED_FROM_THE_PAGE: Record<string, string[]> = {
   'returnyoutubedislike.com': ['src/routes/settings.tsx'],
+  'studio.youtube.com': ['src/routes/channel.tsx'],
   'yt-client.local': ['src/graphql.ts'],
   'messages.google.com': SHARE_TARGETS,
   'wa.me': SHARE_TARGETS,

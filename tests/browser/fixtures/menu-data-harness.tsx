@@ -13,6 +13,7 @@ import SubscribeButton from '../../../src/components/subscribe-button'
 import { TranscriptPanel } from '../../../src/components/transcript'
 import { VideoCardMenu } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
+import ChannelPage from '../../../src/routes/channel'
 import FeedChannelsPage from '../../../src/routes/feed-channels'
 import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -201,6 +202,48 @@ export const mountChannelsSurface = () => {
         <Route path='/feed/subscriptions' component={SubscriptionsFeedPage} />
         <Route path='/feed/channels' component={FeedChannelsPage} />
       </Switch>
+    </Provider>,
+    host,
+  )
+}
+
+/** Renders ChannelPage with signed-in session over mock channels for own-channel vs other-channel header tests. */
+export const mountChannelHeader = (mode: 'own-flag' | 'own-handle' | 'other') => {
+  const host = document.createElement('div')
+  host.setAttribute('data-channel-header-harness', mode)
+  host.style.cssText = 'position: fixed; inset: 0; z-index: 10000; background: var(--bg-base); overflow: auto'
+  document.body.append(host)
+  const channelByMode = {
+    'own-flag': { id: 'UCown1111111111111111111', name: 'My Channel', handle: '@otherhandle', isOwnChannel: true },
+    'own-handle': { id: 'UCown2222222222222222222', name: 'My Handle Channel', handle: '@viewer' },
+    other: { id: 'UCoth3333333333333333333', name: 'Someone Else', handle: '@someoneelse', isSubscribed: false },
+  }[mode]
+  const channelSource = {
+    session: async () => ({ signedIn: true, name: 'Viewer', handle: '@Viewer', accounts: [] }),
+    channel: async () => ({
+      channel: channelByMode,
+      videos: { items: [], playlists: [] },
+      availableTabs: ['VIDEOS'],
+      tab: 'VIDEOS',
+      sortOptions: [],
+      sortMenu: false,
+      filterOptions: [],
+    }),
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: `http://channel-header-${mode}.local/graphql`,
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source: channelSource }),
+  })
+  document.documentElement.dataset.engine = 'ready'
+  render(
+    <Provider value={client}>
+      <ChannelPage id={channelByMode.id} base={`/channel/${channelByMode.id}`} />
     </Provider>,
     host,
   )

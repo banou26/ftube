@@ -46,4 +46,35 @@ describe('channel subscribe state', () => {
       subscribe_button: { subscribed: true },
     }).isSubscribed).toBe(true)
   })
+
+  it('marks the channel as owned when the page header carries Studio actions and no subscribe button', () => {
+    const response = clone(fixture.subscribed)
+    response.header.pageHeaderRenderer.content.pageHeaderViewModel.actions.flexibleActionsViewModel.actionsRows[0]!.actions = [
+      {
+        buttonViewModel: {
+          title: 'Customize channel',
+          onTap: {
+            innertubeCommand: {
+              urlEndpoint: { url: 'https://studio.youtube.com/channel/UC3XwA9aaZdWfojyo9wKaFtw/editing' },
+            },
+          },
+        },
+      } as never,
+      {
+        buttonViewModel: {
+          title: 'Manage videos',
+          onTap: {
+            innertubeCommand: {
+              urlEndpoint: { url: 'https://studio.youtube.com/channel/UC3XwA9aaZdWfojyo9wKaFtw/videos' },
+            },
+          },
+        },
+      } as never,
+    ]
+    const parsed = parse(response)
+    expect(parsed.isOwnChannel).toBe(true)
+    expect(parsed.isSubscribed).toBeUndefined()
+    expect(parse(fixture.subscribed).isOwnChannel).toBeUndefined()
+    expect(parse(fixture.unsubscribed).isOwnChannel).toBeUndefined()
+  })
 })

@@ -20,6 +20,7 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
+import { useSession } from '../session'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE } from '../sources/types'
 import { CHANNEL_ABOUT_QUERY, ChannelAboutDialog } from './channel-about'
 import { ChannelHome } from './channel-home'
@@ -70,6 +71,7 @@ const CHANNEL_VIEW_QUERY = gql(`
         banner
         description
         isSubscribed
+        isOwnChannel
         notificationLevel
         isVerified
         isVerifiedArtist
@@ -361,6 +363,25 @@ const style = css`
     margin-top: 1.2rem;
   }
 
+  .owner-action {
+    display: inline-flex;
+    align-items: center;
+    height: 3.6rem;
+    padding: 0 1.6rem;
+    border-radius: 1.8rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+
+  .owner-action:hover {
+    background: var(--bg-chip-hover);
+  }
+
   /* The rule is an inset shadow rather than a border so the active tab's
      underline can cover it inside the strip, which scrolls on a phone. */
   .tabs {
@@ -537,11 +558,15 @@ const style = css`
   }
 `
 
+const normalizeHandle = (value: string | null | undefined) =>
+  value ? value.replace(/^@/, '').trim().toLowerCase() : undefined
+
 /**
  * A channel at one of youtube.com's addresses for it. `id` is what the source resolves (a UC id, `@handle`, `c/<name>` or
  * `user/<name>`), `base` the address without a tab, and `tab` the one the address names.
  */
 export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base: string, tab?: ChannelTab }) => {
+  const { signedIn, handle: sessionHandle } = useSession()
   const search = useSearch()
   const urlParams = new URLSearchParams(search)
   const [location, navigate] = useLocation()
@@ -579,6 +604,9 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   const handle = channel?.handle
     ? channel.handle.startsWith('@') ? channel.handle : `@${channel.handle}`
     : undefined
+  const activeHandle = normalizeHandle(sessionHandle)
+  const isOwnChannel = channel?.isOwnChannel === true
+    || (signedIn && Boolean(activeHandle) && activeHandle === normalizeHandle(channel?.handle))
   const metaParts = [handle, channel?.subscriberCountText, channel?.videoCountText]
     .filter(part => part != null && part.length > 0)
   const meta = metaParts.length > 0 ? metaParts.join(' • ') : undefined
@@ -688,12 +716,37 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                 )
                 : undefined}
               <div className='subscribe-row'>
-                <SubscribeButton
-                  channelId={channel.id}
-                  subscribed={channel.isSubscribed}
-                  notificationLevel={channel.notificationLevel}
-                />
-                <GroupsButton channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }} />
+                {isOwnChannel
+                  ? (
+                    <>
+                      <a
+                        className='owner-action'
+                        href={`https://studio.youtube.com/channel/${encodeURIComponent(channel.id)}/editing`}
+                        target='_blank'
+                        rel='noreferrer noopener'
+                      >
+                        Customize channel
+                      </a>
+                      <a
+                        className='owner-action'
+                        href={`https://studio.youtube.com/channel/${encodeURIComponent(channel.id)}/videos`}
+                        target='_blank'
+                        rel='noreferrer noopener'
+                      >
+                        Manage videos
+                      </a>
+                    </>
+                  )
+                  : (
+                    <>
+                      <SubscribeButton
+                        channelId={channel.id}
+                        subscribed={channel.isSubscribed}
+                        notificationLevel={channel.notificationLevel}
+                      />
+                      <GroupsButton channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }} />
+                    </>
+                  )}
               </div>
             </div>
           </header>

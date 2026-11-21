@@ -15,6 +15,7 @@ export type SourceChannel = {
   banner?: string
   description?: string
   isSubscribed?: boolean
+  isOwnChannel?: boolean
   notificationLevel?: SourceNotificationLevel
   isVerified?: boolean
   // the music-note badge an official artist channel carries in place of the check

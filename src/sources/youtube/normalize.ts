@@ -134,7 +134,10 @@ type ChannelDetails = {
     notification_preference_button?: { current_state_id?: string | number }
   }
   page?: {
-    header_memo?: Map<string, { state_entity_store_key?: string }[]>
+    header_memo?: Map<string, {
+      state_entity_store_key?: string
+      on_tap?: { payload?: { url?: string }, metadata?: { url?: string } }
+    }[]>
     entity_mutations?: EntityMutation[]
   }
 }
@@ -510,6 +513,23 @@ const storedSubscribed = (mutations: EntityMutation[] | undefined, key: string |
 const headerSubscribed = (channel: ChannelDetails) =>
   storedSubscribed(channel.page?.entity_mutations, channel.page?.header_memo?.get('SubscribeButtonView')?.[0]?.state_entity_store_key)
 
+const isStudioUrl = (url: string | undefined) => {
+  if (!url) return false
+  try {
+    return new URL(url, 'https://www.youtube.com').hostname === 'studio.youtube.com'
+  } catch {
+    return false
+  }
+}
+
+const headerIsOwnChannel = (channel: ChannelDetails) => {
+  if (channel.page?.header_memo?.get('SubscribeButtonView')?.length) return undefined
+  const buttons = channel.page?.header_memo?.get('ButtonView') ?? []
+  return buttons.some((button) => isStudioUrl(button.on_tap?.payload?.url) || isStudioUrl(button.on_tap?.metadata?.url))
+    ? true
+    : undefined
+}
+
 export const normalizeChannel = (input: unknown, fallbackId?: string): SourceChannel => {
   const channel = input as ChannelDetails
   const id = channel.metadata?.external_id ?? fallbackId
@@ -525,6 +545,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
   // the name youtube.com shows is the header's: Music's carousel says "Music" where its metadata says "The Music Channel",
   // a game's header "Grand Theft Auto V" where it says "Grand Theft Auto V - Topic", and Live's page header is all it has
   const topic = header?.contents?.find((node) => node.type === 'TopicChannelDetails')
+  const isOwnChannel = headerIsOwnChannel(channel)
   return {
     id,
     name: presentText(topic?.title) ?? presentText(header?.title) ?? channel.metadata?.title ?? presentText(view?.title?.text) ?? id,
@@ -538,6 +559,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
     banner: thumbnail(header?.banner) ?? thumbnail(view?.banner?.image),
     description: channel.metadata?.description ?? text(view?.description?.description),
     isSubscribed: headerSubscribed(channel) ?? channel.subscribe_button?.subscribed,
+    ...(isOwnChannel ? { isOwnChannel } : {}),
     notificationLevel: notificationLevel(channel.subscribe_button?.notification_preference_button?.current_state_id),
     isVerified: fromAuthor.isVerified ?? fromTitle.isVerified,
     isVerifiedArtist: fromAuthor.isVerifiedArtist ?? fromTitle.isVerifiedArtist,
