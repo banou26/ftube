@@ -364,6 +364,13 @@ const sectionsStyle = css`
     text-overflow: ellipsis;
   }
 
+  .sign-in-note {
+    margin: 0 1.2rem 1.2rem;
+    font-size: 1.4rem;
+    line-height: 2rem;
+    color: var(--text-primary);
+  }
+
   .sign-in {
     display: flex;
     align-items: center;
@@ -423,6 +430,7 @@ const GuideSections = () => {
       {signedOut
         ? (
           <div className='section'>
+            <p className='sign-in-note'>Sign in to like videos, comment, and subscribe.</p>
             <button type='button' className='sign-in' onClick={signIn}>
               <CircleUserRound size={24} strokeWidth={1.5} />
               Sign in

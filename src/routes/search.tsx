@@ -466,6 +466,7 @@ const style = css`
   .result .meta {
     margin-top: 0.4rem;
     font-size: 1.2rem;
+    line-height: 1.8rem;
     color: var(--text-secondary);
   }
 
@@ -473,14 +474,16 @@ const style = css`
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    margin-top: 0.6rem;
+    margin-top: 0.8rem;
   }
 
   .chip {
-    padding: 0.1rem 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: 0.2rem;
-    font-size: 1.1rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.4rem;
+    background: var(--bg-chip);
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.6rem;
     color: var(--text-secondary);
   }
 
@@ -527,9 +530,10 @@ const style = css`
   }
 
   /* A channel row is centred on its own axis rather than sharing the video
-     grid's top alignment, which is what youtube.com does and what keeps a row
-     with almost no metadata from looking like it lost its thumbnail. */
+     grid's top alignment, with Subscribe on the right, which is what youtube.com
+     does and what keeps a row with almost no metadata from looking unbalanced. */
   .result.channel-row {
+    grid-template-columns: minmax(24rem, min(50rem, 50%)) minmax(0, 1fr) auto;
     align-items: center;
   }
 
@@ -561,7 +565,24 @@ const style = css`
   }
 
   .channel-actions {
-    margin-top: 1.2rem;
+    flex: none;
+  }
+
+  .playlist-stack {
+    position: relative;
+    padding-top: 0.6rem;
+  }
+
+  .playlist-stack::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 1.2rem;
+    right: 1.2rem;
+    height: 1.4rem;
+    border-radius: 0.8rem 0.8rem 0 0;
+    background: var(--bg-chip-hover);
+    opacity: 0.55;
   }
 
   .playlist-thumb {
@@ -579,20 +600,32 @@ const style = css`
     object-fit: cover;
   }
 
-  .playlist-overlay {
+  .playlist-count {
     position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    right: 0.8rem;
+    bottom: 0.8rem;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: 0.4rem;
-    width: 40%;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.4rem;
+    background: var(--bg-badge);
+    color: var(--text-on-media);
     font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.8rem;
+  }
+
+  .playlist-link {
+    display: inline-block;
+    margin-top: 1.2rem;
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .playlist-link:hover {
+    color: var(--text-primary);
   }
 
   /* A row's own shape with nothing in it, drawn while the first page is on its way. */
@@ -647,6 +680,10 @@ const style = css`
     .result .thumb {
       max-width: none;
       min-width: 0;
+    }
+
+    .channel-actions {
+      margin-top: 0.4rem;
     }
   }
 `
@@ -718,13 +755,6 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
           <VideoCardMenu videoId={row.id} title={row.title} iconSize={24} />
         </div>
         {meta ? <div className='meta'>{meta}</div> : undefined}
-        {row.badges.length > 0
-          ? (
-            <div className='chips'>
-              {row.badges.map(badge => <span className='chip' key={badge}>{badge}</span>)}
-            </div>
-          )
-          : undefined}
         {/* youtube.com opens the choice of a collaboration's channels from its avatars, and the video from its names */}
         {rowByline(row) === 'names'
           ? (
@@ -752,6 +782,13 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
           )
           : undefined}
         {snippet ? <p className='description'>{snippet}</p> : undefined}
+        {row.badges.length > 0
+          ? (
+            <div className='chips'>
+              {row.badges.map(badge => <span className='chip' key={badge}>{badge}</span>)}
+            </div>
+          )
+          : undefined}
         {row.chapters?.length
           ? <ChapterStrip videoId={row.id} chapters={row.chapters} title={row.chaptersTitle} playerParams={playerParams} />
           : undefined}
@@ -920,13 +957,13 @@ const SearchPage = () => {
                       {[row.handle, row.subscriberCountText, row.videoCountText].filter(Boolean).join(' • ')}
                     </div>
                     {row.description ? <p className='description'>{row.description}</p> : undefined}
-                    <div className='channel-actions'>
-                      <SubscribeButton
-                        channelId={row.id}
-                        subscribed={row.isSubscribed}
-                        notificationLevel={row.notificationLevel}
-                      />
-                    </div>
+                  </div>
+                  <div className='channel-actions'>
+                    <SubscribeButton
+                      channelId={row.id}
+                      subscribed={row.isSubscribed}
+                      notificationLevel={row.notificationLevel}
+                    />
                   </div>
                 </article>
               )
@@ -936,13 +973,19 @@ const SearchPage = () => {
               const href = playlistHrefFor(row.id)
               return (
                 <article className='result' key={rowKey(row)}>
-                  <Link href={href} className='playlist-thumb' tabIndex={-1} aria-hidden='true'>
-                    {row.thumbnail ? <Thumbnail src={row.thumbnail} /> : undefined}
-                    <span className='playlist-overlay'>
-                      <ListVideo size={24} strokeWidth={1.5} />
-                      {row.videoCountText ?? ''}
-                    </span>
-                  </Link>
+                  <div className='playlist-stack'>
+                    <Link href={href} className='playlist-thumb' tabIndex={-1} aria-hidden='true'>
+                      {row.thumbnail ? <Thumbnail src={row.thumbnail} /> : undefined}
+                      {row.videoCountText
+                        ? (
+                          <span className='playlist-count'>
+                            <ListVideo size={14} strokeWidth={1.5} />
+                            {row.videoCountText}
+                          </span>
+                        )
+                        : undefined}
+                    </Link>
+                  </div>
                   <div className='info'>
                     <h2 className='title'>
                       <Link href={href}>{row.title}</Link>
@@ -954,6 +997,9 @@ const SearchPage = () => {
                         </Link>
                       )
                       : undefined}
+                    <div>
+                      <Link href={href} className='playlist-link'>View full playlist</Link>
+                    </div>
                   </div>
                 </article>
               )

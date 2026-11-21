@@ -134,6 +134,7 @@ test('sizes the player, the sidebar and its thumbnails like youtube.com', async 
     await page.setViewportSize({ width: size.width, height: size.height })
     const at = `${size.width}x${size.height}`
     await expect.poll(async () => (await measure()).aside.below, { message: `the sidebar under the player at ${at}` }).toBeGreaterThan(0)
+    await expect(page.locator('main aside .related-grid')).toBeVisible()
     const layout = await measure()
     expectClose(layout.player, size.player, `the player in one column at ${at}`)
     expect(layout.title.below, `the title's gap under the player in one column at ${at}`).toBeCloseTo(12, 0)

@@ -242,7 +242,7 @@ const style = css`
     display: block;
     width: 100%;
     aspect-ratio: 6.2 / 1;
-    border-radius: 1.2rem;
+    border-radius: 1.6rem;
     object-fit: cover;
     background: var(--bg-elevated);
   }
@@ -319,6 +319,11 @@ const style = css`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  button.description .description-text {
+    text-overflow: clip;
+    mask-image: linear-gradient(to right, #000 calc(100% - 2.4rem), transparent);
   }
 
   .description .more,
@@ -400,9 +405,12 @@ const style = css`
 
   .tab {
     flex: none;
-    padding: 1.2rem 0;
+    display: inline-flex;
+    align-items: center;
+    height: 4.8rem;
+    padding: 0;
     border: none;
-    border-bottom: 0.2rem solid transparent;
+    border-bottom: 0.25rem solid transparent;
     background: transparent;
     color: var(--text-secondary);
     font-size: 1.5rem;

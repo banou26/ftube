@@ -1,3 +1,4 @@
+import type { TargetedEvent } from 'preact'
 import type shaka from 'shaka-player'
 
 import type { CaptionTrack, EndScreenElement, PlaybackRefusal, Storyboard } from '../frame/protocol'
@@ -55,10 +56,20 @@ const playerStyle = css`
   container: player / inline-size;
 
   video {
+    position: relative;
     display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+
+  .poster {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
   }
 
   &.idle {
@@ -271,6 +282,8 @@ const VideoPlayer = (
   const [attempt, setAttempt] = useState(0)
   const restarts = useMemo(() => createRestartBudget(), [videoId])
   const [loading, setLoading] = useState(true)
+  const [hasFrame, setHasFrame] = useState(false)
+  const [posterTier, setPosterTier] = useState<'maxres' | 'hq' | 'none'>('maxres')
   const [status, setStatus] = useState('')
   const [refusal, setRefusal] = useState<PlaybackRefusal | undefined>(undefined)
   const [streamRefused, setStreamRefused] = useState(false)
@@ -758,6 +771,9 @@ const VideoPlayer = (
 
   const video = videoElement
   const showSpinner = !status && !refusal && (loading || (Boolean(player) && (state.buffering || state.seeking)))
+  const posterUrl = !hasFrame && !status && !refusal && posterTier !== 'none'
+    ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/${posterTier === 'maxres' ? 'maxresdefault' : 'hqdefault'}.jpg`
+    : undefined
   const time = state.currentTime
   const undoable = skipped !== undefined && time > skipped.to - CLOCK_SLACK && time < skipped.to + SPONSOR_NOTICE
   const upcoming = undoable
@@ -776,12 +792,30 @@ const VideoPlayer = (
       }}
       onContextMenu={onContextMenu}
     >
+      {posterUrl
+        ? (
+          <img
+            className='poster'
+            src={posterUrl}
+            alt=''
+            aria-hidden='true'
+            referrerpolicy='no-referrer'
+            onLoad={(event: TargetedEvent<HTMLImageElement>) => {
+              // youtube serves a 120x90 gray placeholder when maxresdefault does not exist
+              if (posterTier === 'maxres' && event.currentTarget.naturalWidth <= 120) setPosterTier('hq')
+            }}
+            onError={() => setPosterTier(tier => tier === 'maxres' ? 'hq' : 'none')}
+          />
+        )
+        : undefined}
       <video
         key={attempt}
         ref={bindVideo}
         playsInline
         preload='auto'
         loop={loop}
+        onLoadedData={() => setHasFrame(true)}
+        onPlaying={() => setHasFrame(true)}
         onClick={() => {
           const current = videoRef.current
           // a click that closes the menu only closes it, as on youtube.com

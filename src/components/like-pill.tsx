@@ -9,8 +9,8 @@ import { RateGlyph, useRateVideo } from './rate-video'
 const style = css`
   display: flex;
   align-items: stretch;
-  height: 3.6rem;
-  border-radius: 1.8rem;
+  height: var(--action-height, 3.6rem);
+  border-radius: calc(var(--action-height, 3.6rem) / 2);
   background: var(--bg-chip);
   overflow: hidden;
 
@@ -29,8 +29,19 @@ const style = css`
   }
 
   .like {
-    padding: 0 1.2rem 0 1.6rem;
-    border-right: 1px solid var(--border-subtle);
+    position: relative;
+    padding: 0 1.4rem 0 1.6rem;
+  }
+
+  .like::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1px;
+    height: 2.4rem;
+    background: var(--border-subtle);
   }
 
   .dislike {

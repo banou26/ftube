@@ -12,6 +12,23 @@ export const playlistCardStyle = css`
   flex-direction: column;
   min-width: 0;
 
+  .cover-stack {
+    position: relative;
+    padding-top: 0.6rem;
+  }
+
+  .cover-stack::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 1.2rem;
+    right: 1.2rem;
+    height: 1.4rem;
+    border-radius: 0.8rem 0.8rem 0 0;
+    background: var(--bg-chip-hover);
+    opacity: 0.55;
+  }
+
   .cover {
     position: relative;
     aspect-ratio: 16 / 9;
@@ -99,24 +116,26 @@ export const PlaylistCard = (
   return (
     // One link over the whole card: an anchor inside an anchor gets flattened
     <Link href={playlistHrefFor(id)} css={playlistCardStyle} className='card'>
-      <div className='cover'>
-        {thumbnail
-          ? <Thumbnail src={thumbnail} />
-          : (
-            <span className='cover-fallback'>
-              {FallbackIcon
-                ? <FallbackIcon size={40} strokeWidth={1.5} />
-                : <ListVideo size={40} strokeWidth={1.5} />}
-            </span>
-          )}
-        {videoCountText
-          ? (
-            <span className='count'>
-              <ListVideo size={14} strokeWidth={1.5} />
-              {videoCountText}
-            </span>
-          )
-          : undefined}
+      <div className='cover-stack'>
+        <div className='cover'>
+          {thumbnail
+            ? <Thumbnail src={thumbnail} />
+            : (
+              <span className='cover-fallback'>
+                {FallbackIcon
+                  ? <FallbackIcon size={40} strokeWidth={1.5} />
+                  : <ListVideo size={40} strokeWidth={1.5} />}
+              </span>
+            )}
+          {videoCountText
+            ? (
+              <span className='count'>
+                <ListVideo size={14} strokeWidth={1.5} />
+                {videoCountText}
+              </span>
+            )
+            : undefined}
+        </div>
       </div>
       <h3 className='card-title'>{title}</h3>
       <div className='card-meta'>

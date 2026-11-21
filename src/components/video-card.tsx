@@ -510,17 +510,7 @@ const style = css`
     background: transparent;
     color: var(--text-primary);
     cursor: pointer;
-    opacity: 0;
-    transition: background 0.15s ease, opacity 0.15s ease;
-  }
-
-  /* The third selector keeps the trigger of an OPEN menu on screen: the pointer
-     has moved onto the panel by then, so the card is no longer hovered and the
-     button would fade out from under its own menu. */
-  &:hover .more,
-  .more:focus-visible,
-  .more-menu[data-open] .more {
-    opacity: 1;
+    transition: background 0.15s ease;
   }
 
   .more:hover {

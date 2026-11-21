@@ -41,10 +41,10 @@ export const subscribeStyle = css`
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    height: 3.6rem;
+    height: var(--action-height, 3.6rem);
     padding: 0 1.6rem;
     border: none;
-    border-radius: 1.8rem;
+    border-radius: calc(var(--action-height, 3.6rem) / 2);
     background: var(--bg-inverse);
     color: var(--text-inverse);
     font-size: 1.4rem;
