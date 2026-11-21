@@ -261,11 +261,17 @@ const VideoPlayer = (
     cardsAvatar?: string | null
   },
 ) => {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
+  const bindVideo = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node
+    setVideoElement(node)
+  }, [])
   const resumeAt = useRef(startAt ?? 0)
   const [attempt, setAttempt] = useState(0)
   const restarts = useMemo(() => createRestartBudget(), [videoId])
-  const [status, setStatus] = useState('Loading player')
+  const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState('')
   const [refusal, setRefusal] = useState<PlaybackRefusal | undefined>(undefined)
   const [streamRefused, setStreamRefused] = useState(false)
   const [player, setPlayer] = useState<shaka.Player | undefined>(undefined)
@@ -319,7 +325,7 @@ const VideoPlayer = (
     setBezel(previous => ({ id: (previous?.id ?? 0) + 1, icon, text }))
   }, [])
 
-  const state = usePlayerState(videoRef.current, player)
+  const state = usePlayerState(videoElement, player)
   const chapterList = chapters ?? []
   const chapterIndex = chapterIndexAt(chapterList, state.currentTime)
   useEffect(() => setPlayingChapter(chapterIndex), [chapterIndex])
@@ -447,12 +453,14 @@ const VideoPlayer = (
         abort.abort()
         const wait = restarts.refused()
         if (wait === undefined) {
+          setLoading(false)
           setStatus('This video can\'t be played right now')
           setStreamRefused(true)
           console.error(error)
           return
         }
-        setStatus('Loading player')
+        setLoading(true)
+        setStatus('')
         retryTimer = setTimeout(() => setAttempt((value) => value + 1), wait)
         return
       }
@@ -460,6 +468,7 @@ const VideoPlayer = (
       const terminal = (error instanceof Error && error.message === LIVE_UNSUPPORTED) || refused?.final === true
       if (terminal || !restarts.spend()) {
         void controller?.destroy()
+        setLoading(false)
         if (refused?.final !== true) console.error(error)
         if (refused) {
           setStatus('')
@@ -480,7 +489,8 @@ const VideoPlayer = (
     }
     const played = () => restarts.progress(video.currentTime)
     video.addEventListener('timeupdate', played)
-    setStatus('Loading player')
+    setLoading(true)
+    setStatus('')
     setStreamRefused(false)
     void (async () => {
       const [api, { startShakaPlayback }] = await Promise.all([startEngine(), warmShaka()])
@@ -495,6 +505,7 @@ const VideoPlayer = (
         onEndScreen: setEndScreen,
       })
       if (abort.signal.aborted) return
+      setLoading(false)
       setStatus('')
       registerSeek(
         videoId,
@@ -745,8 +756,8 @@ const VideoPlayer = (
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [wake, flash])
 
-  const video = videoRef.current
-  const showSpinner = Boolean(player) && (state.buffering || state.seeking)
+  const video = videoElement
+  const showSpinner = !status && !refusal && (loading || (Boolean(player) && (state.buffering || state.seeking)))
   const time = state.currentTime
   const undoable = skipped !== undefined && time > skipped.to - CLOCK_SLACK && time < skipped.to + SPONSOR_NOTICE
   const upcoming = undoable
@@ -767,7 +778,7 @@ const VideoPlayer = (
     >
       <video
         key={attempt}
-        ref={videoRef}
+        ref={bindVideo}
         playsInline
         preload='auto'
         loop={loop}
@@ -810,7 +821,7 @@ const VideoPlayer = (
         )
         : undefined}
       {refusal ? <RefusalScreen refusal={refusal} /> : undefined}
-      {video && !status && !refusal && endScreen.length > 0
+      {video && player && !status && !refusal && endScreen.length > 0
         ? (
           <EndScreenElements
             elements={endScreen}
@@ -823,7 +834,7 @@ const VideoPlayer = (
           />
         )
         : undefined}
-      {video && !status && !refusal && !docked && teasers.length > 0
+      {video && player && !status && !refusal && !docked && teasers.length > 0
         ? (
           <InfoCards
             teasers={teasers}
@@ -874,9 +885,9 @@ const VideoPlayer = (
           />
         )
         : undefined}
-      {video && !status && !refusal && undoable
+      {video && player && !status && !refusal && undoable
         ? <button type='button' className='sponsor-skip' onClick={undo}>Undo</button>
-        : video && !status && !refusal && upcoming
+        : video && player && !status && !refusal && upcoming
           ? (
             <button
               type='button'

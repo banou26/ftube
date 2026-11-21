@@ -128,3 +128,22 @@ test('a thumbnail that failed during a network drop shows its plain slot, and lo
   await expect.poll(() => asked.get('harness-gone')).toBe(2)
   await expect(gone).toBeHidden()
 })
+
+test('initial video load shows the player and spinner with no Loading player text', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const release = await holdEngine(page)
+  await page.goto('/watch?v=dQw4w9WgXcQ', { waitUntil: 'domcontentloaded' })
+  const root = page.locator('[data-player-root]')
+  await expect(root).toBeVisible({ timeout: 30_000 })
+  await expect(root.locator('.spinner')).toBeVisible()
+  await expect(root.getByRole('button', { name: 'Play' })).toBeVisible()
+  await expect(root.getByRole('button', { name: 'Settings' })).toBeVisible()
+  await expect(root.getByRole('slider', { name: 'Seek' })).toBeVisible()
+  await expect(page.getByText('Loading player')).toHaveCount(0)
+
+  release()
+  const video = root.locator('video')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime), { timeout: 120_000 }).toBeGreaterThan(0.5)
+  await expect(root.locator('.spinner')).toBeHidden()
+})
