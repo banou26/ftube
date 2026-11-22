@@ -187,3 +187,33 @@ test('shows Stable Volume without Audio track on a single-track DRC video and re
   await expect(reloadedSettings.getByRole('menuitemcheckbox', { name: /^Stable Volume/ })).toHaveAttribute('aria-checked', 'true')
   expect(errors).toEqual([])
 })
+
+test('does not stall when switching Stable Volume, switching audio track, and seeking back-to-back', async ({ page }) => {
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await startCaptionsOff(page)
+
+  await page.goto(`/watch?v=${DUBBED_ID}`)
+  const video = await startPlayback(page)
+
+  const settings = await openSettings(page)
+  await settings.getByRole('menuitemcheckbox', { name: /^Stable Volume/ }).click()
+  await settings.getByRole('menuitem', { name: /^Audio track/ }).click()
+  const audioMenu = page.getByRole('menu', { name: 'Audio track' })
+  await expect(audioMenu).toBeVisible()
+  await audioMenu.getByRole('menuitem', { name: 'Spanish', exact: true }).click()
+  await expect(audioMenu).toHaveCount(0)
+
+  // Seek immediately while the previous track's init/index fetch could still be in flight
+  await video.evaluate((element) => { (element as HTMLVideoElement).currentTime = 20 })
+  await expect.poll(
+    () => video.evaluate((element) => (element as HTMLVideoElement).currentTime),
+    { timeout: 60_000, message: 'playback stalled after rapid Stable Volume -> Spanish -> seek' },
+  ).toBeGreaterThan(21.5)
+  await expect.poll(async () => (await audioMediaKeys(page)).at(-1), {
+    timeout: 60_000,
+    message: 'did not settle on Spanish audio after rapid switch + seek',
+  }).toContain('Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZXM')
+  expect(errors).toEqual([])
+})

@@ -11,6 +11,7 @@ import { createStallWatch, isStreamRefusal } from './restart'
 type Bridge = {
   api: FrameApi
   generation: number
+  pendingInits: Set<Promise<unknown>>
   player: shaka.Player
   requestNumber: number
   session: PlaybackSession
@@ -18,6 +19,14 @@ type Bridge = {
 }
 
 const SAFE_MARGIN_SECONDS = 1
+
+const waitForPendingInits = async (bridge: Bridge, isStopped: () => boolean) => {
+  while (!isStopped() && bridge.pendingInits.size > 0) {
+    await Promise.allSettled([...bridge.pendingInits])
+    // yield a macrotask so Shaka's createSegmentIndex() -> onUpdate_() settles before switchInternal_() clears buffers
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
 
 const bridges = new Map<string, Bridge>()
 let schemeInstalled = false
@@ -89,6 +98,7 @@ const installScheme = () => {
     headersReceived,
   ) => {
     let isAborted = false
+    let isInit = false
     let bridge: Bridge | undefined
     let segmentRequestId: string | undefined
     let abort = () => {}
@@ -129,6 +139,7 @@ const installScheme = () => {
       const generation = Number(url.searchParams.get('generation') ?? 0)
       if (generation < bridge.generation) throw abortError(uri)
       const kind = url.searchParams.get('kind') === 'media' ? 'media' : 'init'
+      isInit = kind === 'init'
       segmentRequestId = `${url.searchParams.get('session')}:${++bridge.requestNumber}`
       const started = performance.now()
       const segment = await bridge.api.requestSegment({
@@ -172,7 +183,14 @@ const installScheme = () => {
     })().catch((error) => {
       throw networkError(uri, error)
     })
-    return new shaka.util.AbortableOperation(Promise.race([response, aborted]), async () => {
+    const settled = Promise.race([response, aborted])
+    if (isInit && bridge) {
+      const pendingBridge = bridge
+      const done = settled.then(() => {}, () => {})
+      pendingBridge.pendingInits.add(done)
+      void done.finally(() => pendingBridge.pendingInits.delete(done))
+    }
+    return new shaka.util.AbortableOperation(settled, async () => {
       abort()
       if (bridge && segmentRequestId) {
         await bridge.api.cancelSegment(bridge.session.id, segmentRequestId).catch(() => {})
@@ -338,7 +356,15 @@ export const startShakaPlayback = async ({
 
     const session = await sessionPromise
     if (signal.aborted) throw signal.reason
-    const bridge = { api, generation: 0, player: activePlayer, requestNumber: 0, session, video }
+    const bridge = {
+      api,
+      generation: 0,
+      pendingInits: new Set<Promise<unknown>>(),
+      player: activePlayer,
+      requestNumber: 0,
+      session,
+      video,
+    }
     bridges.set(bridgeId, bridge)
     // live's manifest has to be refetchable, and a blob's contents are frozen at creation
     const loadUrl = session.isLive
@@ -448,8 +474,11 @@ export const startShakaPlayback = async ({
     )].sort((a, b) => b - a)
 
     // switching quality is two coordinated moves: the Shaka half alone leaves the SABR adapter advertising the old format
+    let qualityRequestId = 0
     const selectQuality = async (height: number | 'auto') => {
-      if (destroyed) return
+      const token = ++qualityRequestId
+      const stopped = () => destroyed || token !== qualityRequestId
+      if (stopped()) return
       if (height === 'auto') {
         activePlayer.configure({ abr: { enabled: true, restrictToElementSize: true } })
         return
@@ -458,8 +487,15 @@ export const startShakaPlayback = async ({
         .filter((candidate) => candidate.height === height)
         .sort((a, b) => b.bitrate - a.bitrate)[0]
       if (!format) return
-      await api.selectVideoFormat(session.id, format.key)
-      if (destroyed) return
+      // Drain in-flight init/index fetches before switching tracks (same Shaka 4.16.37 StreamingEngine.onUpdate_ bug
+      // documented in applyAudio below).
+      for (;;) {
+        await waitForPendingInits(bridge, stopped)
+        if (stopped()) return
+        await api.selectVideoFormat(session.id, format.key)
+        if (stopped()) return
+        if (bridge.pendingInits.size === 0) break
+      }
       // restrictToElementSize also restricts manual picks, so it has to come off before selecting a taller track
       activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false } })
       const variants = activePlayer.getVariantTracks()
@@ -486,13 +522,24 @@ export const startShakaPlayback = async ({
     const initialAudio = session.audioFormats.find((format) => format.key === session.selectedAudioKey)
     let activeAudioKey = initialAudio?.key
     let audioChain: Promise<unknown> = Promise.resolve()
+    let audioRequestId = 0
 
-    const applyAudio = async (trackId: string | undefined, drc: boolean) => {
-      if (destroyed || session.isLive) return
+    const applyAudio = async (trackId: string | undefined, drc: boolean, token: number) => {
+      const stopped = () => destroyed || token !== audioRequestId
+      if (stopped() || session.isLive) return
       const format = pickAudioFormat(supportedAudio, { trackId, drc })
       if (!format || format.key === activeAudioKey) return
-      await api.selectAudioFormat(session.id, format.key)
-      if (destroyed) return
+      // Shaka 4.16.37 deadlocks StreamingEngine.onUpdate_() if switchInternal_() starts clearBuffer_() while a
+      // stream.createSegmentIndex() init request is in flight: case 6 schedules an update while clearingBuffer is true,
+      // and case 1 returns before resetting updateTimer, leaving a dead non-null timer that blocks every later update
+      // and seek. Wait for in-flight init fetches to settle and re-sync the frame format if an old init ran meanwhile.
+      for (;;) {
+        await waitForPendingInits(bridge, stopped)
+        if (stopped()) return
+        await api.selectAudioFormat(session.id, format.key)
+        if (stopped()) return
+        if (bridge.pendingInits.size === 0) break
+      }
       activeAudioKey = format.key
       const variants = activePlayer.getVariantTracks?.() ?? []
       const repId = audioRepresentationId(format)
@@ -532,7 +579,8 @@ export const startShakaPlayback = async ({
 
     // serialized so quick switches between tracks or Stable Volume cannot race out of order
     const selectAudio = (trackId: string | undefined, drc: boolean) => {
-      const run = audioChain.then(() => applyAudio(trackId, drc))
+      const token = ++audioRequestId
+      const run = audioChain.then(() => applyAudio(trackId, drc, token))
       audioChain = run.catch(() => {})
       return run
     }

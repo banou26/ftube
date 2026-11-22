@@ -17,10 +17,17 @@ const fake = vi.hoisted(() => {
     }
   }
   const players: Player[] = []
+  let scheme: ((...args: unknown[]) => unknown) | undefined
   class Player extends EventTarget {
     static isBrowserSupported = () => true
     destroyed = false
-    networking = { registerRequestFilter: () => {}, unregisterRequestFilter: () => {} }
+    requestFilter: ((type: number, request: { uris: string[], headers: Record<string, string> }, context?: { segment?: unknown }) => void) | undefined
+    networking = {
+      registerRequestFilter: (fn: (type: number, request: { uris: string[], headers: Record<string, string> }, context?: { segment?: unknown }) => void) => {
+        this.requestFilter = fn
+      },
+      unregisterRequestFilter: () => { this.requestFilter = undefined },
+    }
     abrEnabled = true
     configs: Record<string, unknown>[] = []
     variants: Record<string, unknown>[] = []
@@ -32,6 +39,7 @@ const fake = vi.hoisted(() => {
       players.push(this)
     }
     getNetworkingEngine = () => this.networking
+    getStats = () => ({ estimatedBandwidth: 10_000_000 })
     configure = (config: Record<string, unknown>) => {
       this.configs.push(config)
       const abr = config.abr as { enabled?: boolean } | undefined
@@ -49,10 +57,21 @@ const fake = vi.hoisted(() => {
   const shaka = {
     polyfill: { installAll: () => {} },
     Player,
-    util: { Error: ShakaError, AbortableOperation: class {} },
-    net: { NetworkingEngine: { registerScheme: () => {}, RequestType: { MANIFEST: 0, SEGMENT: 1 }, PluginPriority: { PREFERRED: 3 } } },
+    util: {
+      Error: ShakaError,
+      AbortableOperation: class {
+        constructor(readonly promise: Promise<unknown>, readonly abort: () => Promise<void>) {}
+      },
+    },
+    net: {
+      NetworkingEngine: {
+        registerScheme: (_name: string, fn: (...args: unknown[]) => unknown) => { scheme = fn },
+        RequestType: { MANIFEST: 0, SEGMENT: 1 },
+        PluginPriority: { PREFERRED: 3 },
+      },
+    },
   }
-  return { shaka, players, ShakaError }
+  return { shaka, players, ShakaError, getScheme: () => scheme }
 })
 
 vi.mock('shaka-player', () => ({ default: fake.shaka }))
@@ -236,5 +255,53 @@ describe('audio track and Stable Volume selection in Shaka', () => {
     await controller.selectAudio('en-US.4', true)
     expect(api.selectAudioFormat).toHaveBeenLastCalledWith('playback:1', '251:en-drc')
     expect(player.selectedVariantCalls.at(-1)?.[0]).toMatchObject({ id: 2, originalAudioId: '251-en-US.4-drc', originalVideoId: '399' })
+  })
+
+  it('waits for in-flight init/index fetches to settle before switching audio tracks in Shaka', async () => {
+    let resolveInit: (value: unknown) => void = () => {}
+    const initPromise = new Promise((resolve) => { resolveInit = resolve })
+    const { api, controller, player } = await start({
+      videoFormats,
+      audioFormats,
+      selectedVideoKey: '399:',
+      selectedAudioKey: '251:en',
+    }, undefined, false)
+    ;(api as unknown as { requestSegment: ReturnType<typeof vi.fn> }).requestSegment = vi.fn(() => initPromise)
+
+    const enDrcTrack = { language: 'en-US', label: 'English (US) original (Stable Volume)', codecs: 'opus', roles: ['main', 'enhanced-audio-intelligibility'], active: false }
+    const esTrack = { language: 'es', label: 'Spanish', codecs: 'opus', roles: ['alternate', 'dub'], active: false }
+    player.audioTracks = [enDrcTrack, esTrack]
+    player.variants = [
+      { id: 2, height: 1_080, bandwidth: 2_131_000, audioId: 11, originalAudioId: '251-en-US.4-drc', originalVideoId: '399', language: 'en-US', label: 'English (US) original (Stable Volume)', audioCodec: 'opus', audioRoles: ['main', 'enhanced-audio-intelligibility'], active: true },
+      { id: 3, height: 1_080, bandwidth: 2_130_000, audioId: 12, originalAudioId: '251-es.3', originalVideoId: '399', language: 'es', label: 'Spanish', audioCodec: 'opus', audioRoles: ['alternate', 'dub'], active: false },
+    ]
+
+    // Start an in-flight audio init fetch (simulating Shaka's createSegmentIndex() during an audio switch or seek)
+    const req = { uris: ['sabr://audio?key=251%3Aen-drc'], headers: { Range: 'bytes=0-255' } }
+    player.requestFilter!(fake.shaka.net.NetworkingEngine.RequestType.SEGMENT, req, {})
+    const scheme = fake.getScheme()!
+    const op = scheme(req.uris[0], req, fake.shaka.net.NetworkingEngine.RequestType.SEGMENT, () => {}, () => {}) as { promise: Promise<unknown> }
+
+    const switching = controller.selectAudio('es.3', true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // Must not call selectAudioTrack while createSegmentIndex() init is still in flight
+    expect(player.selectedAudioCalls).toEqual([])
+    expect(api.selectAudioFormat).not.toHaveBeenCalled()
+
+    resolveInit({
+      generation: 0,
+      track: 'audio',
+      kind: 'init',
+      formatKey: '251:en-drc',
+      mimeType: 'audio/webm; codecs="opus"',
+      elapsedMs: 1,
+      end: false,
+      data: new Uint8Array([1, 2, 3, 4]).buffer,
+    })
+    await op.promise
+    await switching
+
+    expect(api.selectAudioFormat).toHaveBeenCalledExactlyOnceWith('playback:1', '251:es')
+    expect(player.selectedAudioCalls).toEqual([[esTrack, 1]])
   })
 })
