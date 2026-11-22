@@ -39,6 +39,7 @@ export const PartyPlayback = ({ video, videoId, active }: { video: HTMLVideoElem
       return
     }
     const publish = () => {
+      if (video.readyState < 1) return
       const next = readVideoState(video)
       party.setPlayback(next)
       party.send({ t: 'playback', s: next })
