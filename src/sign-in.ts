@@ -140,7 +140,7 @@ export const openSignInWindow = (lib: Pick<typeof import('@fkn/lib'), 'attachFra
     window: {},
     domains: ['www.youtube.com'],
     cookies: 'persistent',
-    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in yt-client' }],
+    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
   })
   return waitInWindow(attaching).finally(() => { openWindow = undefined })
 }

@@ -7,18 +7,18 @@ test.use({ viewport: { width: 1440, height: 900 } })
 
 test('Settings links the privacy page, which lists every server the browser reaches itself', async ({ page }) => {
   await page.goto('/settings')
-  await page.locator('main').getByRole('link', { name: 'What yt-client keeps and where requests go' }).click()
+  await page.locator('main').getByRole('link', { name: 'What FTube keeps and where requests go' }).click()
   await expect(page).toHaveURL(/\/privacy$/)
   await expect(page.locator('main h1')).toHaveText('Privacy')
   await expect(page).toHaveTitle(/^Privacy - /)
 
   await expect(page.locator('[data-direct-hosts] li')).toHaveText(DIRECT_HOSTS.map(({ what, domain }) => `${what}: ${domain}`))
   const main = page.locator('main')
-  await expect(main.getByRole('heading', { name: 'What yt-client keeps on your FKN account' })).toBeVisible()
+  await expect(main.getByRole('heading', { name: 'What FTube keeps on your FKN account' })).toBeVisible()
   await expect(main.locator('li', { hasText: 'The channel you picked.' })).toContainText('when you pick the account\'s own channel')
   await expect(main).not.toContainText('switch accounts')
   await expect(main).toContainText(`FKN's own servers (${FKN_DOMAINS.join(' and ')})`)
-  await expect(main).toContainText('signing out in yt-client signs all of them out of YouTube and Google on this device')
+  await expect(main).toContainText('signing out in FTube signs all of them out of YouTube and Google on this device')
   // tests/unit/frame/lanes.test.ts: captions go direct whatever the session
   await expect(main).toContainText('Signed in, every request to youtube.com except caption files goes from a page FKN runs')
   await expect(main).not.toContainText('Signing in goes over WebVPN')

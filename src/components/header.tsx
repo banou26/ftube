@@ -26,31 +26,43 @@ const SUGGEST_DEBOUNCE_MS = 60
 
 const logoStyle = css`
   display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--text-primary);
 
   .mark {
     display: block;
-    margin-top: 0.1rem;
+    flex: none;
   }
 
   .wordmark {
     font-size: 2rem;
-    font-weight: 500;
-    letter-spacing: -0.05rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
     line-height: 2.2rem;
     white-space: nowrap;
   }
 `
 
 export const Logo = () => (
-  <Link href='/' css={logoStyle} aria-label='yt-client home'>
-    <svg className='mark' width='28' height='20' viewBox='0 0 28 20' aria-hidden='true'>
-      <rect width='28' height='20' rx='4.5' fill='#ff0000' />
-      <path d='M11.2 5.8 19 10l-7.8 4.2z' fill='#ffffff' />
+  <Link href='/' css={logoStyle} aria-label='FTube home'>
+    <svg className='mark' width='30' height='21' viewBox='0 0 30 21' aria-hidden='true'>
+      <path
+        d='M29.37 3.28A3.77 3.77 0 0 0 26.72.62C24.38 0 15 0 15 0S5.62 0 3.28.62A3.77 3.77 0 0 0 .63 3.28C0 5.63 0 10.5 0 10.5s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C5.62 21 15 21 15 21s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C30 15.37 30 10.5 30 10.5s0-4.87-.63-7.22Z'
+        fill='#ff0000'
+      />
+      <path d='M10.4 14.85V6.15L17.9 10.5l-7.5 4.35Z' fill='#ffffff' />
+      <path
+        d='M18.6 6.75l3.2 3.75-3.2 3.75'
+        fill='none'
+        stroke='#ffffff'
+        strokeWidth='2'
+        strokeLinecap='round'
+        strokeLinejoin='round'
+        opacity='0.9'
+      />
     </svg>
-    <span className='wordmark'>YT client</span>
+    <span className='wordmark'>FTube</span>
   </Link>
 )
 

@@ -15,7 +15,7 @@ test('Skip navigation shows on keyboard focus and moves the focus to the page\'s
   await page.keyboard.press('Tab')
   await expect(page.getByRole('button', { name: 'Guide', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
-  const logo = page.getByRole('link', { name: 'yt-client home', exact: true })
+  const logo = page.getByRole('link', { name: 'FTube home', exact: true })
   await expect(logo).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(skip).toBeFocused()

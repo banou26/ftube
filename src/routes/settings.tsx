@@ -281,7 +281,7 @@ export const SettingsPage = () => {
       <section className='section'>
         <h2 className='section-title'>Privacy</h2>
         <p className='section-note'>
-          <Link className='link' href='/privacy'>What yt-client keeps and where requests go</Link>
+          <Link className='link' href='/privacy'>What FTube keeps and where requests go</Link>
         </p>
       </section>
     </main>

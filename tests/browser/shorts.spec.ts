@@ -334,8 +334,8 @@ test('active Short sets document.title and updates when moving to the next Short
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/shorts/${NAMED_SHORT}`)
 
-  await expect(page).toHaveTitle(/Refuse To Give Up.* - yt-client/, { timeout: 120_000 })
-  expect(await page.title()).not.toBe('Shorts - yt-client')
+  await expect(page).toHaveTitle(/Refuse To Give Up.* - FTube/, { timeout: 120_000 })
+  expect(await page.title()).not.toBe('Shorts - FTube')
 
   const nextSlide = page.locator(`[data-short-id="${NAMED_SHORT}"] + [data-short-id]`)
   await expect(nextSlide).toBeAttached({ timeout: 60_000 })
@@ -345,7 +345,7 @@ test('active Short sets document.title and updates when moving to the next Short
   await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(nextId)
   await expect(nextSlide.locator('.short-title')).toHaveText(/\S/, { timeout: 60_000 })
   const nextTitle = (await nextSlide.locator('.short-title').textContent())!.trim()
-  await expect(page).toHaveTitle(`${nextTitle} - yt-client`, { timeout: 15_000 })
+  await expect(page).toHaveTitle(`${nextTitle} - FTube`, { timeout: 15_000 })
 })
 
 test('captions toggle in Shorts top bar turns captions on and off with zero page errors', async ({ page }) => {

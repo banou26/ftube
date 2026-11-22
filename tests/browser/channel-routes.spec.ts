@@ -77,7 +77,7 @@ test('opens a channel\'s Shows tab, and keeps the shows on its Playlists tab', a
   await expect(cards.filter({ hasText: /\d+ episodes/ }).first()).toBeVisible({ timeout: 120_000 })
   await expect(cards.filter({ hasText: /\d+ videos?/ }).first()).toBeVisible()
   await expect(page.locator('main h1')).toHaveText('Marques Brownlee')
-  await expect(page).toHaveTitle('Marques Brownlee - yt-client')
+  await expect(page).toHaveTitle('Marques Brownlee - FTube')
 })
 
 test('keeps the channel\'s name in its header once its own videos fill the Home shelves', async ({ page }) => {
@@ -175,7 +175,7 @@ test('keeps channel header name, document title and compact grid on direct /@MKB
   const cards = page.locator('main .playlist-grid a.card')
   await expect(cards.first()).toBeVisible({ timeout: 120_000 })
   await expect(page.locator('main h1')).toHaveText('Marques Brownlee')
-  await expect(page).toHaveTitle('Marques Brownlee - yt-client')
+  await expect(page).toHaveTitle('Marques Brownlee - FTube')
   const columns = await cards.evaluateAll(links => {
     const boxes = links.map(link => link.getBoundingClientRect())
     return boxes.filter(box => Math.abs(box.top - boxes[0]!.top) < 2).length

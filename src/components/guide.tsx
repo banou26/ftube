@@ -456,7 +456,7 @@ const GuideSections = () => {
         <div className='footer-links'>
           <Link href='/privacy'>Privacy</Link>
         </div>
-        <div className='copyright'>© 2026 yt-client</div>
+        <div className='copyright'>© 2026 FTube</div>
       </div>
     </div>
   )

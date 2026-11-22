@@ -9,7 +9,7 @@ export type DirectHost = { domain: string, what: string }
 export const DIRECT_HOSTS: readonly DirectHost[] = [
   {
     domain: 'www.youtube.com',
-    what: 'YouTube\'s API while yt-client is not signed in to YouTube, with your searches, what you open and your YouTube visitor ID, and captions, signed in or out',
+    what: 'YouTube\'s API while FTube is not signed in to YouTube, with your searches, what you open and your YouTube visitor ID, and captions, signed in or out',
   },
   { domain: 'ytimg.com', what: 'Video thumbnails and preview frames' },
   { domain: 'ggpht.com', what: 'Channel pictures, post images and channel emoji' },

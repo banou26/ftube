@@ -130,7 +130,7 @@ describe('the sign-in window', () => {
       window: {},
       domains: ['www.youtube.com'],
       cookies: 'persistent',
-      permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in yt-client' }],
+      permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
     })
   })
 

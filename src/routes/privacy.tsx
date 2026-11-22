@@ -14,7 +14,7 @@ const KEPT: { title: string, what: string }[] = [
   },
   {
     title: 'Channel groups',
-    what: 'Each group\'s name and emoji, when it was last changed, and the name, ID and picture address of each channel in it. Kept until you delete the group on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While yt-client is signed in to FKN, also a random ID for your account\'s copy of the groups.',
+    what: 'Each group\'s name and emoji, when it was last changed, and the name, ID and picture address of each channel in it. Kept until you delete the group on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While FTube is signed in to FKN, also a random ID for your account\'s copy of the groups.',
   },
   {
     title: 'Whether you are signed in',
@@ -30,11 +30,11 @@ const KEPT: { title: string, what: string }[] = [
   },
   {
     title: 'The channel you picked',
-    what: 'YouTube\'s ID for the channel of your Google account that yt-client uses, when you picked one other than the account\'s own. Removed when you sign in or out, when you pick the account\'s own channel, when YouTube says the session has ended, or when YouTube no longer accepts it.',
+    what: 'YouTube\'s ID for the channel of your Google account that FTube uses, when you picked one other than the account\'s own. Removed when you sign in or out, when you pick the account\'s own channel, when YouTube says the session has ended, or when YouTube no longer accepts it.',
   },
   {
     title: 'YouTube\'s session details and player code',
-    what: 'Kept by youtubei.js, the library yt-client reads YouTube with. The session details go when you sign in or sign out. The player code stays.',
+    what: 'Kept by youtubei.js, the library FTube reads YouTube with. The session details go when you sign in or sign out. The player code stays.',
   },
   {
     title: 'Imported watch history',
@@ -99,10 +99,10 @@ export const PrivacyPage = () => {
   return (
     <main css={style}>
       <h1 className='heading'>Privacy</h1>
-      <p>yt-client is a YouTube client that runs in your browser.</p>
+      <p>FTube is a YouTube client that runs in your browser.</p>
 
       <section className='section'>
-        <h2 className='section-title'>What yt-client keeps in this browser</h2>
+        <h2 className='section-title'>What FTube keeps in this browser</h2>
         <ul>
           {KEPT.map(item => (
             <li key={item.title}><strong>{item.title}.</strong> {item.what}</li>
@@ -115,16 +115,16 @@ export const PrivacyPage = () => {
       </section>
 
       <section className='section'>
-        <h2 className='section-title'>What yt-client keeps on your FKN account</h2>
+        <h2 className='section-title'>What FTube keeps on your FKN account</h2>
         <p>
-          yt-client is signed in to FKN when you sign in from the More menu, and also, with nothing to click, when this
+          FTube is signed in to FKN when you sign in from the More menu, and also, with nothing to click, when this
           browser is already signed in to FKN on fkn.app. It stays signed in until you sign out of FKN, in the More menu
           or on fkn.app.
         </p>
         <p>
           While it is, your channel groups are also kept on your FKN account, in one file, so every browser signed in to
           that account shows the same groups. Your browser encrypts the file before FKN stores it: FKN sees that the file
-          is yt-client's, its name, its size and when it changes, but not what is in it. Groups you made before signing
+          is FTube's, its name, its size and when it changes, but not what is in it. Groups you made before signing
           in are added to it, and the ID of each group you delete stays in it with the time, so your other browsers
           delete it too. Signing out of FKN takes your account's groups out of this browser and leaves them on your
           account. Deleting your FKN account deletes them.
@@ -134,9 +134,9 @@ export const PrivacyPage = () => {
       <section className='section'>
         <h2 className='section-title'>Where requests go</h2>
         <p>
-          Without the FKN browser extension, yt-client reaches YouTube's pages and video through FKN, the platform it runs
+          Without the FKN browser extension, FTube reaches YouTube's pages and video through FKN, the platform it runs
           on, so YouTube sees FKN's address there rather than yours. Your browser makes some requests itself instead, to
-          the servers listed further down: YouTube's API while yt-client is not signed in to YouTube, and captions, without
+          the servers listed further down: YouTube's API while FTube is not signed in to YouTube, and captions, without
           your youtube.com cookies; thumbnails and pictures; and dislike counts and sponsor segments while they are on.
         </p>
         <ul>
@@ -148,7 +148,7 @@ export const PrivacyPage = () => {
             it. Only an identical request can find and open it.
           </li>
           <li>
-            Signed in, every request to youtube.com except caption files goes from a page FKN runs for yt-client, which
+            Signed in, every request to youtube.com except caption files goes from a page FKN runs for FTube, which
             holds your YouTube session, through WebVPN or the extension. These requests and their answers do not go through
             the relay's cache.
           </li>
@@ -159,8 +159,8 @@ export const PrivacyPage = () => {
           </li>
           <li>
             Signing in happens in a window FKN opens on youtube.com and Google's sign-in page. Your YouTube and Google
-            sign-in is then kept in FKN's cookie jar for fkn.app on this device, sealed, and not in yt-client. Every fkn.app
-            app you allow to run code on youtube.com uses that same sign-in, and signing out in yt-client signs all of them
+            sign-in is then kept in FKN's cookie jar for fkn.app on this device, sealed, and not in FTube. Every fkn.app
+            app you allow to run code on youtube.com uses that same sign-in, and signing out in FTube signs all of them
             out of YouTube and Google on this device. Google is not told, so the session stays valid at Google until it
             lapses.
           </li>
@@ -172,7 +172,7 @@ export const PrivacyPage = () => {
           through FKN.
         </p>
         <p>
-          When a video or a preview starts, yt-client tells YouTube it started playing, with the report youtube.com sends at
+          When a video or a preview starts, FTube tells YouTube it started playing, with the report youtube.com sends at
           that point and your YouTube visitor ID. YouTube suggests videos on Home from these reports.
         </p>
         <p>
@@ -199,13 +199,13 @@ export const PrivacyPage = () => {
           ))}
         </ul>
         <p>
-          Your browser also reaches FKN's own servers ({FKN_DOMAINS.join(' and ')}), and loads yt-client itself from
+          Your browser also reaches FKN's own servers ({FKN_DOMAINS.join(' and ')}), and loads FTube itself from
           youtube.fkn.app, which Cloudflare serves for FKN, so Cloudflare sees your IP address too.
         </p>
       </section>
 
       <section className='section'>
-        <h2 className='section-title'>What yt-client does not do</h2>
+        <h2 className='section-title'>What FTube does not do</h2>
         <ul>
           <li>It has no account and no server of its own, and runs no analytics.</li>
           <li>
@@ -214,7 +214,7 @@ export const PrivacyPage = () => {
           </li>
           <li>
             Apart from the relay's sealed answers and your encrypted channel groups above, FKN keeps no copy of anything
-            yt-client keeps in this browser.
+            FTube keeps in this browser.
           </li>
         </ul>
       </section>

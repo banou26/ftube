@@ -67,7 +67,7 @@ const style = css`
   }
 `
 
-const BASE_TITLE = 'yt-client'
+const BASE_TITLE = 'FTube'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 

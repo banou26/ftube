@@ -93,7 +93,7 @@ const watchTwoThenOpenHome = async (page: Page, origin: string) => {
     await searchAndOpenCard(page, query, videoId)
     await expect.poll(() => playedSeconds(page), { timeout: 90_000 }).toBeGreaterThan(seconds)
   }
-  await page.getByRole('link', { name: 'yt-client home' }).click()
+  await page.getByRole('link', { name: 'FTube home' }).click()
   const videos = page.locator('main a[href^="/watch"]')
   await expect.poll(() => videos.count(), { timeout: 60_000 }).toBeGreaterThanOrEqual(10)
   await expect(page.getByRole('heading', { name: 'Try searching to get started' })).toHaveCount(0)

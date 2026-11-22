@@ -5,13 +5,15 @@ import { expect, test } from './test'
 test('searches from the header\'s search icon at a phone\'s width', async ({ page }) => {
   test.setTimeout(180_000)
   const input = page.getByRole('combobox', { name: 'Search' })
-  const home = page.getByRole('link', { name: 'yt-client home' })
+  const home = page.getByRole('link', { name: 'FTube home' })
   const searchButton = page.getByRole('button', { name: 'Search', exact: true })
 
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/')
   await expect(input).toBeVisible()
-  await expect(home).toHaveText('YT client')
+  await expect(home).toHaveText('FTube')
+  await expect(page).toHaveTitle('FTube')
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg')
   await expect(searchButton).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Back' })).toHaveCount(0)
 

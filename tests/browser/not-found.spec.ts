@@ -18,7 +18,7 @@ test('an unknown address shows youtube.com\'s 404 page, whose box searches', asy
   const main = page.getByRole('main')
   const lines = main.locator('p')
   await expect(lines).toHaveText(LINES, { timeout: 30_000 })
-  await expect(page).toHaveTitle('404 Not Found - yt-client')
+  await expect(page).toHaveTitle('404 Not Found - FTube')
 
   const picture = await box(main.locator('svg.illustration'))
   expect([picture.width, picture.height]).toEqual([186, 174])
@@ -29,7 +29,7 @@ test('an unknown address shows youtube.com\'s 404 page, whose box searches', asy
 
   const input = main.getByRole('textbox', { name: 'Search', exact: true })
   const button = main.getByRole('button', { name: 'Search', exact: true })
-  const logo = await box(main.getByRole('link', { name: 'yt-client home', exact: true }))
+  const logo = await box(main.getByRole('link', { name: 'FTube home', exact: true }))
   const [inputBox, buttonBox] = [await box(input), await box(button)]
   expect(inputBox.y - (second.y + second.height)).toBeCloseTo(25, 0)
   expect(buttonBox.x + buttonBox.width - logo.x).toBeCloseTo(440, 0)
