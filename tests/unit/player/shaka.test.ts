@@ -89,7 +89,14 @@ const start = async (
   session: Record<string, unknown> = {},
   endScreen = async () => CARD_END,
   stableVolume?: boolean,
-  options?: { autoPlay?: boolean, bufferingGoal?: number, play?: () => Promise<void> },
+  options?: {
+    autoPlay?: boolean
+    bufferingGoal?: number
+    play?: () => Promise<void>
+    muted?: boolean
+    signal?: AbortSignal
+    onAutoplayMuted?: () => void
+  },
 ) => {
   const api = {
     openPlayback: vi.fn(async () => ({
@@ -106,11 +113,13 @@ const start = async (
     play: vi.fn(options?.play ?? (async () => {})),
     currentTime: 0,
     paused: false,
-    muted: false,
+    muted: options?.muted ?? false,
     videoHeight: 720,
+    buffered: { length: 1, start: () => 0, end: () => 10 },
   })
   const onError = vi.fn()
   const onEndScreen = vi.fn()
+  const onAutoplayMuted = options?.onAutoplayMuted ?? vi.fn()
   const controller = await startShakaPlayback({
     api: api as unknown as FrameApi,
     video: video as unknown as HTMLVideoElement,
@@ -120,11 +129,12 @@ const start = async (
     startTime: 0,
     autoPlay: options?.autoPlay,
     bufferingGoal: options?.bufferingGoal,
-    signal: new AbortController().signal,
+    signal: options?.signal ?? new AbortController().signal,
     onError,
     onEndScreen,
+    onAutoplayMuted,
   })
-  return { api, video, onError, onEndScreen, controller, player: fake.players.at(-1)! }
+  return { api, video, onError, onEndScreen, onAutoplayMuted, controller, player: fake.players.at(-1)! }
 }
 
 describe('a Shaka player whose stream the frame refused', () => {
@@ -344,6 +354,7 @@ describe('preloading without autoplay in Shaka', () => {
     })
     await blocked.controller.play()
     expect(blocked.video.muted).toBe(true)
+    expect(blocked.onAutoplayMuted).toHaveBeenCalledOnce()
     expect(blocked.video.play).toHaveBeenCalledTimes(2)
 
     const aborted = await start({}, undefined, undefined, {
@@ -355,6 +366,7 @@ describe('preloading without autoplay in Shaka', () => {
     })
     await aborted.controller.play()
     expect(aborted.video.muted).toBe(false)
+    expect(aborted.onAutoplayMuted).not.toHaveBeenCalled()
     expect(aborted.video.play).toHaveBeenCalledOnce()
   })
 
@@ -363,5 +375,73 @@ describe('preloading without autoplay in Shaka', () => {
     await controller.destroy()
     await controller.play()
     expect(video.play).not.toHaveBeenCalled()
+  })
+})
+
+describe('unmuted autoplay fallback in Shaka', () => {
+  beforeEach(() => {
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('mutes the video, invokes onAutoplayMuted, and retries play on VOD NotAllowedError', async () => {
+    let calls = 0
+    const play = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) throw Object.assign(new Error('autoplay blocked'), { name: 'NotAllowedError' })
+    })
+    const { video, onAutoplayMuted, controller } = await start({}, undefined, undefined, { play })
+    expect(video.muted).toBe(true)
+    expect(onAutoplayMuted).toHaveBeenCalledOnce()
+    expect(play).toHaveBeenCalledTimes(2)
+    await controller.destroy()
+  })
+
+  it('mutes the video and invokes onAutoplayMuted for live streams when unmuted play is blocked', async () => {
+    let calls = 0
+    const play = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) throw Object.assign(new Error('autoplay blocked'), { name: 'NotAllowedError' })
+    })
+    const { video, onAutoplayMuted, controller } = await start({ isLive: true }, undefined, undefined, { play })
+    await vi.waitFor(() => expect(onAutoplayMuted).toHaveBeenCalledOnce())
+    expect(video.muted).toBe(true)
+    expect(play).toHaveBeenCalledTimes(2)
+    await controller.destroy()
+  })
+
+  it('does not invoke onAutoplayMuted when unmuted play succeeds', async () => {
+    const play = vi.fn(async () => {})
+    const { video, onAutoplayMuted, controller } = await start({}, undefined, undefined, { play })
+    expect(video.muted).toBe(false)
+    expect(onAutoplayMuted).not.toHaveBeenCalled()
+    expect(play).toHaveBeenCalledOnce()
+    await controller.destroy()
+  })
+
+  it('does not invoke onAutoplayMuted when the video started muted', async () => {
+    const play = vi.fn(async () => {
+      throw Object.assign(new Error('autoplay blocked'), { name: 'NotAllowedError' })
+    })
+    const { video, onAutoplayMuted, controller } = await start({}, undefined, undefined, { play, muted: true })
+    expect(video.muted).toBe(true)
+    expect(onAutoplayMuted).not.toHaveBeenCalled()
+    expect(play).toHaveBeenCalledOnce()
+    await controller.destroy()
+  })
+
+  it('ignores AbortError from play() without muting or invoking onAutoplayMuted', async () => {
+    const play = vi.fn(async () => {
+      throw Object.assign(new Error('play interrupted'), { name: 'AbortError' })
+    })
+    const { video, onAutoplayMuted, controller } = await start({}, undefined, undefined, { play })
+    expect(video.muted).toBe(false)
+    expect(onAutoplayMuted).not.toHaveBeenCalled()
+    expect(play).toHaveBeenCalledOnce()
+    await controller.destroy()
   })
 })

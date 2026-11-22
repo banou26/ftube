@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
 import { startEngine } from '../engine/client'
+import { AudioPermissionPrompt } from './audio-prompt'
 import { isTypingTarget } from './controls'
 import { warmShaka } from './prefetch'
 import { getSettings, updateSettings } from '../settings'
@@ -310,6 +311,8 @@ const ShortsPlayer = (
   const [hasFrame, setHasFrame] = useState(false)
   const [status, setStatus] = useState('')
   const [pendingRefusal, setPendingRefusal] = useState<string | undefined>(undefined)
+  const [autoMuted, setAutoMuted] = useState(false)
+  const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
@@ -330,7 +333,10 @@ const ShortsPlayer = (
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !shouldLoad) return
+    if (!video || !shouldLoad) {
+      setAutoMuted(false)
+      return
+    }
     const settings = getSettings()
     video.volume = settings.volume
     video.muted = settings.muted
@@ -345,6 +351,7 @@ const ShortsPlayer = (
     setHasFrame(false)
     setStatus('')
     setPendingRefusal(undefined)
+    setAutoMuted(false)
     const onFrame = () => {
       if (!abort.signal.aborted && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         setHasFrame(true)
@@ -385,6 +392,9 @@ const ShortsPlayer = (
         bufferingGoal: activeRef.current ? ACTIVE_BUFFER_GOAL : PRELOAD_BUFFER_GOAL,
         signal: abort.signal,
         onError: fail,
+        onAutoplayMuted: () => {
+          if (!abort.signal.aborted && activeRef.current) setAutoMuted(true)
+        },
       })
       if (abort.signal.aborted) return
       controllerRef.current = controller
@@ -407,6 +417,7 @@ const ShortsPlayer = (
       setReady(false)
       setHasFrame(false)
       setPendingRefusal(undefined)
+      setAutoMuted(false)
       onReadyRef.current?.(false)
       void controller?.destroy()
     }
@@ -420,6 +431,7 @@ const ShortsPlayer = (
       video.pause()
       if (video.currentTime > 0) video.currentTime = 0
       setProgress(0)
+      setAutoMuted(false)
       controller.player.configure({ streaming: { bufferingGoal: PRELOAD_BUFFER_GOAL } })
       return
     }
@@ -429,6 +441,7 @@ const ShortsPlayer = (
     video.muted = settings.muted
     setVolume(settings.volume)
     setMuted(settings.muted)
+    setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
     if (video.currentTime > 0) {
@@ -628,6 +641,9 @@ const ShortsPlayer = (
             </div>
           </div>
         )
+        : undefined}
+      {active && autoMuted && !visibleStatus && videoRef.current
+        ? <AudioPermissionPrompt video={videoRef.current} placement='shorts' onDismiss={dismissAutoMuted} />
         : undefined}
       {ready
         ? (

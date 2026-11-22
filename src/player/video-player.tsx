@@ -30,6 +30,7 @@ import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { PartyPlayback } from '../components/party-playback'
+import { AudioPermissionPrompt } from './audio-prompt'
 import { Bezel } from './bezel'
 import { captionDeclarations, stepCaptionSize } from './caption-style'
 import { chapterIndexAt, chapterStep } from './chapters'
@@ -288,6 +289,8 @@ const VideoPlayer = (
   const [status, setStatus] = useState('')
   const [refusal, setRefusal] = useState<PlaybackRefusal | undefined>(undefined)
   const [streamRefused, setStreamRefused] = useState(false)
+  const [autoMuted, setAutoMuted] = useState(false)
+  const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
   const [player, setPlayer] = useState<shaka.Player | undefined>(undefined)
   const [heights, setHeights] = useState<number[]>([])
   const [storyboards, setStoryboards] = useState<Storyboard[]>([])
@@ -515,6 +518,7 @@ const VideoPlayer = (
     setLoading(true)
     setStatus('')
     setStreamRefused(false)
+    setAutoMuted(false)
     void (async () => {
       const [api, { startShakaPlayback }] = await Promise.all([startEngine(), warmShaka()])
       controller = await startShakaPlayback({
@@ -527,6 +531,9 @@ const VideoPlayer = (
         signal: abort.signal,
         onError: restart,
         onEndScreen: setEndScreen,
+        onAutoplayMuted: () => {
+          if (!abort.signal.aborted) setAutoMuted(true)
+        },
       })
       if (abort.signal.aborted) return
       setLoading(false)
@@ -595,6 +602,7 @@ const VideoPlayer = (
       selectAudioRef.current = undefined
       setCaptionTracks([])
       setTranslationLanguages([])
+      setAutoMuted(false)
       void controller?.destroy()
     }
   }, [attempt, videoId, playerParams])
@@ -931,6 +939,9 @@ const VideoPlayer = (
         )
         : undefined}
       {refusal ? <RefusalScreen refusal={refusal} /> : undefined}
+      {video && autoMuted && !docked && !status && !refusal
+        ? <AudioPermissionPrompt video={video} onDismiss={dismissAutoMuted} />
+        : undefined}
       {video && player && !status && !refusal && endScreen.length > 0
         ? (
           <EndScreenElements

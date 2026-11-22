@@ -248,6 +248,7 @@ export const startShakaPlayback = async ({
   signal,
   onError,
   onEndScreen,
+  onAutoplayMuted,
 }: {
   api: FrameApi
   video: HTMLVideoElement
@@ -262,6 +263,8 @@ export const startShakaPlayback = async ({
   onError(error: unknown): void
   // the video's end screen; for a page read with a card's params, whose answer carries none, the plain page's
   onEndScreen?: (elements: EndScreenElement[]) => void
+  // called when the browser blocks unmuted autoplay and playback falls back to muted
+  onAutoplayMuted?: () => void
 }) => {
   if (signal.aborted) throw signal.reason
   shaka.polyfill.installAll()
@@ -462,9 +465,11 @@ export const startShakaPlayback = async ({
       try {
         await video.play()
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        if (!video.muted && !destroyed) {
+        if (destroyed || signal.aborted) return
+        if ((error as { name?: unknown } | null)?.name === 'AbortError') return
+        if (!video.muted) {
           video.muted = true
+          onAutoplayMuted?.()
           await video.play().catch(() => {})
         }
       }
