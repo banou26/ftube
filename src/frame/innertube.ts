@@ -37,13 +37,16 @@ type YoutubeFormat = {
   quality_label?: string
   xtags?: string
   is_drc?: boolean
+  is_vb?: boolean
   is_dubbed?: boolean
   is_auto_dubbed?: boolean
   is_descriptive?: boolean
+  is_secondary?: boolean
+  is_original?: boolean
   has_audio: boolean
   has_video: boolean
   language?: string | null
-  audio_track?: { id: string }
+  audio_track?: { id: string, display_name?: string, audio_is_default?: boolean }
   init_range?: { start: number, end: number }
   index_range?: { start: number, end: number }
 }
@@ -293,6 +296,10 @@ const playbackFormat = (format: YoutubeFormat, isLive: boolean): PlaybackFormat 
     height: format.height,
     qualityLabel: format.quality_label,
     audioTrackId: format.audio_track?.id,
+    audioTrackName: format.audio_track?.display_name,
+    isOriginal: format.is_original || undefined,
+    isAutoDubbed: format.is_auto_dubbed || undefined,
+    isDrc: format.is_drc || undefined,
     language: format.language ?? undefined,
     initRange: format.init_range,
     indexRange: format.index_range,
@@ -369,7 +376,7 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
   /* `is_live` rather than `is_live_content`, which stays true for the VOD a finished stream leaves behind. */
   const isLive = info.basic_info?.is_live === true
   if (!streaming?.server_abr_streaming_url) throw new Error('youtube: SABR URL is missing')
-  const rawFormats = playableFormats(streaming.adaptive_formats ?? []) as unknown as YoutubeFormat[]
+  const rawFormats = playableFormats(streaming.adaptive_formats ?? [], { singleTrack: isLive }) as unknown as YoutubeFormat[]
   const playbackFormats = rawFormats
     .map((format) => playbackFormat(format, isLive))
     .filter((format) => format !== undefined)

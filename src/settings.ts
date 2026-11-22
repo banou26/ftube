@@ -15,6 +15,7 @@ export type Settings = {
   playbackRate: number
   // a ceiling on the video height, not an exact pick: ABR still moves below it
   quality: QualityPreference
+  stableVolume: boolean
   captionsEnabled: boolean
   // a track's language, or the language of the last Auto-translate, which youtube.com remembers the same way
   captionsLanguage?: string
@@ -47,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   muted: false,
   playbackRate: 1,
   quality: 'auto',
+  stableVolume: false,
   captionsEnabled: false,
   captionFont: 'Proportional Sans-Serif',
   captionColor: 'White',
@@ -82,6 +84,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     quality: quality === 'auto' || (typeof quality === 'number' && Number.isFinite(quality))
       ? quality
       : DEFAULT_SETTINGS.quality,
+    stableVolume: typeof stored.stableVolume === 'boolean' ? stored.stableVolume : DEFAULT_SETTINGS.stableVolume,
     captionsEnabled: typeof stored.captionsEnabled === 'boolean' ? stored.captionsEnabled : DEFAULT_SETTINGS.captionsEnabled,
     captionsLanguage: typeof captionsLanguage === 'string' ? captionsLanguage : undefined,
     // an off stored without the mark is the default every write saves, not a choice; an on could only have been chosen

@@ -169,6 +169,16 @@ export const SettingsPage = () => {
           ))}
         </div>
         <div className='row'>
+          <div className='row-label'>Stable Volume</div>
+          <input
+            type='checkbox'
+            className='toggle'
+            aria-label='Stable Volume'
+            checked={settings.stableVolume}
+            onChange={() => set({ stableVolume: !settings.stableVolume })}
+          />
+        </div>
+        <div className='row'>
           <div className='row-label'>Autoplay</div>
           <input
             type='checkbox'

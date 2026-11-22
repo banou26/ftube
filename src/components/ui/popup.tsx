@@ -231,11 +231,12 @@ const itemStyle = css`
 `
 
 export const MenuItem = (
-  { icon: Icon, detail, disabled, selected, onSelect, children }: {
+  { icon: Icon, detail, disabled, selected, role = 'menuitem', onSelect, children }: {
     icon?: FunctionComponent<{ size?: number, strokeWidth?: number }>
     detail?: string
     disabled?: boolean
     selected?: boolean
+    role?: 'menuitem' | 'menuitemcheckbox'
     onSelect?: () => void
     children: ComponentChildren
   },
@@ -243,7 +244,7 @@ export const MenuItem = (
   <button
     type='button'
     css={itemStyle}
-    role='menuitem'
+    role={role}
     aria-checked={selected}
     disabled={disabled}
     onClick={onSelect}

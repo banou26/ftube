@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { MediaHeader, StreamProtectionStatus, UMPPartId } from 'googlevideo/protos'
+import { MediaHeader, StreamProtectionStatus, UMPPartId, VideoPlaybackAbrRequest } from 'googlevideo/protos'
 import type { SabrSource } from '../../../src/frame/innertube'
 import type { SegmentRequest } from '../../../src/frame/protocol'
 import { egressFetch } from '../../../src/frame/egress'
@@ -218,6 +218,107 @@ describe('a SABR session answered with no media', () => {
     expect(recoverMint).toHaveBeenCalledTimes(2)
     await failure(session)
     expect(recoverMint).toHaveBeenCalledTimes(4)
+    session.close()
+  })
+})
+
+describe('a multi-track and DRC SABR session', () => {
+  const video = { itag: 399, lastModified: '1', width: 1_920, height: 1_080, mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 1_000_000, approxDurationMs: 213_000 }
+  const audioEs = { itag: 251, lastModified: '1', xtags: 'es', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'es.3', isDubbed: true, approxDurationMs: 213_000 }
+  const audioEnDrc = { itag: 251, lastModified: '1', xtags: 'en-drc', mimeType: 'audio/webm; codecs="opus"', bitrate: 131_000, audioTrackId: 'en-US.4', isOriginal: true, isDrc: true, approxDurationMs: 213_000 }
+  const audioEn = { itag: 251, lastModified: '1', xtags: 'en', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'en-US.4', isOriginal: true, approxDurationMs: 213_000 }
+
+  const multiSource: SabrSource = {
+    videoId: 'video-multi',
+    isLive: false,
+    durationMs: 213_000,
+    manifest: '<MPD/>',
+    streamingUrl: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=1',
+    ustreamerConfig: 'AA==',
+    formats: [video, audioEs, audioEnDrc, audioEn],
+    playbackFormats: [
+      { key: '399:', itag: 399, mimeType: video.mimeType, bitrate: 1_000_000, width: 1_920, height: 1_080 },
+      { key: '251:es', itag: 251, mimeType: audioEs.mimeType, bitrate: 130_000, audioTrackId: 'es.3', audioTrackName: 'Spanish', language: 'es' },
+      { key: '251:en-drc', itag: 251, mimeType: audioEnDrc.mimeType, bitrate: 131_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true, isDrc: true },
+      { key: '251:en', itag: 251, mimeType: audioEn.mimeType, bitrate: 130_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true },
+    ],
+    storyboards: [],
+    captions: [],
+    translations: [],
+    endScreen: [],
+    clientInfo: { clientName: 1, clientVersion: '2.20261008.00.00' },
+    mint: async () => 'AAAA',
+    recoverMint: vi.fn(async () => {}),
+  }
+
+  const snapshot = { currentTimeMs: 0, playbackRate: 1, bandwidthEstimate: 10_000_000, viewportWidth: 1_280, viewportHeight: 720 }
+
+  beforeEach(() => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+    vi.mocked(egressFetch).mockReset()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('starts on the original non-DRC track by default, and on DRC when stableVolume is enabled', () => {
+    const plain = createSabrSession(multiSource, 1_080, undefined, false)
+    expect(plain.audioFormat.key).toBe('251:en')
+    plain.close()
+
+    const drc = createSabrSession(multiSource, 1_080, undefined, true)
+    expect(drc.audioFormat.key).toBe('251:en-drc')
+    drc.close()
+  })
+
+  it('sends the active audioTrackId and drcEnabled on audio and video requests and clears stale buffer tracking on switch', async () => {
+    const requests: ReturnType<typeof VideoPlaybackAbrRequest.decode>[] = []
+    vi.mocked(egressFetch).mockImplementation(async (_url, init) => {
+      const decoded = VideoPlaybackAbrRequest.decode(new Uint8Array(init?.body as ArrayBuffer))
+      requests.push(decoded)
+      const isVideo = decoded.clientAbrState?.enabledTrackTypesBitfield === 2
+      const format = isVideo ? decoded.preferredVideoFormatIds[0]! : decoded.preferredAudioFormatIds[0]!
+      const header = MediaHeader.encode({
+        headerId: 1,
+        itag: format.itag,
+        xtags: format.xtags,
+        formatId: format,
+        sequenceNumber: 1,
+        startMs: String(decoded.clientAbrState?.playerTimeMs ?? '0'),
+        durationMs: '5000',
+        contentLength: '3',
+      }).finish()
+      return new Response(join([
+        part(UMPPartId.MEDIA_HEADER, header),
+        part(UMPPartId.MEDIA, [1, 1, 2, 3]),
+        part(UMPPartId.MEDIA_END, [1]),
+      ]))
+    })
+
+    const session = createSabrSession(multiSource, 1_080, undefined, false)
+    await session.requestSegment({ requestId: 'a1', sessionId: 's', generation: 0, track: 'audio', kind: 'media', formatKey: '251:en', startTimeMs: 0, snapshot })
+    expect(requests[0]?.clientAbrState?.audioTrackId).toBe('en-US.4')
+    expect(requests[0]?.clientAbrState?.drcEnabled).toBe(false)
+
+    // Switch to Spanish dub: video request carries updated audioTrackId too
+    session.selectAudioFormat('251:es')
+    await session.requestSegment({ requestId: 'v1', sessionId: 's', generation: 0, track: 'video', kind: 'media', formatKey: '399:', startTimeMs: 5_000, snapshot })
+    expect(requests[1]?.clientAbrState?.audioTrackId).toBe('es.3')
+    expect(requests[1]?.clientAbrState?.drcEnabled).toBe(false)
+
+    // Switch to DRC original: drcEnabled is true
+    session.selectAudioFormat('251:en-drc')
+    await session.requestSegment({ requestId: 'a2', sessionId: 's', generation: 0, track: 'audio', kind: 'media', formatKey: '251:en-drc', startTimeMs: 10_000, snapshot })
+    expect(requests[2]?.clientAbrState?.audioTrackId).toBe('en-US.4')
+    expect(requests[2]?.clientAbrState?.drcEnabled).toBe(true)
+
+    // Switch back to plain original: stale bufferedRange from a1 was cleared so only the discarded video carries a bufferedRange
+    session.selectAudioFormat('251:en')
+    await session.requestSegment({ requestId: 'a3', sessionId: 's', generation: 0, track: 'audio', kind: 'media', formatKey: '251:en', startTimeMs: 20_000, snapshot })
+    expect(requests[3]?.clientAbrState?.audioTrackId).toBe('en-US.4')
+    expect(requests[3]?.clientAbrState?.drcEnabled).toBe(false)
+    expect(requests[3]?.bufferedRanges.some((range) => range.formatId?.itag === 251)).toBe(false)
     session.close()
   })
 })

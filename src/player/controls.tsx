@@ -4,7 +4,7 @@ import { css } from '@emotion/react'
 import { Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import type { CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
+import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { CaptionOption } from './caption-style'
 import type { PlayerChapter } from './chapters'
 import type { SleepTimer } from './sleep-timer'
@@ -506,6 +506,12 @@ type ControlsProps = {
   storyboards: Storyboard[]
   quality: 'auto' | number
   onQuality: (value: 'auto' | number) => void
+  audioTracks?: AudioTrack[]
+  audioTrackId?: string
+  onAudioTrack?: (trackId: string) => void
+  hasDrc?: boolean
+  stableVolume?: boolean
+  onStableVolume?: (value: boolean) => void
   captionTracks: CaptionTrack[]
   translationLanguages?: TranslationLanguage[]
   caption: CaptionPick | undefined
@@ -532,7 +538,8 @@ type ControlsProps = {
 
 export const PlayerControls = (
   {
-    video, state, heights, storyboards, quality, onQuality, captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
+    video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
+    captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false,
   }: ControlsProps,
@@ -541,7 +548,7 @@ export const PlayerControls = (
   const [preview, setPreview] = useState<number | undefined>(undefined)
   const [hover, setHover] = useState<{ time: number, ratio: number } | undefined>(undefined)
   const [pip, setPip] = useState(false)
-  const [menu, setMenu] = useState<'root' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
+  const [menu, setMenu] = useState<'root' | 'audio' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
   const [settings, setSettings] = useState(getSettings)
   useEffect(() => subscribeSettings(setSettings), [])
   const railRef = useRef<HTMLDivElement>(null)
@@ -688,6 +695,7 @@ export const PlayerControls = (
 
   const VolumeIcon = state.muted || state.volume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2
 
+  const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId)
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
   const activeCaptionLabel = captionLabel(captionTracks, translationLanguages, caption)
   const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
@@ -866,6 +874,18 @@ export const PlayerControls = (
             {menu === 'root'
               ? (
                 <Popup label='Player settings' class='settings-menu'>
+                  {hasDrc && onStableVolume
+                    ? (
+                      <MenuItem
+                        role='menuitemcheckbox'
+                        selected={stableVolume}
+                        detail={stableVolume ? 'On' : 'Off'}
+                        onSelect={() => onStableVolume(!stableVolume)}
+                      >
+                        Stable Volume
+                      </MenuItem>
+                    )
+                    : undefined}
                   <MenuItem
                     detail={activeCaptionLabel ?? 'Off'}
                     disabled={captionTracks.length === 0}
@@ -873,6 +893,16 @@ export const PlayerControls = (
                   >
                     Subtitles
                   </MenuItem>
+                  {audioTracks.length > 1 && onAudioTrack
+                    ? (
+                      <MenuItem
+                        detail={activeAudioTrack?.label}
+                        onSelect={() => setMenu('audio')}
+                      >
+                        Audio track
+                      </MenuItem>
+                    )
+                    : undefined}
                   <MenuItem detail={sleepDetail(sleepTimer, videoLeft)} onSelect={() => setMenu('sleep')}>
                     Sleep timer
                   </MenuItem>
@@ -888,6 +918,25 @@ export const PlayerControls = (
                   </MenuItem>
                 </Popup>
               )
+              : menu === 'audio' && audioTracks.length > 1 && onAudioTrack
+                ? (
+                  <Popup label='Audio track' class='settings-menu'>
+                    <MenuItem icon={ChevronLeft} onSelect={() => setMenu('root')}>Audio track</MenuItem>
+                    {audioTracks.map(track => (
+                      <MenuItem
+                        key={track.id}
+                        icon={audioTrackId === track.id ? Check : undefined}
+                        detail={track.autoDubbed && !/auto/i.test(track.label) ? 'auto-dubbed' : undefined}
+                        onSelect={() => {
+                          onAudioTrack(track.id)
+                          setMenu(undefined)
+                        }}
+                      >
+                        {track.label}
+                      </MenuItem>
+                    ))}
+                  </Popup>
+                )
               : menu === 'speed'
                 ? (
                   <Popup label='Playback speed' class='settings-menu speed-menu' onKeyDown={onSpeedKey}>

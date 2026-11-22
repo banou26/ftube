@@ -81,9 +81,9 @@ const api = {
   warmPlayback: async () => {
     warmPlaybackResources()
   },
-  openPlayback: async (videoId, maxHeight, playerParams) => {
+  openPlayback: async (videoId, maxHeight, playerParams, stableVolume) => {
     const id = `playback:${++sessionId}`
-    const { source, entry } = await openPlaybackEntry(videoId, maxHeight, playerParams)
+    const { source, entry } = await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume)
     const player = entry.player
     const manifest = source.isLive
       ? await openLiveManifest(player, { sessionId: id, videoId, manifestFor: () => liveManifestFor(entry) })
@@ -160,6 +160,17 @@ const api = {
     const run = entry.chain.then(() => {
       if (entry.closed) throw new Error(`youtube: unknown playback session ${id}`)
       entry.player.selectVideoFormat(key)
+    })
+    entry.chain = run.catch(() => {})
+    entry.serial = entry.chain
+    await run
+  },
+  selectAudioFormat: async (id, key) => {
+    const entry = sessions.get(id)
+    if (!entry) throw new Error(`youtube: unknown playback session ${id}`)
+    const run = entry.chain.then(() => {
+      if (entry.closed) throw new Error(`youtube: unknown playback session ${id}`)
+      entry.player.selectAudioFormat(key)
     })
     entry.chain = run.catch(() => {})
     entry.serial = entry.chain

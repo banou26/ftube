@@ -9,6 +9,7 @@ import { SOURCE_METHODS } from '../sources/types'
 
 export type { CaptionPick, CaptionTrack, TranslationLanguage } from './captions'
 export type { EndScreenElement } from './end-screen'
+export type { AudioTrack } from './formats'
 export type { Storyboard, StoryboardFrame } from './storyboard'
 
 // the terminal marker the players match on, declared here because the app realm has to recognize it too
@@ -57,6 +58,10 @@ export type PlaybackFormat = {
   height?: number
   qualityLabel?: string
   audioTrackId?: string
+  audioTrackName?: string
+  isOriginal?: boolean
+  isAutoDubbed?: boolean
+  isDrc?: boolean
   language?: string
   // optional rather than zero-filled: a `{0,0}` range is a REAL range meaning "one byte"
   initRange?: { start: number, end: number }
@@ -135,7 +140,7 @@ export type FrameApi = SourceApi & {
    * Opens a playback of the video; a card's hover preview, or a click on the card, passes its inline playback params
    * as `playerParams`.
    */
-  openPlayback(videoId: string, maxHeight?: number, playerParams?: string): Promise<PlaybackSession>
+  openPlayback(videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean): Promise<PlaybackSession>
   /** The end screen of the video's plain watch page, which the answer to a card's params leaves out. */
   endScreen(videoId: string): Promise<EndScreenElement[]>
   requestSegment(request: SegmentRequest): Promise<SegmentEnvelope>
@@ -143,6 +148,7 @@ export type FrameApi = SourceApi & {
   captionCues(sessionId: string, trackId: string, translateTo?: string): Promise<string>
   cancelSegment(sessionId: string, requestId: string): Promise<void>
   selectVideoFormat(sessionId: string, formatKey: string): Promise<void>
+  selectAudioFormat(sessionId: string, formatKey: string): Promise<void>
   closePlayback(sessionId: string): Promise<void>
   resetIdentity(): Promise<void>
 }
@@ -158,6 +164,7 @@ export const FRAME_METHODS = [
   'captionCues',
   'cancelSegment',
   'selectVideoFormat',
+  'selectAudioFormat',
   'closePlayback',
   'resetIdentity',
 ] as const satisfies readonly (keyof FrameApi)[]

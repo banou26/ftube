@@ -39,13 +39,13 @@ export const isCancellation = (error: unknown) =>
   (error instanceof Error && error.message === SEGMENT_CANCELLED) || (error instanceof DOMException && error.name === 'AbortError')
 
 /** Reads the video's watch page, with a card's inline playback params when given, and opens a SABR session on it. */
-export const openPlaybackEntry = async (videoId: string, maxHeight?: number, playerParams?: string) => {
+export const openPlaybackEntry = async (videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean) => {
   const source = await getSabrSource(videoId, playerParams)
   const entry: PlaybackEntry = {
     videoId,
     maxHeight,
     playerParams: source.playerParams,
-    player: createSabrSession(source, maxHeight),
+    player: createSabrSession(source, maxHeight, undefined, stableVolume),
     chain: Promise.resolve(),
     serial: Promise.resolve(),
     requests: new Map(),
@@ -77,7 +77,7 @@ const refreshSession = async (entry: PlaybackEntry) => {
   const source = await getSabrSource(entry.videoId, entry.playerParams)
   if (entry.closed) throw new Error('youtube: playback session closed during refresh')
   // a new live session asked at 0 is answered at the oldest end of the DVR window, so it continues where this one got to
-  const next = createSabrSession(source, entry.maxHeight, source.isLive ? previous.liveEndMs : undefined)
+  const next = createSabrSession(source, entry.maxHeight, source.isLive ? previous.liveEndMs : undefined, Boolean(previous.audioFormat.isDrc))
   const videoFormat = next.videoFormats.find((format) => format.key === videoKey && format.mimeType === videoMimeType)
   const audioFormat = next.audioFormats.find((format) => format.key === audioKey && format.mimeType === audioMimeType)
   if (!videoFormat || !audioFormat) {

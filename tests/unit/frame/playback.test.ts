@@ -234,4 +234,33 @@ describe('a playback YouTube keeps refusing', () => {
     expect(await request).toBe('youtube: segment request cancelled')
     expect(reads).toHaveLength(2)
   })
+
+  it('preserves a switched dubbed or DRC audio format across a session refresh', async () => {
+    const audioEs = { itag: 251, lastModified: '1', xtags: 'es', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'es.3', approxDurationMs: 213_000 }
+    const audioEnDrc = { itag: 251, lastModified: '1', xtags: 'en-drc', mimeType: 'audio/webm; codecs="opus"', bitrate: 131_000, audioTrackId: 'en-US.4', isOriginal: true, isDrc: true, approxDurationMs: 213_000 }
+    const audioEn = { itag: 251, lastModified: '1', xtags: 'en', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'en-US.4', isOriginal: true, approxDurationMs: 213_000 }
+    const multi: SabrSource = {
+      ...source,
+      formats: [video, audioEs, audioEnDrc, audioEn],
+      playbackFormats: [
+        { key: '399:', itag: 399, mimeType: video.mimeType, bitrate: 1, width: 1_920, height: 1_080 },
+        { key: '251:es', itag: 251, mimeType: audioEs.mimeType, bitrate: 130_000, audioTrackId: 'es.3', audioTrackName: 'Spanish', language: 'es' },
+        { key: '251:en-drc', itag: 251, mimeType: audioEnDrc.mimeType, bitrate: 131_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true, isDrc: true },
+        { key: '251:en', itag: 251, mimeType: audioEn.mimeType, bitrate: 130_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true },
+      ],
+    }
+    vi.mocked(getSabrSource).mockImplementation(async () => {
+      reads.push(Date.now())
+      return multi
+    })
+    serve((request, sessionNumber) => request.kind === 'media' && sessionNumber === 2)
+    const { entry } = await openPlaybackEntry('video-1')
+    entry.player.selectAudioFormat('251:es')
+    const recovered = failureOf(requestPlaybackSegment(entry, segment('a'), () => {}))
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(await recovered).toBe('delivered')
+    expect(reads).toHaveLength(2)
+    expect(entry.player.audioFormat.key).toBe('251:es')
+    closePlaybackEntry(entry)
+  })
 })

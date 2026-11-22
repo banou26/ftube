@@ -200,3 +200,23 @@ describe('the captions on or off choice', () => {
     expect((await load(off)).getSettings()).toMatchObject({ captionsEnabled: false, captionsChosen: true })
   })
 })
+
+describe('the Stable Volume setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to off, persists toggles, and ignores non-boolean values', async () => {
+    expect((await load()).getSettings().stableVolume).toBe(false)
+    expect((await load({ stableVolume: 'yes' })).getSettings().stableVolume).toBe(false)
+    expect((await load({ stableVolume: true })).getSettings().stableVolume).toBe(true)
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ stableVolume: true })
+    expect(JSON.parse(written.at(-1)!).stableVolume).toBe(true)
+    expect((await load(JSON.parse(written.at(-1)!))).getSettings().stableVolume).toBe(true)
+  })
+})

@@ -21,12 +21,27 @@ const fake = vi.hoisted(() => {
     static isBrowserSupported = () => true
     destroyed = false
     networking = { registerRequestFilter: () => {}, unregisterRequestFilter: () => {} }
+    abrEnabled = true
+    configs: Record<string, unknown>[] = []
+    variants: Record<string, unknown>[] = []
+    audioTracks: Record<string, unknown>[] = []
+    selectedVariantCalls: unknown[][] = []
+    selectedAudioCalls: unknown[][] = []
     constructor() {
       super()
       players.push(this)
     }
     getNetworkingEngine = () => this.networking
-    configure = () => {}
+    configure = (config: Record<string, unknown>) => {
+      this.configs.push(config)
+      const abr = config.abr as { enabled?: boolean } | undefined
+      if (typeof abr?.enabled === 'boolean') this.abrEnabled = abr.enabled
+    }
+    getConfiguration = () => ({ abr: { enabled: this.abrEnabled } })
+    getVariantTracks = () => this.variants
+    getAudioTracks = () => this.audioTracks
+    selectVariantTrack = (...args: unknown[]) => { this.selectedVariantCalls.push(args) }
+    selectAudioTrack = (...args: unknown[]) => { this.selectedAudioCalls.push(args) }
     attach = async () => {}
     load = async () => {}
     destroy = async () => { this.destroyed = true }
@@ -51,20 +66,24 @@ const failure = (severity: number, cause: Error) => Object.assign(new Event('err
 const PLAIN_END = [{ style: 'VIDEO', videoId: 'video-2' }]
 const CARD_END = [{ style: 'VIDEO', videoId: 'video-3' }, { style: 'CHANNEL', channelId: 'channel-1' }]
 
-const start = async (session: { playerParams?: string, endScreen?: unknown[] } = {}, endScreen = async () => CARD_END) => {
+const start = async (session: Record<string, unknown> = {}, endScreen = async () => CARD_END, stableVolume?: boolean) => {
   const api = {
     openPlayback: vi.fn(async () => ({
       id: 'playback:1', isLive: false, manifest: '<MPD/>', videoFormats: [], audioFormats: [], storyboards: [], captionTracks: [], translationLanguages: [], endScreen: [],
       ...session,
     })),
     closePlayback: vi.fn(async () => {}),
+    selectVideoFormat: vi.fn(async () => {}),
+    selectAudioFormat: vi.fn(async () => {}),
     endScreen: vi.fn(endScreen),
   }
   const video = Object.assign(new EventTarget(), {
     getBoundingClientRect: () => ({ height: 720 }),
     play: async () => {},
     currentTime: 0,
+    paused: false,
     muted: false,
+    videoHeight: 720,
   })
   const onError = vi.fn()
   const onEndScreen = vi.fn()
@@ -72,7 +91,8 @@ const start = async (session: { playerParams?: string, endScreen?: unknown[] } =
     api: api as unknown as FrameApi,
     video: video as unknown as HTMLVideoElement,
     videoId: 'video-1',
-    playerParams: session.playerParams ?? 'params-1',
+    playerParams: (session.playerParams as string | undefined) ?? 'params-1',
+    stableVolume,
     startTime: 0,
     signal: new AbortController().signal,
     onError,
@@ -149,5 +169,72 @@ describe('the end screen a Shaka player shows', () => {
     answer(CARD_END)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(onEndScreen).not.toHaveBeenCalled()
+  })
+})
+
+describe('audio track and Stable Volume selection in Shaka', () => {
+  const audioFormats = [
+    { key: '251:es', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'es.3', audioTrackName: 'Spanish', language: 'es' },
+    { key: '251:en-drc', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 131_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true, isDrc: true },
+    { key: '251:en', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true },
+  ]
+  const videoFormats = [
+    { key: '399:', itag: 399, mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 2_000_000, width: 1_920, height: 1_080 },
+  ]
+
+  beforeEach(() => {
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('pins initial Shaka audio preferences to the session audio format and switches audio tracks without losing quality', async () => {
+    const { api, controller, player } = await start({
+      videoFormats,
+      audioFormats,
+      selectedVideoKey: '399:',
+      selectedAudioKey: '251:en',
+    }, undefined, false)
+
+    expect(api.openPlayback).toHaveBeenCalledWith('video-1', 720, 'params-1', false)
+    expect(player.configs).toContainEqual(expect.objectContaining({
+      preferredAudioLanguage: 'en-US',
+      preferredAudioRole: 'main',
+      preferredAudioLabel: 'English (US) original',
+    }))
+    expect(controller.audioTracks.map((track) => track.id)).toEqual(['en-US.4', 'es.3'])
+    expect(controller.audioTrackId).toBe('en-US.4')
+    expect(controller.hasDrc('en-US.4')).toBe(true)
+    expect(controller.hasDrc('es.3')).toBe(false)
+
+    const enTrack = { language: 'en-US', label: 'English (US) original', codecs: 'opus', roles: ['main'], active: true }
+    const enDrcTrack = { language: 'en-US', label: 'English (US) original (Stable Volume)', codecs: 'opus', roles: ['main', 'enhanced-audio-intelligibility'], active: false }
+    const esTrack = { language: 'es', label: 'Spanish', codecs: 'opus', roles: ['alternate', 'dub'], active: false }
+    player.audioTracks = [enTrack, enDrcTrack, esTrack]
+    player.variants = [
+      { id: 1, height: 1_080, bandwidth: 2_130_000, audioId: 10, originalAudioId: '251-en-US.4', originalVideoId: '399', language: 'en-US', label: 'English (US) original', audioCodec: 'opus', audioRoles: ['main'], active: false },
+      { id: 2, height: 1_080, bandwidth: 2_131_000, audioId: 11, originalAudioId: '251-en-US.4-drc', originalVideoId: '399', language: 'en-US', label: 'English (US) original (Stable Volume)', audioCodec: 'opus', audioRoles: ['main', 'enhanced-audio-intelligibility'], active: false },
+      { id: 3, height: 1_080, bandwidth: 2_130_000, audioId: 12, originalAudioId: '251-es.3', originalVideoId: '399', language: 'es', label: 'Spanish', audioCodec: 'opus', audioRoles: ['alternate', 'dub'], active: true },
+    ]
+
+    await controller.selectAudio('en-US.4', true)
+    expect(api.selectAudioFormat).toHaveBeenCalledWith('playback:1', '251:en-drc')
+    expect(player.selectedAudioCalls.at(-1)).toEqual([enDrcTrack, 1])
+
+    await controller.selectAudio('es.3', true)
+    expect(api.selectAudioFormat).toHaveBeenCalledWith('playback:1', '251:es')
+    expect(player.selectedAudioCalls.at(-1)).toEqual([esTrack, 1])
+
+    // Manual quality change keeps the active Spanish audio stream (audioId 12) rather than highest-bandwidth English DRC
+    await controller.selectQuality(1_080)
+    expect(player.selectedVariantCalls.at(-1)?.[0]).toMatchObject({ id: 3, audioId: 12 })
+
+    // Switching back to English DRC under manual quality selects the exact 251-en-US.4-drc variant on the same video
+    await controller.selectAudio('en-US.4', true)
+    expect(api.selectAudioFormat).toHaveBeenLastCalledWith('playback:1', '251:en-drc')
+    expect(player.selectedVariantCalls.at(-1)?.[0]).toMatchObject({ id: 2, originalAudioId: '251-en-US.4-drc', originalVideoId: '399' })
   })
 })

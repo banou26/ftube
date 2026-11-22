@@ -1,7 +1,7 @@
 import type { TargetedEvent } from 'preact'
 import type shaka from 'shaka-player'
 
-import type { CaptionPick, CaptionTrack, EndScreenElement, PlaybackRefusal, Storyboard, TranslationLanguage } from '../frame/protocol'
+import type { AudioTrack, CaptionPick, CaptionTrack, EndScreenElement, PlaybackRefusal, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { Point } from '../components/ui/popup'
 import type { WatchMetaQuery } from '../generated/graphql'
 import type { BezelCue } from './bezel'
@@ -295,6 +295,14 @@ const VideoPlayer = (
   const [isLive, setIsLive] = useState(false)
   const [quality, setQuality] = useState<'auto' | number>(() => getSettings().quality)
   const selectQualityRef = useRef<((height: number | 'auto') => Promise<void>) | undefined>(undefined)
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [audioTrackId, setAudioTrackId] = useState<string | undefined>(undefined)
+  const audioTrackIdRef = useRef<string | undefined>(undefined)
+  const [hasDrc, setHasDrc] = useState(false)
+  const hasDrcRef = useRef<((trackId?: string) => boolean) | undefined>(undefined)
+  const [stableVolume, setStableVolume] = useState(() => getSettings().stableVolume)
+  const stableVolumeRef = useRef(stableVolume)
+  const selectAudioRef = useRef<((trackId: string | undefined, drc: boolean) => Promise<void>) | undefined>(undefined)
   const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
   const [translationLanguages, setTranslationLanguages] = useState<TranslationLanguage[]>([])
   const [caption, setCaption] = useState<CaptionPick | undefined>(undefined)
@@ -514,6 +522,7 @@ const VideoPlayer = (
         video,
         videoId,
         playerParams,
+        stableVolume: getSettings().stableVolume,
         startTime: resumeAt.current,
         signal: abort.signal,
         onError: restart,
@@ -535,6 +544,12 @@ const VideoPlayer = (
       setStoryboards(controller.storyboards)
       setIsLive(controller.isLive)
       selectQualityRef.current = controller.selectQuality
+      setAudioTracks(controller.audioTracks)
+      setAudioTrackId(controller.audioTrackId)
+      audioTrackIdRef.current = controller.audioTrackId
+      hasDrcRef.current = controller.hasDrc
+      setHasDrc(controller.hasDrc(controller.audioTrackId))
+      selectAudioRef.current = controller.selectAudio
       setCaptionTracks(controller.captionTracks)
       setTranslationLanguages(controller.translationLanguages)
       selectCaptionRef.current = controller.selectCaption
@@ -572,6 +587,12 @@ const VideoPlayer = (
       setStoryboards([])
       setEndScreen([])
       setIsLive(false)
+      setAudioTracks([])
+      setAudioTrackId(undefined)
+      audioTrackIdRef.current = undefined
+      hasDrcRef.current = undefined
+      setHasDrc(false)
+      selectAudioRef.current = undefined
       setCaptionTracks([])
       setTranslationLanguages([])
       void controller?.destroy()
@@ -582,6 +603,24 @@ const VideoPlayer = (
     setQuality(value)
     updateSettings({ quality: value })
     void selectQualityRef.current?.(value).catch(() => {})
+  }, [])
+
+  useEffect(() => subscribeSettings((next) => {
+    if (next.stableVolume === stableVolumeRef.current) return
+    stableVolumeRef.current = next.stableVolume
+    setStableVolume(next.stableVolume)
+    void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
+  }), [])
+
+  const applyAudioTrack = useCallback((trackId: string) => {
+    setAudioTrackId(trackId)
+    audioTrackIdRef.current = trackId
+    setHasDrc(hasDrcRef.current?.(trackId) ?? false)
+    void selectAudioRef.current?.(trackId, stableVolumeRef.current).catch(() => {})
+  }, [])
+
+  const applyStableVolume = useCallback((value: boolean) => {
+    updateSettings({ stableVolume: value })
   }, [])
 
   // stores the LANGUAGE rather than the track id, since ids are per video and the next video would not recognize one
@@ -937,6 +976,12 @@ const VideoPlayer = (
             storyboards={storyboards}
             quality={quality}
             onQuality={applyQuality}
+            audioTracks={audioTracks}
+            audioTrackId={audioTrackId}
+            onAudioTrack={applyAudioTrack}
+            hasDrc={hasDrc}
+            stableVolume={stableVolume}
+            onStableVolume={applyStableVolume}
             captionTracks={captionTracks}
             translationLanguages={translationLanguages}
             caption={caption}

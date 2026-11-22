@@ -306,3 +306,13 @@ describe('an Auto-translate of a caption track', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+it('forwards selectAudioFormat and stableVolume to the SABR session', async () => {
+  vi.mocked(getSabrSource).mockReset().mockResolvedValue({ isLive: false, captions: [], storyboards: [] } as unknown as SabrSource)
+  const selectAudioFormat = vi.fn()
+  vi.mocked(createSabrSession).mockReset().mockImplementation(() => ({ ...sessionOf(untilCancelled), selectAudioFormat }))
+  const session = (await call('openPlayback', 'video-1', 720, undefined, true)).result as PlaybackSession
+  expect(vi.mocked(createSabrSession)).toHaveBeenCalledWith(expect.anything(), 720, undefined, true)
+  await call('selectAudioFormat', session.id, '251:es')
+  expect(selectAudioFormat).toHaveBeenCalledExactlyOnceWith('251:es')
+})

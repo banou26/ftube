@@ -3,6 +3,7 @@ import type { EndScreenElement, FrameApi, PlaybackSession } from '../frame/proto
 import shaka from 'shaka-player'
 
 import { captionLabel } from '../frame/captions'
+import { audioManifestLabel, audioManifestRole, audioRepresentationId, audioTracksOf, pickAudioFormat, trackHasDrc } from '../frame/formats'
 import { codecsOf } from '../frame/protocol'
 import { markStartup } from '../perf'
 import { createStallWatch, isStreamRefusal } from './restart'
@@ -26,6 +27,7 @@ type SegmentTrace = {
   at: number
   kind: string
   track: string
+  formatKey: string
   requestedMs: number
   deliveredMs?: number
   sequenceNumber?: number
@@ -37,12 +39,13 @@ const traceSegment = (
   kind: string,
   track: string,
   requestedMs: number,
-  segment: { sequenceNumber?: number, startMs?: number },
+  segment: { formatKey: string, sequenceNumber?: number, startMs?: number },
 ) => {
   segmentTrace.push({
     at: Math.round(performance.now()),
     kind,
     track,
+    formatKey: segment.formatKey,
     requestedMs,
     deliveredMs: segment.startMs,
     sequenceNumber: segment.sequenceNumber,
@@ -192,6 +195,21 @@ const liveOpening = (session: PlaybackSession) => {
   }
 }
 
+// Multi-language and DRC manifests expose multiple AdaptationSets that can share `role="main"`, so pin Shaka's initial
+// audio selection to the exact track and DRC variant the SABR session opened on.
+const vodAudioOpening = (session: PlaybackSession) => {
+  const audio = session.audioFormats.find((format) => format.key === session.selectedAudioKey)
+  if (!audio) return {}
+  const hasAnyDrc = session.audioFormats.some((format) => format.isDrc)
+  const codec = codecsOf(audio.mimeType)
+  return {
+    preferredAudioLanguage: audio.language ?? '',
+    preferredAudioRole: audioManifestRole(audio, hasAnyDrc),
+    preferredAudioLabel: audioManifestLabel(audio, hasAnyDrc),
+    preferredAudioCodecs: codec ? [codec, 'opus', 'mp4a.40.2', 'mp4a.40.5'] : ['opus', 'mp4a.40.2', 'mp4a.40.5'],
+  }
+}
+
 // a live session's own error, so the restart reopens the playback and keeps the engine
 const LIVE_STALLED = 'youtube: live stream stopped delivering'
 
@@ -205,6 +223,7 @@ export const startShakaPlayback = async ({
   video,
   videoId,
   playerParams,
+  stableVolume,
   startTime,
   signal,
   onError,
@@ -215,6 +234,7 @@ export const startShakaPlayback = async ({
   videoId: string
   // the inline playback params of the card previewed or clicked, which the frame reads the watch page with
   playerParams?: string
+  stableVolume?: boolean
   startTime: number
   signal: AbortSignal
   onError(error: unknown): void
@@ -227,7 +247,7 @@ export const startShakaPlayback = async ({
   installScheme()
 
   const maxHeight = Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
-  const sessionPromise = api.openPlayback(videoId, maxHeight, playerParams)
+  const sessionPromise = api.openPlayback(videoId, maxHeight, playerParams, stableVolume)
   void sessionPromise.catch(() => {})
   const closeSession = () => {
     void sessionPromise.then((session) => api.closePlayback(session.id)).catch(() => {})
@@ -359,6 +379,8 @@ export const startShakaPlayback = async ({
         abr: { enabled: false, defaultBandwidthEstimate: 400_000 },
       })
       activePlayer.configure(liveOpening(session))
+    } else {
+      activePlayer.configure(vodAudioOpening(session))
     }
     await activePlayer.load(loadUrl, startTime || undefined, 'application/dash+xml')
     if (signal.aborted) throw signal.reason
@@ -440,7 +462,13 @@ export const startShakaPlayback = async ({
       if (destroyed) return
       // restrictToElementSize also restricts manual picks, so it has to come off before selecting a taller track
       activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false } })
-      const track = activePlayer.getVariantTracks()
+      const variants = activePlayer.getVariantTracks()
+      const activeAudioId = variants.find((candidate) => candidate.active)?.audioId
+      const sameAudio = activeAudioId != null
+        ? variants.filter((candidate) => candidate.audioId === activeAudioId)
+        : variants
+      const pool = sameAudio.some((candidate) => candidate.height === height) ? sameAudio : variants
+      const track = pool
         .filter((candidate) => candidate.height === height)
         .sort((a, b) => b.bandwidth - a.bandwidth)[0]
       if (!track) return
@@ -448,6 +476,68 @@ export const startShakaPlayback = async ({
       const upgrade = (video.videoHeight || 0) > 0 && height > video.videoHeight
       activePlayer.selectVariantTrack(track, upgrade, upgrade ? SAFE_MARGIN_SECONDS : 0)
     }
+
+    const supportedAudio = session.isLive
+      ? []
+      : session.audioFormats.filter((format) =>
+          typeof MediaSource === 'undefined' || MediaSource.isTypeSupported(format.mimeType),
+        )
+    const audioTracks = audioTracksOf(supportedAudio)
+    const initialAudio = session.audioFormats.find((format) => format.key === session.selectedAudioKey)
+    let activeAudioKey = initialAudio?.key
+    let audioChain: Promise<unknown> = Promise.resolve()
+
+    const applyAudio = async (trackId: string | undefined, drc: boolean) => {
+      if (destroyed || session.isLive) return
+      const format = pickAudioFormat(supportedAudio, { trackId, drc })
+      if (!format || format.key === activeAudioKey) return
+      await api.selectAudioFormat(session.id, format.key)
+      if (destroyed) return
+      activeAudioKey = format.key
+      const variants = activePlayer.getVariantTracks?.() ?? []
+      const repId = audioRepresentationId(format)
+      const exact = variants.filter((candidate) => candidate.originalAudioId === repId)
+      const matching = exact.length > 0
+        ? exact
+        : (() => {
+            const ids = new Set(
+              supportedAudio
+                .filter((candidate) => candidate.audioTrackId === format.audioTrackId && Boolean(candidate.isDrc) === Boolean(format.isDrc))
+                .map(audioRepresentationId),
+            )
+            return variants.filter((candidate) => candidate.originalAudioId !== null && ids.has(candidate.originalAudioId))
+          })()
+      const sample = matching[0]
+      if (!sample) return
+      const safeMargin = video.paused ? 0 : SAFE_MARGIN_SECONDS
+      // With manual quality (ABR off), selectAudioTrack picks the first (lowest-bitrate) audio representation in the
+      // AdaptationSet, so select the exact highest-bitrate variant directly when ABR is disabled.
+      const abrEnabled = activePlayer.getConfiguration?.().abr?.enabled !== false
+      const audioTrack = abrEnabled
+        ? activePlayer.getAudioTracks?.().find((candidate) =>
+            candidate.language === sample.language
+            && candidate.label === sample.label
+            && candidate.codecs === sample.audioCodec
+            && (candidate.roles[0] ?? '') === (sample.audioRoles?.[0] ?? ''),
+          )
+        : undefined
+      if (audioTrack) {
+        activePlayer.selectAudioTrack(audioTrack, safeMargin)
+        return
+      }
+      const activeVideoId = variants.find((candidate) => candidate.active)?.originalVideoId
+      const target = (activeVideoId ? matching.find((candidate) => candidate.originalVideoId === activeVideoId) : undefined) ?? sample
+      activePlayer.selectVariantTrack(target, true, safeMargin)
+    }
+
+    // serialized so quick switches between tracks or Stable Volume cannot race out of order
+    const selectAudio = (trackId: string | undefined, drc: boolean) => {
+      const run = audioChain.then(() => applyAudio(trackId, drc))
+      audioChain = run.catch(() => {})
+      return run
+    }
+
+    const hasDrc = (trackId?: string) => !session.isLive && trackHasDrc(supportedAudio, trackId)
 
     // Shaka is addressed by the numeric id it assigned: `getTextTracks` builds fresh objects on every call
     const captionIds = new Map<string, number>()
@@ -496,6 +586,10 @@ export const startShakaPlayback = async ({
       destroy,
       heights,
       selectQuality,
+      audioTracks,
+      audioTrackId: initialAudio?.audioTrackId,
+      hasDrc,
+      selectAudio,
       storyboards: session.storyboards,
       captionTracks: session.captionTracks,
       translationLanguages: session.translationLanguages,

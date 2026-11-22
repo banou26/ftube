@@ -17,6 +17,7 @@ import { LiveMetadata, MediaHeader, UMPPartId, VideoPlaybackAbrRequest } from 'g
 import { FormatKeyUtils } from 'googlevideo/utils'
 import { GVS_ORIGIN_KEY } from './innertube'
 import { egressFetch } from './egress'
+import { pickAudioFormat } from './formats'
 
 type AdapterState = {
   snapshot: PlaybackSnapshot
@@ -323,16 +324,15 @@ const initSegmentPrefix = (data: Uint8Array) => extractMoovInit(data) ?? data
  * `liveFromMs` is where a live session starts asking: a refreshed session passes the previous session's timeline end so
  * it continues there. Without it, the first answer's LIVE_METADATA decides the start, a few segments behind the head.
  */
-export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFromMs?: number) => {
+export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFromMs?: number, stableVolume = false) => {
   const videoFormats = source.playbackFormats.filter((format) => format.width && format.height)
   const audioFormats = source.playbackFormats.filter((format) => !format.width)
   const initialVideoFormat = videoFormats
     .filter((format) => format.height! <= maxHeight && MediaSource.isTypeSupported(format.mimeType))
     .sort((a, b) => b.height! - a.height!)[0]
     ?? videoFormats.find((format) => MediaSource.isTypeSupported(format.mimeType))
-  const initialAudioFormat = audioFormats
-    .filter((format) => MediaSource.isTypeSupported(format.mimeType))
-    .sort((a, b) => Number(b.mimeType.includes('opus')) - Number(a.mimeType.includes('opus')))[0]
+  const supportedAudio = audioFormats.filter((format) => MediaSource.isTypeSupported(format.mimeType))
+  const initialAudioFormat = pickAudioFormat(supportedAudio, { drc: !source.isLive && stableVolume })
   if (!initialVideoFormat || !initialAudioFormat) throw new Error('youtube: no supported audio and video formats')
   let videoFormat: PlaybackFormat = initialVideoFormat
   let audioFormat: PlaybackFormat = initialAudioFormat
@@ -571,16 +571,25 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
   // clearing it on ANY seek is what makes the next request look like a fresh start; without it the request claims a tiny buffered window far behind the position and the server withholds media entirely (streamProtectionStatus 2 + PLAYBACK_START_POLICY, no MEDIA parts), which the retry loop refresh-loops on
   // the playback cookie is deliberately NOT reset here: it carries session/format state and a seek only changes playerTimeMs, not the session
   let seekGeneration = 0
-  const resetBufferTracking = () => {
-    const internals = adapter as unknown as { initializedFormats?: { clear?: () => void } }
-    internals.initializedFormats?.clear?.()
+  const resetBufferTracking = (formatKeys?: string[]) => {
+    const internals = adapter as unknown as {
+      initializedFormats?: { clear?: () => void, delete?: (key: string) => void }
+    }
+    if (!formatKeys) {
+      internals.initializedFormats?.clear?.()
+      return
+    }
+    for (const key of formatKeys) internals.initializedFormats?.delete?.(key)
   }
 
   const selectFormat = (track: 'audio' | 'video', key: string) => {
     const formats = track === 'video' ? videoFormats : audioFormats
     const next = formats.find((format) => format.key === key)
     if (!next) throw new Error(`youtube: unknown ${track} format ${key}`)
+    const previousKey = track === 'video' ? videoFormat.key : audioFormat.key
     void cancelActiveHarvest()
+    // clearing the switched track's buffer metadata avoids sending stale ranges when switching back to a previously used audio track or DRC variant
+    if (previousKey !== next.key) resetBufferTracking([previousKey, next.key])
     // the live timeline deliberately SURVIVES a format switch: sequence numbers are aligned across formats
     if (track === 'video') {
       videoFormat = next
@@ -631,11 +640,14 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
       decoded.clientAbrState.av1QualityThreshold = 1_080
       // the adapter's trip through seconds sends 9007199254740990, which googlevideo answers sabr.invalid_input_stream (measured 2026-11-11)
       if (startTimeMs === LIVE_HEAD_MS) decoded.clientAbrState.playerTimeMs = String(LIVE_HEAD_MS)
+      // SabrStreamingAdapter fills audioTrackId and drcEnabled from the requested format, which leaves them unset on video requests
+      if (state.audio) {
+        decoded.clientAbrState.audioTrackId = state.audio.audioTrackId
+        decoded.clientAbrState.drcEnabled = state.audio.isDrc ?? false
+      }
       const cachedTracks = new Set(Array.from(mediaCache.values(), (segment) => segment.track))
       if (init && dualTrack && state.audio && state.video && cachedTracks.size < 2) {
         decoded.clientAbrState.enabledTrackTypesBitfield = 0
-        decoded.clientAbrState.audioTrackId = state.audio.audioTrackId
-        decoded.clientAbrState.drcEnabled = state.audio.isDrc ?? false
         decoded.clientAbrState.stickyResolution = state.video.height
         decoded.clientAbrState.lastManualSelectedResolution = state.video.height
         decoded.preferredAudioFormatIds = [state.audio]
