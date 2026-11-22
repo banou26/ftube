@@ -178,19 +178,14 @@ const playerStyle = css`
 
   .volume-slider {
     width: 0;
-    height: 0.4rem;
+    height: 4.8rem;
     margin: 0;
     padding: 0;
     opacity: 0;
     appearance: none;
-    border-radius: 0.2rem;
-    background: linear-gradient(
-      to right,
-      #fff calc(var(--vol, 1) * 100%),
-      rgba(255, 255, 255, 0.35) calc(var(--vol, 1) * 100%)
-    );
+    background: transparent;
     cursor: pointer;
-    transition: width 0.18s ease, opacity 0.15s ease, margin-right 0.18s ease;
+    transition: width 0.18s cubic-bezier(0, 0, 0.2, 1), opacity 0.15s ease, margin-right 0.18s cubic-bezier(0, 0, 0.2, 1);
   }
 
   .volume-pill:hover .volume-slider,
@@ -200,12 +195,32 @@ const playerStyle = css`
     margin-right: 1.4rem;
   }
 
+  .volume-slider::-webkit-slider-runnable-track {
+    height: 0.2rem;
+    border-radius: 0.1rem;
+    background: linear-gradient(to right, #ffffff var(--fill), rgba(255, 255, 255, 0.25) var(--fill));
+  }
+
   .volume-slider::-webkit-slider-thumb {
     appearance: none;
     width: 1.2rem;
     height: 1.2rem;
+    margin-top: -0.5rem;
     border: none;
     border-radius: 50%;
+    background: #fff;
+  }
+
+  .volume-slider::-moz-range-track {
+    height: 0.2rem;
+    border: none;
+    border-radius: 0.1rem;
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .volume-slider::-moz-range-progress {
+    height: 0.2rem;
+    border-radius: 0.1rem;
     background: #fff;
   }
 
@@ -215,6 +230,18 @@ const playerStyle = css`
     border: none;
     border-radius: 50%;
     background: #fff;
+  }
+
+  .volume-slider:focus-visible {
+    outline: none;
+  }
+
+  .volume-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
+  }
+
+  .volume-slider:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
   }
 
   /* Full-bleed progress line pinned to the bottom edge, the way the Shorts
@@ -787,7 +814,8 @@ const ShortsPlayer = (
                   step={0.01}
                   value={effectiveVolume}
                   aria-label='Volume'
-                  style={{ '--vol': effectiveVolume } as Record<string, number>}
+                  aria-valuetext={`${Math.round(effectiveVolume * 100)}%`}
+                  style={{ '--fill': `calc(0.6rem + ${effectiveVolume} * (100% - 1.2rem))` }}
                   onInput={onVolumeInput}
                 />
               </div>

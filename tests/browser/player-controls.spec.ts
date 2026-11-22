@@ -190,6 +190,24 @@ test('every control keeps its label, and the bar fits a 1920, 1280, 640 and 400 
   await expectFits(page, 1280)
   await expectLabelled(page)
 
+  // Verify youtube.com-matched slim volume slider geometry and interactive state
+  await pointAt(page, 'volume')
+  const volumeSlider = player(page).getByRole('slider', { name: 'Volume' })
+  const sliderBox = (await volumeSlider.boundingBox())!
+  expect(Math.round(sliderBox.width)).toBe(52)
+  expect(Math.round(sliderBox.height)).toBe(40)
+  const sliderAppearance = await volumeSlider.evaluate(element => getComputedStyle(element).appearance)
+  expect(sliderAppearance).toBe('none')
+  await volumeSlider.fill('0.5')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).volume)).toBeCloseTo(0.5, 2)
+  await expect(volumeSlider).toHaveAttribute('aria-valuetext', '50%')
+  await volumeSlider.fill('0')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
+  await expect(volumeSlider).toHaveAttribute('aria-valuetext', '0%')
+  await volumeSlider.fill('1')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(false)
+  await expect(volumeSlider).toHaveAttribute('aria-valuetext', '100%')
+
   await page.setViewportSize({ width: 640, height: 800 })
   await expectFits(page, 640)
   await expectLabelled(page)

@@ -245,9 +245,13 @@ const style = css`
     margin-left: 0.8rem;
   }
 
-  .next::after,
-  .volume::after {
+  .next::after {
     inset: 0;
+    border-radius: inherit;
+  }
+
+  .volume::after {
+    inset: 0.4rem;
     border-radius: inherit;
   }
 
@@ -266,21 +270,81 @@ const style = css`
   }
 
   .volume-slider {
+    display: flex;
+    align-items: center;
     width: 0;
+    height: 4rem;
     overflow: hidden;
-    transition: width 0.2s ease, margin 0.2s ease;
+    opacity: 0;
+    transition: width 0.2s cubic-bezier(0, 0, 0.2, 1), margin 0.2s cubic-bezier(0, 0, 0.2, 1), opacity 0.15s ease;
   }
 
   .volume:hover .volume-slider,
   .volume:focus-within .volume-slider {
     width: 5.2rem;
     margin-right: 1.6rem;
+    opacity: 1;
   }
 
+  /* youtube.com's volume bar (measured 2026-11-23): 52 x 40 px hit target, 2 px track, 12 px white handle */
   .volume-slider input {
+    flex: none;
     width: 5.2rem;
-    accent-color: #ffffff;
+    height: 4rem;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    appearance: none;
     cursor: pointer;
+  }
+
+  .volume-slider input::-webkit-slider-runnable-track {
+    height: 0.2rem;
+    border-radius: 0.1rem;
+    background: linear-gradient(to right, #ffffff var(--fill), rgba(255, 255, 255, 0.2) var(--fill));
+  }
+
+  .volume-slider input::-webkit-slider-thumb {
+    width: 1.2rem;
+    height: 1.2rem;
+    margin-top: -0.5rem;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    appearance: none;
+  }
+
+  .volume-slider input::-moz-range-track {
+    height: 0.2rem;
+    border: none;
+    border-radius: 0.1rem;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .volume-slider input::-moz-range-progress {
+    height: 0.2rem;
+    border-radius: 0.1rem;
+    background: #ffffff;
+  }
+
+  .volume-slider input::-moz-range-thumb {
+    width: 1.2rem;
+    height: 1.2rem;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+  }
+
+  .volume-slider input:focus-visible {
+    outline: none;
+  }
+
+  .volume-slider input:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
+  }
+
+  .volume-slider input:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
   }
 
   /* the groups that give way, so a long chapter title and then an hour-long clock clip rather than pushing a button out of the player */
@@ -741,7 +805,8 @@ export const PlayerControls = (
   const board = bestStoryboard(storyboards)
   const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
 
-  const VolumeIcon = state.muted || state.volume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2
+  const effectiveVolume = state.muted ? 0 : state.volume
+  const VolumeIcon = effectiveVolume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2
 
   const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId)
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
@@ -842,9 +907,11 @@ export const PlayerControls = (
                 type='range'
                 min={0}
                 max={1}
-                step={0.05}
-                value={state.muted ? 0 : state.volume}
+                step={0.01}
+                value={effectiveVolume}
                 aria-label='Volume'
+                aria-valuetext={`${Math.round(effectiveVolume * 100)}%`}
+                style={{ '--fill': `calc(0.6rem + ${effectiveVolume} * (100% - 1.2rem))` }}
                 onInput={onVolume}
               />
             </div>
