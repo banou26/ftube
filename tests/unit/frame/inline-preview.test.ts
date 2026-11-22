@@ -40,7 +40,7 @@ const playerResponse = {
 
 const page = (answer: object) => new Response(`<script>var ytInitialPlayerResponse = ${JSON.stringify(answer)};</script>`)
 
-let fetched: string[]
+let fetched: { url: string, visitor: string | null }[]
 let respond: (url: string) => Response | Promise<Response>
 
 beforeEach(() => {
@@ -53,8 +53,8 @@ beforeEach(() => {
     removeItem: (key: string) => { storage.delete(key) },
   })
   respond = () => page(playerResponse)
-  vi.stubGlobal('fetch', async (url: string | URL) => {
-    fetched.push(String(url))
+  vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+    fetched.push({ url: String(url), visitor: new Headers(init?.headers).get('x-goog-visitor-id') })
     return respond(String(url))
   })
 })
@@ -63,14 +63,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('reads a preview\'s watch page with its card\'s params, leaving the plain page an intent prefetch read to the click', async () => {
+it('reads a preview\'s watch page with its card\'s params and visitor, leaving the plain page without a visitor to the click', async () => {
   const { getSabrSource, prefetchInitialPlayerResponse } = await import('../../../src/frame/innertube')
   await prefetchInitialPlayerResponse(VIDEO)
   await getSabrSource(VIDEO, PARAMS)
   await getSabrSource(VIDEO)
   expect(fetched).toEqual([
-    `https://www.youtube.com/watch?v=${VIDEO}`,
-    `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`,
+    { url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null },
+    { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`, visitor: 'visitor' },
   ])
 })
 
@@ -81,8 +81,8 @@ it('reads the page afresh when a session opened on it is refreshed, with params 
   await prefetchInitialPlayerResponse(VIDEO)
   await getSabrSource(VIDEO)
   await getSabrSource(VIDEO)
-  const preview = `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`
-  const plain = `https://www.youtube.com/watch?v=${VIDEO}`
+  const preview = { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`, visitor: 'visitor' }
+  const plain = { url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null }
   expect(fetched).toEqual([preview, preview, plain, plain])
 })
 
@@ -99,10 +99,14 @@ it('a card\'s link opens its video with the card\'s params, and a shared link or
   vi.resetModules()
   const reloaded = await import('../../../src/player/card-params')
   await getSabrSource(VIDEO, reloaded.cardParamsIn(entry))
-  expect(fetched).toEqual([card, plain, plain])
+  expect(fetched).toEqual([
+    { url: card, visitor: 'visitor' },
+    { url: plain, visitor: null },
+    { url: plain, visitor: null },
+  ])
 })
 
-it('reads the plain page when the answer to a card\'s params does not play, and registers that playback only', async () => {
+it('reads the plain page without a visitor when the answer to a card\'s params does not play, and registers that playback only', async () => {
   const tracking = (docid: string) => ({
     videostatsPlaybackUrl: { baseUrl: `https://s.youtube.com/api/stats/playback?docid=${docid}` },
     videostatsWatchtimeUrl: { baseUrl: `https://s.youtube.com/api/stats/watchtime?docid=${docid}` },
@@ -114,6 +118,12 @@ it('reads the plain page when the answer to a card\'s params does not play, and 
   const source = await getSabrSource(VIDEO, PARAMS)
   expect(source.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
   expect(source.playerParams).toBeUndefined()
-  expect(fetched.filter((url) => !url.includes('/api/stats/'))).toEqual([card, plain])
-  expect(fetched.filter((url) => url.includes('/api/stats/')).map((url) => new URL(url).searchParams.get('docid'))).toEqual(['plain'])
+  expect(fetched.filter(({ url }) => !url.includes('/api/stats/'))).toEqual([
+    { url: card, visitor: 'visitor' },
+    { url: plain, visitor: null },
+  ])
+  const stats = fetched.filter(({ url }) => url.includes('/api/stats/'))
+  expect(stats.map(({ url, visitor }) => ({ docid: new URL(url).searchParams.get('docid'), visitor }))).toEqual([
+    { docid: 'plain', visitor: 'visitor' },
+  ])
 })

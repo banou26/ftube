@@ -143,23 +143,44 @@ describe('the frame Innertube sessions', () => {
     expect(fetched).toEqual([`https://www.youtube.com/watch?v=${VIDEO}`])
   })
 
-  it('reads the watch page and registers the playback as the visitor the catalog reads Home as, and sends no other report', async () => {
+  it('omits X-Goog-Visitor-Id on plain watch reads while keeping it on card reads and playback registrations, and sends no other report', async () => {
     const sent: { url: string, method: string, visitor: string | null }[] = []
     vi.stubGlobal('fetch', async (input: string | URL, init?: RequestInit) => {
       const url = String(input)
       sent.push({ url, method: init?.method ?? 'GET', visitor: new Headers(init?.headers).get('x-goog-visitor-id') })
       if (url.includes('/api/stats/')) return new Response(null, { status: 204 })
-      return streamed([watchPage({ playbackUrl: `https://s.youtube.com/api/stats/playback?docid=${VIDEO}&ei=event-1` })])
+      return streamed([watchPage({
+        playbackUrl: `https://s.youtube.com/api/stats/playback?docid=${VIDEO}&ei=event-1`,
+      })])
     })
     const { getSabrSource } = await loadFrame()
     await getSabrSource(VIDEO)
     await settle()
     expect(sent).toEqual([
-      { url: `https://www.youtube.com/watch?v=${VIDEO}`, method: 'GET', visitor: 'visitor' },
+      { url: `https://www.youtube.com/watch?v=${VIDEO}`, method: 'GET', visitor: null },
       { url: expect.stringMatching(/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/), method: 'POST', visitor: 'visitor' },
     ])
     const registration = new URL(sent[1]!.url).searchParams
     expect(Object.fromEntries(registration)).toEqual({ docid: VIDEO, ei: 'event-1', ver: '2', cpn: 'nonce' })
+
+    sent.length = 0
+    const cardPage = JSON.stringify({
+      playabilityStatus: { status: 'OK' },
+      streamingData: { serverAbrStreamingUrl: 'https://rr1.googlevideo.com/videoplayback?id=1' },
+      playbackTracking: { videostatsPlaybackUrl: { baseUrl: `https://s.youtube.com/api/stats/playback?docid=${VIDEO}&ei=event-2` } },
+    })
+    vi.stubGlobal('fetch', async (input: string | URL, init?: RequestInit) => {
+      const url = String(input)
+      sent.push({ url, method: init?.method ?? 'GET', visitor: new Headers(init?.headers).get('x-goog-visitor-id') })
+      if (url.includes('/api/stats/')) return new Response(null, { status: 204 })
+      return new Response(`<script>var ytInitialPlayerResponse = ${cardPage};</script>`)
+    })
+    await getSabrSource(VIDEO, 'card-params')
+    await settle()
+    expect(sent).toEqual([
+      { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=card-params`, method: 'GET', visitor: 'visitor' },
+      { url: expect.stringMatching(/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/), method: 'POST', visitor: 'visitor' },
+    ])
   })
 
   describe('the playback registration, signed in', () => {
@@ -267,9 +288,9 @@ describe('the frame Innertube sessions', () => {
     })
 
     it('warms the page player and attestation challenge from youtube.com before the first watch read', async () => {
-      const fetched: string[] = []
-      vi.stubGlobal('fetch', async (url: string) => {
-        fetched.push(url)
+      const fetched: { url: string, visitor: string | null }[] = []
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        fetched.push({ url, visitor: new Headers(init?.headers).get('x-goog-visitor-id') })
         return streamed([watchPage({
           playerJsUrl: '\\/s\\/player\\/a5c2aafe\\/player_ias.vflset\\/en_US\\/base.js',
         })])
@@ -282,10 +303,11 @@ describe('the frame Innertube sessions', () => {
       await settle()
       expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
       expect(youtube.builds).toEqual(['catalog'])
-      expect(fetched).toEqual(['https://www.youtube.com/'])
+      expect(fetched).toEqual([{ url: 'https://www.youtube.com/', visitor: 'visitor' }])
       // subsequent video with the same player id reuses the warmed player without rebuilding
       expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
       expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
+      expect(fetched[1]).toEqual({ url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null })
     })
   })
 

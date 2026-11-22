@@ -130,6 +130,19 @@ describe('reading a watch page', () => {
     expect(visitors).toEqual(['visitor-1', 'visitor-1'])
   })
 
+  it('omits X-Goog-Visitor-Id when no visitor is given, on a later session read too', async () => {
+    const visitors: (string | null)[] = []
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      visitors.push(new Headers(init?.headers).get('x-goog-visitor-id'))
+      return streamed([watchPage()])
+    })
+    const { fetchPlayerResponse, takePageChallenge } = await import('../../../src/frame/watch-page')
+    await fetchPlayerResponse('video-1')
+    await takePageChallenge()
+    await takePageChallenge()
+    expect(visitors).toEqual([null, null])
+  })
+
   it('takes the page read last, not an earlier one no session took', async () => {
     const { fetchPlayerResponse, takePageChallenge } = await import('../../../src/frame/watch-page')
     await fetchPlayerResponse('video-1')

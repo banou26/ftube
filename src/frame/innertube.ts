@@ -198,15 +198,14 @@ export const warmPlaybackResources = () => {
 const playbackResponseCache = new Map<string, Promise<Record<string, unknown>>>()
 const prefetchedPlayerFor = new WeakMap<Promise<Record<string, unknown>>, () => Promise<Player> | undefined>()
 
-/* YouTube counts a playback toward the Home of the visitor its watch page was read as, and only when the registration
-   names that visitor too. In fresh youtube.com profiles, registrations sent with both filled Home 3 of 3 times (34 to
-   37 videos) and with either one alone 0 of 4; with the watch-time reports blocked, youtube.com's own player still
-   filled it 2 of 2 (measured 2026-11-10). So both go as the catalog's visitor, the one Home is read as. */
+/* Plain /watch reads omit X-Goog-Visitor-Id: sending it on plain signed-out reads scheduled pre-roll ads on 16 of 18
+   opens (5.9 to 15.2 s start), whereas omitting it dropped pre-roll scheduling to 0 of 4 (1.78 to 2.91 s start,
+   measured 2026-11-21). */
 export const prefetchInitialPlayerResponse = (videoId: string) => {
   const cached = playbackResponseCache.get(videoId)
   if (cached) return cached
   let startedPlayer: Promise<Player> | undefined
-  const promise = fetchPlayerResponse(videoId, catalogVisitor(), undefined, (pageId) => {
+  const promise = fetchPlayerResponse(videoId, undefined, undefined, (pageId) => {
     startedPlayer = loadPagePlayer(pageId)
     void startedPlayer.catch(() => {})
   })
@@ -329,12 +328,16 @@ const playsWithParams = (raw: Record<string, unknown>) => {
 
 /**
  * A SABR session's source, off the video's watch page. A card's hover preview, or a click on the card, passes its
- * inline playback params, and the page is read afresh with them; an answer to them that does not play is read again
- * as the plain page. The plain page an intent prefetch read for the click is neither used nor dropped.
+ * inline playback params, and the page is read afresh with them and the catalog's visitor; an answer to them that does
+ * not play is read again as the plain page without a visitor header. The plain page an intent prefetch read for the
+ * click is neither used nor dropped.
  */
 export const getSabrSource = async (videoId: string, playerParams?: string): Promise<SabrSource> => {
   // The /player API alternative is NOT an option: anonymous /player calls yield preview-tier (~60s) SABR sessions.
   let startedPlayer: Promise<Player> | undefined
+  /* YouTube counts a playback toward the Home of the visitor its watch page was read as, and only when the
+     registration names that visitor too (3 of 3 with both, 0 of 4 with either alone, measured 2026-11-10). Card reads
+     carry playerParams (pp), which skip pre-roll holds, so they send the catalog's visitor while plain reads omit it. */
   const rawPromise = playerParams
     ? fetchPlayerResponse(videoId, catalogVisitor(), playerParams, (pageId) => {
         startedPlayer = loadPagePlayer(pageId)

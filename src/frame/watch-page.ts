@@ -220,9 +220,10 @@ let hasStartedRead = false
 const firstRead = Promise.withResolvers<void>()
 
 /**
- * A watch page's player response, the page read as the visitor `visitorData` names once it resolves, and with a
- * card's inline playback params as its `pp` when `playerParams` is given. The page's challenge is kept for the next
- * BotGuard session (`takePageChallenge`), and `onPlayerId` fires as soon as `PLAYER_JS_URL` arrives in the stream.
+ * A watch page's player response, read as the visitor `visitorData` names when given (omitting `X-Goog-Visitor-Id`
+ * when absent), and with a card's inline playback params as its `pp` when `playerParams` is given. The page's
+ * challenge is kept for the next BotGuard session (`takePageChallenge`), and `onPlayerId` fires as soon as
+ * `PLAYER_JS_URL` arrives in the stream.
  */
 export const fetchPlayerResponse = (
   videoId: string,
