@@ -8,7 +8,7 @@
     "build:agent": "vp build -c vite.agent.config.ts",
     "dev": "npm run build:agent && npm run generate && vp dev --port 4561",
     "generate": "graphql-codegen --config codegen.ts",
-    "lint": "vp lint src tests",
+    "lint": "vp lint src tests functions",
     "postinstall": "patch-package",
     "test": "npm run build:agent && vp test run tests/unit",
     "test:browser": "playwright test",

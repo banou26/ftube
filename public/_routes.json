@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "include": [
+    "/watch",
+    "/watch/*",
+    "/shorts/*",
+    "/live/*",
+    "/embed/*",
+    "/playlist",
+    "/channel/*",
+    "/c/*",
+    "/user/*",
+    "/@*",
+    "/post/*",
+    "/gaming",
+    "/results",
+    "/search/*",
+    "/hashtag/*"
+  ],
+  "exclude": []
+}
