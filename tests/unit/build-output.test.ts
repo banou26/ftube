@@ -28,20 +28,16 @@ const YEAR = 'public, max-age=31536000, immutable'
 const buildFiles = async (...plugins: Plugin[]) => {
   const result = await build({ root, configFile: `${root}vite.config.ts`, logLevel: 'silent', build: { write: false }, plugins })
   const outputs = (Array.isArray(result) ? result : [result]).flatMap(output => 'output' in output ? output.output : [])
-  return {
-    files: new Map(outputs.map(file => [file.fileName, file.type === 'chunk' ? file.code : typeof file.source === 'string' ? file.source : ''])),
-    imports: new Map(outputs.flatMap(file => file.type === 'chunk' ? [[file.fileName, [...file.imports, ...file.dynamicImports]] as const] : [])),
-  }
+  return new Map(outputs.map(file => [file.fileName, file.type === 'chunk' ? file.code : typeof file.source === 'string' ? file.source : '']))
 }
 
 let files = new Map<string, string>()
-let imports = new Map<string, readonly string[]>()
 
 // as `vp build` runs for a deploy: outside production the Preact preset adds its debug module to whichever of the two
 // pages it resolves first, which varies from one build to the next
 beforeAll(async () => {
   vi.stubEnv('NODE_ENV', 'production')
-  ;({ files, imports } = await buildFiles())
+  files = await buildFiles()
 }, 120_000)
 
 afterAll(() => {
@@ -50,33 +46,43 @@ afterAll(() => {
 
 const renamed = (from: Map<string, string>, to: Map<string, string>) => [...from.keys()].filter(name => !to.has(name)).sort()
 const buildOf = (page = '') => /<meta name="yt-build" content="([^"]*)"/.exec(page)?.[1]
+const importMapOf = (page = '') => {
+  const raw = /<script type="importmap">([^<]*)<\/script>/.exec(page)?.[1]
+  return raw ? (JSON.parse(raw) as { imports?: Record<string, string> }).imports : undefined
+}
 
 describe('a deploy renames only the files whose code changed', () => {
   it('a second build of the same tree names a new build and gives every file the same name', async () => {
     const again = await buildFiles()
-    expect(buildOf(again.files.get('index.html'))).not.toBe(buildOf(files.get('index.html')))
-    expect(again.files.size).toBe(files.size)
-    expect(renamed(files, again.files)).toEqual([])
+    expect(buildOf(again.get('index.html'))).not.toBe(buildOf(files.get('index.html')))
+    expect(again.size).toBe(files.size)
+    expect(renamed(files, again)).toEqual([])
   }, 120_000)
 
-  it('a change to one page renames its file and the files that import it, directly or through others', async () => {
+  it('a change to one page renames only its own file, and index.html carries the chunk import map', async () => {
     const edit: Plugin = {
       name: 'edit-privacy',
       enforce: 'pre',
       transform: (code, id) => id.endsWith('/src/routes/privacy.tsx') ? `${code}\nconsole.info('edited')` : undefined,
     }
     const edited = await buildFiles(edit)
-    const dependents = new Set([...files.keys()].filter(name => /^assets\/privacy-[\w-]{8}\.js$/.test(name)))
-    expect(dependents.size).toBe(1)
-    for (let grew = true; grew;) {
-      grew = false
-      for (const [name, imported] of imports) {
-        if (dependents.has(name) || !imported.some(file => dependents.has(file))) continue
-        dependents.add(name)
-        grew = true
-      }
-    }
-    expect(renamed(files, edited.files)).toEqual([...dependents].sort())
+    const privacy = [...files.keys()].filter(name => /^assets\/privacy-[\w-]{8}\.js$/.test(name))
+    const editedPrivacy = [...edited.keys()].filter(name => /^assets\/privacy-[\w-]{8}\.js$/.test(name))
+    expect(privacy).toHaveLength(1)
+    expect(editedPrivacy).toHaveLength(1)
+    expect(edited.size).toBe(files.size)
+    expect(renamed(files, edited)).toEqual(privacy)
+
+    const beforeMap = importMapOf(files.get('index.html'))
+    const afterMap = importMapOf(edited.get('index.html'))
+    expect(beforeMap).toBeDefined()
+    expect(afterMap).toBeDefined()
+    expect(importMapOf(files.get('__yt_engine__/engine.html'))).toBeDefined()
+    expect(Object.values(beforeMap!).filter(target => !files.has(target.slice(1)))).toEqual([])
+    const privacyEntry = Object.entries(beforeMap!).find(([, target]) => target === `/${privacy[0]}`)
+    expect(privacyEntry).toBeDefined()
+    expect(privacyEntry![0]).not.toBe(privacyEntry![1])
+    expect(afterMap![privacyEntry![0]]).toBe(`/${editedPrivacy[0]}`)
   }, 120_000)
 
   it('the app and its engine page name one build in their HTML, and no other file carries it', () => {
@@ -91,9 +97,10 @@ describe('the app page lists the code it can import later, for src/warm-code.ts'
   it('index.html lists every page\'s file and the player\'s, none it loads at start, and the engine pages list nothing', () => {
     const page = files.get('index.html') ?? ''
     const list = JSON.parse(/<script type="application\/json" id="lazy-code">([^<]*)<\/script>/.exec(page)?.[1] ?? '[]') as string[]
-    for (const name of ['search', 'watch', 'settings', 'privacy', 'feed-history', 'shaka']) {
+    for (const name of ['search', 'watch', 'settings', 'privacy', 'party', 'feed-history', 'shaka']) {
       expect(list).toContainEqual(expect.stringMatching(new RegExp(`^/assets/${name}-[\\w-]{8}\\.js$`)))
     }
+    expect(new Set(list).size).toBe(list.length)
     expect(list.filter(href => !files.has(href.slice(1)))).toEqual([])
     const atStart = [...page.matchAll(/<(?:script type="module"|link rel="modulepreload") crossorigin (?:src|href)="([^"]+)"/g)].map(([, href]) => href)
     expect(atStart.length).toBeGreaterThan(1)
@@ -113,7 +120,8 @@ describe('repeat visits take the build\'s hashed files from the browser cache', 
 
   it('index.html, the app\'s routes, the engine page and every other public file keep Pages\' revalidation', () => {
     const pages = [...files.keys()].filter(name => !name.startsWith('assets/')).map(name => `/${name}`)
-    expect(pages).toEqual(expect.arrayContaining(['/index.html', '/__yt_engine__/engine.html']))
+    expect(pages.sort()).toEqual(['/__yt_engine__/engine.html', '/index.html'])
+    expect(files.has('importmap.json')).toBe(false)
     expect(publicFiles).toContain('/__yt_scramjet__/host.html')
     const others = publicFiles.filter(path => path !== '/_headers' && !path.startsWith('/assets/'))
     const paths = ['/', '/watch', '/__yt_engine__/engine', ...pages, ...others]

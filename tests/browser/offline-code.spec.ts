@@ -1,48 +1,23 @@
 import type { Page, Route } from '@playwright/test'
-import type { AddressInfo } from 'node:net'
 
-import { existsSync, readFileSync, statSync } from 'node:fs'
-import { createServer } from 'node:http'
-import { extname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 
+import { BUILD, startBuildServer } from './built-server'
 import { expect, test } from './test'
 
 /* These run on the built app (`npm run build` first), served as Cloudflare Pages serves it, since the dev server
    writes no list of the code to download. */
 
-const BUILD = fileURLToPath(new URL('../../build/', import.meta.url))
-const TYPES: Record<string, string> = {
-  '.css': 'text/css', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
-  '.wasm': 'application/wasm', '.woff2': 'font/woff2',
-}
-
-const fileAt = (path: string) => path.includes('..')
-  ? undefined
-  : [path, `${path}.html`].map(name => BUILD + name.slice(1)).find(file => existsSync(file) && statSync(file).isFile())
-
-// a page by its path with or without .html, the app at any other path, and a missing assets/ file 404 with its page
-const server = createServer((request, response) => {
-  const path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
-  const asset = path.startsWith('/assets/')
-  const found = fileAt(path)
-  const file = found ?? (asset ? `${BUILD}assets/404.html` : `${BUILD}index.html`)
-  response.writeHead(asset && !found ? 404 : 200, {
-    'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
-    'cache-control': asset ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
-  })
-  response.end(readFileSync(file))
-})
-
 let origin = ''
+let closeServer: (() => Promise<void>) | undefined
 
 test.beforeAll(async () => {
-  expect(existsSync(`${BUILD}index.html`), 'no build to serve: run npm run build first').toBe(true)
-  await new Promise<void>(resolve => server.listen(0, 'localhost', resolve))
-  origin = `http://localhost:${(server.address() as AddressInfo).port}`
+  const started = await startBuildServer()
+  origin = started.origin
+  closeServer = started.close
 })
 
-test.afterAll(() => new Promise<void>(resolve => server.close(() => resolve())))
+test.afterAll(() => closeServer?.())
 
 const drop = (route: Route) => route.abort('internetdisconnected')
 const deploy = (route: Route) => route.fulfill({

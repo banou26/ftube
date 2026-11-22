@@ -37,6 +37,7 @@ export default defineConfig({
   build: {
     outDir: 'build',
     target: 'esnext',
+    chunkImportMap: true,
     rollupOptions: {
       input: {
         app: fromRoot('./index.html'),
@@ -58,6 +59,18 @@ export default defineConfig({
           children: JSON.stringify(lazyCode(bundle, chunk.fileName)),
           injectTo: 'head',
         }],
+      },
+    },
+    // Vite inlines the chunk import map into each HTML page in normal generateBundle order; the standalone
+    // importmap.json asset is unused on deploy, so drop it after Vite's HTML and preload hooks have read it.
+    {
+      name: 'yt-drop-importmap-file',
+      apply: 'build',
+      generateBundle: {
+        order: 'post',
+        handler: (_options, bundle) => {
+          delete bundle['importmap.json']
+        },
       },
     },
     nodePolyfills({
