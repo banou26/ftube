@@ -1,17 +1,18 @@
 import type { PlaylistViewQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { CircleUserRound, EllipsisVertical, ListVideo, Play, Share2, Shuffle, X } from 'lucide-react'
-import { useState } from 'preact/hooks'
+import { CircleUserRound, ListVideo, Play, Share2, Shuffle, X } from 'lucide-react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure, lineFor } from '../components/data-failure'
+import { linkifyRuns } from '../components/linkify'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from '../components/playlist'
 import { setQueueShuffle } from '../components/playlist-panel'
+import { RichText } from '../components/rich-text'
 import { useSession } from '../session'
-import { Menu, MenuItem } from '../components/ui/menu'
 import { showToast } from '../components/ui/toast'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { watchHrefFor } from '../components/video-card'
@@ -92,9 +93,62 @@ const style = css`
     position: sticky;
     /* Under the fixed header rather than at the viewport top. */
     top: calc(var(--header-height) + 2.4rem);
+    min-width: 0;
     padding: 2.4rem;
     border-radius: 1.2rem;
     background: var(--bg-subtle);
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  /* Dark cover-tinted hero surface in both themes so text, links and buttons
+     keep AA+ contrast regardless of page theme or cover brightness. */
+  .side.ambient {
+    background: #1a1a1a;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.78);
+    --text-tertiary: rgba(255, 255, 255, 0.65);
+    --accent: #8acbff;
+    --bg-inverse: #ffffff;
+    --bg-inverse-hover: rgba(255, 255, 255, 0.85);
+    --text-inverse: #0f0f0f;
+    --bg-chip: rgba(255, 255, 255, 0.16);
+    --bg-chip-hover: rgba(255, 255, 255, 0.26);
+    --bg-hover: rgba(255, 255, 255, 0.16);
+  }
+
+  .ambient-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .ambient-backdrop img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(40px) saturate(1.4);
+    transform: scale(1.25);
+  }
+
+  .ambient-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(15, 15, 15, 0.4) 0%,
+      rgba(15, 15, 15, 0.72) 45%,
+      rgba(15, 15, 15, 0.88) 100%
+    );
+  }
+
+  .side-content {
+    position: relative;
+    z-index: 1;
   }
 
   .cover {
@@ -103,6 +157,10 @@ const style = css`
     border-radius: 1.2rem;
     overflow: hidden;
     background: var(--bg-elevated);
+  }
+
+  .side.ambient .cover {
+    box-shadow: 0 0.4rem 2.4rem rgba(0, 0, 0, 0.28);
   }
 
   .cover img {
@@ -127,6 +185,7 @@ const style = css`
     font-weight: 700;
     line-height: 3rem;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
 
   .owner {
@@ -134,10 +193,18 @@ const style = css`
     align-items: center;
     gap: 0.8rem;
     width: fit-content;
+    max-width: 100%;
     margin-top: 1.2rem;
     font-size: 1.4rem;
     font-weight: 500;
     color: var(--text-primary);
+  }
+
+  .owner-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .avatar {
@@ -166,23 +233,50 @@ const style = css`
   .stats {
     margin-top: 0.4rem;
     font-size: 1.2rem;
+    line-height: 1.8rem;
     color: var(--text-secondary);
   }
 
+  .description-wrap {
+    margin-top: 1.2rem;
+  }
+
   .description {
-    margin: 1.2rem 0 0;
     font-size: 1.2rem;
     line-height: 1.8rem;
     color: var(--text-secondary);
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .description.clamped {
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+    max-height: 5.4rem;
     overflow: hidden;
+  }
+
+  .description-toggle {
+    display: inline-block;
+    margin-top: 0.4rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.8rem;
+    cursor: pointer;
+  }
+
+  .description-toggle:hover {
+    text-decoration: underline;
   }
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.8rem;
     margin-top: 1.6rem;
@@ -200,6 +294,7 @@ const style = css`
     color: var(--text-inverse);
     font-size: 1.4rem;
     font-weight: 500;
+    white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -226,14 +321,107 @@ const style = css`
     justify-content: center;
     border: none;
     border-radius: 50%;
-    background: transparent;
+    background: var(--bg-chip);
     color: var(--text-primary);
     cursor: pointer;
     transition: background 0.15s ease;
   }
 
   .round:hover {
-    background: var(--bg-hover);
+    background: var(--bg-chip-hover);
+  }
+
+  .side-skeleton {
+    animation: playlist-side-pulse 1.6s ease-in-out infinite;
+  }
+
+  .side-skeleton .cover {
+    background: var(--bg-chip);
+  }
+
+  .skel-bar,
+  .skel-avatar,
+  .skel-pill,
+  .skel-round {
+    background: var(--bg-chip);
+  }
+
+  .skel-bar {
+    height: 1.4rem;
+    border-radius: 0.4rem;
+  }
+
+  .skel-title {
+    margin-top: 1.6rem;
+    width: 78%;
+    height: 3rem;
+    border-radius: 0.6rem;
+  }
+
+  .skel-owner {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+
+  .skel-avatar {
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+  }
+
+  .skel-owner-name {
+    width: 12rem;
+  }
+
+  .skel-stats {
+    margin-top: 0.4rem;
+    width: 56%;
+    height: 1.8rem;
+  }
+
+  .skel-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 1.2rem;
+  }
+
+  .skel-desc-short {
+    width: 68%;
+  }
+
+  .skel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1.6rem;
+  }
+
+  .skel-pill {
+    width: 10.6rem;
+    height: 3.6rem;
+    border-radius: 1.8rem;
+  }
+
+  .skel-round {
+    flex: none;
+    width: 3.6rem;
+    height: 3.6rem;
+    border-radius: 50%;
+  }
+
+  @keyframes playlist-side-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.55;
+    }
   }
 
   .rows {
@@ -242,12 +430,16 @@ const style = css`
     gap: 0.8rem;
   }
 
-  .row {
+  .row,
+  .row-skeleton {
     display: flex;
     align-items: center;
     gap: 0.8rem;
     padding: 0.4rem;
     border-radius: 0.8rem;
+  }
+
+  .row {
     transition: background 0.15s ease;
   }
 
@@ -356,11 +548,76 @@ const style = css`
       grid-template-columns: minmax(0, 1fr);
     }
 
+    /* Relative rather than static so the absolute ambient backdrop stays clipped inside .side. */
     .side {
-      position: static;
+      position: relative;
+      top: auto;
     }
   }
 `
+
+const PlaylistDescription = ({ description }: { description: string }) => {
+  const runs = useMemo(() => linkifyRuns(description), [description])
+  const [expanded, setExpanded] = useState(false)
+  const [overflowing, setOverflowing] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (expanded || !element) return
+    const check = () => setOverflowing(element.scrollHeight > element.clientHeight + 1)
+    check()
+    // a clamped box keeps its height when the web font swaps in and the lines rewrap
+    void document.fonts.ready.then(check)
+    const observer = new ResizeObserver(check)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [expanded, description])
+
+  if (runs.length === 0) return null
+
+  return (
+    <div className='description-wrap'>
+      <div ref={ref} className={expanded ? 'description' : 'description clamped'}>
+        <RichText runs={runs} />
+      </div>
+      {expanded || overflowing
+        ? (
+          <button
+            type='button'
+            className='description-toggle'
+            aria-expanded={expanded}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded ? 'Show less' : '...more'}
+          </button>
+        )
+        : undefined}
+    </div>
+  )
+}
+
+const PlaylistSideSkeleton = () => (
+  <div className='side-skeleton' aria-hidden='true'>
+    <div className='cover' />
+    <div className='skel-bar skel-title' />
+    <div className='skel-owner'>
+      <div className='skel-avatar' />
+      <div className='skel-bar skel-owner-name' />
+    </div>
+    <div className='skel-bar skel-stats' />
+    <div className='skel-desc'>
+      <div className='skel-bar' />
+      <div className='skel-bar' />
+      <div className='skel-bar skel-desc-short' />
+    </div>
+    <div className='skel-actions'>
+      <div className='skel-pill' />
+      <div className='skel-pill' />
+      <div className='skel-round' />
+    </div>
+  </div>
+)
 
 // the route has NO path params, and reading one would yield undefined silently: wouter checks the component prop bivariantly
 const PlaylistPage = () => {
@@ -392,8 +649,11 @@ const PlaylistPage = () => {
     pages: page ? [...pages, page] : pages,
     key: keyOf
   })
-  const playlist = page?.playlist
+  const playlist = page?.playlist ?? pages[0]?.playlist
   useDocumentTitle(playlist?.title ?? 'Playlist')
+
+  const loadingInitial = !playlist && !error && (fetching || !data)
+  const hasAmbient = Boolean(playlist?.thumbnail)
 
   const rows = items.filter(item => !item.setVideoId || !removed.has(item.setVideoId))
   const first = rows[0]
@@ -468,63 +728,78 @@ const PlaylistPage = () => {
   return (
     <main css={style}>
       <div className='layout'>
-        <aside className='side'>
-          <div className='cover'>
-            {playlist?.thumbnail
-              ? <img src={playlist.thumbnail} alt='' />
-              : (
-                <span className='cover-fallback'>
-                  <ListVideo size={48} strokeWidth={1.5} />
-                </span>
-              )}
-          </div>
-          <h1 className='heading'>{playlist?.title ?? 'Playlist'}</h1>
-          {playlist?.channel
+        <aside className={hasAmbient ? 'side ambient' : 'side'}>
+          {playlist?.thumbnail
             ? (
-              <Link href={`/channel/${playlist.channel.id}`} className='owner'>
-                <span className={playlist.channel.avatar ? 'avatar' : 'avatar fallback'}>
-                  {playlist.channel.avatar
-                    ? <img src={playlist.channel.avatar} alt='' loading='lazy' />
-                    : playlist.channel.name.slice(0, 1).toUpperCase()}
-                </span>
-                <span>{playlist.channel.name}</span>
-              </Link>
+              <div className='ambient-backdrop' aria-hidden='true'>
+                <img src={playlist.thumbnail} alt='' />
+              </div>
             )
             : undefined}
-          {stats ? <div className='stats'>{stats}</div> : undefined}
-          {playlist?.description ? <p className='description'>{playlist.description}</p> : undefined}
-          <div className='actions'>
-            {first
-              ? (
-                <Link
-                  href={watchHrefFor(first.video.id, { list: listId, index: first.index ?? undefined })}
-                  className='pill'
-                >
-                  <Play size={20} strokeWidth={1.5} fill='currentColor' />
-                  Play all
-                </Link>
-              )
-              : undefined}
-            {rows.length > 1
-              ? (
-                <button type='button' className='pill secondary' onClick={onShuffle}>
-                  <Shuffle size={20} strokeWidth={1.5} />
-                  Shuffle
-                </button>
-              )
-              : undefined}
-            <Menu
-              label='Playlist actions'
-              align='start'
-              trigger={
-                <button type='button' className='round' aria-label='More actions'>
-                  <EllipsisVertical size={20} strokeWidth={1.5} />
-                </button>
-              }
-            >
-              <MenuItem icon={Share2} label='Share' onSelect={onShare} />
-              {/* no rename, privacy or delete rows: privacy only applies reliably at creation, see setPlaylistPrivacy in src/worker/schema.gql */}
-            </Menu>
+          <div className='side-content'>
+            {loadingInitial
+              ? <PlaylistSideSkeleton />
+              : (
+                <>
+                  <div className='cover'>
+                    {playlist?.thumbnail
+                      ? <img src={playlist.thumbnail} alt='' />
+                      : (
+                        <span className='cover-fallback'>
+                          <ListVideo size={48} strokeWidth={1.5} />
+                        </span>
+                      )}
+                  </div>
+                  <h1 className='heading'>{playlist?.title ?? 'Playlist'}</h1>
+                  {playlist?.channel
+                    ? (
+                      <Link href={`/channel/${playlist.channel.id}`} className='owner'>
+                        <span className={playlist.channel.avatar ? 'avatar' : 'avatar fallback'}>
+                          {playlist.channel.avatar
+                            ? <img src={playlist.channel.avatar} alt='' loading='lazy' />
+                            : playlist.channel.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span className='owner-name'>{playlist.channel.name}</span>
+                      </Link>
+                    )
+                    : undefined}
+                  {stats ? <div className='stats'>{stats}</div> : undefined}
+                  {playlist?.description
+                    ? <PlaylistDescription key={listId} description={playlist.description} />
+                    : undefined}
+                  <div className='actions'>
+                    {first
+                      ? (
+                        <Link
+                          href={watchHrefFor(first.video.id, { list: listId, index: first.index ?? undefined })}
+                          className='pill'
+                        >
+                          <Play size={20} strokeWidth={1.5} fill='currentColor' />
+                          Play all
+                        </Link>
+                      )
+                      : undefined}
+                    {rows.length > 1
+                      ? (
+                        <button type='button' className='pill secondary' onClick={onShuffle}>
+                          <Shuffle size={20} strokeWidth={1.5} />
+                          Shuffle
+                        </button>
+                      )
+                      : undefined}
+                    {/* no rename, privacy or delete controls: privacy only applies reliably at creation, see setPlaylistPrivacy in src/worker/schema.gql */}
+                    <button
+                      type='button'
+                      className='round'
+                      aria-label='Share'
+                      title='Share'
+                      onClick={onShare}
+                    >
+                      <Share2 size={20} strokeWidth={1.5} />
+                    </button>
+                  </div>
+                </>
+              )}
           </div>
         </aside>
         <div>
@@ -561,8 +836,15 @@ const PlaylistPage = () => {
                 </div>
               )
             })}
-            {fetching && rows.length === 0
-              ? Array.from({ length: SKELETON_ROWS }, (_, index) => <VideoCardCompactSkeleton key={index} />)
+            {(loadingInitial || fetching) && rows.length === 0
+              ? Array.from({ length: SKELETON_ROWS }, (_, index) => (
+                <div className='row-skeleton' key={index} aria-hidden='true'>
+                  <span className='number' />
+                  <div className='card'>
+                    <VideoCardCompactSkeleton />
+                  </div>
+                </div>
+              ))
               : undefined}
           </div>
           {data && !fetching && !error && rows.length === 0
