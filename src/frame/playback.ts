@@ -1,5 +1,6 @@
 import type { CaptionSource, TranslationLanguage } from './captions'
 import type { SegmentEnvelope, SegmentRequest } from './protocol'
+import type { LiveSessionCallbacks } from './sabr'
 
 import { getSabrSource } from './innertube'
 import { STREAM_REFUSED } from './protocol'
@@ -33,6 +34,33 @@ export type PlaybackEntry = {
 }
 
 const SEGMENT_CANCELLED = 'youtube: segment request cancelled'
+const LIVE_HANDOFF_WAIT_MS = 8_000
+
+const closeWaiters = new WeakMap<PlaybackEntry, Set<() => void>>()
+
+const notifyClose = (entry: PlaybackEntry) => {
+  const waiters = closeWaiters.get(entry)
+  if (!waiters) return
+  closeWaiters.delete(entry)
+  for (const notify of waiters) notify()
+}
+
+const setSegmentRecovery = (reason: string) => {
+  if (typeof document !== 'undefined') document.documentElement.dataset.segmentRecovery = reason
+}
+
+const refusalError = (reason: string) =>
+  new Error(`${STREAM_REFUSED} (${reason.replace(/^youtube: /, '')})`)
+
+const handleLiveRefresh = (entry: PlaybackEntry, session: SabrSession, reason: string) => {
+  if (entry.closed || entry.player !== session || entry.refreshing || entry.refused) return
+  if (session === entry.recovered) {
+    entry.refused ??= refusalError(reason)
+    return
+  }
+  setSegmentRecovery(reason)
+  void startRefresh(entry).catch(() => {})
+}
 
 /** Whether a failure is one the app or the frame asked for: a segment request it cancelled, or an abort. */
 export const isCancellation = (error: unknown) =>
@@ -41,11 +69,22 @@ export const isCancellation = (error: unknown) =>
 /** Reads the video's watch page, with a card's inline playback params when given, and opens a SABR session on it. */
 export const openPlaybackEntry = async (videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean) => {
   const source = await getSabrSource(videoId, playerParams)
+  const ref: { entry?: PlaybackEntry, session?: SabrSession } = {}
+  const player = source.isLive
+    ? createSabrSession(source, maxHeight, undefined, stableVolume, {
+        onLiveMedia: () => {
+          if (ref.entry && ref.session && ref.entry.player === ref.session) ref.entry.recovered = undefined
+        },
+        onLiveRefresh: (reason) => {
+          if (ref.entry && ref.session) handleLiveRefresh(ref.entry, ref.session, reason)
+        },
+      })
+    : createSabrSession(source, maxHeight, undefined, stableVolume)
   const entry: PlaybackEntry = {
     videoId,
     maxHeight,
     playerParams: source.playerParams,
-    player: createSabrSession(source, maxHeight, undefined, stableVolume),
+    player,
     chain: Promise.resolve(),
     serial: Promise.resolve(),
     requests: new Map(),
@@ -56,18 +95,22 @@ export const openPlaybackEntry = async (videoId: string, maxHeight?: number, pla
     translations: source.isLive ? [] : source.translations,
     mint: () => source.mint(),
   }
+  ref.entry = entry
+  ref.session = player
   return { source, entry }
 }
 
 /** Stops everything the entry has in flight, its refresh included, and closes its SABR session. */
 export const closePlaybackEntry = (entry: PlaybackEntry) => {
   entry.closed = true
+  notifyClose(entry)
   for (const controller of entry.requests.values()) controller.abort()
   entry.requests.clear()
   entry.player.close()
 }
 
-const refreshSession = async (entry: PlaybackEntry) => {
+// Returns true when a live replacement already delivered at least one media segment during handoff.
+const refreshSession = async (entry: PlaybackEntry): Promise<boolean> => {
   if (entry.closed) throw new Error('youtube: playback session closed during refresh')
   const previous = entry.player
   const videoKey = previous.videoFormat.key
@@ -76,8 +119,35 @@ const refreshSession = async (entry: PlaybackEntry) => {
   const audioMimeType = previous.audioFormat.mimeType
   const source = await getSabrSource(entry.videoId, entry.playerParams)
   if (entry.closed) throw new Error('youtube: playback session closed during refresh')
+  const isDrc = Boolean(previous.audioFormat.isDrc)
+  const nextRef: { session?: SabrSession } = {}
+  let nextDelivered = false
+  let nextRefusedReason: string | undefined
+  let settleHandoff: (() => void) | undefined
+  const liveCallbacks: LiveSessionCallbacks | undefined = source.isLive
+    ? {
+        onLiveMedia: () => {
+          nextDelivered = true
+          settleHandoff?.()
+          if (nextRef.session && entry.player === nextRef.session) entry.recovered = undefined
+        },
+        onLiveRefresh: (reason) => {
+          if (!nextRef.session || entry.closed) return
+          if (entry.player !== nextRef.session) {
+            nextRefusedReason = reason
+            settleHandoff?.()
+            return
+          }
+          handleLiveRefresh(entry, nextRef.session, reason)
+        },
+      }
+    : undefined
   // a new live session asked at 0 is answered at the oldest end of the DVR window, so it continues where this one got to
-  const next = createSabrSession(source, entry.maxHeight, source.isLive ? previous.liveEndMs : undefined, Boolean(previous.audioFormat.isDrc))
+  const liveFromMs = source.isLive && previous.liveEndMs > 0 ? previous.liveEndMs : undefined
+  const next = liveCallbacks
+    ? createSabrSession(source, entry.maxHeight, liveFromMs, isDrc, liveCallbacks)
+    : createSabrSession(source, entry.maxHeight, undefined, isDrc)
+  nextRef.session = next
   const videoFormat = next.videoFormats.find((format) => format.key === videoKey && format.mimeType === videoMimeType)
   const audioFormat = next.audioFormats.find((format) => format.key === audioKey && format.mimeType === audioMimeType)
   if (!videoFormat || !audioFormat) {
@@ -86,6 +156,38 @@ const refreshSession = async (entry: PlaybackEntry) => {
   }
   next.selectVideoFormat(videoFormat.key)
   next.selectAudioFormat(audioFormat.key)
+  if (source.isLive) {
+    next.startLivePump()
+    // Keep `previous` active while `next` fetches its first live segment so Shaka can keep reading cached segments.
+    if (next.liveSegments.length === 0 && !nextRefusedReason && !entry.closed) {
+      await new Promise<void>((resolve) => {
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          clearTimeout(timer)
+          closeWaiters.get(entry)?.delete(finish)
+          settleHandoff = undefined
+          resolve()
+        }
+        const timer = setTimeout(finish, LIVE_HANDOFF_WAIT_MS)
+        settleHandoff = finish
+        const waiters = closeWaiters.get(entry) ?? new Set<() => void>()
+        waiters.add(finish)
+        closeWaiters.set(entry, waiters)
+        if (entry.closed || next.liveSegments.length > 0 || nextRefusedReason) finish()
+      })
+    }
+    if (entry.closed) {
+      next.close()
+      throw new Error('youtube: playback session closed during refresh')
+    }
+    if (nextRefusedReason !== undefined && next.liveSegments.length === 0) {
+      next.close()
+      entry.refused ??= refusalError(nextRefusedReason)
+      throw entry.refused
+    }
+  }
   previous.close()
   entry.player = next
   if (!source.isLive) {
@@ -93,8 +195,19 @@ const refreshSession = async (entry: PlaybackEntry) => {
     entry.translations = source.translations
   }
   entry.mint = () => source.mint()
-  next.startLivePump()
+  return nextDelivered
 }
+
+const startRefresh = (entry: PlaybackEntry) =>
+  entry.refreshing ??= (async () => {
+    let delivered = false
+    try {
+      delivered = await refreshSession(entry)
+    } finally {
+      entry.refreshing = undefined
+      entry.recovered = delivered ? undefined : entry.player
+    }
+  })()
 
 /**
  * One segment of the entry's video. A session that fails with a refresh error (status 2 or 3 through its retries, an
@@ -131,19 +244,18 @@ export const requestPlaybackSegment = (
       return segment
     } catch (error) {
       assertActive()
+      // A background live refresh replaced `player` while this request was waiting on it; retry on the new session.
+      if (entry.player !== player) return attempt()
       if (!isSabrSessionRefreshError(error)) throw error
       if (player === entry.recovered) {
-        entry.refused ??= new Error(`${STREAM_REFUSED} (${error.message.replace(/^youtube: /, '')})`)
+        entry.refused ??= refusalError(error.message)
         throw entry.refused
       }
-      document.documentElement.dataset.segmentRecovery = error.message
+      setSegmentRecovery(error.message)
       progress('session-refresh')
       // refresh only if the player that failed is still current, or a stale failure disposes a fresh session
       if (entry.player === player) {
-        await (entry.refreshing ??= refreshSession(entry).finally(() => {
-          entry.refreshing = undefined
-          entry.recovered = entry.player
-        })).catch((failure: unknown) => {
+        await startRefresh(entry).catch((failure: unknown) => {
           assertActive()
           throw failure
         })

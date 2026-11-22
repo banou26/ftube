@@ -318,13 +318,25 @@ const extractMoovInit = (data: Uint8Array): Uint8Array | undefined => {
 // rangeless (live) only: a VOD range answer ends with a sidx that cutting at moov would drop
 const initSegmentPrefix = (data: Uint8Array) => extractMoovInit(data) ?? data
 
+/** Callbacks a live SABR session uses to notify its owner of delivered media and session-level refusals. */
+export type LiveSessionCallbacks = {
+  onLiveMedia?: () => void
+  onLiveRefresh?: (reason: string) => void
+}
+
 /**
  * One SABR playback session over a source.
  *
  * `liveFromMs` is where a live session starts asking: a refreshed session passes the previous session's timeline end so
  * it continues there. Without it, the first answer's LIVE_METADATA decides the start, a few segments behind the head.
  */
-export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFromMs?: number, stableVolume = false) => {
+export const createSabrSession = (
+  source: SabrSource,
+  maxHeight = 1_080,
+  liveFromMs?: number,
+  stableVolume = false,
+  callbacks?: LiveSessionCallbacks,
+) => {
   const videoFormats = source.playbackFormats.filter((format) => format.width && format.height)
   const audioFormats = source.playbackFormats.filter((format) => !format.width)
   const initialVideoFormat = videoFormats
@@ -511,6 +523,7 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
       mediaCacheBytes -= oldest[1].data.byteLength
     }
     notifyCacheChange()
+    if (source.isLive && cached.sequenceNumber !== undefined) callbacks?.onLiveMedia?.()
   }
 
   const findCachedSequence = (track: 'audio' | 'video', formatKey: string, sequenceNumber: number) => {
@@ -794,10 +807,17 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
   }
 
   let livePump: Promise<void> | undefined
+  let livePumpStopped = false
   // a position the server keeps answering with no media
   let refused: { atMs: number, count: number } | undefined
 
+  const stopLivePumpForRefresh = (reason: string) => {
+    livePumpStopped = true
+    if (!closeController.signal.aborted) callbacks?.onLiveRefresh?.(reason)
+  }
+
   const runLivePump = async () => {
+    let protectionRefusals = 0
     while (!closeController.signal.aborted) {
       try {
         const filing = activeHarvest
@@ -821,12 +841,29 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
           closeController.signal,
         )
         await activeHarvest?.done
+        if (closeController.signal.aborted) return
         if (liveEndMs() > fromMs) {
           refused = undefined
+          protectionRefusals = 0
           continue
         }
         if (!response.data?.byteLength) {
-          await recoverFor(response.metadata.streamInfo?.streamProtectionStatus?.status)
+          const streamInfo = response.metadata.streamInfo
+          if (streamInfo?.reloadPlaybackContext) {
+            stopLivePumpForRefresh(describeNoMedia(response))
+            return
+          }
+          const streamStatus = streamInfo?.streamProtectionStatus?.status
+          if (streamStatus === 3 || streamStatus === 2) {
+            const canRecover = protectionRefusals === 0 && (streamStatus === 3 || !replacedOnStatus2)
+            if (canRecover) {
+              protectionRefusals += 1
+              await recoverFor(streamStatus)
+              continue
+            }
+            stopLivePumpForRefresh(describeNoMedia(response))
+            return
+          }
           refused = refused?.atMs === fromMs ? { atMs: fromMs, count: refused.count + 1 } : { atMs: fromMs, count: 1 }
           /* measured 2026-11-06: a position answered "backoff, no media" again once the head is past it stays refused
              for good, to a new SABR session too (7 and 11 reopened sessions in a row), while the next one is served. Every
@@ -840,15 +877,19 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
         }
         // never asked again at once: the adapter already waits out the server's own backoff before its next request
         await wait(Math.round(targetDurationMs / 2), closeController.signal)
-      } catch {
+      } catch (error) {
         if (closeController.signal.aborted) return
+        if (isSabrSessionRefreshError(error)) {
+          stopLivePumpForRefresh(error.message)
+          return
+        }
         await wait(1_000, closeController.signal).catch(() => {})
       }
     }
   }
 
   const ensureLivePump = () => {
-    if (!source.isLive || livePump || closeController.signal.aborted) return
+    if (!source.isLive || livePump || livePumpStopped || closeController.signal.aborted) return
     livePump = runLivePump().finally(() => {
       livePump = undefined
     })
@@ -1052,28 +1093,32 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
       }
       const awaitLiveSequence = async (sequenceNumber: number): Promise<SegmentEnvelope> => {
         const deadline = Date.now() + LIVE_SEGMENT_WAIT_MS
+        const fetchSignal = signal ? AbortSignal.any([signal, closeController.signal]) : closeController.signal
         ensureLivePump()
         let fetches = 0
         // an address answered with no media is asked once more, which names the ad cuepoint the answer announced
         let allowed = 1
         for (;;) {
+          if (closeController.signal.aborted) throw closeController.signal.reason
           // captured BEFORE the lookup: a segment can land between the miss and the await
           const changed = cacheChange
           const cached = getCachedSegment()
           if (cached) return cached
+          const harvest = activeHarvest
+          if (harvest?.formatKeys.has(format.key)) {
+            progress('live-wait')
+            await withAbort(Promise.race([changed, harvest.done]), fetchSignal)
+            continue
+          }
           /* behind what the pump has reached, so the pump will never bring it in this format: listed because another
              format or the other track delivered it (Shaka opening on its own pick, a quality switch), or older than a
              refreshed session's start. The server answers it by its address. */
           const addressMs = liveTimeline.get(sequenceNumber)?.startMs
             ?? (request.startTimeMs < liveEndMs() ? request.startTimeMs : undefined)
           if (addressMs !== undefined && fetches < allowed) {
-            const harvest = activeHarvest
-            if (harvest?.formatKeys.has(format.key)) {
-              progress('live-wait')
-              await withAbort(Promise.race([changed, harvest.done]), signal)
-              continue
-            }
             fetches += 1
+            // Clear stale buffered-range metadata so SabrStreamingAdapter does not advertise a newer segment when backfilling an older one.
+            resetBufferTracking([format.key])
             progress('live-fetch')
             const response = await execute(
               `sabr://${request.track}?key=${encodeURIComponent(format.key)}`,
@@ -1082,7 +1127,7 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
               false,
               request.generation,
               progress,
-              signal,
+              fetchSignal,
             )
             if (!response.data?.byteLength) {
               await recoverFor(response.metadata.streamInfo?.streamProtectionStatus?.status)
@@ -1102,7 +1147,7 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
             throw new Error(`youtube: live segment ${sequenceNumber} did not arrive in time`)
           }
           progress('live-wait')
-          await withAbort(changed, signal)
+          await withAbort(changed, fetchSignal)
         }
       }
       if (request.kind === 'media' && request.sequenceNumber !== undefined) {
@@ -1167,6 +1212,7 @@ export const createSabrSession = (source: SabrSource, maxHeight = 1_080, liveFro
       void cancelActiveHarvest()
       mediaCache.clear()
       mediaCacheBytes = 0
+      notifyCacheChange()
       adapter.dispose()
     },
   }

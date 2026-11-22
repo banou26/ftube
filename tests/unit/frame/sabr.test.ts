@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { MediaHeader, StreamProtectionStatus, UMPPartId, VideoPlaybackAbrRequest } from 'googlevideo/protos'
+import { BinaryWriter, WireType } from '@bufbuild/protobuf/wire'
+import { LiveMetadata, MediaHeader, NextRequestPolicy, ReloadPlaybackContext, StreamProtectionStatus, UMPPartId, VideoPlaybackAbrRequest } from 'googlevideo/protos'
 import type { SabrSource } from '../../../src/frame/innertube'
 import type { SegmentRequest } from '../../../src/frame/protocol'
 import { egressFetch } from '../../../src/frame/egress'
-import { createSabrSession, createUmpFramer, createUmpSegmentCollector, inspectUmpChunks } from '../../../src/frame/sabr'
+import { createSabrSession, createUmpFramer, createUmpSegmentCollector, inspectUmpChunks, LIVE_HEAD_MS } from '../../../src/frame/sabr'
 
 vi.mock('../../../src/frame/egress', () => ({ egressFetch: vi.fn() }))
 vi.mock('../../../src/frame/innertube', () => ({ GVS_ORIGIN_KEY: 'gvs-origin' }))
@@ -319,6 +320,287 @@ describe('a multi-track and DRC SABR session', () => {
     expect(requests[3]?.clientAbrState?.audioTrackId).toBe('en-US.4')
     expect(requests[3]?.clientAbrState?.drcEnabled).toBe(false)
     expect(requests[3]?.bufferedRanges.some((range) => range.formatId?.itag === 251)).toBe(false)
+    session.close()
+  })
+})
+
+describe('live pump refresh detection and backfill buffer tracking', () => {
+  const HEAD = 1_000
+  const startMsOf = (sequence: number) => sequence * 5_000
+  const video134 = { itag: 134, lastModified: '1', width: 640, height: 360, mimeType: 'video/mp4; codecs="avc1.4d401e"', bitrate: 1, approxDurationMs: 0 }
+  const audio140 = { itag: 140, lastModified: '1', mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 1, approxDurationMs: 0 }
+  const recoverMint = vi.fn(async () => {})
+  const liveSource: SabrSource = {
+    videoId: 'live-refresh-1',
+    isLive: true,
+    durationMs: 0,
+    manifest: '',
+    streamingUrl: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=1',
+    ustreamerConfig: 'AA==',
+    formats: [video134, audio140],
+    playbackFormats: [
+      { key: '134:', itag: 134, mimeType: video134.mimeType, bitrate: 1, width: 640, height: 360, targetDurationMs: 5_000 },
+      { key: '140:', itag: 140, mimeType: audio140.mimeType, bitrate: 1, targetDurationMs: 5_000 },
+    ],
+    storyboards: [],
+    captions: [],
+    translations: [],
+    endScreen: [],
+    clientInfo: { clientName: 1, clientVersion: '2.20261008.00.00' },
+    mint: async () => 'AAAA',
+    recoverMint,
+  }
+  const snapshot = { currentTimeMs: 0, playbackRate: 1, bandwidthEstimate: 10_000_000, viewportWidth: 1_280, viewportHeight: 720 }
+
+  const liveMediaResponse = (sequence: number, itags: number[] = [134, 140], headSeq = Math.max(HEAD, sequence)) => {
+    const parts: Uint8Array[] = [
+      part(UMPPartId.LIVE_METADATA, LiveMetadata.encode({
+        headSequenceNumber: String(headSeq),
+        headTimeMs: String(startMsOf(headSeq)),
+        minSeekableTimeTicks: String(startMsOf(headSeq - 100) * 1_000),
+        minSeekableTimescale: 1_000_000,
+      }).finish()),
+    ]
+    itags.forEach((itag, headerId) => {
+      const payload = [itag & 0xff, sequence & 0xff, (sequence >> 8) & 0xff, 1]
+      parts.push(part(UMPPartId.MEDIA_HEADER, MediaHeader.encode({
+        headerId,
+        itag,
+        formatId: { itag, lastModified: '1' },
+        sequenceNumber: sequence,
+        startMs: String(startMsOf(sequence)),
+        durationMs: '5000',
+        contentLength: String(payload.length),
+      }).finish()))
+      parts.push(part(UMPPartId.MEDIA, [headerId, ...payload]))
+      parts.push(part(UMPPartId.MEDIA_END, [headerId]))
+    })
+    return new Response(join(parts))
+  }
+
+  const statusResponse = (status: number) =>
+    new Response(part(UMPPartId.STREAM_PROTECTION_STATUS, StreamProtectionStatus.encode({ status }).finish()))
+
+  const cuepointListPayload = (id: string, sequence: number) => new BinaryWriter()
+    .tag(1, WireType.LengthDelimited).fork()
+    .tag(1, WireType.LengthDelimited).fork()
+    .tag(1, WireType.Varint).int32(1)
+    .tag(2, WireType.Varint).int32(1)
+    .tag(3, WireType.Bit64).double(60)
+    .tag(4, WireType.Bit64).double(0)
+    .tag(6, WireType.LengthDelimited).string(id)
+    .join()
+    .tag(2, WireType.Varint).int32(2)
+    .tag(3, WireType.Varint).int32(sequence)
+    .tag(4, WireType.LengthDelimited).fork()
+    .tag(1, WireType.Varint).int64(startMsOf(sequence) * 90)
+    .tag(3, WireType.Varint).int32(90_000)
+    .join()
+    .join()
+    .finish()
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+    recoverMint.mockClear()
+    vi.mocked(egressFetch).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('calls onLiveRefresh after consecutive status 3 refusals without skipping liveStartMs or looping BotGuard', async () => {
+    const onLiveRefresh = vi.fn()
+    const onLiveMedia = vi.fn()
+    let calls = 0
+    vi.mocked(egressFetch).mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return liveMediaResponse(HEAD)
+      return statusResponse(3)
+    })
+
+    const session = createSabrSession(liveSource, 360, startMsOf(HEAD), false, { onLiveMedia, onLiveRefresh })
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(onLiveMedia).toHaveBeenCalled()
+    expect(recoverMint).toHaveBeenCalledTimes(1)
+    expect(onLiveRefresh).toHaveBeenCalledExactlyOnceWith('SABR stream status 3')
+    expect(session.liveEndMs).toBe(startMsOf(HEAD + 1))
+    expect(calls).toBe(3)
+
+    // Calling startLivePump again after a session-level refusal must not restart the dead pump
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(calls).toBe(3)
+    session.close()
+  })
+
+  it('calls onLiveRefresh immediately on reloadPlaybackContext and HTTP refresh errors', async () => {
+    for (const [label, failResponse, expected] of [
+      [
+        'reloadPlaybackContext',
+        () => new Response(part(UMPPartId.RELOAD_PLAYER_RESPONSE, ReloadPlaybackContext.encode({ reloadPlaybackParams: { token: 'reload-1' } }).finish())),
+        'SABR player reload requested',
+      ],
+      [
+        'HTTP 503',
+        () => new Response('', { status: 503 }),
+        'youtube: segment returned 503',
+      ],
+      [
+        'persistent HTTP 403',
+        () => new Response('', { status: 403 }),
+        'youtube: segment returned 403',
+      ],
+    ] as const) {
+      recoverMint.mockClear()
+      const onLiveRefresh = vi.fn()
+      let calls = 0
+      vi.mocked(egressFetch).mockReset().mockImplementation(async () => {
+        calls += 1
+        if (calls === 1) return liveMediaResponse(HEAD)
+        return failResponse()
+      })
+      const session = createSabrSession(liveSource, 360, startMsOf(HEAD), false, { onLiveRefresh })
+      session.startLivePump()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(onLiveRefresh, label).toHaveBeenCalledExactlyOnceWith(expected)
+      session.close()
+    }
+  })
+
+  it('recovers from a single status 3 without calling onLiveRefresh and resets the counter after media', async () => {
+    const onLiveRefresh = vi.fn()
+    let calls = 0
+    vi.mocked(egressFetch).mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return liveMediaResponse(HEAD, [134, 140], HEAD + 3)
+      if (calls === 2) return statusResponse(3)
+      if (calls === 3) return liveMediaResponse(HEAD + 1, [134, 140], HEAD + 3)
+      if (calls === 4) return statusResponse(3)
+      if (calls === 5) return liveMediaResponse(HEAD + 2, [134, 140], HEAD + 3)
+      return new Promise(() => {})
+    })
+
+    const session = createSabrSession(liveSource, 360, startMsOf(HEAD), false, { onLiveRefresh })
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(recoverMint).toHaveBeenCalledTimes(2)
+    expect(onLiveRefresh).not.toHaveBeenCalled()
+    expect(session.liveSegments.map((segment) => segment.sequenceNumber)).toEqual([HEAD, HEAD + 1, HEAD + 2])
+    session.close()
+  })
+
+  it('calls onLiveRefresh on a later status 2 after replacedOnStatus2 already ran', async () => {
+    const onLiveRefresh = vi.fn()
+    let calls = 0
+    vi.mocked(egressFetch).mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return liveMediaResponse(HEAD, [134, 140], HEAD + 2)
+      if (calls === 2) return statusResponse(2)
+      if (calls === 3) return liveMediaResponse(HEAD + 1, [134, 140], HEAD + 2)
+      return statusResponse(2)
+    })
+
+    const session = createSabrSession(liveSource, 360, startMsOf(HEAD), false, { onLiveRefresh })
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(recoverMint).toHaveBeenCalledTimes(1)
+    expect(onLiveRefresh).toHaveBeenCalledExactlyOnceWith('SABR stream status 2')
+    session.close()
+  })
+
+  it('does not call onLiveRefresh on an ad cuepoint refusal', async () => {
+    const onLiveRefresh = vi.fn()
+    let calls = 0
+    vi.mocked(egressFetch).mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return liveMediaResponse(HEAD, [134, 140], HEAD + 2)
+      if (calls === 2) {
+        return new Response(join([
+          part(UMPPartId.LIVE_METADATA, LiveMetadata.encode({
+            headSequenceNumber: String(HEAD + 2),
+            headTimeMs: String(startMsOf(HEAD + 2)),
+            minSeekableTimeTicks: String(startMsOf(HEAD - 100) * 1_000),
+            minSeekableTimescale: 1_000_000,
+          }).finish()),
+          part(UMPPartId.NEXT_REQUEST_POLICY, NextRequestPolicy.encode({ backoffTimeMs: 500 }).finish()),
+          part(69, cuepointListPayload('cue-1', HEAD + 1)),
+        ]))
+      }
+      if (calls === 3) return liveMediaResponse(HEAD + 1, [134, 140], HEAD + 2)
+      return new Promise(() => {})
+    })
+
+    const session = createSabrSession(liveSource, 360, startMsOf(HEAD), false, { onLiveRefresh })
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(onLiveRefresh).not.toHaveBeenCalled()
+    expect(session.liveSegments.map((segment) => segment.sequenceNumber)).toEqual([HEAD, HEAD + 1])
+    session.close()
+  })
+
+  it('clears stale buffer tracking before backfilling a missing live segment behind newest', async () => {
+    const requests: ReturnType<typeof VideoPlaybackAbrRequest.decode>[] = []
+    let pumpCalls = 0
+    vi.mocked(egressFetch).mockImplementation(async (_url, init) => {
+      const decoded = VideoPlaybackAbrRequest.decode(new Uint8Array(init?.body as ArrayBuffer))
+      requests.push(decoded)
+      const isAudio = decoded.clientAbrState?.enabledTrackTypesBitfield === 1
+      const playerTimeMs = Number(decoded.clientAbrState?.playerTimeMs ?? 0)
+      if (!isAudio && playerTimeMs === LIVE_HEAD_MS) {
+        return liveMediaResponse(HEAD - 2, [134, 140], HEAD)
+      }
+      if (!isAudio) {
+        pumpCalls += 1
+        // Simulate a missing audio segment at HEAD - 1 while video + audio land for HEAD
+        if (pumpCalls === 1) return liveMediaResponse(HEAD - 1, [134], HEAD)
+        if (pumpCalls === 2) return liveMediaResponse(HEAD, [134, 140], HEAD)
+        return new Promise(() => {})
+      }
+      // Backfill request for audio HEAD - 1: reject if client still advertises a bufferedRange for audio (140)
+      const staleAudioRange = decoded.bufferedRanges.some((range) => range.formatId?.itag === 140)
+      if (staleAudioRange) return new Response(new Uint8Array())
+      return liveMediaResponse(HEAD - 1, [140], HEAD)
+    })
+
+    const session = createSabrSession(liveSource, 360)
+    await session.requestSegment({
+      requestId: 'open',
+      sessionId: 's',
+      generation: 0,
+      track: 'video',
+      kind: 'media',
+      formatKey: '134:',
+      startTimeMs: LIVE_HEAD_MS,
+      snapshot,
+    })
+    session.startLivePump()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(session.liveSegments.map((segment) => segment.sequenceNumber)).toEqual([HEAD - 2, HEAD - 1, HEAD])
+
+    // Audio has HEAD - 2 and HEAD cached (newest = HEAD), so HEAD - 1 is behind newest and must backfill cleanly
+    const audioBackfill = await session.requestSegment({
+      requestId: 'backfill-audio',
+      sessionId: 's',
+      generation: 0,
+      track: 'audio',
+      kind: 'media',
+      formatKey: '140:',
+      sequenceNumber: HEAD - 1,
+      startTimeMs: startMsOf(HEAD - 1),
+      snapshot,
+    })
+    expect(audioBackfill.sequenceNumber).toBe(HEAD - 1)
+    const audioReq = requests.find((request) => request.clientAbrState?.enabledTrackTypesBitfield === 1)
+    expect(audioReq).toBeDefined()
+    expect(audioReq?.bufferedRanges.some((range) => range.formatId?.itag === 140)).toBe(false)
     session.close()
   })
 })

@@ -84,10 +84,16 @@ const api = {
   openPlayback: async (videoId, maxHeight, playerParams, stableVolume) => {
     const id = `playback:${++sessionId}`
     const { source, entry } = await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume)
+    let manifest: string
+    try {
+      manifest = source.isLive
+        ? await openLiveManifest(entry.player, { sessionId: id, videoId, manifestFor: () => liveManifestFor(entry) })
+        : entry.player.manifest
+    } catch (error) {
+      closePlaybackEntry(entry)
+      throw error
+    }
     const player = entry.player
-    const manifest = source.isLive
-      ? await openLiveManifest(player, { sessionId: id, videoId, manifestFor: () => liveManifestFor(entry) })
-      : player.manifest
     sessions.set(id, entry)
     return {
       id,
