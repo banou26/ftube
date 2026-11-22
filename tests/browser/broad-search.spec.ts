@@ -106,6 +106,8 @@ test('a broad search shows the topic card in a right column, dropped below 1091p
 
   await expect(topic.getByRole('link', { name: 'Minecraft Video game • Released: 2009', exact: true }))
     .toHaveAttribute('href', '/channel/UCQvWX73GQygcwXOTSf_VDVg')
+  await expect(topic.locator('.topic-avatar')).toHaveCount(0)
+  await expect(topic.getByRole('button', { name: 'Subscribe' })).toHaveCount(0)
   await expect(topic.getByRole('heading', { name: 'Minecraft', exact: true })).toHaveCSS('font-size', '18px')
   await expect(topic.getByRole('link', { name: 'Introducing Minecraft Realms Pro Minecraft • 170K • 11h ago', exact: true }))
     .toHaveAttribute('href', '/watch?v=8JGY7vGkMX0')
@@ -129,4 +131,42 @@ test('a broad search shows the topic card in a right column, dropped below 1091p
   await expect(topic).toBeHidden()
   await page.setViewportSize({ width: 412, height: 900 })
   await expect(topic).toBeHidden()
+})
+
+test('a channel search shows the topic card avatar and Subscribe button and styles the shelf expand button', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/results?search_query=mkbhd')
+
+  const topic = page.getByRole('complementary', { name: 'Marques Brownlee', exact: true })
+  await expect(topic).toBeVisible({ timeout: 120_000 })
+
+  const head = topic.locator('.topic-head')
+  const avatar = head.locator('.topic-avatar')
+  await expect(avatar).toBeVisible()
+  await expect(avatar).toHaveCSS('border-radius', '50%')
+  expect(await avatar.boundingBox()).toMatchObject({ width: 64, height: 64 })
+  await expect(avatar.locator('img')).toHaveAttribute('src', /^https:\/\//)
+
+  await expect(head.locator('a.topic-head-link')).toHaveAttribute('href', '/channel/UCBJycsmduvYEL83R_U4JriQ')
+  await expect(head.locator('[data-badge="verified"]')).toBeVisible()
+  await expect(head.getByText('@mkbhd', { exact: true })).toBeVisible()
+
+  const subscribe = head.getByRole('button', { name: 'Subscribe', exact: true })
+  await expect(subscribe).toBeVisible()
+  expect(await subscribe.evaluate(button => button.closest('a'))).toBeNull()
+
+  const latest = page.getByRole('region', { name: 'Latest from Marques Brownlee' })
+  await expect(latest).toBeVisible()
+  const rows = latest.locator('article.result')
+  const shown = await rows.count()
+  const fold = latest.getByRole('button', { name: /^\+\d+ More$/ })
+  await expect(fold).toBeVisible()
+  await expect(fold).toHaveCSS('border-top-width', '1px')
+  await expect(fold).toHaveCSS('border-radius', '18px')
+  await expect(fold.locator('svg')).toBeVisible()
+  const hidden = Number((await fold.textContent())!.match(/\d+/)![0])
+  await fold.click()
+  await expect(rows).toHaveCount(shown + hidden)
+  await expect(fold).toHaveCount(0)
 })

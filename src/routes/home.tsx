@@ -152,19 +152,29 @@ const style = css`
   }
 
   .empty {
-    max-width: 56rem;
+    max-width: 60rem;
     margin: 4.8rem auto 0;
-    padding: 2.4rem;
+    padding: 2.4rem 3.2rem;
+    border: 1px solid var(--border-subtle);
     border-radius: 1.2rem;
     background: var(--bg-subtle);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
     text-align: center;
   }
 
   .empty h2 {
     margin: 0;
-    font-size: 2rem;
+    font-size: 2.4rem;
     font-weight: 700;
+    line-height: 3.2rem;
     color: var(--text-primary);
+  }
+
+  .empty p {
+    margin: 1.2rem 0 0;
+    font-size: 1.4rem;
+    line-height: 2rem;
+    color: var(--text-secondary);
   }
 `
 
@@ -291,6 +301,7 @@ const HomePage = () => {
           ? (
             <div className='empty'>
               <h2>Try searching to get started</h2>
+              <p>Start watching videos to help us build a feed of videos you'll love.</p>
             </div>
           )
           : <p className='notice'>No videos under this filter.</p>

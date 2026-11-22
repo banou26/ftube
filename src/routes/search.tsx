@@ -3,7 +3,7 @@ import type { SearchResultsQuery, SearchVideoFragment } from '../generated/graph
 import type { TargetedPointerEvent } from 'preact'
 
 import { css } from '@emotion/react'
-import { ListVideo, SlidersHorizontal, X } from 'lucide-react'
+import { ChevronDown, ListVideo, SlidersHorizontal, X } from 'lucide-react'
 import { useCallback, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -93,6 +93,10 @@ const SEARCH_RESULTS_QUERY = gql(`
         title
         subtitle
         channelId
+        avatar
+        isChannel
+        isVerified
+        isVerifiedArtist
         hero { id title thumbnail subtitle }
         videos { id title thumbnail durationSeconds subtitle scheduledAt channel { id name } }
       }
@@ -446,17 +450,37 @@ const style = css`
     }
   }
 
+  .shelf-more-row {
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+    margin-top: 0.4rem;
+  }
+
+  .shelf-more-row::before,
+  .shelf-more-row::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-subtle);
+  }
+
   .shelf-more {
-    display: block;
-    margin: 0 auto;
-    padding: 0.8rem 1.6rem;
-    border: none;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    height: 3.6rem;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-subtle);
     border-radius: 1.8rem;
     background: transparent;
-    color: var(--text-secondary);
-    font-size: 1.2rem;
+    color: var(--text-primary);
+    font-size: 1.4rem;
     font-weight: 500;
     cursor: pointer;
+    transition: background 0.15s ease;
   }
 
   .shelf-more:hover {
@@ -824,7 +848,14 @@ const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
       <h2 className='shelf-heading'>{shelf.title}</h2>
       {shown.map(video => <VideoRow key={video.id} row={video} />)}
       {hidden > 0
-        ? <button type='button' className='shelf-more' onClick={() => setExpanded(true)}>+{hidden} More</button>
+        ? (
+          <div className='shelf-more-row'>
+            <button type='button' className='shelf-more' onClick={() => setExpanded(true)}>
+              +{hidden} More
+              <ChevronDown size={18} strokeWidth={1.5} aria-hidden='true' />
+            </button>
+          </div>
+        )
         : undefined}
     </section>
   )
@@ -860,6 +891,10 @@ const SearchPage = () => {
   // shown until the first page says upstream has none, so the row does not shift on most searches
   const unwatchedChip = (pages[0] ?? page)?.unwatchedChip ?? true
   const topic = (pages[0] ?? page)?.topic
+  const topicChannel = topic
+    ? items.find((row): row is Extract<SearchRow, { __typename: 'Channel' }> =>
+        row.__typename === 'Channel' && row.id === topic.channelId)
+    : undefined
 
   const onMore = () => {
     if (!page?.cursor || fetching || error) return
@@ -1011,7 +1046,17 @@ const SearchPage = () => {
             ? Array.from({ length: PLACEHOLDER_ROWS }, (_, index) => <ResultPlaceholder key={index} />)
             : undefined}
         </div>
-        {topic ? <div className='topic'><TopicCard topic={topic} /></div> : undefined}
+        {topic
+          ? (
+            <div className='topic'>
+              <TopicCard
+                topic={topic}
+                subscribed={topicChannel?.isSubscribed}
+                notificationLevel={topicChannel?.notificationLevel}
+              />
+            </div>
+          )
+          : undefined}
       </div>
       {query.length > 0 && !fetching && !error && items.length === 0
         ? <p className='status'>No results found.</p>

@@ -70,6 +70,10 @@ const answer = {
       title: 'Minecraft',
       subtitle: 'Video game • Released: 2009',
       channelId: 'UCQvWX73GQygcwXOTSf_VDVg',
+      avatar: null,
+      isChannel: null,
+      isVerified: null,
+      isVerifiedArtist: null,
       hero: { __typename: 'TopicVideo', id: '8JGY7vGkMX0', title: 'Introducing Minecraft Realms Pro', thumbnail: null, subtitle: 'Minecraft • 170K • 11h ago' },
       videos: [
         topicVideo('FA_rn1PKtZY', 'The POW Show: Challenges & Trivia', { durationSeconds: null, subtitle: null, scheduledAt: '2026-11-16T00:00:00.000Z' }),

@@ -221,14 +221,20 @@ type TopicVideo {
   scheduledAt: String
 }
 
-# The card youtube.com puts in the right column of a broad search, a game for
-# one: the topic, its newest video and a few more.
+# The card youtube.com puts in the right column of a broad search, a game or
+# channel for one: the topic, its newest video and a few more.
 type SearchTopic {
   title: String!
-  # 'Video game • Released: 2009'.
+  # 'Video game • Released: 2009' or '@mkbhd'.
   subtitle: String
   # The topic's own channel, which the title and View all open.
   channelId: ID!
+  avatar: String
+  # True when the card heads a channel rather than a game or league, so it shows
+  # a Subscribe control in the header.
+  isChannel: Boolean
+  isVerified: Boolean
+  isVerifiedArtist: Boolean
   hero: TopicVideo
   videos: [TopicVideo!]!
 }

@@ -4,7 +4,7 @@ import { Parser, YTNodes } from 'youtubei.js'
 
 import type { AccountRowFixture } from '../../fixtures/accounts-list'
 
-import { normalizeChannel, normalizeChannelAbout, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist } from '../../../../src/sources/youtube/normalize'
+import { normalizeChannel, normalizeChannelAbout, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist } from '../../../../src/sources/youtube/normalize'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../../fixtures/accounts-list'
 
 // the AccountItem nodes youtubei.js parses out of a WEB accounts_list answer, as the source's session read takes them
@@ -1122,5 +1122,54 @@ describe('the watch comment count', () => {
       ],
     }, 'short1')
     expect(meta?.commentCountText).toBe('330')
+  })
+})
+
+describe('search topic cards', () => {
+  const watchCard = (header: Record<string, unknown>) => Parser.parseItem({
+    universalWatchCardRenderer: { header: { watchCardRichHeaderRenderer: header } },
+  } as never)
+
+  it('reads a channel header avatar, verified badge and channel flag off WatchCardRichHeader', () => {
+    const card = watchCard({
+      title: { simpleText: 'Marques Brownlee' },
+      titleNavigationEndpoint: { browseEndpoint: { browseId: 'UCBJycsmduvYEL83R_U4JriQ' } },
+      subtitle: { simpleText: '@mkbhd' },
+      avatar: { thumbnails: [{ url: 'https://yt3.ggpht.com/mkbhd=s176-c-k-c0x00ffffff-no-rj', width: 40, height: 40 }] },
+      titleBadge: { metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_VERIFIED', icon: { iconType: 'CHECK_CIRCLE_THICK' } } },
+      style: 'WATCH_CARD_RICH_HEADER_RENDERER_STYLE_LEFT_AVATAR',
+    })
+    expect(normalizeSearchTopic(card)).toEqual({
+      title: 'Marques Brownlee',
+      subtitle: '@mkbhd',
+      channelId: 'UCBJycsmduvYEL83R_U4JriQ',
+      avatar: 'https://yt3.ggpht.com/mkbhd=s176-c-k-c0x00ffffff-no-rj',
+      isChannel: true,
+      isVerified: true,
+      isVerifiedArtist: undefined,
+      hero: undefined,
+      videos: [],
+    })
+  })
+
+  it('keeps a right-avatar topic card without marking it as a channel and normalizes protocol-relative avatars', () => {
+    const league = watchCard({
+      title: { simpleText: 'NBA' },
+      titleNavigationEndpoint: { browseEndpoint: { browseId: 'UCWJ2lWNubArHWmf3FIHbfcQ' } },
+      subtitle: { simpleText: 'League' },
+      avatar: { thumbnails: [{ url: '//ssl.gstatic.com/onebox/media/sports/logos/nba.png', width: 40, height: 40 }] },
+      style: 'WATCH_CARD_RICH_HEADER_RENDERER_STYLE_RIGHT_AVATAR',
+    })
+    expect(normalizeSearchTopic(league)).toEqual({
+      title: 'NBA',
+      subtitle: 'League',
+      channelId: 'UCWJ2lWNubArHWmf3FIHbfcQ',
+      avatar: 'https://ssl.gstatic.com/onebox/media/sports/logos/nba.png',
+      isChannel: undefined,
+      isVerified: undefined,
+      isVerifiedArtist: undefined,
+      hero: undefined,
+      videos: [],
+    })
   })
 })

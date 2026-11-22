@@ -188,13 +188,18 @@ export type SourceTopicVideo = {
   scheduledAt?: string
 }
 
-// The card youtube.com puts in the right column of a broad search, a game for one: the topic, its newest video and more
+// The card youtube.com puts in the right column of a broad search, a game or channel for one: the topic, its newest video and more
 export type SourceSearchTopic = {
   title: string
-  // 'Video game • Released: 2009'
+  // 'Video game • Released: 2009' or '@mkbhd'
   subtitle?: string
   // the topic's own channel, which the title and View all open
   channelId: string
+  avatar?: string
+  // true when the header is a channel card (left avatar and Subscribe) rather than a game or league topic
+  isChannel?: boolean
+  isVerified?: boolean
+  isVerifiedArtist?: boolean
   hero?: SourceTopicVideo
   videos: SourceTopicVideo[]
 }

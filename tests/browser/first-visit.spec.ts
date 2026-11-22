@@ -68,6 +68,9 @@ test('an empty Home has no lone All chip, and a Home with filters keeps All firs
 
   const empty = page.locator('[data-home-harness="empty"]')
   await expect(empty.getByRole('heading', { name: 'Try searching to get started' })).toBeVisible()
+  await expect(empty.getByText("Start watching videos to help us build a feed of videos you'll love.", { exact: true })).toBeVisible()
+  await expect(empty.locator('.empty')).toHaveCSS('border-top-width', '1px')
+  await expect(empty.locator('.empty')).not.toHaveCSS('box-shadow', 'none')
   await expect(empty.getByRole('button', { name: 'All', exact: true })).toBeHidden()
 
   const filtered = page.locator('[data-home-harness="filters"]')

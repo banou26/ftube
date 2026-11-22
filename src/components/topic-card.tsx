@@ -1,23 +1,54 @@
-import type { SearchResultsQuery } from '../generated/graphql'
+import type { NotificationLevel, SearchResultsQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 import { Link } from 'wouter'
 
 import { formatDuration } from './format'
+import SubscribeButton from './subscribe-button'
 import { Thumbnail } from './thumbnail'
+import { VerifiedBadge } from './verified-badge'
 import { watchHrefFor } from './video-card'
 
 export type TopicCardData = NonNullable<SearchResultsQuery['search']['topic']>
 
 type TopicVideo = TopicCardData['videos'][number]
 
-// youtube.com's card in the right column of a search for "minecraft", measured signed out at 1280px on 2026-11-10
+// youtube.com's card in the right column of a search for "minecraft" and "mkbhd"
 const style = css`
   .topic-head {
-    display: block;
     padding: 1.6rem;
     border-radius: 1.2rem 1.2rem 0 0;
     background: var(--bg-hover);
+  }
+
+  .topic-head-link {
+    display: block;
+  }
+
+  .topic-head-link.with-avatar {
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+  }
+
+  .topic-avatar {
+    flex: none;
+    width: 6.4rem;
+    height: 6.4rem;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--bg-chip);
+  }
+
+  .topic-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .topic-identity {
+    min-width: 0;
   }
 
   .topic-title {
@@ -34,6 +65,20 @@ const style = css`
     font-size: 1.6rem;
     line-height: 2.2rem;
     color: var(--text-secondary);
+  }
+
+  .topic-head-link.with-avatar .topic-subtitle {
+    margin-top: 0.2rem;
+    font-size: 1.4rem;
+    line-height: 2rem;
+  }
+
+  .topic-actions {
+    margin-top: 1.2rem;
+  }
+
+  .topic-actions.indented {
+    padding-left: 8rem;
   }
 
   .topic-hero {
@@ -177,18 +222,44 @@ const TopicRow = ({ video }: { video: TopicVideo }) => {
 }
 
 /**
- * The card youtube.com puts in the right column of a broad search: the topic,
- * which opens its channel, its newest video large, and a few more.
+ * The card youtube.com puts in the right column of a broad search: the topic or
+ * channel, which opens its channel, its newest video large, and a few more.
  */
-export const TopicCard = ({ topic }: { topic: TopicCardData }) => {
+export const TopicCard = ({ topic, subscribed, notificationLevel }: {
+  topic: TopicCardData
+  subscribed?: boolean | null
+  notificationLevel?: NotificationLevel | null
+}) => {
   const channelHref = `/channel/${topic.channelId}`
   const { hero } = topic
+  const showSubscribe = topic.isChannel === true || topic.subtitle?.startsWith('@') === true
   return (
     <aside css={style} aria-label={topic.title}>
-      <Link href={channelHref} className='topic-head'>
-        <h2 className='topic-title'>{topic.title}</h2>
-        {topic.subtitle ? <span className='topic-subtitle'>{topic.subtitle}</span> : undefined}
-      </Link>
+      <div className='topic-head'>
+        <Link href={channelHref} className={topic.avatar ? 'topic-head-link with-avatar' : 'topic-head-link'}>
+          {topic.avatar
+            ? <span className='topic-avatar'><Thumbnail src={topic.avatar} /></span>
+            : undefined}
+          <div className='topic-identity'>
+            <h2 className='topic-title'>
+              {topic.title}
+              <VerifiedBadge channel={topic} size={14} />
+            </h2>
+            {topic.subtitle ? <span className='topic-subtitle'>{topic.subtitle}</span> : undefined}
+          </div>
+        </Link>
+        {showSubscribe
+          ? (
+            <div className={topic.avatar ? 'topic-actions indented' : 'topic-actions'}>
+              <SubscribeButton
+                channelId={topic.channelId}
+                subscribed={subscribed}
+                notificationLevel={notificationLevel}
+              />
+            </div>
+          )
+          : undefined}
+      </div>
       {hero
         ? (
           <Link href={watchHrefFor(hero.id)} className='topic-hero'>

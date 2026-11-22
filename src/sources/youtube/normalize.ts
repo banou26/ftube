@@ -1285,7 +1285,14 @@ const normalizeTopicVideo = (node: TopicVideoNode | undefined): SourceTopicVideo
 export const normalizeSearchTopic = (input: unknown): SourceSearchTopic | undefined => {
   const card = input as {
     type?: string
-    header?: { title?: Text, subtitle?: Text, title_endpoint?: { payload?: { browseId?: string } } }
+    header?: {
+      title?: Text
+      subtitle?: Text
+      title_endpoint?: { payload?: { browseId?: string } }
+      author?: Author
+      avatar?: Thumbnail[]
+      style?: string
+    }
     call_to_action?: TopicVideoNode
     sections?: { lists?: { items?: TopicVideoNode[] }[] }[]
   } | undefined
@@ -1293,10 +1300,21 @@ export const normalizeSearchTopic = (input: unknown): SourceSearchTopic | undefi
   const title = presentText(card.header?.title)
   const channelId = card.header?.title_endpoint?.payload?.browseId
   if (!title || !channelId) return undefined
+  const subtitle = presentText(card.header?.subtitle)
+  const rawAvatar = thumbnail(card.header?.author?.thumbnails ?? card.header?.avatar, AVATAR_WIDTH)
+  const avatar = rawAvatar?.startsWith('//') ? `https:${rawAvatar}` : rawAvatar
+  // WatchCardRichHeader puts a channel's avatar on the left (with a handle subtitle and Subscribe), and a game or league's on the right
+  const isChannel = card.header?.style === 'WATCH_CARD_RICH_HEADER_RENDERER_STYLE_LEFT_AVATAR'
+    || subtitle?.startsWith('@') === true
+    ? true
+    : undefined
   return {
     title,
-    subtitle: presentText(card.header?.subtitle),
+    subtitle,
     channelId,
+    avatar,
+    isChannel,
+    ...authorBadges(card.header?.author),
     hero: normalizeTopicVideo(card.call_to_action),
     videos: (card.sections ?? [])
       .flatMap((section) => section.lists ?? [])

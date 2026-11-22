@@ -88,6 +88,7 @@ const searchAndOpenCard = async (page: Page, query: string, videoId: string) => 
 const watchTwoThenOpenHome = async (page: Page, origin: string) => {
   await page.goto(`${origin}/`)
   await expect(page.getByRole('heading', { name: 'Try searching to get started' })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText("Start watching videos to help us build a feed of videos you'll love.", { exact: true })).toBeVisible()
   for (const [query, videoId, seconds] of [['jNQXAC9IVRw', 'jNQXAC9IVRw', 5], ['kJQP7kiw5Fk', 'kJQP7kiw5Fk', 20]] as const) {
     await searchAndOpenCard(page, query, videoId)
     await expect.poll(() => playedSeconds(page), { timeout: 90_000 }).toBeGreaterThan(seconds)
@@ -96,6 +97,7 @@ const watchTwoThenOpenHome = async (page: Page, origin: string) => {
   const videos = page.locator('main a[href^="/watch"]')
   await expect.poll(() => videos.count(), { timeout: 60_000 }).toBeGreaterThanOrEqual(10)
   await expect(page.getByRole('heading', { name: 'Try searching to get started' })).toHaveCount(0)
+  await expect(page.getByText("Start watching videos to help us build a feed of videos you'll love.", { exact: true })).toHaveCount(0)
   return videos
 }
 

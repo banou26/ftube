@@ -78,6 +78,8 @@ describe('a broad search', () => {
       title: 'Minecraft',
       subtitle: 'Video game • Released: 2009',
       channelId: 'UCQvWX73GQygcwXOTSf_VDVg',
+      avatar: undefined,
+      isChannel: undefined,
       hero: {
         id: '8JGY7vGkMX0',
         title: 'Introducing Minecraft Realms Pro',
