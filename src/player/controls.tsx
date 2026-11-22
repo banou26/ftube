@@ -466,10 +466,67 @@ const style = css`
     }
   }
 
-  /* a 400 px player, as in a phone's window: youtube.com narrows its controls to 32 px here */
+  /* compact bar for phone widths: uniform 36 px circular left controls and 32 px right icons */
   @container player (max-width: 600px) {
     padding: 0 0.8rem;
 
+    .bar {
+      height: 4.8rem;
+    }
+
+    .group {
+      height: 3.6rem;
+      border-radius: 1.8rem;
+    }
+
+    .play,
+    .next,
+    .volume,
+    .volume .control {
+      width: 3.6rem;
+      height: 3.6rem;
+      border-radius: 50%;
+    }
+
+    .next,
+    .volume,
+    .time,
+    .live-badge,
+    .right {
+      margin-left: 0.6rem;
+    }
+
+    .time,
+    .live-badge {
+      height: 3.6rem;
+      padding: 0 0.8rem;
+      font-size: 1.2rem;
+      line-height: 3.6rem;
+    }
+
+    .right {
+      height: 3.6rem;
+      padding: 0 0.2rem;
+    }
+
+    .right .control {
+      width: 3.2rem;
+      height: 3.6rem;
+    }
+
+    .control > svg {
+      width: 2rem;
+      height: 2rem;
+    }
+
+    .autoplay,
+    .theater-toggle {
+      display: none;
+    }
+  }
+
+  /* below 400 px, hide PiP and tighten gaps so an hour-long clock fits on 360 px phones */
+  @container player (max-width: 400px) {
     .next,
     .volume,
     .time,
@@ -478,21 +535,12 @@ const style = css`
       margin-left: 0.4rem;
     }
 
-    .time,
-    .live-badge {
-      padding: 0 1rem;
+    .control > svg {
+      width: 1.8rem;
+      height: 1.8rem;
     }
 
-    .right {
-      padding: 0 0.2rem;
-    }
-
-    .right .control {
-      width: 3.2rem;
-    }
-
-    .autoplay,
-    .theater-toggle {
+    .pip {
       display: none;
     }
   }
@@ -1093,7 +1141,7 @@ export const PlayerControls = (
             ? (
               <button
                 type='button'
-                className='control'
+                className='control pip'
                 aria-label={pip ? 'Exit picture in picture' : 'Picture in picture'}
                 aria-pressed={pip}
                 onClick={togglePip}

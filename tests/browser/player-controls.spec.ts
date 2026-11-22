@@ -66,6 +66,77 @@ const expectFits = async (page: Page, width: number) => {
   }
 }
 
+const phoneBarGeometry = (page: Page) => player(page).evaluate((root) => {
+  const edge = root.getBoundingClientRect()
+  const bar = root.querySelector('.bar')!
+  const left = bar.querySelector('.left')!.getBoundingClientRect()
+  const right = bar.querySelector('.right')!.getBoundingClientRect()
+  const time = bar.querySelector('.time')!
+  const measure = (selector: string) => {
+    const box = bar.querySelector(selector)!.getBoundingClientRect()
+    return { width: Math.round(box.width), height: Math.round(box.height) }
+  }
+  const outsideCount = () => [...bar.querySelectorAll('button, .group')]
+    .map(item => item.getBoundingClientRect())
+    .filter(box => box.width > 0)
+    .filter(box => box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5)
+    .length
+  const groupHeights = [...bar.querySelectorAll('.group')]
+    .map(item => item.getBoundingClientRect())
+    .filter(box => box.width > 0)
+    .map(box => Math.round(box.height))
+
+  const durationNode = time.lastChild!
+  const savedDuration = durationNode.textContent
+  let hourLong = { overflow: 0, outside: 0, clipped: false, overlap: false }
+  try {
+    durationNode.textContent = '1:23:45'
+    const hourLeft = bar.querySelector('.left')!.getBoundingClientRect()
+    const hourRight = bar.querySelector('.right')!.getBoundingClientRect()
+    hourLong = {
+      overflow: bar.scrollWidth - bar.clientWidth,
+      outside: outsideCount(),
+      clipped: time.scrollWidth - time.clientWidth > 1,
+      overlap: hourLeft.right > hourRight.left + 0.5,
+    }
+  } finally {
+    durationNode.textContent = savedDuration
+  }
+
+  return {
+    barHeight: Math.round(bar.getBoundingClientRect().height),
+    play: measure('.play'),
+    next: measure('.next'),
+    volume: measure('.volume'),
+    volumeControl: measure('.volume .control'),
+    groupHeights,
+    outside: outsideCount(),
+    overlap: left.right > right.left + 0.5,
+    hourLong,
+  }
+})
+
+const expectCompactPhoneBar = async (page: Page, width: number, height: number) => {
+  await page.setViewportSize({ width, height })
+  await expectFits(page, width)
+  await expectLabelled(page)
+  const geometry = await phoneBarGeometry(page)
+  expect(geometry.barHeight, `bar height at ${width}x${height}`).toBe(48)
+  expect(geometry.play, `Play size at ${width}x${height}`).toEqual({ width: 36, height: 36 })
+  expect(geometry.next, `Next size at ${width}x${height}`).toEqual({ width: 36, height: 36 })
+  expect(geometry.volume, `Volume group size at ${width}x${height}`).toEqual({ width: 36, height: 36 })
+  expect(geometry.volumeControl, `Volume button size at ${width}x${height}`).toEqual({ width: 36, height: 36 })
+  expect(new Set(geometry.groupHeights), `group heights at ${width}x${height}`).toEqual(new Set([36]))
+  expect(geometry.outside, `controls outside player bounds at ${width}x${height}`).toBe(0)
+  expect(geometry.overlap, `.left overlaps .right at ${width}x${height}`).toBe(false)
+  expect(geometry.hourLong, `hour-long clock layout at ${width}x${height}`).toEqual({
+    overflow: 0,
+    outside: 0,
+    clipped: false,
+    overlap: false,
+  })
+}
+
 const EVERY_CONTROL = [
   /^(Play|Pause)$/,
   /^Next$/,
@@ -124,14 +195,16 @@ test('every control keeps its label, and the bar fits a 1920, 1280, 640 and 400 
   await expectLabelled(page)
 
   // a phone's width: the miniplayer, also 400 px, draws youtube.com's own controls instead of this bar
-  await page.setViewportSize({ width: 400, height: 800 })
-  await expectFits(page, 400)
-  await expectLabelled(page)
-  for (const name of ['Play', 'Next', /^(Mute|Unmute)$/, 'Settings', 'Full screen']) {
+  await expectCompactPhoneBar(page, 412, 860)
+  await expectCompactPhoneBar(page, 400, 800)
+  for (const name of ['Play', 'Next', /^(Mute|Unmute)$/, 'Turn on captions', 'Settings', 'Full screen']) {
     await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
   }
   await expect(page.getByRole('switch', { name: 'Autoplay' })).toBeHidden()
   await expect(page.getByRole('button', { name: 'Theater mode' })).toBeHidden()
+
+  await expectCompactPhoneBar(page, 390, 844)
+  await expectCompactPhoneBar(page, 360, 740)
 })
 
 test('names the chapter the playhead is in, beside the clock', async ({ page }) => {
