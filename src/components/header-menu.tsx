@@ -1,7 +1,7 @@
 import type { ThemePreference } from '../settings'
 
 import { css } from '@emotion/react'
-import { Check, ChevronLeft, ChevronRight, EllipsisVertical, Keyboard, LockKeyholeOpen, LogIn, LogOut, Moon, Settings } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, EllipsisVertical, Keyboard, LockKeyholeOpen, LogIn, LogOut, Moon, Settings, Users } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter'
@@ -110,6 +110,7 @@ const HeaderMenuPanel = ({ onShortcuts }: { onShortcuts: () => void }) => {
         onSelect={() => setView('appearance')}
       />
       <MenuItem icon={Keyboard} label='Keyboard shortcuts' onSelect={onShortcuts} />
+      <MenuItem icon={Users} label='Watch together' onSelect={() => navigate('/party')} />
       <MenuSeparator />
       <MenuItem icon={Settings} label='Settings' onSelect={() => navigate('/settings')} />
       {fkn

@@ -10,6 +10,8 @@ import { safeDecode } from './components/format'
 import Guide from './components/guide'
 import Header from './components/header'
 import { lazyRoute } from './components/lazy-route'
+import PartyChat from './components/party-chat'
+import PartySync from './components/party-sync'
 import ErrorBoundary from './components/ui/error-boundary'
 import PersistentPlayer from './player/persistent-player'
 import { CHANNEL_TAB_PATHS, channelTabFor } from './routes/channel-tabs'
@@ -26,6 +28,7 @@ const FeedPlaylistsPage = lazyRoute(() => import('./routes/feed-playlists'))
 const FeedSubscriptionsPage = lazyRoute(() => import('./routes/feed-subscriptions'))
 const FeedYouPage = lazyRoute(() => import('./routes/feed-you'))
 const GroupPage = lazyRoute(() => import('./routes/group'))
+const PartyPage = lazyRoute(() => import('./routes/party'))
 const PlaylistPage = lazyRoute(() => import('./routes/playlist'))
 const PostPage = lazyRoute(() => import('./routes/post'))
 const PrivacyPage = lazyRoute(() => import('./routes/privacy'))
@@ -224,6 +227,7 @@ export const App = () => {
               </Route>
               <Route path='/settings' component={SettingsPage} />
               <Route path='/privacy' component={PrivacyPage} />
+              <Route path='/party' component={PartyPage} />
               <Route path='/account' component={AccountPage} />
               <Route path='/signin' component={SignInPage} />
               <Route path='/search/:query'>
@@ -261,6 +265,8 @@ export const App = () => {
       {(overlayOnly || narrow) && drawerOpen ? <Guide variant='drawer' onClose={() => setDrawerOpen(false)} /> : undefined}
       {/* outside the <Switch> on purpose: the one thing that has to survive a route change */}
       <PersistentPlayer />
+      <PartySync />
+      <PartyChat />
     </div>
   )
 }

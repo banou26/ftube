@@ -11,6 +11,7 @@ import { AccountMenu } from './account-menu'
 import { ExtensionNotice } from './extension-notice'
 import { HeaderMenu } from './header-menu'
 import { NotificationsMenu } from './notifications-menu'
+import { PartyWidget } from './party-widget'
 import { splitSuggestion } from './suggestion'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
@@ -611,6 +612,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
       <div className='end'>
         {/* renders nothing at all with the extension installed, or once declined */}
         <ExtensionNotice />
+        <PartyWidget />
         <HeaderMenu />
         <HeaderAccount />
       </div>

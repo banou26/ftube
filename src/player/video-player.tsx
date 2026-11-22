@@ -29,6 +29,7 @@ import { closePlayer, setPanel, setPlayingChapter } from './session'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
+import { PartyPlayback } from '../components/party-playback'
 import { Bezel } from './bezel'
 import { captionDeclarations, stepCaptionSize } from './caption-style'
 import { chapterIndexAt, chapterStep } from './chapters'
@@ -926,7 +927,9 @@ const VideoPlayer = (
         : undefined}
       {video && !status && !refusal
         ? (
-          <PlayerControls
+          <>
+            <PartyPlayback video={video} videoId={videoId} active={!docked && !isLive} />
+            <PlayerControls
             video={video}
             player={player}
             state={state}
@@ -953,7 +956,8 @@ const VideoPlayer = (
             docked={docked}
             visible={(active || state.paused) && !grid}
             onMenu={setSettingsOpen}
-          />
+            />
+          </>
         )
         : undefined}
       {video && player && !status && !refusal && undoable
