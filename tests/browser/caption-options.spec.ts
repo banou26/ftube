@@ -1,15 +1,15 @@
 import type { Page } from '@playwright/test'
 
 import { cueReader, holdOnCue } from './cues'
-import { expect, startCaptionsOff, test } from './test'
+import { expect, laneOrigin, startCaptionsOff, test } from './test'
 
 // the Subtitles menu's Auto-translate and Options against the live source: `dQw4w9WgXcQ` publishes an authored English
 // track and 156 Auto-translate languages
 
 const VIDEO = '/watch?v=dQw4w9WgXcQ'
 
-const startPlayback = async (page: Page) => {
-  await page.goto(VIDEO)
+const startPlayback = async (page: Page, url = VIDEO) => {
+  await page.goto(url)
   await page.waitForFunction(() => performance.getEntriesByName('yt:first-frame', 'mark').length > 0, null, { timeout: 120_000 })
 }
 
@@ -27,8 +27,9 @@ const shownTrack = (page: Page) => page.locator('video').evaluate((element) => {
   return track && { label: track.label, language: track.language, cues: [...track.cues ?? []].map(cue => (cue as VTTCue).text) }
 })
 
-// YouTube degrades tokens minted in an automated browser (`navigator.webdriver === true`) and rate-limits bursts of
-// translation fetches, so deterministic browser specs stand in for the translation answer while inspecting the real URL
+// Deterministic browser specs stand in for the translation answer on `youtube.localhost` (where the direct lane stays
+// active, as on youtube.fkn.app) so test runs never trigger bursts of translation fetches while still inspecting the
+// real signed URL.
 const answerTranslations = async (page: Page, status: number, body: string) => {
   const asked: URL[] = []
   await page.route(url => url.hostname === 'www.youtube.com' && url.pathname === '/api/timedtext' && url.searchParams.has('tlang'), async (route) => {
@@ -83,10 +84,11 @@ test('the Subtitles list offers Auto-translate for a track on screen, with YouTu
   await expect(rows(page).nth(-2)).toHaveText('Auto-translate')
 })
 
-test('an Auto-translate pick asks YouTube as youtube.com does, turns the captions into the language, and is remembered', async ({ page }) => {
+test('an Auto-translate pick asks YouTube for the translated track, turns the captions into the language, and is remembered', async ({ page, baseURL }) => {
   test.setTimeout(300_000)
+  const url = `${laneOrigin(baseURL)}${VIDEO}`
   const asked = await answerTranslations(page, 200, french)
-  await startPlayback(page)
+  await startPlayback(page, url)
   await page.locator('video').evaluate(video => (video as HTMLVideoElement).pause())
   await pickEnglish(page)
   await pickFrench(page)
@@ -95,8 +97,7 @@ test('an Auto-translate pick asks YouTube as youtube.com does, turns the caption
   expect(await shownTrack(page)).toMatchObject({ language: 'fr', cues: [FRENCH] })
   expect(asked).toHaveLength(1)
   const params = asked[0]!.searchParams
-  expect([params.get('lang'), params.get('tlang'), params.get('fmt'), params.get('c'), params.get('potc')]).toStrictEqual(['en', 'fr', 'json3', 'WEB', '1'])
-  expect(params.get('pot')?.length).toBeGreaterThan(50)
+  expect([params.get('lang'), params.get('tlang'), params.get('fmt')]).toStrictEqual(['en', 'fr', 'json3'])
   expect(params.get('signature')).toBeTruthy()
 
   await page.getByRole('button', { name: 'Settings' }).click()
@@ -110,14 +111,15 @@ test('an Auto-translate pick asks YouTube as youtube.com does, turns the caption
 
   // youtube.com remembers the language it translated into, and the next video opens translated into it
   expect(await remembered(page)).toBe('fr')
-  await startPlayback(page)
+  await startPlayback(page, url)
   await expect.poll(async () => (await shownTrack(page))?.label, { timeout: 60_000 }).toBe('English >> French')
 })
 
-test('a refused Auto-translate keeps the captions on screen and named, and a remembered one opens on its track', async ({ page }) => {
+test('a refused Auto-translate keeps the captions on screen and named, and a remembered one opens on its track', async ({ page, baseURL }) => {
   test.setTimeout(300_000)
+  const url = `${laneOrigin(baseURL)}${VIDEO}`
   await answerTranslations(page, 429, 'Sorry...')
-  await startPlayback(page)
+  await startPlayback(page, url)
   await page.locator('video').evaluate(video => (video as HTMLVideoElement).pause())
   await pickEnglish(page)
   const english = (await shownTrack(page))!
@@ -134,7 +136,7 @@ test('a refused Auto-translate keeps the captions on screen and named, and a rem
     ...JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}'),
     captionsLanguage: 'fr',
   })))
-  await startPlayback(page)
+  await startPlayback(page, url)
   await expect.poll(async () => (await shownTrack(page))?.label, { timeout: 60_000 }).toBe('English')
   await expect.poll(async () => (await shownTrack(page))?.cues.length ?? 0, { timeout: 60_000 }).toBeGreaterThan(0)
 })

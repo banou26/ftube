@@ -220,9 +220,10 @@ export const toWebVtt = (cues: Cue[]) =>
 export const json3ToWebVtt = (body: string) => toWebVtt(parseJson3(body))
 
 // every other parameter is preserved: `base_url` arrives signed, and those parameters are what authorize it
-export const timedTextUrl = (baseUrl: string) => {
+export const timedTextUrl = (baseUrl: string, translateTo?: string) => {
   const url = new URL(baseUrl)
   url.searchParams.set('fmt', 'json3')
+  if (translateTo) url.searchParams.set('tlang', translateTo)
   return url.toString()
 }
 

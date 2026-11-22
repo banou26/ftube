@@ -166,11 +166,17 @@ describe('the track captions turn on with', () => {
 })
 
 describe('timedTextUrl', () => {
-  it('pins the format it can read and keeps what authorizes the URL', () => {
+  it('pins the format it can read, keeps what authorizes the URL, and adds tlang when translating', () => {
     const url = new URL(timedTextUrl(TRACKLIST.caption_tracks[0]!.base_url))
     expect(url.searchParams.get('fmt')).toBe('json3')
     expect(url.searchParams.get('signature')).toBe('sig')
     expect(url.searchParams.get('lang')).toBe('en')
+    expect(url.searchParams.get('tlang')).toBeNull()
+
+    const translated = new URL(timedTextUrl(TRACKLIST.caption_tracks[0]!.base_url, 'fr'))
+    expect(translated.searchParams.get('fmt')).toBe('json3')
+    expect(translated.searchParams.get('signature')).toBe('sig')
+    expect(translated.searchParams.get('tlang')).toBe('fr')
   })
 })
 

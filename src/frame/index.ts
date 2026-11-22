@@ -134,24 +134,22 @@ const api = {
     if (!entry) throw new Error(`youtube: unknown playback session ${id}`)
     const track = entry.captions.find((candidate) => candidate.id === trackId)
     if (!track) throw new Error(`youtube: unknown caption track ${trackId}`)
-    if (translateTo) {
-      if (!track.translatable || !entry.translations.some((language) => language.languageCode === translateTo)) {
-        throw new Error(`youtube: no Auto-translate into ${translateTo}`)
-      }
-      // fetched directly from the browser without cookies rather than through youtubeFetch: timedtext answers open CORS
-      // from any origin, and an InnerTube direct-lane pause must not route a browser-minted PO token onto the FKN relay
-      const response = await globalThis.fetch(translatedTextUrl(track.url, translateTo, await entry.mint()), { credentials: 'omit', mode: 'cors' })
-      if (!response.ok) throw new Error(`youtube: Auto-translate answered ${response.status}`)
-      const body = await response.text()
-      if (!body) throw new Error('youtube: Auto-translate was answered with no cues')
-      return json3ToWebVtt(body)
+    if (translateTo && (!track.translatable || !entry.translations.some((language) => language.languageCode === translateTo))) {
+      throw new Error(`youtube: no Auto-translate into ${translateTo}`)
     }
     const source = await cueSourceFor(entry, track)
-    const response = await youtubeFetch(timedTextUrl(source.url))
-    if (!response.ok) throw new Error(`youtube: caption track ${trackId} answered ${response.status}`)
+    const response = await youtubeFetch(timedTextUrl(source.url, translateTo))
+    if (!response.ok) throw new Error(`youtube: ${translateTo ? 'Auto-translate' : `caption track ${trackId}`} answered ${response.status}`)
     const body = await response.text()
-    if (!body) throw new Error(`youtube: caption track ${trackId} was answered with no cues`)
-    return json3ToWebVtt(body)
+    if (body) return json3ToWebVtt(body)
+    if (translateTo) {
+      // fallback if ANDROID_VR ever gates translation behind `exp=xpe` as watch-page addresses do
+      const fallback = await globalThis.fetch(translatedTextUrl(track.url, translateTo, await entry.mint()), { credentials: 'omit', mode: 'cors' })
+      if (!fallback.ok) throw new Error(`youtube: Auto-translate answered ${fallback.status}`)
+      const translated = await fallback.text()
+      if (translated) return json3ToWebVtt(translated)
+    }
+    throw new Error(`youtube: ${translateTo ? 'Auto-translate' : `caption track ${trackId}`} was answered with no cues`)
   },
   cancelSegment: async (id, requestId) => {
     sessions.get(id)?.requests.get(requestId)?.abort()
