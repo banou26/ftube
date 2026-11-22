@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { PLAYBACK_REFUSED } from '../../src/frame/protocol'
-import { expect, hideFknNotice, plainTest, test } from './test'
+import { expect, hideFknNotice, plainTest, startCaptionsOff, test } from './test'
 
 // the refusal yt-client was given for the Short aOAe17zPggA on 2026-11-10
 const REFUSAL = `${PLAYBACK_REFUSED}${JSON.stringify({ title: 'Video unavailable', description: 'The uploader has not made this video available in your country', final: true })}`
@@ -321,4 +321,104 @@ test('Shorts fills full viewport height and renders play, volume bar, fullscreen
   // Action rail shows numeric counts for likes and comments
   await expect(slide.getByRole('button', { name: 'Like', exact: true })).toContainText(/\d/)
   await expect(slide.getByRole('button', { name: 'Comments', exact: true })).toContainText(/\d/)
+})
+
+const overlaps = (
+  a: { x: number, y: number, width: number, height: number },
+  b: { x: number, y: number, width: number, height: number },
+) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+test('active Short sets document.title and updates when moving to the next Short', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.addInitScript(holdPlayback)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`/shorts/${NAMED_SHORT}`)
+
+  await expect(page).toHaveTitle(/Refuse To Give Up.* - yt-client/, { timeout: 120_000 })
+  expect(await page.title()).not.toBe('Shorts - yt-client')
+
+  const nextSlide = page.locator(`[data-short-id="${NAMED_SHORT}"] + [data-short-id]`)
+  await expect(nextSlide).toBeAttached({ timeout: 60_000 })
+  const nextId = (await nextSlide.getAttribute('data-short-id'))!
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(nextId)
+  await expect(nextSlide.locator('.short-title')).toHaveText(/\S/, { timeout: 60_000 })
+  const nextTitle = (await nextSlide.locator('.short-title').textContent())!.trim()
+  await expect(page).toHaveTitle(`${nextTitle} - yt-client`, { timeout: 15_000 })
+})
+
+test('captions toggle in Shorts top bar turns captions on and off with zero page errors', async ({ page }) => {
+  test.setTimeout(240_000)
+  const pageErrors: Error[] = []
+  page.on('pageerror', error => pageErrors.push(error))
+  await startCaptionsOff(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`/shorts/${NAMED_SHORT}`)
+
+  const slide = page.locator(`[data-short-id="${NAMED_SHORT}"]`)
+  const topBar = slide.locator('.top-bar')
+  const ccOff = topBar.getByRole('button', { name: 'Subtitles/closed captions', exact: true })
+  const ccOn = topBar.getByRole('button', { name: 'Subtitles/closed captions off', exact: true })
+
+  await expect(ccOff).toBeVisible({ timeout: 120_000 })
+  await expect(ccOff).toHaveAttribute('aria-pressed', 'false')
+
+  await ccOff.click()
+  await expect(ccOn).toBeVisible()
+  await expect(ccOn).toHaveAttribute('aria-pressed', 'true')
+
+  const storedOn = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}') as { captionsEnabled?: boolean, captionsChosen?: boolean })
+  expect(storedOn).toMatchObject({ captionsEnabled: true, captionsChosen: true })
+
+  await expect.poll(() => slide.locator('video').evaluate(video =>
+    [...(video as HTMLVideoElement).textTracks].some(track => track.mode === 'showing' && (track.cues?.length ?? 0) > 0),
+  ), { timeout: 60_000 }).toBe(true)
+
+  await page.keyboard.press('c')
+  await expect(ccOff).toBeVisible()
+  await expect(ccOff).toHaveAttribute('aria-pressed', 'false')
+
+  const storedOff = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}') as { captionsEnabled?: boolean, captionsChosen?: boolean })
+  expect(storedOff).toMatchObject({ captionsEnabled: false, captionsChosen: true })
+
+  await expect.poll(() => slide.locator('video').evaluate(video =>
+    [...(video as HTMLVideoElement).textTracks].filter(track => track.mode === 'showing').length,
+  ), { timeout: 15_000 }).toBe(0)
+
+  expect(pageErrors).toStrictEqual([])
+})
+
+test('at 390x844 phone width rail controls stay inside the stage and clear of metadata', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(holdPlayback)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/shorts/${NAMED_SHORT}`)
+
+  const slide = page.locator(`[data-short-id="${NAMED_SHORT}"]`)
+  await expect(slide.locator('.views')).toBeVisible({ timeout: 120_000 })
+  await expect(slide.locator('.rail-channel')).toBeVisible({ timeout: 60_000 })
+
+  const stage = (await slide.locator('.stage').boundingBox())!
+  const byline = (await slide.locator('.byline').boundingBox())!
+  const shortTitle = (await slide.locator('.short-title').boundingBox())!
+
+  const railItems = slide.locator('.rail > .rail-button, .rail > .rail-channel, .rail button.rail-button')
+  const count = await railItems.count()
+  expect(count).toBe(6)
+
+  for (let i = 0; i < count; i++) {
+    const box = (await railItems.nth(i).boundingBox())!
+    expect(box.x, `rail item ${i} extends left of stage`).toBeGreaterThanOrEqual(stage.x)
+    expect(box.x + box.width, `rail item ${i} extends right of stage`).toBeLessThanOrEqual(stage.x + stage.width + 0.5)
+    expect(box.y, `rail item ${i} extends above stage`).toBeGreaterThanOrEqual(stage.y)
+    expect(box.y + box.height, `rail item ${i} extends below stage`).toBeLessThanOrEqual(stage.y + stage.height + 0.5)
+    expect(overlaps(box, byline), `rail item ${i} overlaps .byline`).toBe(false)
+    expect(overlaps(box, shortTitle), `rail item ${i} overlaps .short-title`).toBe(false)
+  }
+
+  const moreBox = (await slide.getByRole('button', { name: 'More actions', exact: true }).boundingBox())!
+  const channelBox = (await slide.locator('.rail-channel').boundingBox())!
+  expect(channelBox.y - (moreBox.y + moreBox.height), 'More actions crowds .rail-channel').toBeGreaterThanOrEqual(8)
 })

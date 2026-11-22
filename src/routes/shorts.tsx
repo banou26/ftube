@@ -363,28 +363,41 @@ const style = css`
          it lives on a phone anyway. */
       position: absolute;
       right: 0.8rem;
-      bottom: 5.6rem;
+      bottom: 2.0rem;
+      gap: 1.0rem;
       padding: 0;
       z-index: 1;
     }
 
     .meta {
-      padding-right: 8rem;
+      padding: 4.8rem 6.4rem 2.0rem 1.2rem;
     }
 
     .rail-button {
+      gap: 0.2rem;
       color: #fff;
+      font-size: 1.2rem;
+      line-height: 1.5rem;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
     }
 
     .rail-button .glyph {
+      width: 4.2rem;
+      height: 4.2rem;
+      border: 1px solid rgba(255, 255, 255, 0.14);
       background: rgba(0, 0, 0, 0.5);
       color: #fff;
     }
 
     .rail-button.on .glyph {
+      border-color: transparent;
       background: #fff;
       color: #0f0f0f;
+    }
+
+    .rail-channel {
+      width: 3.4rem;
+      height: 3.4rem;
     }
 
     .pager {
@@ -422,7 +435,7 @@ const style = css`
  * visited slide's data alive for the life of the route.
  */
 const Slide = (
-  { id, poster, fallbackTitle, active, preload, shortcutsDisabled, onReady, onComments, onShare, onCommentCount, onRefused }: {
+  { id, poster, fallbackTitle, active, preload, shortcutsDisabled, onReady, onComments, onShare, onCommentCount, onTitle, onRefused }: {
     id: string
     poster?: string | null
     fallbackTitle?: string | null
@@ -433,6 +446,7 @@ const Slide = (
     onComments: () => void
     onShare: () => void
     onCommentCount?: (count?: string) => void
+    onTitle?: (title?: string) => void
     onRefused?: () => void
   },
 ) => {
@@ -443,6 +457,7 @@ const Slide = (
     pause: !active && !preload,
   })
   const meta = data?.watch
+  const title = meta?.title || fallbackTitle || undefined
   const { rate, rating, presses, burst } = useRateVideo(id, meta?.likeStatus)
   const dislikes = useDislikes(active || preload ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
@@ -454,6 +469,10 @@ const Slide = (
   useEffect(() => {
     if (active) onCommentCount?.(meta?.commentCountText ?? undefined)
   }, [active, meta?.commentCountText, onCommentCount])
+
+  useEffect(() => {
+    if (active) onTitle?.(title)
+  }, [active, title, onTitle])
 
   return (
     <div className='reel'>
@@ -490,7 +509,7 @@ const Slide = (
               notificationLevel={meta?.channel?.notificationLevel}
             />
           </div>
-          <p className='short-title'>{meta?.title ?? fallbackTitle ?? ''}</p>
+          <p className='short-title'>{title ?? ''}</p>
           {meta?.viewCountText ? <p className='views'>{meta.viewCountText}</p> : undefined}
         </div>
       </div>
@@ -570,6 +589,7 @@ const ShortsPage = () => {
   const [readyIds, setReadyIds] = useState<ReadonlySet<string>>(() => new Set())
   const [showComments, setShowComments] = useState(false)
   const [activeCommentCount, setActiveCommentCount] = useState<string | undefined>(undefined)
+  const [activeTitle, setActiveTitle] = useState<string | undefined>(undefined)
   const [sharing, setSharing] = useState<string | undefined>(undefined)
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -595,8 +615,9 @@ const ShortsPage = () => {
   })
   // a Short the address named stays to say why it does not play; any other YouTube refuses is passed over
   const items = feed.filter(short => !refused.has(short.id))
+  const active = useMemo(() => items.find(short => short.id === activeId), [items, activeId])
 
-  useDocumentTitle('Shorts')
+  useDocumentTitle((active ? activeTitle : undefined) || 'Shorts')
 
   // the persistent player survives route changes, so leaving it alive would play two videos at once
   useEffect(() => closePlayer(), [])
@@ -638,8 +659,6 @@ const ShortsPage = () => {
     const next = shortsHrefFor(activeId)
     if (location.pathname !== next) history.replaceState(null, '', next)
   }, [activeId])
-
-  const active = useMemo(() => items.find(short => short.id === activeId), [items, activeId])
 
   const activeIndex = items.findIndex(short => short.id === activeId)
   const step = (by: 1 | -1) => {
@@ -704,6 +723,7 @@ const ShortsPage = () => {
               onComments={() => setShowComments(value => !value)}
               onShare={() => setSharing(short.id)}
               onCommentCount={setActiveCommentCount}
+              onTitle={setActiveTitle}
               onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
             />
             {showComments && isActive

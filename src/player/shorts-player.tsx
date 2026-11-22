@@ -1,18 +1,23 @@
 import type { TargetedEvent, TargetedMouseEvent, TargetedPointerEvent } from 'preact'
 
+import type { CaptionPick, CaptionTrack, TranslationLanguage } from '../frame/protocol'
 // must stay type-only: a value import puts the on-demand shaka chunk back in the entry
 import type { startShakaPlayback } from './shaka'
 
 import { css } from '@emotion/react'
-import { Maximize, Minimize, Pause, Play, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Captions, CaptionsOff, Maximize, Minimize, Pause, Play, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
+import { showToast } from '../components/ui/toast'
 import { startEngine } from '../engine/client'
+import { defaultTrack, startingCaption } from '../frame/captions'
+import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
+import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { AudioPermissionPrompt } from './audio-prompt'
+import { captionDeclarations } from './caption-style'
 import { isTypingTarget } from './controls'
+import { pictureOf } from './end-screen-layout'
 import { warmShaka } from './prefetch'
-import { getSettings, updateSettings } from '../settings'
 
 const playerStyle = css`
   position: relative;
@@ -24,6 +29,10 @@ const playerStyle = css`
 
   &:fullscreen {
     border-radius: 0;
+
+    video::-webkit-media-text-track-container {
+      transform: translateY(-2.4rem);
+    }
   }
 
   video,
@@ -36,6 +45,11 @@ const playerStyle = css`
        1:1 or 16:9, and covering would crop their edges away rather than
        letting them letterbox. */
     object-fit: contain;
+  }
+
+  /* Lifts native WebVTT cues above the bottom metadata overlay and scrubber. */
+  video::-webkit-media-text-track-container {
+    transform: translateY(-13.6rem);
   }
 
   .poster {
@@ -124,11 +138,20 @@ const playerStyle = css`
     background: rgba(0, 0, 0, 0.55);
     color: var(--text-on-media, #fff);
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
   }
 
   .control-btn:hover {
     background: rgba(0, 0, 0, 0.78);
+  }
+
+  .control-btn.captions-on {
+    background: rgba(255, 255, 255, 0.92);
+    color: #0f0f0f;
+  }
+
+  .control-btn.captions-on:hover {
+    background: #fff;
   }
 
   .volume-pill {
@@ -267,6 +290,18 @@ const VolumeIcon = ({ muted, volume }: { muted: boolean, volume: number }) => {
 const ACTIVE_BUFFER_GOAL = 30
 const PRELOAD_BUFFER_GOAL = 4
 
+// Chrome sizes cues to 5% of the smaller side of the picture drawn, not of the element
+const captionBase = (video: HTMLVideoElement) => {
+  const picture = pictureOf(video)
+  return 0.05 * Math.min(picture.width, picture.height)
+}
+
+const captionStyle = (declarations: string) => css`
+  video::cue {
+    ${declarations};
+  }
+`
+
 /**
  * The Shorts player.
  *
@@ -320,10 +355,32 @@ const ShortsPlayer = (
   const [progress, setProgress] = useState(0)
   const [scrubbing, setScrubbing] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
+  const [translationLanguages, setTranslationLanguages] = useState<TranslationLanguage[]>([])
+  const [caption, setCaption] = useState<CaptionPick | undefined>(undefined)
+  const lastCaption = useRef<CaptionPick | undefined>(undefined)
+  if (caption) lastCaption.current = caption
+  const [cueStyle, setCueStyle] = useState('')
 
   useEffect(() => {
     if (!shouldLoad) setAttempt(0)
   }, [shouldLoad])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !active) return
+    const update = () => setCueStyle(captionDeclarations(getSettings(), captionBase(video)))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(video)
+    video.addEventListener('resize', update)
+    const unsubscribe = subscribeSettings(update)
+    return () => {
+      observer.disconnect()
+      video.removeEventListener('resize', update)
+      unsubscribe()
+    }
+  }, [active, attempt])
 
   useEffect(() => {
     const onFullscreen = () => setFullscreen(document.fullscreenElement === rootRef.current)
@@ -352,6 +409,10 @@ const ShortsPlayer = (
     setStatus('')
     setPendingRefusal(undefined)
     setAutoMuted(false)
+    setCaptionTracks([])
+    setTranslationLanguages([])
+    setCaption(undefined)
+    lastCaption.current = undefined
     const onFrame = () => {
       if (!abort.signal.aborted && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         setHasFrame(true)
@@ -398,6 +459,8 @@ const ShortsPlayer = (
       })
       if (abort.signal.aborted) return
       controllerRef.current = controller
+      setCaptionTracks(controller.captionTracks)
+      setTranslationLanguages(controller.translationLanguages)
       setReady(true)
       onFrame()
       // through selectQuality, not Shaka restrictions: the frame's SABR session must serve the format before Shaka may select it
@@ -418,6 +481,10 @@ const ShortsPlayer = (
       setHasFrame(false)
       setPendingRefusal(undefined)
       setAutoMuted(false)
+      setCaptionTracks([])
+      setTranslationLanguages([])
+      setCaption(undefined)
+      lastCaption.current = undefined
       onReadyRef.current?.(false)
       void controller?.destroy()
     }
@@ -432,6 +499,8 @@ const ShortsPlayer = (
       if (video.currentTime > 0) video.currentTime = 0
       setProgress(0)
       setAutoMuted(false)
+      setCaption(undefined)
+      void controller.selectCaption(undefined).catch(() => {})
       controller.player.configure({ streaming: { bufferingGoal: PRELOAD_BUFFER_GOAL } })
       return
     }
@@ -444,6 +513,28 @@ const ShortsPlayer = (
     setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
+    const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, settings, navigator.language)
+    setCaption(wanted)
+    if (wanted) {
+      const selectCaption = controller.selectCaption
+      void selectCaption(wanted.trackId, wanted.translateTo).catch(() => {
+        if (cancelled) return
+        if (!wanted.translateTo) {
+          setCaption((current) => (current?.trackId === wanted.trackId && !current.translateTo ? undefined : current))
+          return
+        }
+        const fallback: CaptionPick = { trackId: wanted.trackId }
+        setCaption((current) => (
+          current?.trackId === wanted.trackId && current.translateTo === wanted.translateTo ? fallback : current
+        ))
+        void selectCaption(fallback.trackId).catch(() => {
+          if (cancelled) return
+          setCaption((current) => (current?.trackId === fallback.trackId && !current.translateTo ? undefined : current))
+        })
+      })
+    } else {
+      void controller.selectCaption(undefined).catch(() => {})
+    }
     if (video.currentTime > 0) {
       video.currentTime = 0
       setProgress(0)
@@ -545,6 +636,53 @@ const ShortsPlayer = (
     }
   }, [])
 
+  const applyCaption = useCallback((next: CaptionPick | undefined) => {
+    const controller = controllerRef.current
+    if (!next) {
+      setCaption(undefined)
+      updateSettings({ captionsEnabled: false })
+      void controller?.selectCaption(undefined).catch(() => {})
+      return
+    }
+    if (next.translateTo) {
+      void controller?.selectCaption(next.trackId, next.translateTo).then(
+        () => {
+          setCaption(next)
+          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
+        },
+        () => {
+          showToast('Auto-translate is not available right now')
+        },
+      )
+      return
+    }
+    setCaption(next)
+    const picked = captionTracks.find((track) => track.id === next.trackId)
+    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
+    void controller?.selectCaption(next.trackId).catch(() => {
+      setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
+      showToast('Subtitles are not available for this video right now')
+    })
+  }, [captionTracks])
+
+  const toggleCaption = useCallback(() => {
+    if (captionTracks.length === 0) return
+    if (caption) {
+      applyCaption(undefined)
+      return
+    }
+    const previous = lastCaption.current
+    const restored = previous
+      && captionTracks.some((track) => track.id === previous.trackId)
+      && (!previous.translateTo || translationLanguages.some((language) => language.languageCode === previous.translateTo))
+      ? previous
+      : (() => {
+          const track = defaultTrack(captionTracks, navigator.language)
+          return track ? { trackId: track.id } : undefined
+        })()
+    if (restored) applyCaption(restored)
+  }, [applyCaption, caption, captionTracks, translationLanguages])
+
   useEffect(() => {
     if (!active || shortcutsDisabled) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -557,6 +695,9 @@ const ShortsPlayer = (
       } else if (key === 'm') {
         event.preventDefault()
         toggleMute()
+      } else if (key === 'c' && captionTracks.length > 0) {
+        event.preventDefault()
+        toggleCaption()
       } else if (key === 'f') {
         event.preventDefault()
         toggleFullscreen()
@@ -570,13 +711,13 @@ const ShortsPlayer = (
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [active, shortcutsDisabled, togglePlay, toggleMute, toggleFullscreen])
+  }, [active, shortcutsDisabled, captionTracks.length, togglePlay, toggleMute, toggleCaption, toggleFullscreen])
 
   const effectiveVolume = muted ? 0 : volume
   const visibleStatus = active ? status : ''
 
   return (
-    <div ref={rootRef} css={playerStyle} onClick={togglePlay}>
+    <div ref={rootRef} css={cueStyle ? [playerStyle, captionStyle(cueStyle)] : playerStyle} onClick={togglePlay}>
       {poster && !hasFrame ? <img className='poster' src={poster} alt='' /> : undefined}
       <video key={attempt} ref={videoRef} playsInline preload='auto' />
       {active && !hasFrame && !visibleStatus ? <div className='spinner' /> : undefined}
@@ -629,6 +770,20 @@ const ShortsPlayer = (
               </div>
             </div>
             <div className='top-group' onClick={(event: TargetedMouseEvent<HTMLDivElement>) => event.stopPropagation()}>
+              {captionTracks.length > 0
+                ? (
+                  <button
+                    type='button'
+                    className={caption ? 'control-btn captions-on' : 'control-btn'}
+                    aria-label={caption ? 'Subtitles/closed captions off' : 'Subtitles/closed captions'}
+                    aria-pressed={Boolean(caption)}
+                    title='Subtitles/closed captions (c)'
+                    onClick={toggleCaption}
+                  >
+                    {caption ? <Captions size={22} strokeWidth={1.75} /> : <CaptionsOff size={22} strokeWidth={1.75} />}
+                  </button>
+                )
+                : undefined}
               <button
                 type='button'
                 className='control-btn'
