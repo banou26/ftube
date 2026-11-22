@@ -29,14 +29,16 @@ describe('a channel\'s shows', () => {
     expect(page.availableTabs).toEqual(['HOME', 'VIDEOS', 'SHORTS', 'LIVE', 'SHOWS', 'PLAYLISTS', 'COMMUNITY', 'STORE', 'SEARCH'])
   })
 
-  it('keeps the shows on the Playlists tab, counted in episodes', async () => {
+  it('keeps the shows on the Playlists tab, counted in episodes, without synthesizing a bogus channel entity', async () => {
     const page = await sourceFor(fixture.playlists).channel(MKBHD, 'PLAYLISTS')
     expect(page.tab).toBe('PLAYLISTS')
+    expect(page.channel.name).toBe('Marques Brownlee')
     expect(listed(page.videos.playlists)).toEqual([
       { id: 'PLBsP89CPrMeNIuvr9j3_EQaMwaNJ6rhuQ', title: 'Retro Tech S2', videoCountText: '5 episodes' },
       { id: 'PLBsP89CPrMeMV1oP42Zn2DrWpnFoSaufA', title: 'Retro Tech', videoCountText: '6 videos' },
       { id: 'PLBsP89CPrMePNK7yIxcyRdiIFentQVHra', title: 'MKBHD Interviews!', videoCountText: '13 episodes' },
     ])
+    expect(page.videos.playlists.map((playlist) => playlist.channel)).toEqual([undefined, undefined, undefined])
   })
 
   it('lists the Shows tab as the playlists the shows open', async () => {

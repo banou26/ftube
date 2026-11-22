@@ -37,6 +37,16 @@ const POSTS = gql`
   }
 `
 
+const CHANNEL_POSTS = gql`
+  query ChannelPosts {
+    channel(id: "UC1", tab: COMMUNITY) {
+      channel { id name }
+      tab
+      posts { items { id text } cursor }
+    }
+  }
+`
+
 const CONTROL = gql`
   query Control {
     control { label }
@@ -71,6 +81,17 @@ describe('the graphcache keys', () => {
     upstream.answer = { communityPosts: { __typename: 'PostPage', items: [{ __typename: 'Post', id: 'post-1', text: 'a post' }], cursor: null } }
     const posts = await client.query(POSTS, {}).toPromise()
     expect(posts.data?.communityPosts.items[0].text).toBe('a post')
+
+    upstream.answer = {
+      channel: {
+        __typename: 'ChannelPage',
+        channel: { __typename: 'Channel', id: 'UC1', name: 'Channel One' },
+        tab: 'COMMUNITY',
+        posts: { __typename: 'PostPage', items: [{ __typename: 'Post', id: 'post-2', text: 'tab post' }], cursor: null },
+      },
+    }
+    const channelPosts = await client.query(CHANNEL_POSTS, {}).toPromise()
+    expect(channelPosts.data?.channel.posts.items[0].text).toBe('tab post')
 
     // a type with no keys entry, so a run that cannot see the warning fails here rather than passing
     upstream.answer = { control: { __typename: 'Unkeyed', label: 'control' } }

@@ -32,4 +32,13 @@ describe('a channel\'s Posts tab', () => {
       { id: 'UgkxWw9Nf4Kb453wM6hA2d9pySxjBixo0fXT', voteCountText: '2.5K', commentCountText: '30', commentCountLabel: '30 comments' },
     ])
   })
+
+  it('returns the posts directly on channel(id, COMMUNITY) in a single tab fetch', async () => {
+    const page = await source.channel(MKBHD, 'COMMUNITY')
+    expect(page.tab).toBe('COMMUNITY')
+    expect(page.posts?.items.map((post) => post.id)).toEqual([
+      'UgkxX6gkDxQ0KRucvyG7NLui0LhjHp0CLlfZ',
+      'UgkxWw9Nf4Kb453wM6hA2d9pySxjBixo0fXT',
+    ])
+  })
 })

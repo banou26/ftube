@@ -28,7 +28,7 @@ import { ChannelStore } from './channel-store'
 import { CHANNEL_TAB_PATHS } from './channel-tabs'
 
 type VideosPage = ChannelViewQuery['channel']['videos']
-type PostsPage = CommunityPostsQuery['communityPosts']
+type PostsPage = CommunityPostsQuery['communityPosts'] | NonNullable<ChannelViewQuery['channel']['posts']>
 
 const COMMUNITY_POSTS_QUERY = gql(`
   query CommunityPosts($channelId: ID!, $cursor: String) {
@@ -210,6 +210,29 @@ const CHANNEL_VIEW_QUERY = gql(`
         scrolls
         products { title url thumbnail price priceNote merchant }
       }
+      posts {
+        items {
+          id
+          text
+          publishedText
+          voteCountText
+          commentCountText
+          commentCountLabel
+          attachedImage
+          author { id name avatar }
+          attachedVideo {
+            id
+            title
+            thumbnail
+            thumbnailSrcset
+            durationSeconds
+            viewCount
+            publishedText
+            channel { id name }
+          }
+        }
+        cursor
+      }
     }
   }
 `)
@@ -301,6 +324,7 @@ const style = css`
   .meta {
     margin-top: 0.4rem;
     font-size: 1.4rem;
+    line-height: 2rem;
     color: var(--text-secondary);
   }
 
@@ -313,6 +337,7 @@ const style = css`
     background: none;
     font: inherit;
     font-size: 1.4rem;
+    line-height: 2rem;
     color: var(--text-secondary);
     text-align: left;
   }
@@ -351,8 +376,20 @@ const style = css`
     align-items: center;
     gap: 0.4rem;
     margin-top: 0.8rem;
+    min-height: 2rem;
     font-size: 1.4rem;
+    line-height: 2rem;
     color: var(--accent);
+  }
+
+  .links-skeleton span {
+    display: block;
+    width: 18rem;
+    max-width: 100%;
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
   }
 
   .links a {
@@ -400,10 +437,20 @@ const style = css`
     display: flex;
     align-items: center;
     gap: 2.4rem;
+    min-height: 4.8rem;
     margin-top: 2.4rem;
     overflow-x: auto;
     scrollbar-width: none;
     box-shadow: inset 0 -1px var(--border-subtle);
+  }
+
+  .tab-skeleton {
+    flex: none;
+    width: 5.6rem;
+    height: 1.6rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
   }
 
   .tabs::-webkit-scrollbar {
@@ -498,15 +545,22 @@ const style = css`
     gap: 0.6rem;
   }
 
+  .sort-skeleton {
+    width: 7.2rem;
+    background: var(--bg-elevated);
+    pointer-events: none;
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
   .videos {
     margin-top: 2.4rem;
   }
 
-  /* Matches the channel video grid's column sizing so a Playlists tab lines up
-     with the Videos tab beside it in the strip. */
+  /* Five cards across a 1284px channel column (four at 1070px), matching
+     youtube.com's Playlists grid density while collapsing cleanly on phones. */
   .playlist-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(31rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(21rem, 100%), 1fr));
     column-gap: 1.6rem;
     row-gap: 2.4rem;
   }
@@ -518,6 +572,145 @@ const style = css`
     flex-direction: column;
     gap: 1.6rem;
     max-width: 68rem;
+  }
+
+  .skeleton-pulse {
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  .skeleton-slot {
+    display: flex;
+    align-items: center;
+    height: 2rem;
+  }
+
+  .skeleton-slot span {
+    display: block;
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+  }
+
+  .skeleton-name {
+    height: 5rem;
+  }
+
+  .skeleton-name span {
+    width: 24rem;
+    max-width: 70%;
+    height: 3.4rem;
+    border-radius: 0.6rem;
+  }
+
+  .skeleton-meta {
+    margin-top: 0.4rem;
+  }
+
+  .skeleton-meta span {
+    width: 28rem;
+    max-width: 85%;
+  }
+
+  .skeleton-desc {
+    margin-top: 0.8rem;
+  }
+
+  .skeleton-desc span {
+    width: 42rem;
+    max-width: 100%;
+  }
+
+  .skeleton-links {
+    margin-top: 0.8rem;
+  }
+
+  .skeleton-links span {
+    width: 18rem;
+    max-width: 60%;
+  }
+
+  .skeleton-button {
+    display: block;
+    width: 10.6rem;
+    height: 3.6rem;
+    border-radius: 1.8rem;
+    background: var(--bg-elevated);
+  }
+
+  .post-skeleton {
+    padding: 1.6rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 1.2rem;
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  .post-skeleton-head {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .post-skeleton-avatar {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+  }
+
+  .post-skeleton-bar {
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+  }
+
+  .post-skeleton-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+
+  .post-skeleton-footer {
+    width: 12rem;
+    height: 2rem;
+    margin-top: 1.4rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+  }
+
+  .playlist-skeleton {
+    min-width: 0;
+    animation: channel-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  .playlist-skeleton-cover {
+    margin-top: 0.6rem;
+    aspect-ratio: 16 / 9;
+    border-radius: 1.2rem;
+    background: var(--bg-elevated);
+  }
+
+  .playlist-skeleton-bar {
+    height: 1.6rem;
+    margin-top: 1.2rem;
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+  }
+
+  .playlist-skeleton-bar.short {
+    width: 60%;
+    margin-top: 0.8rem;
+  }
+
+  @keyframes channel-skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.55;
+    }
   }
 
   .status {
@@ -570,8 +763,65 @@ const style = css`
       font-size: 2.4rem;
       line-height: 3.2rem;
     }
+
+    .skeleton-slot {
+      justify-content: center;
+    }
+
+    .skeleton-name {
+      height: 3.2rem;
+    }
+
+    .skeleton-name span {
+      width: 18rem;
+      height: 2.4rem;
+    }
   }
 `
+
+const ChannelHeaderSkeleton = () => (
+  <>
+    <div className='banner skeleton-pulse' aria-hidden='true' />
+    <header className='header skeleton-pulse' aria-hidden='true'>
+      <div className='avatar' />
+      <div className='info'>
+        <div className='skeleton-slot skeleton-name'><span /></div>
+        <div className='skeleton-slot skeleton-meta'><span /></div>
+        <div className='skeleton-slot skeleton-desc'><span /></div>
+        <div className='skeleton-slot skeleton-links'><span /></div>
+        <div className='subscribe-row'>
+          <span className='skeleton-button' />
+        </div>
+      </div>
+    </header>
+  </>
+)
+
+const PostCardSkeleton = () => (
+  <div className='post-skeleton' aria-hidden='true'>
+    <div className='post-skeleton-head'>
+      <div className='post-skeleton-avatar' />
+      <div className='post-skeleton-bar' style={{ width: '16rem' }} />
+    </div>
+    <div className='post-skeleton-body'>
+      <div className='post-skeleton-bar' style={{ width: '92%' }} />
+      <div className='post-skeleton-bar' style={{ width: '78%' }} />
+      <div className='post-skeleton-bar' style={{ width: '54%' }} />
+    </div>
+    <div className='post-skeleton-footer' />
+  </div>
+)
+
+const PlaylistCardSkeleton = () => (
+  <div className='playlist-skeleton' aria-hidden='true'>
+    <div className='playlist-skeleton-cover' />
+    <div className='playlist-skeleton-bar' />
+    <div className='playlist-skeleton-bar short' />
+  </div>
+)
+
+const SORTABLE_TABS = new Set<ChannelTab>(['VIDEOS', 'SHORTS', 'LIVE', 'PLAYLISTS'])
+const PLAYLIST_TABS = new Set<ChannelTab>(['PLAYLISTS', 'SHOWS', 'RELEASES', 'PODCASTS', 'COURSES'])
 
 const normalizeHandle = (value: string | null | undefined) =>
   value ? value.replace(/^@/, '').trim().toLowerCase() : undefined
@@ -637,15 +887,17 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   }
 
   const activeTab = data?.channel.tab
+  const displayTab = activeTab ?? tab
   const hasAbout = data?.channel.availableTabs.includes('ABOUT') === true
   // asked with the page rather than on "...more": the header's links line is read off it
-  const [{ data: aboutData }] = useQuery({
+  const [{ data: aboutData, error: aboutError }] = useQuery({
     query: CHANNEL_ABOUT_QUERY,
     variables: { id },
     pause: !hasAbout,
   })
   const about = aboutData?.channelAbout ?? undefined
   const [firstLink, ...moreLinks] = about?.links ?? []
+  const aboutPending = hasAbout && aboutData === undefined && !aboutError
   const hasSearch = data?.channel.availableTabs.includes('SEARCH') === true
   const [searching, setSearching] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -669,27 +921,41 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
     if (aboutRequested) navigate(base, { replace: true })
   }, [aboutRequested, base, navigate])
 
-  const [postPages, setPostPages] = useState<PostsPage[]>([])
+  const initialPosts = data?.channel.posts ?? undefined
+  const [morePosts, setMorePosts] = useState<{ id: string, pages: PostsPage[], cursor?: string }>({ id: feedKey, pages: [] })
+  const loadedPostPages = morePosts.id === feedKey ? morePosts.pages : []
+  const requestedPostsCursor = morePosts.id === feedKey ? morePosts.cursor : undefined
   const [{ data: postsData, error: postsError, fetching: postsFetching }, reexecutePosts] = useQuery({
     query: COMMUNITY_POSTS_QUERY,
-    variables: { channelId: id, cursor: postPages[postPages.length - 1]?.cursor },
-    pause: activeTab !== 'COMMUNITY',
+    variables: { channelId: id, cursor: requestedPostsCursor },
+    pause: activeTab !== 'COMMUNITY' || !requestedPostsCursor,
   })
-  const postPage = postsData?.communityPosts
+  const nextPostPage = requestedPostsCursor && postsData?.communityPosts && postsData.communityPosts !== loadedPostPages[loadedPostPages.length - 1]
+    ? postsData.communityPosts
+    : undefined
   const { items: posts, cursor: postsCursor } = useInfiniteFeed({
-    pages: postPage ? [...postPages, postPage] : postPages,
+    pages: [
+      ...(initialPosts ? [initialPosts] : []),
+      ...loadedPostPages,
+      ...(nextPostPage ? [nextPostPage] : []),
+    ],
     key: post => post.id,
   })
 
   const onMorePosts = () => {
-    if (!postPage?.cursor || postsFetching) return
-    setPostPages(postPages[postPages.length - 1] === postPage ? postPages : [...postPages, postPage])
+    if (!postsCursor || postsFetching || fetching) return
+    const nextLoaded = nextPostPage ? [...loadedPostPages, nextPostPage] : loadedPostPages
+    setMorePosts({ id: feedKey, pages: nextLoaded, cursor: postsCursor })
   }
 
   const onMore = () => {
     if (!page?.cursor || fetching) return
     setLoaded({ id: feedKey, pages: pages[pages.length - 1] === page ? pages : [...pages, page] })
   }
+
+  const showHeaderSkeleton = !channel && fetching && !error
+  const expectsSorts = tab !== undefined && SORTABLE_TABS.has(tab)
+  const isPlaylistTab = displayTab !== undefined && PLAYLIST_TABS.has(displayTab)
 
   return (
     <main css={style}>
@@ -729,7 +995,9 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                       : undefined}
                   </p>
                 )
-                : undefined}
+                : aboutPending
+                  ? <p className='links links-skeleton' aria-hidden='true'><span /></p>
+                  : undefined}
               <div className='subscribe-row'>
                 {isOwnChannel
                   ? (
@@ -766,7 +1034,9 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
             </div>
           </header>
         )
-        : undefined}
+        : showHeaderSkeleton
+          ? <ChannelHeaderSkeleton />
+          : undefined}
       {channel && (aboutOpen || aboutRequested)
         ? <ChannelAboutDialog name={channel.name} about={about} description={channel.description} onClose={closeAbout} />
         : undefined}
@@ -780,45 +1050,52 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
         : undefined}
       {unavailable ? <p className='status'>{unavailable.message.slice(CHANNEL_UNAVAILABLE.length)}</p> : undefined}
       {error && !missing && !unavailable && !fetching && pages.length === 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-      <nav className='tabs' aria-label='Channel sections'>
-        {(data?.channel.availableTabs ?? []).filter(available => available !== 'ABOUT' && available !== 'SEARCH').map(available => {
-          const active = available === data?.channel.tab
-          return (
-            <Link
-              key={available}
-              href={`${channelPath}/${CHANNEL_TAB_PATHS[available]}`}
-              className={active ? 'tab active' : 'tab'}
-              aria-current={active ? 'page' : undefined}
-            >
-              {TAB_LABELS[available]}
-            </Link>
-          )
-        })}
-        {hasSearch && (searching || channelQuery !== undefined)
-          ? (
-            <form className='tab-search' onSubmit={onSearch}>
-              <Search size={20} strokeWidth={1.5} aria-hidden='true' />
-              <input
-                key={channelQuery}
-                ref={searchRef}
-                type='search'
-                placeholder='Search'
-                aria-label='Search this channel'
-                defaultValue={channelQuery}
-                onBlur={(event: TargetedFocusEvent<HTMLInputElement>) => {
-                  if (!event.currentTarget.value) setSearching(false)
-                }}
-              />
-            </form>
-          )
-          : hasSearch
-            ? (
-              <button type='button' className='tab tab-icon' aria-label='Search' onClick={() => setSearching(true)}>
-                <Search size={20} strokeWidth={1.5} />
-              </button>
-            )
-            : undefined}
-      </nav>
+      {!missing && !unavailable && (!error || Boolean(data))
+        ? (
+          <nav className='tabs' aria-label='Channel sections'>
+            {!data && fetching && !error
+              ? Array.from({ length: 6 }, (_, index) => <span key={index} className='tab-skeleton' aria-hidden='true' />)
+              : undefined}
+            {(data?.channel.availableTabs ?? []).filter(available => available !== 'ABOUT' && available !== 'SEARCH').map(available => {
+              const active = available === data?.channel.tab
+              return (
+                <Link
+                  key={available}
+                  href={`${channelPath}/${CHANNEL_TAB_PATHS[available]}`}
+                  className={active ? 'tab active' : 'tab'}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {TAB_LABELS[available]}
+                </Link>
+              )
+            })}
+            {hasSearch && (searching || channelQuery !== undefined)
+              ? (
+                <form className='tab-search' onSubmit={onSearch}>
+                  <Search size={20} strokeWidth={1.5} aria-hidden='true' />
+                  <input
+                    key={channelQuery}
+                    ref={searchRef}
+                    type='search'
+                    placeholder='Search'
+                    aria-label='Search this channel'
+                    defaultValue={channelQuery}
+                    onBlur={(event: TargetedFocusEvent<HTMLInputElement>) => {
+                      if (!event.currentTarget.value) setSearching(false)
+                    }}
+                  />
+                </form>
+              )
+              : hasSearch
+                ? (
+                  <button type='button' className='tab tab-icon' aria-label='Search' onClick={() => setSearching(true)}>
+                    <Search size={20} strokeWidth={1.5} />
+                  </button>
+                )
+                : undefined}
+          </nav>
+        )
+        : undefined}
       {(data?.channel.sortOptions.length ?? 0) > 1 || (data?.channel.filterOptions.length ?? 0) > 0
         ? (
           <div className='sorts'>
@@ -875,19 +1152,32 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
             })}
           </div>
         )
-        : undefined}
-      {activeTab === 'COMMUNITY'
+        : !data && fetching && !error && expectsSorts
+          ? (
+            <div className='sorts' aria-hidden='true'>
+              <span className='sort sort-skeleton' />
+              <span className='sort sort-skeleton' />
+              <span className='sort sort-skeleton' />
+            </div>
+          )
+          : undefined}
+      {displayTab === 'COMMUNITY'
         ? (
           <div className='videos'>
             <div className='posts'>
               {posts.map(post => <PostCard key={post.id} post={post} />)}
+              {(fetching && posts.length === 0 && !error) || postsFetching
+                ? Array.from({ length: posts.length === 0 ? 3 : 1 }, (_, index) => (
+                  <PostCardSkeleton key={`post-skeleton-${index}`} />
+                ))
+                : undefined}
             </div>
             {postsError && !postsFetching
               ? <DataFailure error={postsError} reexecute={reexecutePosts} />
-              : !postsFetching && posts.length === 0
+              : data && !fetching && !postsFetching && !error && !postsError && posts.length === 0
                 ? <p className='status'>This channel has no posts.</p>
                 : undefined}
-            <FeedSentinel onVisible={onMorePosts} disabled={postsFetching || Boolean(postsError) || !postsCursor} />
+            <FeedSentinel onVisible={onMorePosts} disabled={fetching || postsFetching || Boolean(postsError) || !postsCursor} />
           </div>
         )
         : activeTab === 'STORE' && data?.channel.store
@@ -909,9 +1199,11 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
             : (
               <>
                 <div className='videos'>
-                  {(activeTab ?? tab) === 'SHORTS'
-                    ? <ShortsGrid shorts={items} fetching={fetching} />
-                    : <VideoGrid videos={items} fetching={fetching && items.length === 0} variant='channel' />}
+                  {displayTab === 'SHORTS'
+                    ? <ShortsGrid shorts={items} fetching={fetching && !error} />
+                    : items.length > 0 || (fetching && !error && !isPlaylistTab)
+                      ? <VideoGrid videos={items} fetching={fetching && !error && !isPlaylistTab && items.length === 0} variant='channel' />
+                      : undefined}
                   {playlists.length > 0
                     ? (
                       <div className='playlist-grid'>
@@ -928,7 +1220,13 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                         ))}
                       </div>
                     )
-                    : undefined}
+                    : fetching && !error && isPlaylistTab && items.length === 0
+                      ? (
+                        <div className='playlist-grid' aria-hidden='true'>
+                          {Array.from({ length: 10 }, (_, index) => <PlaylistCardSkeleton key={index} />)}
+                        </div>
+                      )
+                      : undefined}
                   {data && !fetching && !error && items.length === 0 && playlists.length === 0
                     ? <p className='status'>{emptyMessageFor(tab)}</p>
                     : undefined}

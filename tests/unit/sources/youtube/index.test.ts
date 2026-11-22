@@ -550,6 +550,31 @@ describe('youtube channel tabs', () => {
     expect(missing.tab).toBe('VIDEOS')
   })
 
+  it('returns the Posts tab items on channel(id, COMMUNITY) and continues through communityPosts without re-fetching getCommunity', async () => {
+    const client = createFakeClient()
+    let communityCalls = 0
+    const inner = client.getChannel
+    client.getChannel = async () => {
+      const channel = await inner()
+      const orig = channel.getCommunity
+      channel.getCommunity = async function (this: unknown) {
+        communityCalls += 1
+        return orig.call(this)
+      }
+      return channel
+    }
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const first = await source.channel('c', 'COMMUNITY')
+    expect(first.tab).toBe('COMMUNITY')
+    expect(first.posts?.items.map((post) => post.id)).toEqual(['post-1'])
+    expect(first.posts?.cursor).toBeTruthy()
+    expect(communityCalls).toBe(1)
+
+    const second = await source.communityPosts('c', first.posts?.cursor)
+    expect(second.items.map((post) => post.id)).toEqual(['post-2'])
+    expect(communityCalls).toBe(1)
+  })
+
   it('sorts the Videos tab by its chip bar, through the chip itself', async () => {
     const client = createFakeClient()
     const applied: unknown[] = []

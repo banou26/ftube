@@ -338,6 +338,8 @@ export type SourceChannelPage = {
   home?: SourceChannelHome
   // only on the Store tab
   store?: SourceStoreShelf[]
+  // only on the Posts tab; later pages continue through communityPosts with its cursor
+  posts?: SourcePostPage
 }
 
 export type SourceProduct = {

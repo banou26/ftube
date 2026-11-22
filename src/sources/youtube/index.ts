@@ -349,7 +349,7 @@ const pageItems = (feed: Feed, { includeShorts = true, own = false }: { includeS
   return items
 }
 
-const pagePlaylists = (feed: Feed) => {
+const pagePlaylists = (feed: Feed, { own = false }: { own?: boolean } = {}) => {
   const seen = new Set<string>()
   const playlists: SourcePlaylist[] = []
   const add = (playlist: SourcePlaylist | undefined) => {
@@ -358,7 +358,7 @@ const pagePlaylists = (feed: Feed) => {
       playlists.push(playlist)
     }
   }
-  for (const node of feed.memo?.get('LockupView') ?? []) add(normalizePlaylistLockup(node))
+  for (const node of feed.memo?.get('LockupView') ?? []) add(normalizePlaylistLockup(node, { own }))
   for (const node of feed.memo?.get('GridPlaylist') ?? []) add(normalizeGridPlaylist(node))
   // Releases and Podcasts serve the legacy `Playlist` renderer, which declares the same fields as GridPlaylist and so needs no normalizer of its own.
   for (const node of feed.memo?.get('Playlist') ?? []) add(normalizeGridPlaylist(node))
@@ -902,7 +902,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
   }
 
   const page = (kind: string, feed: Feed, { own = false } = {}): SourceVideoPage => {
-    const result: SourceVideoPage = { items: pageItems(feed, { own }), playlists: pagePlaylists(feed) }
+    const result: SourceVideoPage = { items: pageItems(feed, { own }), playlists: pagePlaylists(feed, { own }) }
     if (feed.has_continuation) {
       result.cursor = videoContinuations.register(kind, async () => page(kind, await feed.getContinuation(), { own }))
     }
@@ -1371,6 +1371,9 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
       if (selected === 'STORE') {
         const store = (feed.memo?.get('Shelf') ?? []).flatMap((shelf) => normalizeStoreShelf(shelf) ?? [])
         return { ...rest, channel, videos: { items: [], playlists: [] }, store }
+      }
+      if (selected === 'COMMUNITY') {
+        return { ...rest, channel, videos: { items: [], playlists: [] }, posts: postPage(`community:${id}`, feed as PostsFeed) }
       }
       return { ...rest, channel, videos: page(kind, feed, { own: true }) }
     },

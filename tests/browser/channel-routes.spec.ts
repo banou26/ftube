@@ -76,6 +76,8 @@ test('opens a channel\'s Shows tab, and keeps the shows on its Playlists tab', a
   await expect(page).toHaveURL('/@mkbhd/playlists')
   await expect(cards.filter({ hasText: /\d+ episodes/ }).first()).toBeVisible({ timeout: 120_000 })
   await expect(cards.filter({ hasText: /\d+ videos?/ }).first()).toBeVisible()
+  await expect(page.locator('main h1')).toHaveText('Marques Brownlee')
+  await expect(page).toHaveTitle('Marques Brownlee - yt-client')
 })
 
 test('keeps the channel\'s name in its header once its own videos fill the Home shelves', async ({ page }) => {
@@ -165,3 +167,96 @@ test('draws a channel\'s Shorts tab like youtube.com and opens a Short in the Sh
   await expect(slide).toBeVisible({ timeout: 60_000 })
   await expect(slide.locator('video')).toBeAttached()
 })
+
+test('keeps channel header name, document title and compact grid on direct /@MKBHD/playlists load', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/@MKBHD/playlists')
+  const cards = page.locator('main .playlist-grid a.card')
+  await expect(cards.first()).toBeVisible({ timeout: 120_000 })
+  await expect(page.locator('main h1')).toHaveText('Marques Brownlee')
+  await expect(page).toHaveTitle('Marques Brownlee - yt-client')
+  const columns = await cards.evaluateAll(links => {
+    const boxes = links.map(link => link.getBoundingClientRect())
+    return boxes.filter(box => Math.abs(box.top - boxes[0]!.top) < 2).length
+  })
+  expect(columns).toBeGreaterThanOrEqual(4)
+})
+
+test('renders posts on /@MKBHD/posts with loading skeletons and a single fetch', async ({ page }) => {
+  test.setTimeout(180_000)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/__yt_engine__/engine.html', async (route) => {
+    await held
+    await route.continue()
+  })
+  await page.addInitScript(() => {
+    if (window.top !== window) return
+    const methods: string[] = []
+    ;(window as unknown as { __channelPostRpc?: string[] }).__channelPostRpc = methods
+    const post = Object.getOwnPropertyDescriptor(MessagePort.prototype, 'postMessage')!.value as (this: MessagePort, message: unknown, ...rest: unknown[]) => void
+    MessagePort.prototype.postMessage = function (this: MessagePort, message: unknown, ...rest: unknown[]) {
+      const call = message as { method?: string } | null
+      if (call?.method) methods.push(call.method)
+      return post.call(this, message, ...rest)
+    } as typeof MessagePort.prototype.postMessage
+  })
+  await page.goto('/@MKBHD/posts', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('main .post-skeleton').first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('main .header.skeleton-pulse')).toBeVisible()
+  release()
+  const posts = page.locator('main article.post')
+  await expect(posts.first()).toBeVisible({ timeout: 120_000 })
+  expect(await posts.count()).toBeGreaterThanOrEqual(2)
+  await expect(page.locator('main h1')).toHaveText('Marques Brownlee')
+  await expect(page.locator('main .post-skeleton')).toHaveCount(0)
+  const methods = await page.evaluate(() => (window as unknown as { __channelPostRpc?: string[] }).__channelPostRpc ?? [])
+  expect(methods).toContain('channel')
+  expect(methods).not.toContain('communityPosts')
+})
+
+const installClsObserver = () => {
+  let cls = 0
+  const shifts: { value: number, sources: string[] }[] = []
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as (PerformanceEntry & {
+      value?: number
+      hadRecentInput?: boolean
+      sources?: { node?: Element | null }[]
+    })[]) {
+      if (!entry.hadRecentInput && typeof entry.value === 'number') {
+        cls += entry.value
+        shifts.push({
+          value: entry.value,
+          sources: (entry.sources ?? []).map((source) => {
+            const node = source.node
+            return node ? `${node.tagName.toLowerCase()}${node.className ? `.${String(node.className).trim().replace(/\s+/g, '.')}` : ''}` : 'unknown'
+          }),
+        })
+      }
+    }
+  }).observe({ type: 'layout-shift', buffered: true })
+  ;(window as unknown as { __cls?: () => { cls: number, shifts: typeof shifts } }).__cls = () => ({ cls, shifts })
+}
+
+for (const [label, viewport] of [
+  ['desktop', { width: 1440, height: 900 }],
+  ['phone', { width: 390, height: 844 }],
+] as const) {
+  test(`keeps CLS below 0.10 on /@MKBHD/videos (${label})`, async ({ page }) => {
+    test.setTimeout(180_000)
+    await page.setViewportSize(viewport)
+    await page.addInitScript(installClsObserver)
+    await page.goto('/@MKBHD/videos')
+    await expect(page.locator('main h1')).toHaveText('Marques Brownlee', { timeout: 120_000 })
+    await expect(page.locator('main article a.thumb').first()).toBeVisible({ timeout: 120_000 })
+    await expect(page.locator('main .links:not(.links-skeleton)')).toBeVisible({ timeout: 30_000 })
+    await page.waitForTimeout(500)
+    const { cls, shifts } = await page.evaluate(() =>
+      (window as unknown as { __cls: () => { cls: number, shifts: { value: number, sources: string[] }[] } }).__cls())
+    expect(cls, `${label} CLS shifts: ${JSON.stringify(shifts)}`).toBeLessThan(0.10)
+  })
+}

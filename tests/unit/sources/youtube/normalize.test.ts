@@ -614,6 +614,42 @@ describe('youtube normalization', () => {
     expect(normalizePlaylistLockup({})).toBeUndefined()
   })
 
+  it('omits bogus channel entities on playlist lockups with generic labels, episode titles, watch links, or own channel flag', () => {
+    const withRow = (
+      part: { text: { text: string, endpoint?: { payload?: { browseId?: string, videoId?: string, playlistId?: string } } } },
+      contentType = 'PLAYLIST',
+    ) => ({
+      content_id: 'PL123',
+      content_type: contentType,
+      metadata: {
+        title: { text: 'Retro Tech' },
+        image: {
+          avatar: { image: [{ url: 'avatar', width: 68 }] },
+          renderer_context: { command_context: { on_tap: { payload: { browseId: 'UCBJycsmduvYEL83R_U4JriQ' } } } },
+        },
+        metadata: { metadata_rows: [{ metadata_parts: [part] }] },
+      },
+    })
+
+    for (const label of ['Playlist', 'Podcast', 'Course', 'Updated today', 'View full playlist']) {
+      expect(normalizePlaylistLockup(withRow({
+        text: { text: label, endpoint: { payload: { browseId: 'UCBJycsmduvYEL83R_U4JriQ' } } },
+      }))?.channel).toBeUndefined()
+    }
+    expect(normalizePlaylistLockup(withRow({
+      text: { text: 'Retro Tech: Flying Cars' },
+    }, 'SHOW'))?.channel).toBeUndefined()
+    expect(normalizePlaylistLockup(withRow({
+      text: { text: 'Retro Tech: Flying Cars', endpoint: { payload: { videoId: 'ifI_fwg55k8' } } },
+    }))?.channel).toBeUndefined()
+    expect(normalizePlaylistLockup(withRow({
+      text: { text: 'Retro Tech', endpoint: { payload: { browseId: 'VLPL123' } } },
+    }))?.channel).toBeUndefined()
+    expect(normalizePlaylistLockup(withRow({
+      text: { text: '再生リスト', endpoint: { payload: { browseId: 'UCBJycsmduvYEL83R_U4JriQ' } } },
+    }), { own: true })?.channel).toBeUndefined()
+  })
+
   it('normalizes a grid playlist', () => {
     expect(normalizeGridPlaylist({
       id: 'PL123',

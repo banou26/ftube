@@ -8,7 +8,7 @@ type Thumbnail = {
 type Text = {
   text?: string
   toString?: () => string
-  endpoint?: { payload?: { browseId?: string } }
+  endpoint?: { payload?: { browseId?: string, videoId?: string, playlistId?: string } }
   runs?: RunNode[]
 }
 
@@ -955,7 +955,26 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
 // /playlist?list= like any playlist's
 const PLAYLIST_LOCKUPS = new Set(['PLAYLIST', 'ALBUM', 'STATION', 'SHOW'])
 
-export const normalizePlaylistLockup = (input: unknown): SourcePlaylist | undefined => {
+// Labels youtube.com puts in row 0 of a playlist lockup in place of a channel byline (often still carrying the
+// channel's browseId on the text run, which would overwrite Channel.name in the normalized cache).
+const PLAYLIST_NON_BYLINE = /^(?:(?:public|unlisted|private)(?: playlist)?|playlist|podcast|course|album|show|mix|view full playlist)$|^updated\b/i
+
+const playlistLockupChannel = (lockup: LockupVideo, own: boolean): SourceChannel | undefined => {
+  if (own) return undefined
+  const byline = lockupRows(lockup)[0]?.[0]
+  if (!byline) return undefined
+  const label = presentText(byline.text)
+  if (!label || PLAYLIST_NON_BYLINE.test(label)) return undefined
+  const payload = byline.text?.endpoint?.payload
+  if (payload?.videoId || payload?.playlistId) return undefined
+  if (payload?.browseId && !payload.browseId.startsWith('UC')) return undefined
+  // A SHOW lockup puts the first episode title in row 0 without a channel link.
+  if (lockup.content_type === 'SHOW' && !payload?.browseId) return undefined
+  const channel = lockupChannel(lockup, byline)
+  return channel?.id.startsWith('UC') ? channel : undefined
+}
+
+export const normalizePlaylistLockup = (input: unknown, { own = false }: { own?: boolean } = {}): SourcePlaylist | undefined => {
   const lockup = input as LockupVideo
   if (!PLAYLIST_LOCKUPS.has(lockup.content_type ?? '')) return undefined
   const id = lockup.content_id
@@ -968,7 +987,7 @@ export const normalizePlaylistLockup = (input: unknown): SourcePlaylist | undefi
     title,
     thumbnail: thumbnail(image?.image, STILL_WIDTH),
     videoCountText: badges.map((badge) => badge.text).find((value) => Boolean(value)),
-    channel: lockupChannel(lockup, lockupRows(lockup)[0]?.[0]),
+    channel: playlistLockupChannel(lockup, own),
   }
 }
 
@@ -1099,7 +1118,7 @@ export const normalizeChannelShelf = (input: unknown): SourceChannelShelf | unde
     const type = (item as { type?: string } | undefined)?.type
     if (type === 'LockupView') {
       const video = normalizeLockupVideo(item, { own: true })
-      const playlist = video ? undefined : normalizePlaylistLockup(item)
+      const playlist = video ? undefined : normalizePlaylistLockup(item, { own: true })
       if (video && lockupLines(item as LockupVideo, true).byline.length === 0) shelf.uploads = true
       if (video) shelf.videos.push(video)
       if (playlist) shelf.playlists.push(playlist)

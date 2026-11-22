@@ -452,7 +452,7 @@ type ChannelHome {
 
 type ChannelPage {
   channel: Channel!
-  # Empty on the Home tab, which is `home` instead.
+  # Empty on the Home, Store and Posts tabs, which use `home`, `store` and `posts` instead.
   videos: VideoPage!
   # Only the tabs this channel really has, in upstream's display order.
   availableTabs: [ChannelTab!]!
@@ -472,6 +472,8 @@ type ChannelPage {
   home: ChannelHome
   # Only on the Store tab, in upstream's order.
   store: [StoreShelf!]
+  # Only on the Posts tab. Later pages continue through `communityPosts` with its cursor.
+  posts: PostPage
 }
 
 # A row of a channel's Store tab.
