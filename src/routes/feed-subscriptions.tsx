@@ -1,20 +1,20 @@
 import type { SubscriptionsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { CircleUserRound } from 'lucide-react'
+import { ListVideo } from 'lucide-react'
 import { useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure } from '../components/data-failure'
+import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { EMPTY_PAGES_LIMIT, emptyPagesInARow, matchesFilter } from '../groups/filter'
 import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
-import { signIn } from '../sign-in'
 
 const SUBSCRIPTIONS_FEED_QUERY = gql(`
   query SubscriptionsFeed($cursor: String) {
@@ -184,28 +184,6 @@ const style = css`
     font-weight: 700;
     color: var(--text-primary);
   }
-
-  .sign-in {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.8rem;
-    height: 3.6rem;
-    margin-top: 1.6rem;
-    padding: 0 1.5rem;
-    border: 1px solid var(--border-strong);
-    border-radius: 1.8rem;
-    background: transparent;
-    color: var(--accent);
-    font-size: 1.4rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .sign-in:hover {
-    background: var(--accent-hover);
-    border-color: transparent;
-  }
 `
 
 const SubscriptionsFeedPage = () => {
@@ -254,16 +232,11 @@ const SubscriptionsFeedPage = () => {
   if (!signedIn) {
     return (
       <main css={style}>
-        <div className='head'>
-          <h1 className='heading'>Subscriptions</h1>
-        </div>
-        <div className='card'>
-          <h2>Sign in to see your subscriptions</h2>
-          <button type='button' className='sign-in' onClick={signIn}>
-            <CircleUserRound size={24} strokeWidth={1.5} />
-            Sign in
-          </button>
-        </div>
+        <SignedOutPrompt
+          icon={ListVideo}
+          title="Don't miss new videos"
+          subtitle='Sign in to see updates from your favorite YouTube channels'
+        />
       </main>
     )
   }

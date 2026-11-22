@@ -3,17 +3,17 @@ import type { ComponentChildren } from 'preact'
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { CircleUserRound } from 'lucide-react'
+import { Library } from 'lucide-react'
 import { useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from '../components/playlist'
 import { PlaylistCard } from '../components/playlist-card'
+import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { VideoCard } from '../components/video-card'
 import { gql } from '../generated'
 import { useSession } from '../session'
-import { signIn } from '../sign-in'
 
 const YOU_HISTORY_QUERY = gql(`
   query YouHistory {
@@ -133,44 +133,6 @@ const style = css`
     font-size: 1.4rem;
     color: var(--text-secondary);
   }
-
-  .prompt {
-    max-width: 56rem;
-    margin: 4.8rem auto 0;
-    padding: 2.4rem;
-    border-radius: 1.2rem;
-    background: var(--bg-subtle);
-    text-align: center;
-  }
-
-  .prompt h2 {
-    margin: 0;
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .sign-in {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.8rem;
-    height: 3.6rem;
-    margin-top: 1.6rem;
-    padding: 0 1.5rem;
-    border: 1px solid var(--border-strong);
-    border-radius: 1.8rem;
-    background: transparent;
-    color: var(--accent);
-    font-size: 1.4rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .sign-in:hover {
-    background: var(--accent-hover);
-    border-color: transparent;
-  }
 `
 
 const Shelf = (
@@ -242,13 +204,11 @@ const YouPage = () => {
     <main css={style}>
       {ready && !signedIn
         ? (
-          <div className='prompt'>
-            <h2>Enjoy your favorite videos</h2>
-            <button type='button' className='sign-in' onClick={signIn}>
-              <CircleUserRound size={24} strokeWidth={1.5} />
-              Sign in
-            </button>
-          </div>
+          <SignedOutPrompt
+            icon={Library}
+            title='Enjoy your favorite videos'
+            subtitle="Sign in to access videos that you've liked or saved"
+          />
         )
         : undefined}
       {ready && signedIn ? <SignedInYou /> : undefined}

@@ -2,13 +2,14 @@ import type { WatchHistoryQuery } from '../generated/graphql'
 import type { HistoryEntry, ImportedHistory } from '../history/browser-history'
 
 import { css } from '@emotion/react'
-import { CircleUserRound, Download, Trash2, X } from 'lucide-react'
+import { Download, History, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure, lineFor } from '../components/data-failure'
 import { useExtensionExposed } from '../components/extension-notice'
+import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { showToast } from '../components/ui/toast'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
@@ -60,6 +61,10 @@ const SKELETON_ROWS = 8
 const style = css`
   max-width: 88rem;
   padding: 2.4rem 1.6rem;
+
+  &.signed-out {
+    max-width: none;
+  }
 
   .heading {
     margin: 0 0 2.4rem;
@@ -150,35 +155,22 @@ const style = css`
     color: var(--text-primary);
   }
 
-  .actions {
+  > .actions {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.8rem;
-    margin-top: 1.6rem;
-  }
-
-  .heading + .actions {
     justify-content: flex-start;
+    gap: 0.8rem;
     margin: -0.8rem 0 2.4rem;
   }
 
-  .actions .sign-in {
-    margin-top: 0;
-  }
-
-  .sign-in:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-
-  .sign-in {
+  > .actions .sign-in {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.8rem;
-    height: 3.6rem;
-    margin-top: 1.6rem;
-    padding: 0 1.5rem;
+    min-height: 3.6rem;
+    max-width: 100%;
+    padding: 0.6rem 1.5rem;
     border: 1px solid var(--border-strong);
     border-radius: 1.8rem;
     background: transparent;
@@ -189,9 +181,18 @@ const style = css`
     transition: background 0.15s ease, border-color 0.15s ease;
   }
 
-  .sign-in:hover {
+  > .actions .sign-in svg {
+    flex: none;
+  }
+
+  > .actions .sign-in:hover {
     background: var(--accent-hover);
     border-color: transparent;
+  }
+
+  > .actions .sign-in:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 `
 
@@ -392,20 +393,22 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
 
   if (!imported) {
     return (
-      <main css={style}>
+      <main css={style} className='signed-out'>
         <h1 className='heading'>Watch history</h1>
-        <div className='prompt'>
-          <h2>Sign in to see your watch history</h2>
-          <div className='actions'>
-            <button type='button' className='sign-in' onClick={onSignIn}>
-              <CircleUserRound size={24} strokeWidth={1.5} />
-              Sign in
-            </button>
-            {offered ? importButton('Import from YouTube on this browser') : undefined}
-            {unmatched ? deleteButton : undefined}
-          </div>
+        <SignedOutPrompt
+          icon={History}
+          title='Keep track of what you watch'
+          subtitle="Watch history isn't viewable when signed out."
+          onSignIn={onSignIn}
+          actions={(
+            <>
+              {offered ? importButton('Import from YouTube on this browser') : undefined}
+              {unmatched ? deleteButton : undefined}
+            </>
+          )}
+        >
           {failure ? <p className='notice'>{failure}</p> : undefined}
-        </div>
+        </SignedOutPrompt>
       </main>
     )
   }
