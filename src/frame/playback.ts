@@ -67,8 +67,14 @@ export const isCancellation = (error: unknown) =>
   (error instanceof Error && error.message === SEGMENT_CANCELLED) || (error instanceof DOMException && error.name === 'AbortError')
 
 /** Reads the video's watch page, with a card's inline playback params when given, and opens a SABR session on it. */
-export const openPlaybackEntry = async (videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean) => {
-  const source = await getSabrSource(videoId, playerParams)
+export const openPlaybackEntry = async (
+  videoId: string,
+  maxHeight?: number,
+  playerParams?: string,
+  stableVolume?: boolean,
+  preview = false,
+) => {
+  const source = preview ? await getSabrSource(videoId, playerParams, true) : await getSabrSource(videoId, playerParams)
   const ref: { entry?: PlaybackEntry, session?: SabrSession } = {}
   const player = source.isLive
     ? createSabrSession(source, maxHeight, undefined, stableVolume, {
@@ -97,6 +103,7 @@ export const openPlaybackEntry = async (videoId: string, maxHeight?: number, pla
   }
   ref.entry = entry
   ref.session = player
+  if (preview && !source.isLive) player.prewarmStart()
   return { source, entry }
 }
 

@@ -138,9 +138,10 @@ export type FrameApi = SourceApi & {
   warmPlayback(): Promise<void>
   /**
    * Opens a playback of the video; a card's hover preview, or a click on the card, passes its inline playback params
-   * as `playerParams`.
+   * as `playerParams`. When `preview` is true, prefers the faster `/player` endpoint when a warmed player is ready and
+   * starts the initial dual-track SABR fetch before returning.
    */
-  openPlayback(videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean): Promise<PlaybackSession>
+  openPlayback(videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean, preview?: boolean): Promise<PlaybackSession>
   /** The end screen of the video's plain watch page, which the answer to a card's params leaves out. */
   endScreen(videoId: string): Promise<EndScreenElement[]>
   requestSegment(request: SegmentRequest): Promise<SegmentEnvelope>

@@ -21,6 +21,9 @@ let activeToken = 0
 
 // youtube.com asks its inline preview player ~150 ms after hover (measured 2026-11-11)
 const DWELL_MS = 150
+// previews render inside small cards, so capping height avoids 720p segments on HiDPI displays
+const PREVIEW_MAX_HEIGHT = 360
+const PREVIEW_BUFFER_GOAL = 10
 
 // carried between previews and deliberately NOT persisted: a feed may never start talking on its own
 let preferMuted = true
@@ -310,23 +313,37 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
     const token = ++activeToken
     const abort = new AbortController()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
+    let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
+    // Start importing the local Shaka chunk during the dwell window so it never delays openPlayback on first hover.
+    const shakaModule = warmShaka()
+    void shakaModule.catch(() => {})
 
     const timer = setTimeout(() => {
       void (async () => {
-        const [api, { startShakaPlayback }] = await Promise.all([startEngine(), warmShaka()])
+        const api = await startEngine()
         if (abort.signal.aborted || token !== activeToken) return
+        const maxHeight = Math.min(PREVIEW_MAX_HEIGHT, Math.max(240, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio)))
+        const sessionPromise = api.openPlayback(videoId, maxHeight, playerParams, undefined, true)
+        void sessionPromise.catch(() => {})
+        ownedSession = { api, promise: sessionPromise }
+        const { startShakaPlayback } = await shakaModule
+        if (abort.signal.aborted || token !== activeToken) return
+        ownedSession = undefined
         controller = await startShakaPlayback({
           api,
           video,
           videoId,
           playerParams,
+          maxHeight,
+          preview: true,
+          bufferingGoal: PREVIEW_BUFFER_GOAL,
+          sessionPromise,
           startTime: 0,
           signal: abort.signal,
           onError: () => {},
         })
         if (abort.signal.aborted) return
-        void video.play().catch(() => {})
         setStoryboards(controller.storyboards)
         setCaptionTracks(controller.captionTracks)
         selectCaption.current = controller.selectCaption
@@ -366,6 +383,10 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
       video.removeEventListener('timeupdate', onTime)
       video.removeEventListener('progress', onTime)
       video.removeEventListener('loadeddata', onPainted)
+      if (ownedSession) {
+        const { api, promise } = ownedSession
+        void promise.then((session) => api.closePlayback(session.id)).catch(() => {})
+      }
       void controller?.destroy()
     }
   }, [videoId, playerParams])

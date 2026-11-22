@@ -604,3 +604,111 @@ describe('live pump refresh detection and backfill buffer tracking', () => {
     session.close()
   })
 })
+
+describe('preview startup optimization', () => {
+  const snapshot = { currentTimeMs: 0, playbackRate: 1, bandwidthEstimate: 10_000_000, viewportWidth: 640, viewportHeight: 360 }
+
+  const initPart = (headerId: number, itag: number, bytes: Uint8Array) => join([
+    part(UMPPartId.MEDIA_HEADER, MediaHeader.encode({
+      headerId,
+      itag,
+      isInitSeg: true,
+      contentLength: String(bytes.byteLength),
+    }).finish()),
+    part(UMPPartId.MEDIA, Uint8Array.of(headerId, ...bytes)),
+    part(UMPPartId.MEDIA_END, [headerId]),
+  ])
+
+  beforeEach(() => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+    vi.mocked(egressFetch).mockReset()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('prewarmStart shares a single dual-track SABR POST across both video and audio init requests', async () => {
+    const videoInit = new Uint8Array(64).fill(1)
+    const audioInit = new Uint8Array(48).fill(2)
+    vi.mocked(egressFetch).mockImplementation(async () => new Response(join([
+      initPart(1, 396, videoInit),
+      initPart(2, 251, audioInit),
+    ])))
+
+    const vodSource: SabrSource = {
+      videoId: 'preview-vod',
+      isLive: false,
+      durationMs: 120_000,
+      manifest: '<MPD/>',
+      streamingUrl: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=1',
+      ustreamerConfig: 'AA==',
+      formats: [
+        { itag: 396, lastModified: '1', width: 640, height: 360, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, approxDurationMs: 120_000 },
+        { itag: 134, lastModified: '1', width: 640, height: 360, mimeType: 'video/mp4; codecs="avc1.4d401e"', bitrate: 500_000, approxDurationMs: 120_000 },
+        { itag: 251, lastModified: '1', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, approxDurationMs: 120_000 },
+      ],
+      playbackFormats: [
+        { key: '134:', itag: 134, mimeType: 'video/mp4; codecs="avc1.4d401e"', bitrate: 500_000, width: 640, height: 360, initRange: { start: 0, end: 31 }, indexRange: { start: 32, end: 63 } },
+        { key: '396:', itag: 396, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 640, height: 360, initRange: { start: 0, end: 31 }, indexRange: { start: 32, end: 63 } },
+        { key: '251:', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, initRange: { start: 0, end: 23 }, indexRange: { start: 24, end: 47 } },
+      ],
+      storyboards: [],
+      captions: [],
+      translations: [],
+      endScreen: [],
+      clientInfo: { clientName: 1, clientVersion: '2.20261008.00.00' },
+      mint: async () => 'AAAA',
+      recoverMint: vi.fn(async () => {}),
+    }
+
+    const session = createSabrSession(vodSource, 360)
+    expect(session.videoFormat.key).toBe('396:')
+    session.prewarmStart()
+    const [vInit, vIdx, aInit, aIdx] = await Promise.all([
+      session.requestSegment({ requestId: 'v0', sessionId: 's', generation: 0, track: 'video', kind: 'init', formatKey: '396:', range: { start: 0, end: 31 }, startTimeMs: 0, snapshot }),
+      session.requestSegment({ requestId: 'v1', sessionId: 's', generation: 0, track: 'video', kind: 'init', formatKey: '396:', range: { start: 32, end: 63 }, startTimeMs: 0, snapshot }),
+      session.requestSegment({ requestId: 'a0', sessionId: 's', generation: 0, track: 'audio', kind: 'init', formatKey: '251:', range: { start: 0, end: 23 }, startTimeMs: 0, snapshot }),
+      session.requestSegment({ requestId: 'a1', sessionId: 's', generation: 0, track: 'audio', kind: 'init', formatKey: '251:', range: { start: 24, end: 47 }, startTimeMs: 0, snapshot }),
+    ])
+    expect(vi.mocked(egressFetch)).toHaveBeenCalledTimes(1)
+    expect(vInit.end ? 0 : vInit.data.byteLength).toBe(32)
+    expect(vIdx.end ? 0 : vIdx.data.byteLength).toBe(32)
+    expect(aInit.end ? 0 : aInit.data.byteLength).toBe(24)
+    expect(aIdx.end ? 0 : aIdx.data.byteLength).toBe(24)
+    session.close()
+  })
+
+  it('caps portrait videos by their short side rather than downgrading to 144p', () => {
+    const portraitSource: SabrSource = {
+      videoId: 'portrait',
+      isLive: false,
+      durationMs: 60_000,
+      manifest: '<MPD/>',
+      streamingUrl: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=1',
+      ustreamerConfig: 'AA==',
+      formats: [
+        { itag: 394, lastModified: '1', width: 144, height: 256, mimeType: 'video/mp4; codecs="av01.0.00M.08"', bitrate: 60_000, approxDurationMs: 60_000 },
+        { itag: 396, lastModified: '1', width: 360, height: 640, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, approxDurationMs: 60_000 },
+        { itag: 398, lastModified: '1', width: 720, height: 1_280, mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 800_000, approxDurationMs: 60_000 },
+        { itag: 251, lastModified: '1', mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, approxDurationMs: 60_000 },
+      ],
+      playbackFormats: [
+        { key: '394:', itag: 394, mimeType: 'video/mp4; codecs="av01.0.00M.08"', bitrate: 60_000, width: 144, height: 256 },
+        { key: '396:', itag: 396, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 360, height: 640 },
+        { key: '398:', itag: 398, mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 800_000, width: 720, height: 1_280 },
+        { key: '251:', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000 },
+      ],
+      storyboards: [],
+      captions: [],
+      translations: [],
+      endScreen: [],
+      clientInfo: { clientName: 1, clientVersion: '2.20261008.00.00' },
+      mint: async () => 'AAAA',
+      recoverMint: vi.fn(async () => {}),
+    }
+    const session = createSabrSession(portraitSource, 360)
+    expect(session.videoFormat.key).toBe('396:')
+    session.close()
+  })
+})

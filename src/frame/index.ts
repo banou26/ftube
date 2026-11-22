@@ -81,9 +81,11 @@ const api = {
   warmPlayback: async () => {
     warmPlaybackResources()
   },
-  openPlayback: async (videoId, maxHeight, playerParams, stableVolume) => {
+  openPlayback: async (videoId, maxHeight, playerParams, stableVolume, preview) => {
     const id = `playback:${++sessionId}`
-    const { source, entry } = await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume)
+    const { source, entry } = preview
+      ? await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume, true)
+      : await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume)
     let manifest: string
     try {
       manifest = source.isLive

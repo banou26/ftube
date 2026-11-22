@@ -90,6 +90,7 @@ const networkError = (uri: string, error: unknown) => error instanceof shaka.uti
 const installScheme = () => {
   if (schemeInstalled) return
   schemeInstalled = true
+  shaka.polyfill.installAll()
   shaka.net.NetworkingEngine.registerScheme('sabr', (
     uri,
     request,
@@ -228,6 +229,25 @@ const vodAudioOpening = (session: PlaybackSession) => {
   }
 }
 
+// Pins a hover preview to the exact capped video format prewarmStart() already requested over SABR, avoiding
+// 720p downloads on HiDPI thumbnails and ensuring a cache hit on init + segment 0.
+const vodPreviewOpening = (session: PlaybackSession) => {
+  const video = session.videoFormats.find((format) => format.key === session.selectedVideoKey)
+  return {
+    ...vodAudioOpening(session),
+    ...(video?.height
+      ? {
+          preferredVideoCodecs: [codecsOf(video.mimeType).split('.')[0]!],
+          abr: {
+            enabled: false,
+            restrictToElementSize: false,
+            restrictions: { minHeight: video.height, maxHeight: video.height },
+          },
+        }
+      : {}),
+  }
+}
+
 // a live session's own error, so the restart reopens the playback and keeps the engine
 const LIVE_STALLED = 'youtube: live stream stopped delivering'
 
@@ -245,6 +265,9 @@ export const startShakaPlayback = async ({
   startTime,
   autoPlay = true,
   bufferingGoal = 30,
+  maxHeight: requestedMaxHeight,
+  preview = false,
+  sessionPromise: existingSessionPromise,
   signal,
   onError,
   onEndScreen,
@@ -259,6 +282,9 @@ export const startShakaPlayback = async ({
   startTime: number
   autoPlay?: boolean
   bufferingGoal?: number
+  maxHeight?: number
+  preview?: boolean
+  sessionPromise?: Promise<PlaybackSession>
   signal: AbortSignal
   onError(error: unknown): void
   // the video's end screen; for a page read with a card's params, whose answer carries none, the plain page's
@@ -267,12 +293,14 @@ export const startShakaPlayback = async ({
   onAutoplayMuted?: () => void
 }) => {
   if (signal.aborted) throw signal.reason
-  shaka.polyfill.installAll()
-  if (!shaka.Player.isBrowserSupported()) throw new Error('shaka: browser is not supported')
   installScheme()
+  if (!shaka.Player.isBrowserSupported()) throw new Error('shaka: browser is not supported')
 
-  const maxHeight = Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
-  const sessionPromise = api.openPlayback(videoId, maxHeight, playerParams, stableVolume)
+  const maxHeight = requestedMaxHeight ?? Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
+  const sessionPromise = existingSessionPromise
+    ?? (preview
+      ? api.openPlayback(videoId, maxHeight, playerParams, stableVolume, true)
+      : api.openPlayback(videoId, maxHeight, playerParams, stableVolume))
   void sessionPromise.catch(() => {})
   const closeSession = () => {
     void sessionPromise.then((session) => api.closePlayback(session.id)).catch(() => {})
@@ -412,6 +440,8 @@ export const startShakaPlayback = async ({
         abr: { enabled: false, defaultBandwidthEstimate: 400_000 },
       })
       activePlayer.configure(liveOpening(session))
+    } else if (preview) {
+      activePlayer.configure(vodPreviewOpening(session))
     } else {
       activePlayer.configure(vodAudioOpening(session))
     }
@@ -475,8 +505,9 @@ export const startShakaPlayback = async ({
       }
     }
     if (autoPlay) {
-      // live does not await play(): a live element that is gap-jumping can leave that promise pending indefinitely
-      if (session.isLive) void play()
+      // live does not await play(): a live element that is gap-jumping can leave that promise pending indefinitely;
+      // previews also return controls/storyboards immediately while video.play() settles
+      if (session.isLive || preview) void play()
       else await play()
     }
 

@@ -339,9 +339,10 @@ export const createSabrSession = (
 ) => {
   const videoFormats = source.playbackFormats.filter((format) => format.width && format.height)
   const audioFormats = source.playbackFormats.filter((format) => !format.width)
+  const shortSide = (format: PlaybackFormat) => Math.min(format.width!, format.height!)
   const initialVideoFormat = videoFormats
-    .filter((format) => format.height! <= maxHeight && MediaSource.isTypeSupported(format.mimeType))
-    .sort((a, b) => b.height! - a.height!)[0]
+    .filter((format) => shortSide(format) <= maxHeight && MediaSource.isTypeSupported(format.mimeType))
+    .sort((a, b) => shortSide(b) - shortSide(a) || a.bitrate - b.bitrate)[0]
     ?? videoFormats.find((format) => MediaSource.isTypeSupported(format.mimeType))
   const supportedAudio = audioFormats.filter((format) => MediaSource.isTypeSupported(format.mimeType))
   const initialAudioFormat = pickAudioFormat(supportedAudio, { drc: !source.isLive && stableVolume })
@@ -896,6 +897,7 @@ export const createSabrSession = (
   }
 
   const initFetches = new Map<string, Promise<Uint8Array>>()
+  let dualInit: { formats: Set<string>, done: Promise<void> } | undefined
   // init blob fetches are shared between requesters, so they die with the session, not with one signal
   const closeController = new AbortController()
 
@@ -949,6 +951,32 @@ export const createSabrSession = (
       return fetchInitBlob(track, format, startTimeMs, generation, progress, dualTrack, attempt + 1)
     }
     throw refreshError(`youtube: ${describeNoMedia(response)} after ${MAX_SEGMENT_ATTEMPTS} attempts`)
+  }
+
+  const startInitFetch = (
+    track: 'audio' | 'video',
+    format: PlaybackFormat,
+    startTimeMs: number,
+    generation: number,
+    progress: (phase: string) => void,
+    wantDual: boolean,
+  ) => {
+    const blobPromise = fetchInitBlob(track, format, startTimeMs, generation, progress, wantDual)
+    initFetches.set(format.key, blobPromise)
+    const currentDual = wantDual
+      ? { formats: new Set([videoFormat.key, audioFormat.key]), done: blobPromise.then(() => {}, () => {}) }
+      : undefined
+    if (currentDual) dualInit = currentDual
+    void blobPromise.catch(() => {}).finally(() => {
+      if (initFetches.get(format.key) === blobPromise) initFetches.delete(format.key)
+      if (currentDual && dualInit === currentDual) dualInit = undefined
+    })
+    return blobPromise
+  }
+
+  const prewarmStart = () => {
+    if (source.isLive || !videoFormat.initRange || initFetches.has(videoFormat.key) || dualInit) return
+    startInitFetch('video', videoFormat, 0, seekGeneration, () => {}, true)
   }
 
   const requestSegment = (
@@ -1154,16 +1182,31 @@ export const createSabrSession = (
         return awaitLiveSequence(request.sequenceNumber)
       }
       if (request.kind === 'init' && requestedRange) {
-        const cached = getCachedSegment()
+        let cached = getCachedSegment()
         if (cached) return cached
+        const hasMediaForFormat = () => {
+          for (const segment of mediaCache.values()) {
+            if (segment.formatKey === format.key) return true
+          }
+          return false
+        }
+        // When a dual-track init fetch or its background harvest already carries this format, wait for its init bytes
+        // instead of launching a second concurrent SABR request that competes on WebVPN and overwrites activeHarvest.
+        while (!initFetches.has(format.key)) {
+          const pendingDual = dualInit?.formats.has(format.key) ? dualInit : undefined
+          const harvest = activeHarvest?.formatKeys.has(format.key) ? activeHarvest : undefined
+          if (!pendingDual && !harvest) break
+          if (!pendingDual && hasMediaForFormat()) break
+          const changed = cacheChange
+          progress('cache-wait')
+          await withAbort(Promise.race([changed, pendingDual ? pendingDual.done : harvest!.done]), signal)
+          cached = getCachedSegment()
+          if (cached) return cached
+        }
         let blobPromise = initFetches.get(format.key)
         if (!blobPromise) {
-          const wantDual = initFetches.size === 0
-          blobPromise = fetchInitBlob(request.track, format, startTimeMs, request.generation, progress, wantDual)
-          initFetches.set(format.key, blobPromise)
-          void blobPromise.catch(() => {}).finally(() => {
-            if (initFetches.get(format.key) === blobPromise) initFetches.delete(format.key)
-          })
+          const wantDual = initFetches.size === 0 && !dualInit
+          blobPromise = startInitFetch(request.track, format, startTimeMs, request.generation, progress, wantDual)
         }
         const blob = await withAbort(blobPromise, signal)
         if (requestedRange.end < blob.byteLength) {
@@ -1201,6 +1244,7 @@ export const createSabrSession = (
     get liveEndMs() { return liveEndMs() },
     get liveWindowStartMs() { return liveWindowStartMs },
     startLivePump: ensureLivePump,
+    prewarmStart,
     get videoFormat() { return videoFormat },
     get audioFormat() { return audioFormat },
     requestSegment,
@@ -1209,6 +1253,7 @@ export const createSabrSession = (
     close: () => {
       closeController.abort(new Error('youtube: playback session closed'))
       initFetches.clear()
+      dualInit = undefined
       void cancelActiveHarvest()
       mediaCache.clear()
       mediaCacheBytes = 0

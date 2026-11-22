@@ -11,6 +11,7 @@ import { startGroupSync } from './groups/sync-live'
 import { markStartup } from './perf'
 import { startEngine } from './engine/client'
 import { cleanUpScramjet } from './engine/scramjet-cleanup'
+import { warmShaka } from './player/prefetch'
 import { applyTheme, watchDeviceTheme } from './settings'
 import { setSource } from './sources/runtime'
 import { lazyCodeList, warmLazyCode } from './warm-code'
@@ -198,11 +199,15 @@ void startEngine().then(
     markStartup('engine-ready')
     document.documentElement.dataset.engine = 'ready'
     const path = location.pathname
-    if (!path.startsWith('/watch') && !path.startsWith('/shorts') && path !== '/privacy' && path !== '/settings') {
+    const browsePage = !path.startsWith('/watch') && !path.startsWith('/shorts') && path !== '/privacy' && path !== '/settings'
+    if (browsePage) {
       void source.warmPlayback().catch(() => {})
     }
     const whenIdle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 1_000))
-    whenIdle(() => { void cleanUpScramjet() })
+    whenIdle(() => {
+      void cleanUpScramjet()
+      if (browsePage) void warmShaka().catch(() => {})
+    })
   },
   (error) => {
     document.documentElement.dataset.engine = 'error'

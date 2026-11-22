@@ -11,6 +11,9 @@ vi.mock('youtubei.js/web', async (importOriginal) => {
     Innertube: {
       create: async () => ({ session: { context, player: { decipher: async (url: string) => url } }, actions: {} }),
     },
+    Player: {
+      create: async () => ({ signature_timestamp: 20774, decipher: async (url: string) => url }),
+    },
   }
 })
 
@@ -126,4 +129,42 @@ it('reads the plain page without a visitor when the answer to a card\'s params d
   expect(stats.map(({ url, visitor }) => ({ docid: new URL(url).searchParams.get('docid'), visitor }))).toEqual([
     { docid: 'plain', visitor: 'visitor' },
   ])
+})
+
+it('uses /player over the media lane for hover previews once a player is warmed, and falls back to /watch if /player refuses', async () => {
+  const { egressFetch } = await import('../../../src/frame/egress')
+  const { getSabrSource } = await import('../../../src/frame/innertube')
+  const homePage = new Response('<script>ytcfg.set({"PLAYER_JS_URL":"/s/player/abc12345/base.js"});window.ytAtN({\'R\':\'{}\'});</script>')
+  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(playerResponse)
+
+  const { warmPlaybackResources } = await import('../../../src/frame/innertube')
+  warmPlaybackResources()
+  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/')).toBe(true))
+  fetched.length = 0
+
+  vi.mocked(egressFetch).mockImplementation(async (url) =>
+    url.includes('/youtubei/v1/player') ? new Response(JSON.stringify(playerResponse), { status: 200 }) : new Response(null))
+
+  const fast = await getSabrSource(VIDEO, PARAMS, true)
+  expect(fast.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([])
+  const playerCall = vi.mocked(egressFetch).mock.calls.find(([url]) => url.includes('/youtubei/v1/player'))
+  expect(playerCall).toBeDefined()
+  const sentBody = JSON.parse(new TextDecoder().decode(playerCall![1].body as ArrayBuffer)) as {
+    videoId: string
+    params: string
+    playbackContext: { contentPlaybackContext: { signatureTimestamp: number } }
+  }
+  expect(sentBody.videoId).toBe(VIDEO)
+  expect(sentBody.params).toBe(PARAMS)
+  expect(sentBody.playbackContext.contentPlaybackContext.signatureTimestamp).toBe(20774)
+
+  // If /player cannot serve the preview, it falls back cleanly to the watch page read.
+  vi.mocked(egressFetch).mockImplementation(async (url) =>
+    url.includes('/youtubei/v1/player')
+      ? new Response(JSON.stringify({ playabilityStatus: { status: 'UNPLAYABLE' } }), { status: 200 })
+      : new Response(null))
+  const fallback = await getSabrSource(VIDEO, PARAMS, true)
+  expect(fallback.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([{ url: card, visitor: 'visitor' }])
 })
