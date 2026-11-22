@@ -11,6 +11,7 @@ test('searches from the header\'s search icon at a phone\'s width', async ({ pag
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/')
   await expect(input).toBeVisible()
+  await expect(home).toHaveText('YT client')
   await expect(searchButton).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Back' })).toHaveCount(0)
 

@@ -42,12 +42,6 @@ const logoStyle = css`
     line-height: 2.2rem;
     white-space: nowrap;
   }
-
-  .region {
-    font-size: 1rem;
-    line-height: 1;
-    color: var(--text-secondary);
-  }
 `
 
 export const Logo = () => (
@@ -57,7 +51,6 @@ export const Logo = () => (
       <path d='M11.2 5.8 19 10l-7.8 4.2z' fill='#ffffff' />
     </svg>
     <span className='wordmark'>YT client</span>
-    <sup className='region'>DEV</sup>
   </Link>
 )
 
@@ -371,10 +364,6 @@ const style = css`
   @media (max-width: 399px) {
     .start {
       gap: 0.8rem;
-    }
-
-    .region {
-      display: none;
     }
 
     .end {
