@@ -70,6 +70,8 @@ export const resolvers = {
     removeFromHistory: (_, { videoId }, context) => context.source.removeFromHistory(videoId),
     markNotificationRead: (_, { id }, context) => context.source.markNotificationRead(id),
     postComment: (_, { videoId, text }, context) => context.source.postComment(videoId, text),
+    commentOnPost: (_, { postId, channelId, text }, context) =>
+      context.source.commentOnPost(postId, channelId, text),
     sendLiveChatMessage: (_, { videoId, text }, context) => context.source.sendLiveChatMessage(videoId, text),
     replyToComment: (_, { actionsToken, text }, context) => context.source.replyToComment(actionsToken, text),
     rateComment: (_, { actionsToken, status }, context) => context.source.rateComment(actionsToken, status),

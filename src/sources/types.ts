@@ -675,6 +675,7 @@ export type Source = {
   removeFromHistory(videoId: string): Promise<string>
   markNotificationRead(id: string): Promise<string>
   postComment(videoId: string, text: string): Promise<boolean>
+  commentOnPost(postId: string, channelId: string, text: string): Promise<boolean>
   sendLiveChatMessage(videoId: string, text: string): Promise<boolean>
   replyToComment(actionsToken: string, text: string): Promise<boolean>
   rateComment(actionsToken: string, status: SourceLikeStatus): Promise<SourceComment>
@@ -725,6 +726,7 @@ export const SOURCE_METHODS = [
   'removeFromHistory',
   'markNotificationRead',
   'postComment',
+  'commentOnPost',
   'sendLiveChatMessage',
   'replyToComment',
   'rateComment',
@@ -799,6 +801,7 @@ export const SOURCE_REPLAY = {
   removeFromHistory: 'never',
   markNotificationRead: 'never',
   postComment: 'never',
+  commentOnPost: 'never',
   sendLiveChatMessage: 'never',
   replyToComment: 'never',
   rateComment: 'never',

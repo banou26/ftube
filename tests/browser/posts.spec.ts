@@ -103,3 +103,30 @@ test('draws a cut text again without measuring it again when only its parent dre
   }).toPass({ timeout: 120_000 })
   expect(observed).toEqual({ first: 1, after: 1 })
 })
+
+test('signed in on a post page, shows the comment box and submits the post comment', async ({ page }) => {
+  test.setTimeout(180_000)
+  await openHarness(page)
+  const section = page.locator('[data-posts-harness="signed-in-post-comments"]')
+  await expect(async () => {
+    if (await section.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as { mountSignedInPostComments: () => () => unknown[] }
+        ;(window as unknown as { __postCommentsSent?: () => unknown[] }).__postCommentsSent = harness.mountSignedInPostComments()
+      }, HARNESS)
+    }
+    await expect(section.getByLabel('Add a comment')).toBeVisible({ timeout: 15_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const box = section.getByLabel('Add a comment')
+  const submit = section.getByRole('button', { name: 'Comment', exact: true })
+  await expect(submit).toBeDisabled()
+  await box.fill('Great update!')
+  await expect(submit).toBeEnabled()
+  await submit.click()
+
+  await expect(box).toHaveValue('')
+  await expect(page.getByText('Comment posted')).toBeVisible()
+  const sent = await page.evaluate(() => (window as unknown as { __postCommentsSent: () => unknown[] }).__postCommentsSent())
+  expect(sent).toEqual([{ postId: 'UgkxPost1', channelId: 'UCauthor1', text: 'Great update!' }])
+})

@@ -81,6 +81,12 @@ const POST_COMMENT = gql(`
   }
 `)
 
+const COMMENT_ON_POST = gql(`
+  mutation CommentOnPost($postId: ID!, $channelId: ID!, $text: String!) {
+    commentOnPost(postId: $postId, channelId: $channelId, text: $text)
+  }
+`)
+
 const REPLY_TO_COMMENT = gql(`
   mutation ReplyToComment($actionsToken: String!, $text: String!) {
     replyToComment(actionsToken: $actionsToken, text: $text)
@@ -419,9 +425,10 @@ const style = css`
 `
 
 /** The top-level comment box. Signed-out readers get a prompt, not a dead form. */
-const Composer = ({ videoId }: { videoId?: string }) => {
+const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, channelId: string } }) => {
   const { ready, signedIn } = useSession()
   const [, postComment] = useMutation(POST_COMMENT)
+  const [, commentOnPost] = useMutation(COMMENT_ON_POST)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -432,13 +439,16 @@ const Composer = ({ videoId }: { videoId?: string }) => {
       </button>
     )
   }
-  if (!videoId) return null
+  if (!videoId && !post) return null
 
   const send = () => {
     const body = draft.trim()
     if (body.length === 0 || sending) return
     setSending(true)
-    void postComment({ videoId, text: body }).then((result) => {
+    const request = post
+      ? commentOnPost({ postId: post.id, channelId: post.channelId, text: body })
+      : postComment({ videoId: videoId!, text: body })
+    void request.then((result) => {
       setSending(false)
       if (result.error) {
         showToast(lineFor(result.error))
@@ -898,7 +908,7 @@ const RydComments = ({ videoId }: { videoId: string }) => {
   )
 }
 
-/** A video's comments, or with `post` instead, a channel post's, where a signed-in viewer gets no comment box. */
+/** A video's comments, or with `post` instead, a channel post's. */
 export const Comments = ({ videoId, post, commentCountText }: {
   videoId?: string
   post?: { id: string, channelId: string }
@@ -941,7 +951,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
       </section>
     )
   }
-  if (!fetching && !error && items.length === 0 && !page?.disabled) return null
+  if (!fetching && !error && items.length === 0 && !page?.disabled && !page?.countText) return null
   if (page?.disabled && items.length === 0) {
     if (videoId && !post) return <RydComments videoId={videoId} />
     return (
@@ -973,7 +983,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
           ))}
         </Menu>
       </div>
-      <Composer videoId={videoId} />
+      <Composer videoId={videoId} post={post} />
       <div className='list'>
         {items.map(comment => (
           <div className='comment' key={comment.id}>

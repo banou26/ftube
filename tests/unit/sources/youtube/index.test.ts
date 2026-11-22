@@ -376,6 +376,94 @@ describe('youtube comment writes', () => {
     await expect(source.postComment('abc', 'first')).resolves.toBe(true)
     expect(client.calls).toContain('comment:abc:first')
   })
+
+  it('posts a top-level comment on a channel post through the post header\'s createCommentEndpoint', async () => {
+    const executed: { endpoint: string, args: unknown }[] = []
+    let postReads = 0
+    const fakeActions = {
+      execute: async (endpoint: string, args?: unknown) => {
+        executed.push({ endpoint, args })
+        return { success: true, status_code: 200, data: {} }
+      },
+    }
+    const rawPostComments = {
+      onResponseReceivedEndpoints: [
+        {
+          reloadContinuationItemsCommand: {
+            continuationItems: [{
+              commentsHeaderRenderer: {
+                countText: { runs: [{ text: '12' }, { text: ' Comments' }] },
+                createRenderer: {
+                  commentSimpleboxRenderer: {
+                    placeholderText: { runs: [{ text: 'Add a comment...' }] },
+                    submitButton: {
+                      buttonRenderer: {
+                        text: { simpleText: 'Comment' },
+                        serviceEndpoint: {
+                          commandMetadata: { webCommandMetadata: { apiUrl: '/youtubei/v1/comment/create_comment', sendPost: true } },
+                          createCommentEndpoint: { createCommentParams: 'POST_CREATE_PARAMS' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            }],
+          },
+        },
+        { reloadContinuationItemsCommand: { continuationItems: [] } },
+      ],
+    }
+    const base = createFakeClient()
+    const client = {
+      ...base,
+      actions: fakeActions,
+      getPostComments: async (postId: string, channelId: string) => {
+        postReads += 1
+        base.calls.push(`getPostComments:${postId}:${channelId}`)
+        return new YT.Comments(fakeActions as never, rawPostComments as never)
+      },
+    }
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => client as unknown as YoutubeClient,
+    })
+
+    // warm path: reading postComments caches the submit endpoint from the header
+    await source.postComments('UgkxPost1', 'UCauthor1')
+    expect(postReads).toBe(1)
+    await expect(source.commentOnPost('UgkxPost1', 'UCauthor1', 'Great post!')).resolves.toBe(true)
+    expect(postReads).toBe(1)
+    expect(executed).toEqual([
+      { endpoint: 'comment/create_comment', args: { createCommentParams: 'POST_CREATE_PARAMS', commentText: 'Great post!' } },
+    ])
+
+    // cold path: posting before postComments ran fetches the post's comments header once
+    await expect(source.commentOnPost('UgkxPost2', 'UCauthor1', 'Second post')).resolves.toBe(true)
+    expect(postReads).toBe(2)
+    expect(executed[1]).toEqual({
+      endpoint: 'comment/create_comment',
+      args: { createCommentParams: 'POST_CREATE_PARAMS', commentText: 'Second post' },
+    })
+  })
+
+  it('refuses to comment on a channel post when signed out or when the header has no submit endpoint', async () => {
+    const signedOutClient = createFakeClient()
+    signedOutClient.session.logged_in = false
+    const signedOutSource = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => signedOutClient,
+    })
+    await expect(signedOutSource.commentOnPost('UgkxPost1', 'UC1', 'hello')).rejects.toThrow('sign in')
+    expect(signedOutClient.calls).toEqual([])
+
+    const noBoxClient = createFakeClient()
+    const noBoxSource = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => noBoxClient,
+    })
+    await expect(noBoxSource.commentOnPost('UgkxPost1', 'UC1', 'hello')).rejects.toThrow('turned off')
+  })
 })
 
 describe('youtube search', () => {

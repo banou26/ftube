@@ -964,6 +964,7 @@ type Mutation {
   # opaque response carrying no parseable comment, and a fabricated id would
   # poison the normalized cache. The composer prepends its own row instead.
   postComment(videoId: ID!, text: String!): Boolean!
+  commentOnPost(postId: ID!, channelId: ID!, text: String!): Boolean!
   # Sends through the chat session the panel already has open, so it fails
   # rather than silently opening a second poll of the same stream.
   sendLiveChatMessage(videoId: ID!, text: String!): Boolean!

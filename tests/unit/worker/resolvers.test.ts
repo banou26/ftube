@@ -153,4 +153,17 @@ describe('root mutations', () => {
     await expect(resolvers.Mutation.setNotificationLevel({}, { channelId: 'c', level: 'ALL' }, { source } as never))
       .resolves.toMatchObject({ id: 'c', notificationLevel: 'ALL' })
   })
+
+  it('passes post comments through to the active source', async () => {
+    const calls: [string, string, string][] = []
+    const source = {
+      commentOnPost: async (postId: string, channelId: string, text: string) => {
+        calls.push([postId, channelId, text])
+        return true
+      },
+    } as unknown as SourceApi
+    await expect(resolvers.Mutation.commentOnPost({}, { postId: 'p1', channelId: 'UC1', text: 'hello' }, { source } as never))
+      .resolves.toBe(true)
+    expect(calls).toEqual([['p1', 'UC1', 'hello']])
+  })
 })

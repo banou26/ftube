@@ -184,7 +184,13 @@ type NotificationsFeed = {
 
 type CommentsFeed = {
   contents: Iterable<unknown>
-  header?: { comments_count?: unknown, count?: unknown }
+  header?: {
+    comments_count?: unknown
+    count?: unknown
+    create_renderer?: {
+      submit_button?: { endpoint?: EndpointNode, on_tap?: EndpointNode } | null
+    } | null
+  }
   has_continuation: boolean
   getContinuation(): Promise<CommentsFeed>
 }
@@ -1116,6 +1122,23 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
     return result
   }
 
+  const postCommentEndpoints = new Map<string, EndpointNode>()
+
+  // A post's createCommentParams are minted by upstream inside the post's comments header, unlike a video comment whose params youtubei.js builds from the video id.
+  const rememberPostCommentEndpoint = (postId: string, channelId: string, feed: CommentsFeed) => {
+    const button = feed.header?.create_renderer?.submit_button
+    const endpoint = button?.endpoint ?? button?.on_tap
+    if (!endpoint) return
+    const key = `${postId}:${channelId}`
+    postCommentEndpoints.delete(key)
+    postCommentEndpoints.set(key, endpoint)
+    while (postCommentEndpoints.size > 64) {
+      const oldest = postCommentEndpoints.keys().next().value
+      if (oldest === undefined) break
+      postCommentEndpoints.delete(oldest)
+    }
+  }
+
   const firstCommentPage = async (kind: string, read: () => Promise<CommentsFeed>): Promise<SourceCommentPage> => {
     try {
       return commentPage(kind, await read())
@@ -1411,7 +1434,11 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
     postComments: async (postId, channelId, sort, cursor) => {
       const kind = `post-comments:${postId}:${sort ?? 'TOP'}`
       if (cursor) return commentContinuations.resolve(kind, cursor)
-      return firstCommentPage(kind, async () => (await client).getPostComments(postId, channelId, upstreamCommentSort(sort)))
+      return firstCommentPage(kind, async () => {
+        const feed = await (await client).getPostComments(postId, channelId, upstreamCommentSort(sort))
+        rememberPostCommentEndpoint(postId, channelId, feed)
+        return feed
+      })
     },
     playlists: async (cursor) => {
       if (cursor) return playlistListContinuations.resolve('playlists', cursor)
@@ -1493,6 +1520,21 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
       const active = await client
       requireSignIn(active, 'post a comment')
       await active.interact.comment(videoId, textBody)
+      return true
+    },
+    commentOnPost: async (postId, channelId, textBody) => {
+      const active = await client
+      requireSignIn(active, 'post a comment')
+      const key = `${postId}:${channelId}`
+      let endpoint = postCommentEndpoints.get(key)
+      if (!endpoint) {
+        const feed = await active.getPostComments(postId, channelId)
+        rememberPostCommentEndpoint(postId, channelId, feed)
+        endpoint = postCommentEndpoints.get(key)
+      }
+      if (!endpoint) throw new Error('youtube: comments are turned off for this post')
+      // `commentText` is the key the create-comment button's endpoint reads.
+      await endpoint.call(active.actions, { commentText: textBody })
       return true
     },
     replyToComment: async (token, textBody) => {

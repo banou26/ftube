@@ -1,7 +1,9 @@
 import { render } from 'preact'
 import { useState } from 'preact/hooks'
+import { Client, fetchExchange, Provider } from 'urql'
 import { Parser, YT } from 'youtubei.js'
 
+import { Comments } from '../../../src/components/comments'
 import { ReadMore } from '../../../src/components/read-more'
 import { ChannelHome } from '../../../src/routes/channel-home'
 import { createYoutubeSource } from '../../../src/sources/youtube'
@@ -41,4 +43,58 @@ export const mountReadMore = () => {
   }
   render(<Parent />, host('read-more'))
   return () => drawAgain()
+}
+
+export const mountSignedInPostComments = () => {
+  const sent: { postId: string, channelId: string, text: string }[] = []
+  const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const { operationName, variables } = JSON.parse(init?.body as string) as {
+      operationName: string
+      variables?: Record<string, string>
+    }
+    if (operationName === 'Session') {
+      return new Response(JSON.stringify({
+        data: { session: { signedIn: true, name: 'Viewer', avatar: null, handle: '@viewer', accounts: [] } },
+      }), { headers: { 'content-type': 'application/json' } })
+    }
+    if (operationName === 'PostComments') {
+      return new Response(JSON.stringify({
+        data: {
+          postComments: {
+            items: [{
+              id: 'c1',
+              text: 'Existing comment',
+              runs: [],
+              publishedText: '1 hour ago',
+              likeCountText: '3',
+              replyCount: 0,
+              repliesCursor: null,
+              actionsToken: null,
+              isPinned: false,
+              isHearted: false,
+              isCreator: false,
+              isMember: false,
+              isLiked: false,
+              isDisliked: false,
+              author: { id: 'UC2', name: 'Alice', avatar: null, isVerified: false, isVerifiedArtist: false },
+            }],
+            cursor: null,
+            disabled: false,
+            countText: '1 Comment',
+          },
+        },
+      }), { headers: { 'content-type': 'application/json' } })
+    }
+    if (operationName === 'CommentOnPost') {
+      sent.push({ postId: variables?.postId ?? '', channelId: variables?.channelId ?? '', text: variables?.text ?? '' })
+      return new Response(JSON.stringify({ data: { commentOnPost: true } }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } })
+  }
+  const client = new Client({ url: '/posts-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  const container = host('signed-in-post-comments')
+  render(<Provider value={client}><Comments post={{ id: 'UgkxPost1', channelId: 'UCauthor1' }} /></Provider>, container)
+  return () => sent
 }
