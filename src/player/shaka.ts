@@ -243,6 +243,8 @@ export const startShakaPlayback = async ({
   playerParams,
   stableVolume,
   startTime,
+  autoPlay = true,
+  bufferingGoal = 30,
   signal,
   onError,
   onEndScreen,
@@ -254,6 +256,8 @@ export const startShakaPlayback = async ({
   playerParams?: string
   stableVolume?: boolean
   startTime: number
+  autoPlay?: boolean
+  bufferingGoal?: number
   signal: AbortSignal
   onError(error: unknown): void
   // the video's end screen; for a page read with a card's params, whose answer carries none, the plain page's
@@ -334,7 +338,7 @@ export const startShakaPlayback = async ({
       preferredAudioCodecs: ['opus', 'mp4a.40.2', 'mp4a.40.5'],
       abr: { restrictToElementSize: true },
       streaming: {
-        bufferingGoal: 30,
+        bufferingGoal,
         rebufferingGoal: 0,
         bufferBehind: 30,
         segmentPrefetchLimit: 0,
@@ -453,19 +457,23 @@ export const startShakaPlayback = async ({
     video.addEventListener('timeupdate', markFirstFrame)
     document.documentElement.dataset.playerEngine = 'shaka'
     // the mute is the browser's choice, not the viewer's, so it is never written back to settings
-    const start = async () => {
+    const play = async () => {
+      if (destroyed) return
       try {
         await video.play()
-      } catch {
-        if (!video.muted) {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        if (!video.muted && !destroyed) {
           video.muted = true
           await video.play().catch(() => {})
         }
       }
     }
-    // live does not await play(): a live element that is gap-jumping can leave that promise pending indefinitely
-    if (session.isLive) void start()
-    else await start()
+    if (autoPlay) {
+      // live does not await play(): a live element that is gap-jumping can leave that promise pending indefinitely
+      if (session.isLive) void play()
+      else await play()
+    }
 
     const heights = [...new Set(
       session.videoFormats
@@ -631,6 +639,7 @@ export const startShakaPlayback = async ({
 
     return {
       player: activePlayer,
+      play,
       destroy,
       heights,
       selectQuality,

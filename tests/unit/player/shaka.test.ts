@@ -85,7 +85,12 @@ const failure = (severity: number, cause: Error) => Object.assign(new Event('err
 const PLAIN_END = [{ style: 'VIDEO', videoId: 'video-2' }]
 const CARD_END = [{ style: 'VIDEO', videoId: 'video-3' }, { style: 'CHANNEL', channelId: 'channel-1' }]
 
-const start = async (session: Record<string, unknown> = {}, endScreen = async () => CARD_END, stableVolume?: boolean) => {
+const start = async (
+  session: Record<string, unknown> = {},
+  endScreen = async () => CARD_END,
+  stableVolume?: boolean,
+  options?: { autoPlay?: boolean, bufferingGoal?: number, play?: () => Promise<void> },
+) => {
   const api = {
     openPlayback: vi.fn(async () => ({
       id: 'playback:1', isLive: false, manifest: '<MPD/>', videoFormats: [], audioFormats: [], storyboards: [], captionTracks: [], translationLanguages: [], endScreen: [],
@@ -98,7 +103,7 @@ const start = async (session: Record<string, unknown> = {}, endScreen = async ()
   }
   const video = Object.assign(new EventTarget(), {
     getBoundingClientRect: () => ({ height: 720 }),
-    play: async () => {},
+    play: vi.fn(options?.play ?? (async () => {})),
     currentTime: 0,
     paused: false,
     muted: false,
@@ -113,11 +118,13 @@ const start = async (session: Record<string, unknown> = {}, endScreen = async ()
     playerParams: (session.playerParams as string | undefined) ?? 'params-1',
     stableVolume,
     startTime: 0,
+    autoPlay: options?.autoPlay,
+    bufferingGoal: options?.bufferingGoal,
     signal: new AbortController().signal,
     onError,
     onEndScreen,
   })
-  return { api, onError, onEndScreen, controller, player: fake.players.at(-1)! }
+  return { api, video, onError, onEndScreen, controller, player: fake.players.at(-1)! }
 }
 
 describe('a Shaka player whose stream the frame refused', () => {
@@ -303,5 +310,58 @@ describe('audio track and Stable Volume selection in Shaka', () => {
 
     expect(api.selectAudioFormat).toHaveBeenCalledExactlyOnceWith('playback:1', '251:es')
     expect(player.selectedAudioCalls).toEqual([[esTrack, 1]])
+  })
+})
+
+describe('preloading without autoplay in Shaka', () => {
+  beforeEach(() => {
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('buffers with the requested bufferingGoal without calling video.play until controller.play runs', async () => {
+    const { video, controller, player } = await start({}, undefined, undefined, { autoPlay: false, bufferingGoal: 4 })
+    expect(player.configs[0]).toMatchObject({ streaming: { bufferingGoal: 4 } })
+    expect(video.play).not.toHaveBeenCalled()
+
+    await controller.play()
+    expect(video.play).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to muted playback when play is blocked, but ignores AbortError from pause', async () => {
+    let calls = 0
+    const blocked = await start({}, undefined, undefined, {
+      autoPlay: false,
+      bufferingGoal: 4,
+      play: async () => {
+        calls += 1
+        if (calls === 1) throw new DOMException('blocked', 'NotAllowedError')
+      },
+    })
+    await blocked.controller.play()
+    expect(blocked.video.muted).toBe(true)
+    expect(blocked.video.play).toHaveBeenCalledTimes(2)
+
+    const aborted = await start({}, undefined, undefined, {
+      autoPlay: false,
+      bufferingGoal: 4,
+      play: async () => {
+        throw new DOMException('interrupted by pause', 'AbortError')
+      },
+    })
+    await aborted.controller.play()
+    expect(aborted.video.muted).toBe(false)
+    expect(aborted.video.play).toHaveBeenCalledOnce()
+  })
+
+  it('does not start playback if controller.play is called after destroy', async () => {
+    const { video, controller } = await start({}, undefined, undefined, { autoPlay: false, bufferingGoal: 4 })
+    await controller.destroy()
+    await controller.play()
+    expect(video.play).not.toHaveBeenCalled()
   })
 })

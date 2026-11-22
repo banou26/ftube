@@ -10,6 +10,20 @@ const REFUSAL = `${PLAYBACK_REFUSED}${JSON.stringify({ title: 'Video unavailable
 const NAMED_SHORT = 'y2Vqj-59Hqc'
 
 type Refused = { refusedShort?: string }
+type OpenPlaybackLog = { openPlaybackCalls?: string[] }
+
+// records every openPlayback videoId sent from the app realm to the frame
+const trackOpenPlayback = () => {
+  if (window.top !== window) return
+  const state = window as unknown as OpenPlaybackLog
+  state.openPlaybackCalls = []
+  const post = Object.getOwnPropertyDescriptor(MessagePort.prototype, 'postMessage')!.value as (this: MessagePort, message: unknown, ...rest: unknown[]) => void
+  MessagePort.prototype.postMessage = function (this: MessagePort, message: unknown, ...rest: unknown[]) {
+    const request = message as { method?: string, args?: unknown[] } | null
+    if (request?.method === 'openPlayback') state.openPlaybackCalls!.push(String(request.args?.[0]))
+    return post.call(this, message, ...rest)
+  } as typeof MessagePort.prototype.postMessage
+}
 
 // answers the first video's openPlayback, and every later ask for it, with the refusal instead of asking the frame
 const refuseFirstShort = (reply: string) => {
@@ -145,6 +159,73 @@ plainTest('the arrow keys move between Shorts as soon as one plays, without a cl
   await page.keyboard.press('ArrowUp')
   await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(firstId)
   await playing(first)
+})
+
+plainTest('the next Short preloads while paused and plays immediately on ArrowDown without reopening playback', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.addInitScript(trackOpenPlayback)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/shorts')
+  await expect(page).toHaveURL(/\/shorts\/[\w-]{11}$/, { timeout: 120_000 })
+  await expect.poll(() => page.locator(`[data-short-id="${shownShort(page)}"] video`).evaluate(video => {
+    const element = video as HTMLVideoElement
+    return !element.paused && element.currentTime > 0.3
+  }, undefined, { timeout: 1_000 }).catch(() => false), { timeout: 120_000 }).toBe(true)
+
+  const firstId = shownShort(page)
+  const first = page.locator(`[data-short-id="${firstId}"]`)
+  const nextId = (await page.locator(`[data-short-id="${firstId}"] + [data-short-id]`).getAttribute('data-short-id'))!
+  const next = page.locator(`[data-short-id="${nextId}"]`)
+
+  // Short #2 preloads in the background while paused, with metadata populated and no loading/paused chrome
+  await expect.poll(() => next.locator('video').evaluate(video => {
+    const element = video as HTMLVideoElement
+    return {
+      readyState: element.readyState,
+      buffered: element.buffered.length,
+      paused: element.paused,
+      currentTime: element.currentTime,
+    }
+  }, undefined, { timeout: 1_000 }).catch(() => ({ readyState: 0, buffered: 0, paused: false, currentTime: 0 })), { timeout: 90_000 }).toMatchObject({
+    paused: true,
+    currentTime: 0,
+  })
+  await expect.poll(() => next.locator('video').evaluate(video => {
+    const element = video as HTMLVideoElement
+    return element.readyState >= 2 && element.buffered.length > 0 && element.paused
+  }, undefined, { timeout: 1_000 }).catch(() => false), { timeout: 90_000 }).toBe(true)
+  await expect(next.locator('.byline .name')).toBeVisible({ timeout: 30_000 })
+  await expect(next.locator('.views')).toBeVisible({ timeout: 30_000 })
+  await expect(next.locator('.spinner')).toHaveCount(0)
+  await expect(next.locator('.paused-glyph')).toHaveCount(0)
+
+  const callsBeforeSwitch = await page.evaluate(() => (window as unknown as OpenPlaybackLog).openPlaybackCalls ?? [])
+  expect(callsBeforeSwitch.filter(id => id === nextId)).toHaveLength(1)
+
+  const pressedAt = Date.now()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(nextId)
+  const activeAt = Date.now()
+  await expect.poll(() => next.locator('video').evaluate(video => {
+    const element = video as HTMLVideoElement
+    return !element.paused && element.currentTime > 0.1
+  }, undefined, { timeout: 1_000 }).catch(() => false), { timeout: 10_000 }).toBe(true)
+  const totalElapsedMs = Date.now() - pressedAt
+  const afterActiveMs = Date.now() - activeAt
+  console.log(`preload switch latency: ${totalElapsedMs}ms from ArrowDown (${afterActiveMs}ms after slide active)`)
+  expect(totalElapsedMs).toBeLessThan(3_000)
+
+  // transitioning from preload to active keeps the same SABR session
+  const callsAfterDown = await page.evaluate(() => (window as unknown as OpenPlaybackLog).openPlaybackCalls ?? [])
+  expect(callsAfterDown.filter(id => id === nextId)).toHaveLength(1)
+
+  // ArrowUp returns to Short #1 and pauses Short #2 cleanly while keeping it warm
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => shownShort(page), { timeout: 10_000 }).toBe(firstId)
+  await expect.poll(() => next.locator('video').evaluate(video => (video as HTMLVideoElement).paused)).toBe(true)
+  await playing(first)
+  const callsAfterUp = await page.evaluate(() => (window as unknown as OpenPlaybackLog).openPlaybackCalls ?? [])
+  expect(callsAfterUp.filter(id => id === nextId)).toHaveLength(1)
 })
 
 test('a channel Home\'s and a search\'s Shorts shelves draw youtube.com\'s 2:3 tiles', async ({ page }) => {

@@ -263,7 +263,9 @@ const VolumeIcon = ({ muted, volume }: { muted: boolean, volume: number }) => {
   return <Volume2 size={22} strokeWidth={1.75} />
 }
 
-// only the visible slide may hold a SABR session: each one pins a per-session media cache in the frame
+const ACTIVE_BUFFER_GOAL = 30
+const PRELOAD_BUFFER_GOAL = 4
+
 /**
  * The Shorts player.
  *
@@ -272,26 +274,42 @@ const VolumeIcon = ({ muted, volume }: { muted: boolean, volume: number }) => {
  * play/volume/fullscreen controls and full-bleed scrubber, and is mounted and
  * torn down as slides scroll rather than living for a route.
  *
- * `active` is what gates playback. Only the visible slide is allowed to hold a
- * SABR session, because each open session pins a per-session media cache in the
- * frame and a pager that left them open would multiply them per swipe.
+ * `active` and `preload` bound the open SABR sessions (at most the active slide
+ * plus the immediate next slide), because each session pins a per-session media
+ * cache in the frame. Transitioning a slide from `preload` to `active` keeps
+ * the same `<video>`, Shaka instance, and SABR session alive so playback starts
+ * without reopening or re-fetching.
  *
- * `onRefused`, when given, takes a refusal that will not clear in place of
- * showing it.
+ * `onReady` reports when the player has a decoded frame ready (and clears on
+ * teardown). `onRefused`, when given, takes a terminal refusal once the slide
+ * is active in place of showing it.
  */
 const ShortsPlayer = (
-  { videoId, poster, active, shortcutsDisabled, onRefused }: {
+  { videoId, poster, active, preload = false, shortcutsDisabled, onReady, onRefused }: {
     videoId: string
     poster?: string
     active: boolean
+    preload?: boolean
     shortcutsDisabled?: boolean
+    onReady?: (ready: boolean) => void
     onRefused?: () => void
   },
 ) => {
   const rootRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const controllerRef = useRef<Awaited<ReturnType<typeof startShakaPlayback>> | undefined>(undefined)
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const onReadyRef = useRef(onReady)
+  onReadyRef.current = onReady
+  const onRefusedRef = useRef(onRefused)
+  onRefusedRef.current = onRefused
+
+  const shouldLoad = active || preload
   const [ready, setReady] = useState(false)
+  const [hasFrame, setHasFrame] = useState(false)
   const [status, setStatus] = useState('')
+  const [pendingRefusal, setPendingRefusal] = useState<string | undefined>(undefined)
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
@@ -301,8 +319,8 @@ const ShortsPlayer = (
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    if (!active) setAttempt(0)
-  }, [active])
+    if (!shouldLoad) setAttempt(0)
+  }, [shouldLoad])
 
   useEffect(() => {
     const onFullscreen = () => setFullscreen(document.fullscreenElement === rootRef.current)
@@ -312,7 +330,7 @@ const ShortsPlayer = (
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !active) return
+    if (!video || !shouldLoad) return
     const settings = getSettings()
     video.volume = settings.volume
     video.muted = settings.muted
@@ -324,17 +342,32 @@ const ShortsPlayer = (
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     setReady(false)
+    setHasFrame(false)
     setStatus('')
+    setPendingRefusal(undefined)
+    const onFrame = () => {
+      if (!abort.signal.aborted && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        setHasFrame(true)
+      }
+    }
+    video.addEventListener('loadeddata', onFrame)
+    video.addEventListener('canplay', onFrame)
+    video.addEventListener('playing', onFrame)
     const fail = (error: unknown) => {
       if (abort.signal.aborted || retryTimer !== undefined) return
       const message = error instanceof Error ? error.message : String(error)
       const refused = playbackRefusal(error)
-      if (refused?.final === true && onRefused) {
-        onRefused()
+      if (refused?.final === true) {
+        if (activeRef.current) {
+          if (onRefusedRef.current) onRefusedRef.current()
+          else setStatus(refused.title)
+        } else {
+          setPendingRefusal(refused.title)
+        }
         return
       }
-      if (attempt >= 2 || message === LIVE_UNSUPPORTED || refused?.final === true) {
-        setStatus(refused?.title ?? message)
+      if (attempt >= 2 || message === LIVE_UNSUPPORTED) {
+        setStatus(message)
         return
       }
       retryTimer = setTimeout(() => {
@@ -348,23 +381,78 @@ const ShortsPlayer = (
         video,
         videoId,
         startTime: 0,
+        autoPlay: false,
+        bufferingGoal: activeRef.current ? ACTIVE_BUFFER_GOAL : PRELOAD_BUFFER_GOAL,
         signal: abort.signal,
         onError: fail,
       })
       if (abort.signal.aborted) return
+      controllerRef.current = controller
       setReady(true)
+      onFrame()
       // through selectQuality, not Shaka restrictions: the frame's SABR session must serve the format before Shaka may select it
       const displayHeight = Math.ceil(video.getBoundingClientRect().height * devicePixelRatio)
-      const covering = [...controller.heights].sort((a, b) => a - b).find((height) => height >= displayHeight)
+      const covering = displayHeight > 0
+        ? [...controller.heights].sort((a, b) => a - b).find((height) => height >= displayHeight)
+        : undefined
       if (covering) await controller.selectQuality(covering).catch(() => {})
     })().catch(fail)
     return () => {
       abort.abort()
       clearTimeout(retryTimer)
+      video.removeEventListener('loadeddata', onFrame)
+      video.removeEventListener('canplay', onFrame)
+      video.removeEventListener('playing', onFrame)
+      controllerRef.current = undefined
       setReady(false)
+      setHasFrame(false)
+      setPendingRefusal(undefined)
+      onReadyRef.current?.(false)
       void controller?.destroy()
     }
-  }, [videoId, active, attempt])
+  }, [videoId, shouldLoad, attempt])
+
+  useEffect(() => {
+    const video = videoRef.current
+    const controller = controllerRef.current
+    if (!video || !controller || !ready) return
+    if (!active) {
+      video.pause()
+      if (video.currentTime > 0) video.currentTime = 0
+      setProgress(0)
+      controller.player.configure({ streaming: { bufferingGoal: PRELOAD_BUFFER_GOAL } })
+      return
+    }
+    let cancelled = false
+    const settings = getSettings()
+    video.volume = settings.volume
+    video.muted = settings.muted
+    setVolume(settings.volume)
+    setMuted(settings.muted)
+    setPaused(false)
+    controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
+    if (video.currentTime > 0) {
+      video.currentTime = 0
+      setProgress(0)
+    }
+    void controller.play().finally(() => {
+      if (cancelled) video.pause()
+      else setPaused(video.paused)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [active, ready])
+
+  useEffect(() => {
+    if (ready && hasFrame) onReadyRef.current?.(true)
+  }, [ready, hasFrame])
+
+  useEffect(() => {
+    if (!active || pendingRefusal === undefined) return
+    if (onRefusedRef.current) onRefusedRef.current()
+    else setStatus(pendingRefusal)
+  }, [active, pendingRefusal])
 
   useEffect(() => {
     const video = videoRef.current
@@ -389,7 +477,7 @@ const ShortsPlayer = (
       video.removeEventListener('volumechange', sync)
       video.removeEventListener('timeupdate', tick)
     }
-  }, [scrubbing])
+  }, [scrubbing, attempt])
 
   const seekToPointer = (event: TargetedPointerEvent<HTMLDivElement>) => {
     const video = videoRef.current
@@ -403,7 +491,7 @@ const ShortsPlayer = (
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !activeRef.current) return
     if (video.paused) void video.play().catch(() => {})
     else video.pause()
   }, [])
@@ -472,14 +560,15 @@ const ShortsPlayer = (
   }, [active, shortcutsDisabled, togglePlay, toggleMute, toggleFullscreen])
 
   const effectiveVolume = muted ? 0 : volume
+  const visibleStatus = active ? status : ''
 
   return (
     <div ref={rootRef} css={playerStyle} onClick={togglePlay}>
-      {poster && !ready ? <img className='poster' src={poster} alt='' /> : undefined}
+      {poster && !hasFrame ? <img className='poster' src={poster} alt='' /> : undefined}
       <video key={attempt} ref={videoRef} playsInline preload='auto' />
-      {active && !ready && !status ? <div className='spinner' /> : undefined}
-      {status ? <p className='status'>{status}</p> : undefined}
-      {ready && paused
+      {active && !hasFrame && !visibleStatus ? <div className='spinner' /> : undefined}
+      {visibleStatus ? <p className='status'>{visibleStatus}</p> : undefined}
+      {active && ready && paused
         ? (
           <div className='paused-glyph'>
             <span className='badge'>
@@ -488,7 +577,7 @@ const ShortsPlayer = (
           </div>
         )
         : undefined}
-      {!status
+      {!visibleStatus
         ? (
           <div className='top-bar'>
             <div className='top-group' onClick={(event: TargetedMouseEvent<HTMLDivElement>) => event.stopPropagation()}>

@@ -422,12 +422,14 @@ const style = css`
  * visited slide's data alive for the life of the route.
  */
 const Slide = (
-  { id, poster, fallbackTitle, active, shortcutsDisabled, onComments, onShare, onCommentCount, onRefused }: {
+  { id, poster, fallbackTitle, active, preload, shortcutsDisabled, onReady, onComments, onShare, onCommentCount, onRefused }: {
     id: string
     poster?: string | null
     fallbackTitle?: string | null
     active: boolean
+    preload: boolean
     shortcutsDisabled?: boolean
+    onReady?: (ready: boolean) => void
     onComments: () => void
     onShare: () => void
     onCommentCount?: (count?: string) => void
@@ -438,11 +440,11 @@ const Slide = (
   const [{ data }] = useQuery({
     query: SHORT_META_QUERY,
     variables: { id },
-    pause: !active,
+    pause: !active && !preload,
   })
   const meta = data?.watch
   const { rate, rating, presses, burst } = useRateVideo(id, meta?.likeStatus)
-  const dislikes = useDislikes(active ? id : '')
+  const dislikes = useDislikes(active || preload ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
   const disliked = meta?.likeStatus === 'DISLIKE'
   const handle = meta?.channel?.handle
@@ -460,7 +462,9 @@ const Slide = (
           videoId={id}
           poster={poster ?? undefined}
           active={active}
+          preload={preload}
           shortcutsDisabled={shortcutsDisabled}
+          onReady={onReady}
           onRefused={onRefused}
         />
         <div className='meta'>
@@ -563,10 +567,21 @@ const ShortsPage = () => {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState<ShortsPage[]>([])
   const [activeId, setActiveId] = useState<string | undefined>(seed)
+  const [readyIds, setReadyIds] = useState<ReadonlySet<string>>(() => new Set())
   const [showComments, setShowComments] = useState(false)
   const [activeCommentCount, setActiveCommentCount] = useState<string | undefined>(undefined)
   const [sharing, setSharing] = useState<string | undefined>(undefined)
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
+
+  const setSlideReady = useCallback((id: string, isReady: boolean) => {
+    setReadyIds(previous => {
+      if (previous.has(id) === isReady) return previous
+      const next = new Set(previous)
+      if (isReady) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
 
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: SHORTS_FEED_QUERY,
@@ -595,7 +610,7 @@ const ShortsPage = () => {
     if (!activeId && items[0]) setActiveId(items[0].id)
   }, [items, activeId])
 
-  // the threshold MUST stay over half, so exactly one slide can qualify and two players can never be live
+  // the threshold MUST stay over half, so exactly one slide can qualify as active
   useEffect(() => {
     const root = scrollerRef.current
     if (!root) return
@@ -667,44 +682,54 @@ const ShortsPage = () => {
     )
   }
 
+  const activeReady = Boolean(activeId && readyIds.has(activeId))
+
   return (
     <main css={style} className={showComments ? 'comments-open' : undefined} ref={scrollerRef}>
-      {items.map(short => (
-        <section className='slide' key={short.id} data-short-id={short.id}>
-          <Slide
-            id={short.id}
-            poster={short.poster}
-            fallbackTitle={short.title}
-            active={short.id === activeId}
-            shortcutsDisabled={Boolean(sharing)}
-            onComments={() => setShowComments(value => !value)}
-            onShare={() => setSharing(short.id)}
-            onCommentCount={setActiveCommentCount}
-            onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
-          />
-          {showComments && short.id === activeId
-            ? (
-              <>
-                <div className='comments-scrim' onClick={() => setShowComments(false)} />
-                <aside className='comments-panel' aria-label='Comments'>
-                  <header>
-                    <span className='comments-title'>
-                      Comments
-                      {activeCommentCount ? <span className='comments-count'>{activeCommentCount}</span> : undefined}
-                    </span>
-                    <button type='button' className='icon-button' aria-label='Close comments' onClick={() => setShowComments(false)}>
-                      <X size={24} strokeWidth={1.5} />
-                    </button>
-                  </header>
-                  <div className='body'>
-                    <Comments videoId={short.id} />
-                  </div>
-                </aside>
-              </>
-            )
-            : undefined}
-        </section>
-      ))}
+      {items.map((short, index) => {
+        const isActive = short.id === activeId
+        const isNext = activeIndex >= 0 && index === activeIndex + 1
+        // gate starting a preload on active readiness so the current Short never competes for bandwidth, while keeping an already-loaded next slide warm after scrolling up
+        const shouldPreload = isNext && (activeReady || readyIds.has(short.id))
+        return (
+          <section className='slide' key={short.id} data-short-id={short.id}>
+            <Slide
+              id={short.id}
+              poster={short.poster}
+              fallbackTitle={short.title}
+              active={isActive}
+              preload={shouldPreload}
+              shortcutsDisabled={Boolean(sharing)}
+              onReady={(isReady: boolean) => setSlideReady(short.id, isReady)}
+              onComments={() => setShowComments(value => !value)}
+              onShare={() => setSharing(short.id)}
+              onCommentCount={setActiveCommentCount}
+              onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
+            />
+            {showComments && isActive
+              ? (
+                <>
+                  <div className='comments-scrim' onClick={() => setShowComments(false)} />
+                  <aside className='comments-panel' aria-label='Comments'>
+                    <header>
+                      <span className='comments-title'>
+                        Comments
+                        {activeCommentCount ? <span className='comments-count'>{activeCommentCount}</span> : undefined}
+                      </span>
+                      <button type='button' className='icon-button' aria-label='Close comments' onClick={() => setShowComments(false)}>
+                        <X size={24} strokeWidth={1.5} />
+                      </button>
+                    </header>
+                    <div className='body'>
+                      <Comments videoId={short.id} />
+                    </div>
+                  </aside>
+                </>
+              )
+              : undefined}
+          </section>
+        )
+      })}
       {sharing ? <ShareDialog videoId={sharing} title={items.find(short => short.id === sharing)?.title ?? undefined} short onClose={() => setSharing(undefined)} /> : undefined}
       {active === undefined && fetching ? <p className='notice'>Loading more…</p> : undefined}
       <div className='pager'>
