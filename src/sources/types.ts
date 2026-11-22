@@ -26,6 +26,8 @@ export type SourceVideo = {
   id: string
   title: string
   description?: string
+  // a channel's featured video description as runs, with outbound links unwrapped
+  descriptionRuns?: SourceTextRun[]
   descriptionSnippet?: string
   // a search row's excerpt, with the query's words as bold runs
   snippetRuns?: SourceTextRun[]

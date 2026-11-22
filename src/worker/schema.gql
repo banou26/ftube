@@ -41,6 +41,9 @@ type Video {
   id: ID!
   title: String!
   description: String
+  # The description as runs, so its links work. Set on a channel's featured
+  # video, whose description carries structured runs upstream.
+  descriptionRuns: [TextRun!]
   descriptionSnippet: String
   # A search row's excerpt as runs, the words that matched the query bold, as
   # youtube.com prints them.

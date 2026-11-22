@@ -33,6 +33,27 @@ index 59b66ab..3643f4c 100644
          const sequence_response = actions.execute('/reel/reel_watch_sequence', { sequenceParams: params });
          const response = await Promise.all([reel_watch_response, sequence_response]);
          const cpn = generateRandomString(16);
+diff --git a/node_modules/youtubei.js/dist/src/parser/classes/ChannelVideoPlayer.js b/node_modules/youtubei.js/dist/src/parser/classes/ChannelVideoPlayer.js
+index f6c85ea..94fca65 100644
+--- a/node_modules/youtubei.js/dist/src/parser/classes/ChannelVideoPlayer.js
++++ b/node_modules/youtubei.js/dist/src/parser/classes/ChannelVideoPlayer.js
+@@ -7,6 +7,7 @@ export default class ChannelVideoPlayer extends YTNode {
+     description;
+     view_count;
+     published_time;
++    inline_player_params;
+     constructor(data) {
+         super();
+         this.id = data.videoId;
+@@ -14,6 +15,7 @@ export default class ChannelVideoPlayer extends YTNode {
+         this.description = new Text(data.description);
+         this.view_count = new Text(data.viewCountText);
+         this.published_time = new Text(data.publishedTimeText);
++        this.inline_player_params = data.inlinePlaybackEndpoint?.watchEndpoint?.playerParams;
+     }
+ }
+ //# sourceMappingURL=ChannelVideoPlayer.js.map
+\ No newline at end of file
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/ContentMetadataView.js b/node_modules/youtubei.js/dist/src/parser/classes/ContentMetadataView.js
 index 6e9c132..5ac1c67 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/ContentMetadataView.js
@@ -280,7 +301,7 @@ index 4cd6a65..c5f213e 100644
  //# sourceMappingURL=WatchCardHeroVideo.js.map
 \ No newline at end of file
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js b/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js
-index 996db9d..0219751 100644
+index 996db9d..bcef28c 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js
 +++ b/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js
 @@ -93,8 +93,9 @@ export default class Text {

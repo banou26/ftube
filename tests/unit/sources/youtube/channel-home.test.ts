@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import { Parser, YT } from 'youtubei.js'
 
 import { createYoutubeSource } from '../../../../src/sources/youtube'
+import { normalizeFeaturedVideo } from '../../../../src/sources/youtube/normalize'
 import fixture from '../../fixtures/channel-home.json'
 
 /* channel-home.json is the signed-out browse of Linus Tech Tips captured on 2026-11-05, cut to one item per row and
@@ -64,5 +65,78 @@ describe('channel Home tab', () => {
   it('reads a collaboration\'s views and date off the row after its two names', async () => {
     const collaboration = (await sourceFor().channel(CHANNEL_ID)).home?.shelves.at(-1)?.videos[0]
     expect(collaboration).toMatchObject({ id: 'LttGyjX-QxE', viewCount: '2.1M', publishedText: '3w ago' })
+  })
+
+  it('extracts structured description runs, unwrapped outbound URLs, duration and inline preview params on featured video', () => {
+    const parsed = Parser.parseItem({
+      channelVideoPlayerRenderer: {
+        videoId: 'KTDJiVpSDTI',
+        title: { runs: [{ text: 'Can You Trust MKBHD?' }] },
+        description: {
+          runs: [
+            { text: 'Part 1: ' },
+            {
+              text: 'https://youtu.be/5nLWTVTwOhY',
+              navigationEndpoint: { watchEndpoint: { videoId: '5nLWTVTwOhY', startTimeSeconds: 0 } },
+            },
+            { text: '\n\nMerch: ' },
+            {
+              text: 'http://shop.MKBHD.com',
+              navigationEndpoint: {
+                urlEndpoint: {
+                  url: 'https://www.youtube.com/redirect?event=video_description&redir_token=t&q=http%3A%2F%2Fshop.MKBHD.com%2F',
+                },
+              },
+            },
+            { text: ' ' },
+            {
+              text: '#MKBHD',
+              navigationEndpoint: { browseEndpoint: { browseId: 'FEhashtag' } },
+            },
+          ],
+        },
+        viewCountText: { simpleText: '3,733,249 views' },
+        publishedTimeText: { runs: [{ text: '4d ago' }] },
+        inlinePlaybackEndpoint: {
+          watchEndpoint: {
+            videoId: 'KTDJiVpSDTI',
+            playerParams: 'YAHIAQGiBhUBAym6iwhfDrouoDm8lsMbcGhXRAE%3D',
+          },
+        },
+      },
+    } as never)
+
+    expect(normalizeFeaturedVideo(parsed)).toMatchObject({
+      id: 'KTDJiVpSDTI',
+      title: 'Can You Trust MKBHD?',
+      inlinePlayerParams: 'YAHIAQGiBhUBAym6iwhfDrouoDm8lsMbcGhXRAE=',
+      descriptionRuns: [
+        { text: 'Part 1: ' },
+        { text: 'https://youtu.be/5nLWTVTwOhY', videoId: '5nLWTVTwOhY', startSeconds: 0 },
+        { text: '\n\nMerch: ' },
+        { text: 'http://shop.MKBHD.com', url: 'http://shop.mkbhd.com/' },
+        { text: ' ' },
+        { text: '#MKBHD', browseId: undefined },
+      ],
+    })
+  })
+
+  it('borrows duration and higher-res still for the featured video when it also appears in a Home shelf', async () => {
+    const clone = structuredClone(fixture) as Record<string, unknown>
+    const tabs = (clone.contents as { twoColumnBrowseResultsRenderer: { tabs: { tabRenderer: { content: { sectionListRenderer: { contents: { itemSectionRenderer: { contents: Record<string, unknown>[] } }[] } } } }[] } }).twoColumnBrowseResultsRenderer.tabs
+    const featuredNode = tabs[0]!.tabRenderer.content.sectionListRenderer.contents[0]!.itemSectionRenderer.contents[0]!.channelVideoPlayerRenderer as { videoId: string }
+    featuredNode.videoId = 'AAraNufcrW4'
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => ({
+        getChannel: async () => new YT.Channel(undefined as never, Parser.parseResponse(clone as never), true),
+      }) as never,
+    })
+    const page = await source.channel(CHANNEL_ID)
+    expect(page.home?.featured).toMatchObject({
+      id: 'AAraNufcrW4',
+      durationSeconds: 981,
+      thumbnail: expect.stringContaining('hq720_custom_2.jpg'),
+    })
   })
 })

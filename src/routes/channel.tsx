@@ -120,7 +120,14 @@ const CHANNEL_VIEW_QUERY = gql(`
           id
           title
           description
+          descriptionRuns { text url videoId startSeconds browseId }
           thumbnail
+          thumbnailSrcset
+          durationSeconds
+          isLive
+          isMusic
+          isUpcoming
+          inlinePlayerParams
           viewCount
           publishedText
         }

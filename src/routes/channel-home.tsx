@@ -1,3 +1,5 @@
+import type { TargetedPointerEvent } from 'preact'
+
 import type { ChannelViewQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
@@ -5,15 +7,23 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
-import { formatMeta } from '../components/format'
+import { formatDuration, formatMeta } from '../components/format'
+import { linkifyRuns } from '../components/linkify'
 import { PlaylistCard } from '../components/playlist-card'
 import { PostCard } from '../components/post-card'
 import { Rail } from '../components/rail'
+import { RichText } from '../components/rich-text'
+import { MusicNote } from '../components/row-marks'
 import { ShortsShelf } from '../components/shorts-shelf'
+import { Thumbnail } from '../components/thumbnail'
 import { VideoCard, watchHrefFor } from '../components/video-card'
+import { cardState } from '../player/card-params'
+import { HoverPreview } from '../player/hover-preview'
+import { usePrefetchOnIntent } from '../player/prefetch'
 import { isRichRow } from './channel-rows'
 
 type Home = NonNullable<ChannelViewQuery['channel']['home']>
+type Featured = NonNullable<Home['featured']>
 type Shelf = Home['shelves'][number]
 
 const style = css`
@@ -36,6 +46,7 @@ const style = css`
   }
 
   .featured-thumb {
+    position: relative;
     flex: none;
     display: block;
     width: 42.4rem;
@@ -51,6 +62,27 @@ const style = css`
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+
+  .featured-thumb .badge {
+    position: absolute;
+    right: 0.6rem;
+    bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.4rem;
+    background: var(--bg-badge);
+    color: var(--text-on-media);
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.8rem;
+  }
+
+  .featured-thumb .badge.live {
+    background: var(--brand);
+    text-transform: uppercase;
   }
 
   .featured-text {
@@ -72,16 +104,32 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  /* Cut by height rather than -webkit-line-clamp so a blank paragraph line at
+     the cut never draws an orphaned ellipsis on its own empty line. */
   .featured-description {
     margin: 1.6rem 0 0;
+    max-height: 12rem;
     font-size: 1.4rem;
     line-height: 2rem;
     color: var(--text-primary);
     white-space: pre-wrap;
-    display: -webkit-box;
-    -webkit-line-clamp: 6;
-    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
     overflow: hidden;
+  }
+
+  .featured-more {
+    display: inline-block;
+    margin-top: 1.2rem;
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.8rem;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    transition: color 0.15s ease;
+  }
+
+  .featured-more:hover {
+    color: var(--text-primary);
   }
 
   .shelf-title {
@@ -388,28 +436,87 @@ const ShelfRow = ({ shelf }: { shelf: Shelf }) => {
   )
 }
 
-export const ChannelHome = ({ home }: { home: Home }) => {
-  const featured = home.featured
-  const meta = featured ? formatMeta(featured.viewCount, featured.publishedText) : undefined
+const FeaturedVideo = ({ featured }: { featured: Featured }) => {
+  const watchHref = watchHrefFor(featured.id)
+  const meta = formatMeta(featured.viewCount, featured.publishedText)
+  const duration = formatDuration(featured.durationSeconds)
+  const prefetch = usePrefetchOnIntent(featured.id)
+  const [hovered, setHovered] = useState(false)
+  const playerParams = featured.isUpcoming !== true ? featured.inlinePlayerParams ?? undefined : undefined
+  const state = cardState(playerParams)
+  const descriptionRuns = featured.description ? linkifyRuns(featured.description, featured.descriptionRuns) : []
   return (
-    <div css={style}>
-      {featured
-        ? (
-          <section className='featured' aria-label='Featured video'>
-            <Link href={watchHrefFor(featured.id)} className='featured-thumb' tabIndex={-1} aria-hidden='true'>
-              {featured.thumbnail ? <img src={featured.thumbnail} alt='' /> : undefined}
-            </Link>
-            <div className='featured-text'>
-              <h2 className='featured-title'><Link href={watchHrefFor(featured.id)}>{featured.title}</Link></h2>
-              {meta ? <div className='featured-meta'>{meta}</div> : undefined}
-              {featured.description ? <p className='featured-description'>{featured.description}</p> : undefined}
-            </div>
-          </section>
-        )
-        : undefined}
-      {home.shelves.map((shelf, index) => <ShelfRow key={`${index}:${shelf.title}`} shelf={shelf} />)}
-    </div>
+    <section className='featured' aria-label='Featured video'>
+      <Link
+        href={watchHref}
+        state={state}
+        className='featured-thumb'
+        tabIndex={-1}
+        aria-hidden='true'
+        onPointerEnter={(event: TargetedPointerEvent<HTMLAnchorElement>) => {
+          if (!playerParams) prefetch.onPointerEnter()
+          if (event.pointerType === 'mouse') setHovered(true)
+        }}
+        onPointerLeave={() => {
+          if (!playerParams) prefetch.onPointerLeave()
+          setHovered(false)
+        }}
+        onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
+      >
+        {featured.thumbnail
+          ? <Thumbnail src={featured.thumbnail} srcSet={featured.thumbnailSrcset} sizes='(max-width: 768px) 100vw, 42.4rem' />
+          : undefined}
+        {hovered && playerParams
+          ? <HoverPreview videoId={featured.id} href={watchHref} playerParams={playerParams} />
+          : undefined}
+        {featured.isLive
+          ? <span className='badge live'>LIVE</span>
+          : duration
+          ? <span className='badge'>{featured.isMusic ? <MusicNote /> : undefined}{duration}</span>
+          : undefined}
+      </Link>
+      <div className='featured-text'>
+        <h2 className='featured-title'>
+          <Link
+            href={watchHref}
+            state={state}
+            onPointerEnter={playerParams ? undefined : prefetch.onPointerEnter}
+            onPointerLeave={playerParams ? undefined : prefetch.onPointerLeave}
+            onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
+          >
+            {featured.title}
+          </Link>
+        </h2>
+        {meta ? <div className='featured-meta'>{meta}</div> : undefined}
+        {descriptionRuns.length > 0
+          ? (
+            <>
+              <p className='featured-description'>
+                <RichText runs={descriptionRuns} />
+              </p>
+              <Link
+                href={watchHref}
+                state={state}
+                className='featured-more'
+                onPointerEnter={playerParams ? undefined : prefetch.onPointerEnter}
+                onPointerLeave={playerParams ? undefined : prefetch.onPointerLeave}
+                onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
+              >
+                READ MORE
+              </Link>
+            </>
+          )
+          : undefined}
+      </div>
+    </section>
   )
 }
+
+export const ChannelHome = ({ home }: { home: Home }) => (
+  <div css={style}>
+    {home.featured ? <FeaturedVideo featured={home.featured} /> : undefined}
+    {home.shelves.map((shelf, index) => <ShelfRow key={`${index}:${shelf.title}`} shelf={shelf} />)}
+  </div>
+)
 
 export default ChannelHome

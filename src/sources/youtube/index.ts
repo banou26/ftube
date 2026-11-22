@@ -587,6 +587,21 @@ const channelHome = (feed: ChannelFeed): SourceChannelHome => {
       if (shelf) home.shelves.push(shelf)
     }
   }
+  // ChannelVideoPlayer carries no length or still of its own; borrow both when the same video sits in a Home row
+  if (home.featured) {
+    const match = home.shelves.flatMap((shelf) => shelf.videos).find((video) => video.id === home.featured!.id)
+    if (match) {
+      home.featured = {
+        ...home.featured,
+        durationSeconds: home.featured.durationSeconds ?? match.durationSeconds,
+        thumbnail: match.thumbnail ?? home.featured.thumbnail,
+        thumbnailSrcset: home.featured.thumbnailSrcset ?? match.thumbnailSrcset,
+        isLive: home.featured.isLive ?? match.isLive,
+        isMusic: home.featured.isMusic ?? match.isMusic,
+        isUpcoming: home.featured.isUpcoming ?? match.isUpcoming,
+      }
+    }
+  }
   return home
 }
 

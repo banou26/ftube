@@ -19,7 +19,7 @@ test('lands a channel handle on its Home tab, with the featured video and the sh
   await expect(tabs.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page', { timeout: 120_000 })
   await expect(page).toHaveURL('/@RickAstleyYT')
   const featured = page.getByRole('region', { name: 'Featured video' })
-  await expect(featured.getByRole('link', { name: /\S/ })).toHaveAttribute('href', /^\/watch\?v=/)
+  await expect(featured.locator('h2 a')).toHaveAttribute('href', /^\/watch\?v=/)
   // youtube.com leaves 24px between the tab bar and the featured video
   const [tabsBox, thumbBox] = await Promise.all([tabs.boundingBox(), featured.locator('a').first().boundingBox()])
   if (!tabsBox || !thumbBox) throw new Error('the tab bar or the featured video is not laid out')

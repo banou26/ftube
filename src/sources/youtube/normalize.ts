@@ -1010,7 +1010,8 @@ export const normalizeGridShow = (input: unknown): SourcePlaylist | undefined =>
   }
 }
 
-// A channel's Home tab heads with a player node rather than a lockup: it carries no still and no length.
+// A channel's Home tab heads with a player node rather than a lockup: it carries no still and no length,
+// though its description carries structured runs and its inline playback endpoint carries hover preview params.
 export const normalizeFeaturedVideo = (input: unknown): SourceVideo | undefined => {
   const node = input as {
     id?: string
@@ -1018,17 +1019,32 @@ export const normalizeFeaturedVideo = (input: unknown): SourceVideo | undefined 
     description?: Text
     view_count?: Text
     published_time?: Text
+    duration?: { seconds?: number, text?: string }
+    length_text?: Text
+    inline_player_params?: string
   } | undefined
   const id = node?.id
   const title = presentText(node?.title)
   if (!id || !title) return undefined
+  const runs = normalizeRuns(node?.description).map((run) => ({
+    ...run,
+    url: run.url ? outboundUrl(run.url) : undefined,
+    // hashtag runs arrive with browseId 'FEhashtag', which is not a channel route
+    browseId: run.browseId?.startsWith('UC') ? run.browseId : undefined,
+  }))
+  const length = Number.isFinite(node?.duration?.seconds)
+    ? node?.duration?.seconds
+    : durationSeconds(text(node?.length_text) ?? node?.duration?.text)
   return {
     id,
     title,
     description: presentText(node?.description),
+    descriptionRuns: runs.length > 0 ? runs : undefined,
     thumbnail: `https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`,
+    durationSeconds: length,
     viewCount: presentText(node?.view_count),
     publishedText: presentText(node?.published_time),
+    inlinePlayerParams: inlinePlayerParams(node?.inline_player_params),
     badges: [],
   }
 }
