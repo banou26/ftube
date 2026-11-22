@@ -3,7 +3,8 @@ import type { Page } from '@playwright/test'
 import { cueReader, holdOnCue } from './cues'
 import { expect, startCaptionsOff, test } from './test'
 
-// the Subtitles menu's Options against the live source: `dQw4w9WgXcQ` publishes an authored English track
+// the Subtitles menu's Auto-translate and Options against the live source: `dQw4w9WgXcQ` publishes an authored English
+// track and 156 Auto-translate languages
 
 const VIDEO = '/watch?v=dQw4w9WgXcQ'
 
@@ -20,6 +21,123 @@ const openSubtitles = async (page: Page) => {
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('menuitem', { name: /^Subtitles/ }).click()
 }
+
+const shownTrack = (page: Page) => page.locator('video').evaluate((element) => {
+  const track = [...(element as HTMLVideoElement).textTracks].find(candidate => candidate.mode === 'showing')
+  return track && { label: track.label, language: track.language, cues: [...track.cues ?? []].map(cue => (cue as VTTCue).text) }
+})
+
+// YouTube degrades tokens minted in an automated browser (`navigator.webdriver === true`) and rate-limits bursts of
+// translation fetches, so deterministic browser specs stand in for the translation answer while inspecting the real URL
+const answerTranslations = async (page: Page, status: number, body: string) => {
+  const asked: URL[] = []
+  await page.route(url => url.hostname === 'www.youtube.com' && url.pathname === '/api/timedtext' && url.searchParams.has('tlang'), async (route) => {
+    asked.push(new URL(route.request().url()))
+    await route.fulfill({ status, body, headers: { 'access-control-allow-origin': '*' } })
+  })
+  return asked
+}
+
+const FRENCH = 'Je ne te laisserai jamais tomber'
+const french = JSON.stringify({ events: [{ tStartMs: 0, dDurationMs: 600_000, segs: [{ utf8: FRENCH }] }] })
+
+const subtitlesRow = (page: Page) => page.getByRole('menuitem', { name: /^Subtitles/ })
+
+const pickEnglish = async (page: Page) => {
+  await openSubtitles(page)
+  await page.getByRole('menuitem', { name: 'English', exact: true }).click()
+  await expect.poll(async () => (await shownTrack(page))?.cues.length ?? 0, { timeout: 60_000 }).toBeGreaterThan(0)
+}
+
+const pickFrench = async (page: Page) => {
+  await openSubtitles(page)
+  await page.getByRole('menuitem', { name: 'Auto-translate' }).click()
+  await page.getByRole('menuitem', { name: 'French', exact: true }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+}
+
+const remembered = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').captionsLanguage)
+
+test('the Subtitles list offers Auto-translate for a track on screen, with YouTube\'s languages, as on youtube.com', async ({ page }) => {
+  test.setTimeout(300_000)
+  await startPlayback(page)
+  await page.locator('video').evaluate(video => (video as HTMLVideoElement).pause())
+
+  // with captions off it offers no Auto-translate
+  await openSubtitles(page)
+  await expect(rows(page).first()).toHaveText('Off')
+  await expect(rows(page).last()).toHaveText('Options')
+  await expect(page.getByRole('menuitem', { name: 'Auto-translate' })).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'English', exact: true }).click()
+  await expect.poll(async () => (await shownTrack(page))?.cues.length ?? 0, { timeout: 60_000 }).toBeGreaterThan(0)
+
+  // with a track on screen it is the row before Options, and its first row goes back
+  await openSubtitles(page)
+  await expect(rows(page).nth(-2)).toHaveText('Auto-translate')
+  await page.getByRole('menuitem', { name: 'Auto-translate' }).click()
+  await expect(rows(page).nth(1)).toHaveText('Abkhazian')
+  await expect(rows(page).last()).toHaveText('Zulu')
+  expect(await rows(page).count()).toBeGreaterThan(100)
+  await expect(page.getByRole('menuitem', { name: 'French', exact: true })).toBeVisible()
+  await rows(page).first().click()
+  await expect(rows(page).nth(-2)).toHaveText('Auto-translate')
+})
+
+test('an Auto-translate pick asks YouTube as youtube.com does, turns the captions into the language, and is remembered', async ({ page }) => {
+  test.setTimeout(300_000)
+  const asked = await answerTranslations(page, 200, french)
+  await startPlayback(page)
+  await page.locator('video').evaluate(video => (video as HTMLVideoElement).pause())
+  await pickEnglish(page)
+  await pickFrench(page)
+
+  await expect.poll(async () => (await shownTrack(page))?.label, { timeout: 60_000 }).toBe('English >> French')
+  expect(await shownTrack(page)).toMatchObject({ language: 'fr', cues: [FRENCH] })
+  expect(asked).toHaveLength(1)
+  const params = asked[0]!.searchParams
+  expect([params.get('lang'), params.get('tlang'), params.get('fmt'), params.get('c'), params.get('potc')]).toStrictEqual(['en', 'fr', 'json3', 'WEB', '1'])
+  expect(params.get('pot')?.length).toBeGreaterThan(50)
+  expect(params.get('signature')).toBeTruthy()
+
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await expect(subtitlesRow(page)).toHaveText('SubtitlesEnglish >> French')
+  await subtitlesRow(page).click()
+  await expect(rows(page).nth(-3)).toHaveText('Auto-translate')
+  await expect(rows(page).nth(-2)).toHaveText('English >> French')
+  await page.getByRole('menuitem', { name: 'Auto-translate' }).click()
+  await expect(page.getByRole('menuitem', { name: 'French', exact: true }).locator('svg')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+
+  // youtube.com remembers the language it translated into, and the next video opens translated into it
+  expect(await remembered(page)).toBe('fr')
+  await startPlayback(page)
+  await expect.poll(async () => (await shownTrack(page))?.label, { timeout: 60_000 }).toBe('English >> French')
+})
+
+test('a refused Auto-translate keeps the captions on screen and named, and a remembered one opens on its track', async ({ page }) => {
+  test.setTimeout(300_000)
+  await answerTranslations(page, 429, 'Sorry...')
+  await startPlayback(page)
+  await page.locator('video').evaluate(video => (video as HTMLVideoElement).pause())
+  await pickEnglish(page)
+  const english = (await shownTrack(page))!
+  await pickFrench(page)
+
+  await expect(page.getByRole('status').getByText('Auto-translate is not available right now')).toBeVisible({ timeout: 30_000 })
+  expect(await shownTrack(page)).toStrictEqual(english)
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await expect(subtitlesRow(page)).toHaveText('SubtitlesEnglish')
+  await page.keyboard.press('Escape')
+  expect(await remembered(page)).toBe('en')
+
+  await page.evaluate(() => localStorage.setItem('yt-client:settings', JSON.stringify({
+    ...JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}'),
+    captionsLanguage: 'fr',
+  })))
+  await startPlayback(page)
+  await expect.poll(async () => (await shownTrack(page))?.label, { timeout: 60_000 }).toBe('English')
+  await expect.poll(async () => (await shownTrack(page))?.cues.length ?? 0, { timeout: 60_000 }).toBeGreaterThan(0)
+})
 
 test('the Options panel restyles the captions, the look stays for the next visit, and Reset puts it back', async ({ page }) => {
   test.setTimeout(300_000)

@@ -1,7 +1,7 @@
 import { YTNodes } from 'youtubei.js'
 import { describe, expect, it } from 'vite-plus/test'
 
-import { defaultTrack, json3ToWebVtt, parseCaptionTracks, parseJson3, preferredTrack, startingTrack, timedTextUrl } from '../../../src/frame/captions'
+import { captionLabel, defaultTrack, json3ToWebVtt, parseCaptionTracks, parseJson3, parseTranslationLanguages, preferredCaption, preferredTrack, startingCaption, startingTrack, timedTextUrl, translatedTextUrl } from '../../../src/frame/captions'
 import answers from '../fixtures/caption-advice.json'
 
 // youtubei.js parses `name` into a Text node, so the label arrives as an object
@@ -171,6 +171,57 @@ describe('timedTextUrl', () => {
     expect(url.searchParams.get('fmt')).toBe('json3')
     expect(url.searchParams.get('signature')).toBe('sig')
     expect(url.searchParams.get('lang')).toBe('en')
+  })
+})
+
+describe('Auto-translate helpers', () => {
+  const tracks = parseCaptionTracks(TRACKLIST)
+  const translations = parseTranslationLanguages({
+    translation_languages: [
+      { language_code: 'de', language_name: { text: 'German' } },
+      { language_code: 'ja', language_name: 'Japanese' },
+      { language_code: 'pt-BR' },
+      { language_name: { text: 'Missing code' } },
+    ],
+  })
+
+  it('parses translatable tracks and translation languages', () => {
+    expect(tracks.every((track) => track.translatable)).toBe(true)
+    expect(translations).toStrictEqual([
+      { languageCode: 'de', label: 'German' },
+      { languageCode: 'ja', label: 'Japanese' },
+      { languageCode: 'pt-BR', label: 'pt-BR' },
+    ])
+  })
+
+  it('picks a native track first, else Auto-translates a translatable track into a remembered language', () => {
+    expect(preferredCaption(tracks, translations, 'fr')).toStrictEqual({ trackId: '.fr' })
+    expect(preferredCaption(tracks, translations, 'de')).toStrictEqual({ trackId: '.en', translateTo: 'de' })
+    expect(preferredCaption(tracks, translations, 'pt')).toStrictEqual({ trackId: '.en', translateTo: 'pt-BR' })
+    expect(preferredCaption(tracks, translations, 'xx')).toBeUndefined()
+    expect(startingCaption(tracks, translations, { captionsChosen: true, captionsEnabled: true, captionsLanguage: 'ja' }, 'en-US'))
+      .toStrictEqual({ trackId: '.en', translateTo: 'ja' })
+    expect(startingCaption(tracks, translations, { captionsChosen: true, captionsEnabled: false, captionsLanguage: 'ja' }, 'en-US'))
+      .toBeUndefined()
+  })
+
+  it('names translated picks as track >> language', () => {
+    expect(captionLabel(tracks, translations, { trackId: '.en' })).toBe('English')
+    expect(captionLabel(tracks, translations, { trackId: '.en', translateTo: 'ja' })).toBe('English >> Japanese')
+  })
+
+  it('adds tlang, potc, pot and c=WEB to the signed caption address', () => {
+    const url = new URL(translatedTextUrl(TRACKLIST.caption_tracks[0]!.base_url, 'de', 'TOKEN'))
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      v: 'abc',
+      lang: 'en',
+      signature: 'sig',
+      fmt: 'json3',
+      tlang: 'de',
+      potc: '1',
+      pot: 'TOKEN',
+      c: 'WEB',
+    })
   })
 })
 

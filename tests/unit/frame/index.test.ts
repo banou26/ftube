@@ -221,3 +221,61 @@ it('ends a connection with its port and every playback open in the engine', asyn
   expect(await request).toMatchObject({ error: 'youtube: segment request cancelled' })
   expect(await call('requestSegment', segment('b', session.id))).toHaveProperty('error')
 })
+
+describe('an Auto-translate of a caption track', () => {
+  let errors: MockInstance<typeof console.error>
+  let fetchMock: MockInstance<typeof globalThis.fetch>
+
+  beforeEach(() => {
+    errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    fetchMock = vi.spyOn(globalThis, 'fetch')
+    vi.mocked(getSabrSource).mockResolvedValue({
+      isLive: false,
+      storyboards: [],
+      captions: [
+        { id: '.en', languageCode: 'en', label: 'English', auto: false, translatable: true, url: 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&exp=xpe&signature=web' },
+        { id: '.raw', languageCode: 'en', label: 'Raw', auto: false, translatable: false, url: 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&signature=raw' },
+      ],
+      translations: [{ languageCode: 'fr', label: 'French' }],
+      endScreen: [],
+      mint: async () => 'TOKEN',
+    } as unknown as SabrSource)
+  })
+
+  afterEach(() => {
+    errors.mockRestore()
+    fetchMock.mockRestore()
+  })
+
+  it('is offered with the tracks, in the languages the video lists', async () => {
+    vi.mocked(createSabrSession).mockImplementation(() => sessionOf(untilCancelled))
+    const session = (await call('openPlayback', 'video-1')).result as PlaybackSession
+    expect(session.translationLanguages).toStrictEqual([{ languageCode: 'fr', label: 'French' }])
+    expect(session.captionTracks[0]).toMatchObject({ id: '.en', translatable: true })
+  })
+
+  it('fetches the watch page address directly with tlang, video-bound pot and c=WEB, and returns WebVTT', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: 'Bonjour' }] }],
+    })))
+    const id = await open(untilCancelled)
+    const result = await call('captionCues', id, '.en', 'fr')
+    expect(result.result).toContain('WEBVTT')
+    expect(result.result).toContain('Bonjour')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const url = new URL(String(fetchMock.mock.calls[0]![0]))
+    expect(url.searchParams.get('signature')).toBe('web')
+    expect(url.searchParams.get('tlang')).toBe('fr')
+    expect(url.searchParams.get('potc')).toBe('1')
+    expect(url.searchParams.get('pot')).toBe('TOKEN')
+    expect(url.searchParams.get('c')).toBe('WEB')
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ credentials: 'omit', mode: 'cors' })
+  })
+
+  it('refuses a language the video does not offer or a non-translatable track', async () => {
+    const id = await open(untilCancelled)
+    expect(await call('captionCues', id, '.en', 'xx')).toMatchObject({ error: 'youtube: no Auto-translate into xx' })
+    expect(await call('captionCues', id, '.raw', 'fr')).toMatchObject({ error: 'youtube: no Auto-translate into fr' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

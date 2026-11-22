@@ -6,7 +6,7 @@ import type { CaptionSource } from './captions'
 import type { PlaybackEntry } from './playback'
 
 import { createYoutubeSource } from '../sources/youtube'
-import { json3ToWebVtt, parseCaptionTracks, timedTextUrl } from './captions'
+import { json3ToWebVtt, parseCaptionTracks, timedTextUrl, translatedTextUrl } from './captions'
 import { parseEndScreen } from './end-screen'
 import { catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
 import { buildLiveManifest, liveAnchor, timelineEndMs } from './live-manifest'
@@ -99,6 +99,7 @@ const api = {
       selectedAudioKey: player.audioFormat.key,
       storyboards: source.storyboards,
       captionTracks: entry.captions.map(({ url: _url, ...track }) => track),
+      translationLanguages: entry.translations,
       endScreen: source.endScreen,
       playerParams: source.playerParams,
       isLive: source.isLive,
@@ -128,11 +129,23 @@ const api = {
     if (entry.lastLiveManifest) return entry.lastLiveManifest
     throw new Error(`youtube: live session ${id} has no delivered segments`)
   },
-  captionCues: async (id, trackId) => {
+  captionCues: async (id, trackId, translateTo) => {
     const entry = sessions.get(id)
     if (!entry) throw new Error(`youtube: unknown playback session ${id}`)
     const track = entry.captions.find((candidate) => candidate.id === trackId)
     if (!track) throw new Error(`youtube: unknown caption track ${trackId}`)
+    if (translateTo) {
+      if (!track.translatable || !entry.translations.some((language) => language.languageCode === translateTo)) {
+        throw new Error(`youtube: no Auto-translate into ${translateTo}`)
+      }
+      // fetched directly from the browser without cookies rather than through youtubeFetch: timedtext answers open CORS
+      // from any origin, and an InnerTube direct-lane pause must not route a browser-minted PO token onto the FKN relay
+      const response = await globalThis.fetch(translatedTextUrl(track.url, translateTo, await entry.mint()), { credentials: 'omit', mode: 'cors' })
+      if (!response.ok) throw new Error(`youtube: Auto-translate answered ${response.status}`)
+      const body = await response.text()
+      if (!body) throw new Error('youtube: Auto-translate was answered with no cues')
+      return json3ToWebVtt(body)
+    }
     const source = await cueSourceFor(entry, track)
     const response = await youtubeFetch(timedTextUrl(source.url))
     if (!response.ok) throw new Error(`youtube: caption track ${trackId} answered ${response.status}`)

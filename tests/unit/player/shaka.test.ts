@@ -54,7 +54,7 @@ const CARD_END = [{ style: 'VIDEO', videoId: 'video-3' }, { style: 'CHANNEL', ch
 const start = async (session: { playerParams?: string, endScreen?: unknown[] } = {}, endScreen = async () => CARD_END) => {
   const api = {
     openPlayback: vi.fn(async () => ({
-      id: 'playback:1', isLive: false, manifest: '<MPD/>', videoFormats: [], audioFormats: [], storyboards: [], captionTracks: [], endScreen: [],
+      id: 'playback:1', isLive: false, manifest: '<MPD/>', videoFormats: [], audioFormats: [], storyboards: [], captionTracks: [], translationLanguages: [], endScreen: [],
       ...session,
     })),
     closePlayback: vi.fn(async () => {}),

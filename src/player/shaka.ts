@@ -2,6 +2,7 @@ import type { EndScreenElement, FrameApi, PlaybackSession } from '../frame/proto
 
 import shaka from 'shaka-player'
 
+import { captionLabel } from '../frame/captions'
 import { codecsOf } from '../frame/protocol'
 import { markStartup } from '../perf'
 import { createStallWatch, isStreamRefusal } from './restart'
@@ -452,7 +453,7 @@ export const startShakaPlayback = async ({
     const captionIds = new Map<string, number>()
     let captionChain: Promise<unknown> = Promise.resolve()
 
-    const applyCaption = async (trackId: string | undefined) => {
+    const applyCaption = async (trackId: string | undefined, translateTo: string | undefined) => {
       if (destroyed) return
       if (!trackId) {
         activePlayer.setTextTrackVisibility(false)
@@ -460,24 +461,26 @@ export const startShakaPlayback = async ({
       }
       const track = session.captionTracks.find((candidate) => candidate.id === trackId)
       if (!track) return
-      if (!captionIds.has(trackId)) {
-        const vtt = await api.captionCues(session.id, trackId)
+      const key = translateTo ? `${trackId}>>${translateTo}` : trackId
+      if (!captionIds.has(key)) {
+        const vtt = await api.captionCues(session.id, trackId, translateTo)
         if (destroyed) return
         const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
         captionUrls.push(url)
-        const added = await activePlayer.addTextTrackAsync(url, track.languageCode, 'subtitle', 'text/vtt', undefined, track.label)
+        const label = captionLabel(session.captionTracks, session.translationLanguages, { trackId, translateTo }) ?? track.label
+        const added = await activePlayer.addTextTrackAsync(url, translateTo ?? track.languageCode, 'subtitle', 'text/vtt', undefined, label)
         if (destroyed) return
-        captionIds.set(trackId, added.id)
+        captionIds.set(key, added.id)
       }
-      const target = activePlayer.getTextTracks().find((candidate) => candidate.id === captionIds.get(trackId))
+      const target = activePlayer.getTextTracks().find((candidate) => candidate.id === captionIds.get(key))
       if (!target) return
       activePlayer.selectTextTrack(target)
       activePlayer.setTextTrackVisibility(true)
     }
 
     // serialized so two quick picks cannot race to decide which track ends up visible
-    const selectCaption = (trackId: string | undefined) => {
-      const run = captionChain.then(() => applyCaption(trackId))
+    const selectCaption = (trackId: string | undefined, translateTo?: string) => {
+      const run = captionChain.then(() => applyCaption(trackId, translateTo))
       captionChain = run.catch(() => {})
       return run
     }
@@ -495,6 +498,7 @@ export const startShakaPlayback = async ({
       selectQuality,
       storyboards: session.storyboards,
       captionTracks: session.captionTracks,
+      translationLanguages: session.translationLanguages,
       selectCaption,
       // REPORTED rather than hardcoded false: the live branch falls through to this same return, and returning false is what left a live stream showing a 3348:27:07 / 0:00 clock instead of a LIVE badge
       isLive: session.isLive,

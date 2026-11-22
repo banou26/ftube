@@ -1,7 +1,7 @@
 import type { TargetedEvent } from 'preact'
 import type shaka from 'shaka-player'
 
-import type { CaptionTrack, EndScreenElement, PlaybackRefusal, Storyboard } from '../frame/protocol'
+import type { CaptionPick, CaptionTrack, EndScreenElement, PlaybackRefusal, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { Point } from '../components/ui/popup'
 import type { WatchMetaQuery } from '../generated/graphql'
 import type { BezelCue } from './bezel'
@@ -13,7 +13,7 @@ import type { UpNext } from './up-next'
 import type { startShakaPlayback } from './shaka'
 
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
-import { defaultTrack, startingTrack } from '../frame/captions'
+import { defaultTrack, startingCaption } from '../frame/captions'
 
 import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
@@ -295,8 +295,9 @@ const VideoPlayer = (
   const [quality, setQuality] = useState<'auto' | number>(() => getSettings().quality)
   const selectQualityRef = useRef<((height: number | 'auto') => Promise<void>) | undefined>(undefined)
   const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
-  const [caption, setCaption] = useState<string | undefined>(undefined)
-  const selectCaptionRef = useRef<((trackId: string | undefined) => Promise<void>) | undefined>(undefined)
+  const [translationLanguages, setTranslationLanguages] = useState<TranslationLanguage[]>([])
+  const [caption, setCaption] = useState<CaptionPick | undefined>(undefined)
+  const selectCaptionRef = useRef<((trackId: string | undefined, translateTo?: string) => Promise<void>) | undefined>(undefined)
   const [active, setActive] = useState(true)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [cancelled, setCancelled] = useState(false)
@@ -534,14 +535,27 @@ const VideoPlayer = (
       setIsLive(controller.isLive)
       selectQualityRef.current = controller.selectQuality
       setCaptionTracks(controller.captionTracks)
+      setTranslationLanguages(controller.translationLanguages)
       selectCaptionRef.current = controller.selectCaption
       const stored = getSettings().quality
       if (stored !== 'auto') void controller.selectQuality(stored).catch(() => {})
-      const wanted = startingTrack(controller.captionTracks, getSettings(), navigator.language)
-      setCaption(wanted?.id)
+      const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, getSettings(), navigator.language)
+      setCaption(wanted)
       if (wanted) {
-        void controller.selectCaption(wanted.id).catch(() => {
-          setCaption((current) => (current === wanted.id ? undefined : current))
+        const selectCaption = controller.selectCaption
+        void selectCaption(wanted.trackId, wanted.translateTo).catch(() => {
+          if (!wanted.translateTo) {
+            setCaption((current) => (current?.trackId === wanted.trackId && !current.translateTo ? undefined : current))
+            return
+          }
+          // if a remembered Auto-translate is refused, open on its source track instead of leaving captions off
+          const fallback: CaptionPick = { trackId: wanted.trackId }
+          setCaption((current) => (
+            current?.trackId === wanted.trackId && current.translateTo === wanted.translateTo ? fallback : current
+          ))
+          void selectCaption(fallback.trackId).catch(() => {
+            setCaption((current) => (current?.trackId === fallback.trackId && !current.translateTo ? undefined : current))
+          })
         })
       }
     })().catch((error) => {
@@ -558,6 +572,7 @@ const VideoPlayer = (
       setEndScreen([])
       setIsLive(false)
       setCaptionTracks([])
+      setTranslationLanguages([])
       void controller?.destroy()
     }
   }, [attempt, videoId, playerParams])
@@ -569,27 +584,48 @@ const VideoPlayer = (
   }, [])
 
   // stores the LANGUAGE rather than the track id, since ids are per video and the next video would not recognize one
-  const applyCaption = useCallback((trackId: string | undefined) => {
-    setCaption(trackId)
-    const picked = captionTracks.find((track) => track.id === trackId)
-    updateSettings(picked
-      ? { captionsEnabled: true, captionsLanguage: picked.languageCode }
-      : { captionsEnabled: false })
-    void selectCaptionRef.current?.(trackId).catch(() => {
-      if (!trackId) return
-      setCaption((current) => (current === trackId ? undefined : current))
+  const applyCaption = useCallback((next: CaptionPick | undefined) => {
+    if (!next) {
+      setCaption(undefined)
+      updateSettings({ captionsEnabled: false })
+      void selectCaptionRef.current?.(undefined).catch(() => {})
+      return
+    }
+    if (next.translateTo) {
+      void selectCaptionRef.current?.(next.trackId, next.translateTo).then(
+        () => {
+          setCaption(next)
+          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
+        },
+        () => {
+          showToast('Auto-translate is not available right now')
+        },
+      )
+      return
+    }
+    setCaption(next)
+    const picked = captionTracks.find((track) => track.id === next.trackId)
+    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
+    void selectCaptionRef.current?.(next.trackId).catch(() => {
+      setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')
     })
   }, [captionTracks])
 
   // remembering the last pick is what makes c and the CC button a toggle rather than a reset
-  const lastCaption = useRef<string | undefined>(undefined)
+  const lastCaption = useRef<CaptionPick | undefined>(undefined)
   if (caption) lastCaption.current = caption
   const toggleCaption = () => {
     if (caption) return applyCaption(undefined)
-    const restored = lastCaption.current && captionTracks.some((track) => track.id === lastCaption.current)
-      ? lastCaption.current
-      : defaultTrack(captionTracks, navigator.language)?.id
+    const previous = lastCaption.current
+    const restored = previous
+      && captionTracks.some((track) => track.id === previous.trackId)
+      && (!previous.translateTo || translationLanguages.some((language) => language.languageCode === previous.translateTo))
+      ? previous
+      : (() => {
+          const track = defaultTrack(captionTracks, navigator.language)
+          return track ? { trackId: track.id } : undefined
+        })()
     if (restored) applyCaption(restored)
   }
 
@@ -899,6 +935,7 @@ const VideoPlayer = (
             quality={quality}
             onQuality={applyQuality}
             captionTracks={captionTracks}
+            translationLanguages={translationLanguages}
             caption={caption}
             onCaption={applyCaption}
             onToggleCaption={toggleCaption}

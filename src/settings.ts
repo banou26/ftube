@@ -16,6 +16,7 @@ export type Settings = {
   // a ceiling on the video height, not an exact pick: ABR still moves below it
   quality: QualityPreference
   captionsEnabled: boolean
+  // a track's language, or the language of the last Auto-translate, which youtube.com remembers the same way
   captionsLanguage?: string
   // set once a person turns captions on or off; until then each video shows the track YouTube recommends for it, if any
   captionsChosen?: boolean

@@ -1,13 +1,13 @@
 import type { Exhaustive, SourceApi } from '../sources/types'
 import type { TransportResponse } from '../engine/protocol'
 
-import type { CaptionTrack } from './captions'
+import type { CaptionTrack, TranslationLanguage } from './captions'
 import type { EndScreenElement } from './end-screen'
 import type { Storyboard } from './storyboard'
 
 import { SOURCE_METHODS } from '../sources/types'
 
-export type { CaptionTrack } from './captions'
+export type { CaptionPick, CaptionTrack, TranslationLanguage } from './captions'
 export type { EndScreenElement } from './end-screen'
 export type { Storyboard, StoryboardFrame } from './storyboard'
 
@@ -87,6 +87,7 @@ export type PlaybackSession = {
   storyboards: Storyboard[]
   // always empty for live: Shaka refuses a side-loaded text track when the presentation duration is infinite (CANNOT_ADD_EXTERNAL_TEXT_TO_LIVE_STREAM)
   captionTracks: CaptionTrack[]
+  translationLanguages: TranslationLanguage[]
   endScreen: EndScreenElement[]
   /** The card params the watch page was read with, whose answer carries no end screen; unset for a plain read. */
   playerParams?: string
@@ -139,7 +140,7 @@ export type FrameApi = SourceApi & {
   endScreen(videoId: string): Promise<EndScreenElement[]>
   requestSegment(request: SegmentRequest): Promise<SegmentEnvelope>
   liveManifest(sessionId: string): Promise<string>
-  captionCues(sessionId: string, trackId: string): Promise<string>
+  captionCues(sessionId: string, trackId: string, translateTo?: string): Promise<string>
   cancelSegment(sessionId: string, requestId: string): Promise<void>
   selectVideoFormat(sessionId: string, formatKey: string): Promise<void>
   closePlayback(sessionId: string): Promise<void>

@@ -4,13 +4,14 @@ import { css } from '@emotion/react'
 import { Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import type { CaptionTrack, Storyboard } from '../frame/protocol'
+import type { CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { CaptionOption } from './caption-style'
 import type { PlayerChapter } from './chapters'
 import type { SleepTimer } from './sleep-timer'
 import type { SkipSegment } from './sponsorblock'
 import type { PlayerState } from './use-player-state'
 
+import { captionLabel } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
@@ -506,8 +507,9 @@ type ControlsProps = {
   quality: 'auto' | number
   onQuality: (value: 'auto' | number) => void
   captionTracks: CaptionTrack[]
-  caption: string | undefined
-  onCaption: (trackId: string | undefined) => void
+  translationLanguages?: TranslationLanguage[]
+  caption: CaptionPick | undefined
+  onCaption: (choice: CaptionPick | undefined) => void
   onToggleCaption: () => void
   theater: boolean
   onTheater: () => void
@@ -530,7 +532,7 @@ type ControlsProps = {
 
 export const PlayerControls = (
   {
-    video, state, heights, storyboards, quality, onQuality, captionTracks, caption, onCaption, onToggleCaption,
+    video, state, heights, storyboards, quality, onQuality, captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false,
   }: ControlsProps,
@@ -539,7 +541,7 @@ export const PlayerControls = (
   const [preview, setPreview] = useState<number | undefined>(undefined)
   const [hover, setHover] = useState<{ time: number, ratio: number } | undefined>(undefined)
   const [pip, setPip] = useState(false)
-  const [menu, setMenu] = useState<'root' | 'quality' | 'speed' | 'captions' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
+  const [menu, setMenu] = useState<'root' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
   const [settings, setSettings] = useState(getSettings)
   useEffect(() => subscribeSettings(setSettings), [])
   const railRef = useRef<HTMLDivElement>(null)
@@ -686,7 +688,9 @@ export const PlayerControls = (
 
   const VolumeIcon = state.muted || state.volume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2
 
-  const activeCaption = captionTracks.find((track) => track.id === caption)
+  const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
+  const activeCaptionLabel = captionLabel(captionTracks, translationLanguages, caption)
+  const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
   const activeLabel = video.videoHeight > 0 ? `${video.videoHeight}p` : undefined
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is
@@ -863,7 +867,7 @@ export const PlayerControls = (
               ? (
                 <Popup label='Player settings' class='settings-menu'>
                   <MenuItem
-                    detail={activeCaption ? activeCaption.label : 'Off'}
+                    detail={activeCaptionLabel ?? 'Off'}
                     disabled={captionTracks.length === 0}
                     onSelect={() => setMenu('captions')}
                   >
@@ -913,19 +917,43 @@ export const PlayerControls = (
                       {captionTracks.map(track => (
                         <MenuItem
                           key={track.id}
-                          icon={caption === track.id ? Check : undefined}
+                          icon={caption?.trackId === track.id && !caption.translateTo ? Check : undefined}
                           detail={track.auto ? 'auto' : undefined}
                           onSelect={() => {
-                            onCaption(track.id)
+                            onCaption({ trackId: track.id })
                             setMenu(undefined)
                           }}
                         >
                           {track.label}
                         </MenuItem>
                       ))}
+                      {canTranslate
+                        ? <MenuItem onSelect={() => setMenu('caption-translate')}>Auto-translate</MenuItem>
+                        : undefined}
+                      {caption?.translateTo && activeCaptionLabel
+                        ? <MenuItem icon={Check} onSelect={() => setMenu(undefined)}>{activeCaptionLabel}</MenuItem>
+                        : undefined}
                       <MenuItem onSelect={() => setMenu('caption-options')}>Options</MenuItem>
                     </Popup>
                   )
+                  : menu === 'caption-translate' && caption
+                    ? (
+                      <Popup label='Auto-translate' class='settings-menu'>
+                        <MenuItem icon={ChevronLeft} onSelect={() => setMenu('captions')}>Auto-translate</MenuItem>
+                        {translationLanguages.map(language => (
+                          <MenuItem
+                            key={language.languageCode}
+                            icon={caption.translateTo === language.languageCode ? Check : undefined}
+                            onSelect={() => {
+                              onCaption({ trackId: caption.trackId, translateTo: language.languageCode })
+                              setMenu(undefined)
+                            }}
+                          >
+                            {language.label}
+                          </MenuItem>
+                        ))}
+                      </Popup>
+                    )
                   : menu === 'quality'
                     ? (
                       <Popup label='Quality' class='settings-menu'>

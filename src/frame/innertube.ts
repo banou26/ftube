@@ -9,11 +9,11 @@ import type { PlaybackFormat } from './protocol'
 import { readChannel } from '../engine/signed-in'
 import { WEB_CLIENT_VERSION } from '../sources/youtube/client-version'
 import { mintPoToken, recoverPoTokenSession, warmPoTokenSession } from './botguard'
-import type { CaptionSource } from './captions'
+import type { CaptionSource, TranslationLanguage } from './captions'
 import type { EndScreenElement } from './end-screen'
 import type { Storyboard } from './storyboard'
 
-import { parseCaptionTracks } from './captions'
+import { parseCaptionTracks, parseTranslationLanguages } from './captions'
 import { egressFetch } from './egress'
 import { parseEndScreen } from './end-screen'
 import { playableFormats } from './formats'
@@ -312,6 +312,7 @@ export type SabrSource = {
   playbackFormats: PlaybackFormat[]
   storyboards: Storyboard[]
   captions: CaptionSource[]
+  translations: TranslationLanguage[]
   endScreen: EndScreenElement[]
   // the card params the page was read with; unset for a plain read, including the one after params whose answer did not play
   playerParams?: string
@@ -404,6 +405,7 @@ export const getSabrSource = async (videoId: string, playerParams?: string): Pro
       storyboards?: { playerStoryboardSpecRenderer?: { spec?: string } }
     }).storyboards?.playerStoryboardSpecRenderer?.spec),
     captions: parseCaptionTracks(info.captions),
+    translations: parseTranslationLanguages(info.captions),
     endScreen: parseEndScreen(raw),
     playerParams,
     clientInfo: {

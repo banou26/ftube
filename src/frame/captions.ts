@@ -4,11 +4,19 @@ export type CaptionTrack = {
   languageCode: string
   label: string
   auto: boolean
+  // whether YouTube's Auto-translate accepts this track
+  translatable: boolean
   // the track YouTube's answer recommends showing to this viewer: set only when the default audio track's caption state starts with `ON_`
   recommended?: true
 }
 
 export type CaptionSource = CaptionTrack & { url: string }
+
+/** A language YouTube's Auto-translate turns the video's translatable tracks into. */
+export type TranslationLanguage = { languageCode: string, label: string }
+
+/** What the captions show: a track, or YouTube's Auto-translate of it into `translateTo`. */
+export type CaptionPick = { trackId: string, translateTo?: string }
 
 type RawTracklist = {
   caption_tracks?: {
@@ -17,6 +25,11 @@ type RawTracklist = {
     vss_id?: string
     language_code?: string
     kind?: string
+    is_translatable?: boolean
+  }[]
+  translation_languages?: {
+    language_code?: string
+    language_name?: string | { text?: string }
   }[]
   audio_tracks?: {
     captions_initial_state?: string
@@ -48,11 +61,16 @@ export const parseCaptionTracks = (tracklist: RawTracklist | undefined): Caption
       languageCode,
       label: nameOf(track.name) || languageCode,
       auto,
+      translatable: track.is_translatable === true,
       ...(index === recommended ? { recommended: true as const } : {}),
       url,
     }]
   })
 }
+
+export const parseTranslationLanguages = (tracklist: RawTracklist | undefined): TranslationLanguage[] =>
+  (tracklist?.translation_languages ?? []).flatMap(({ language_code: languageCode, language_name: name }) =>
+    languageCode ? [{ languageCode, label: nameOf(name) || languageCode }] : [])
 
 export const preferredTrack = (tracks: CaptionTrack[], language: string | undefined) => {
   if (tracks.length === 0) return undefined
@@ -81,6 +99,54 @@ export const startingTrack = (tracks: CaptionTrack[], choice: CaptionChoice, bro
   if (!choice.captionsChosen) return tracks.find((track) => track.recommended)
   if (!choice.captionsEnabled) return undefined
   return choice.captionsLanguage ? preferredTrack(tracks, choice.captionsLanguage) : defaultTrack(tracks, browserLanguage)
+}
+
+/**
+ * The captions a remembered language asks for: the video's own track in it, else the Auto-translate of its preferred
+ * translatable track into it, as youtube.com does with the language it remembers from an Auto-translate.
+ */
+export const preferredCaption = (
+  tracks: CaptionTrack[],
+  translations: TranslationLanguage[],
+  language: string | undefined,
+): CaptionPick | undefined => {
+  const track = preferredTrack(tracks, language)
+  if (track) return { trackId: track.id }
+  if (!language) return undefined
+  const lower = language.toLowerCase()
+  const base = lower.split('-')[0]
+  const target = translations.find((candidate) => candidate.languageCode.toLowerCase() === lower)
+    ?? translations.find((candidate) => candidate.languageCode.split('-')[0]?.toLowerCase() === base)
+  const source = preferredTrack(tracks.filter((candidate) => candidate.translatable), undefined)
+  return target && source ? { trackId: source.id, translateTo: target.languageCode } : undefined
+}
+
+/** The caption choice a video starts with, falling back to Auto-translate when the remembered language has no native track. */
+export const startingCaption = (
+  tracks: CaptionTrack[],
+  translations: TranslationLanguage[],
+  choice: CaptionChoice,
+  browserLanguage: string | undefined,
+): CaptionPick | undefined => {
+  if (!choice.captionsChosen) {
+    const recommended = tracks.find((track) => track.recommended)
+    return recommended ? { trackId: recommended.id } : undefined
+  }
+  if (!choice.captionsEnabled) return undefined
+  if (choice.captionsLanguage) return preferredCaption(tracks, translations, choice.captionsLanguage)
+  const fallback = defaultTrack(tracks, browserLanguage)
+  return fallback ? { trackId: fallback.id } : undefined
+}
+
+/** youtube.com's name for a caption pick: the track's label, or `<track> >> <language>` for Auto-translate. */
+export const captionLabel = (
+  tracks: CaptionTrack[],
+  translations: TranslationLanguage[],
+  pick: CaptionPick | undefined,
+) => {
+  const track = tracks.find((candidate) => candidate.id === pick?.trackId)
+  const target = translations.find((candidate) => candidate.languageCode === pick?.translateTo)
+  return track && (target ? `${track.label} >> ${target.label}` : track.label)
 }
 
 // one `fmt=json3` event: every field is optional, and `aAppend` marks an event that re-states the line before it so a rolling caption can grow a word at a time
@@ -157,5 +223,18 @@ export const json3ToWebVtt = (body: string) => toWebVtt(parseJson3(body))
 export const timedTextUrl = (baseUrl: string) => {
   const url = new URL(baseUrl)
   url.searchParams.set('fmt', 'json3')
+  return url.toString()
+}
+
+/**
+ * youtube.com's request for an Auto-translate: the watch page's own signed caption address with `tlang`, the
+ * video-bound PO token, and `c=WEB`. Without a valid token that address answers 200 with an empty body.
+ */
+export const translatedTextUrl = (baseUrl: string, translateTo: string, poToken: string) => {
+  const url = new URL(timedTextUrl(baseUrl))
+  url.searchParams.set('tlang', translateTo)
+  url.searchParams.set('potc', '1')
+  url.searchParams.set('pot', poToken)
+  url.searchParams.set('c', 'WEB')
   return url.toString()
 }

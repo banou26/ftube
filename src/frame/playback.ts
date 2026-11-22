@@ -1,4 +1,4 @@
-import type { CaptionSource } from './captions'
+import type { CaptionSource, TranslationLanguage } from './captions'
 import type { SegmentEnvelope, SegmentRequest } from './protocol'
 
 import { getSabrSource } from './innertube'
@@ -23,7 +23,9 @@ export type PlaybackEntry = {
   recovered?: SabrSession
   refused?: Error
   captions: CaptionSource[]
+  translations: TranslationLanguage[]
   cueSources?: Promise<CaptionSource[]>
+  mint(): Promise<string>
 
   lastLiveManifest?: string
   liveAnchorMs?: number
@@ -51,6 +53,8 @@ export const openPlaybackEntry = async (videoId: string, maxHeight?: number, pla
     closed: false,
     // Shaka rejects a side-loaded text track against an infinite presentation
     captions: source.isLive ? [] : source.captions,
+    translations: source.isLive ? [] : source.translations,
+    mint: () => source.mint(),
   }
   return { source, entry }
 }
@@ -84,7 +88,11 @@ const refreshSession = async (entry: PlaybackEntry) => {
   next.selectAudioFormat(audioFormat.key)
   previous.close()
   entry.player = next
-  if (!source.isLive) entry.captions = source.captions
+  if (!source.isLive) {
+    entry.captions = source.captions
+    entry.translations = source.translations
+  }
+  entry.mint = () => source.mint()
   next.startLivePump()
 }
 
