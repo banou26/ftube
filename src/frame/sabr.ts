@@ -17,7 +17,7 @@ import { LiveMetadata, MediaHeader, UMPPartId, VideoPlaybackAbrRequest } from 'g
 import { FormatKeyUtils } from 'googlevideo/utils'
 import { GVS_ORIGIN_KEY } from './innertube'
 import { egressFetch } from './egress'
-import { pickAudioFormat } from './formats'
+import { pickAudioFormat, pickInitialVideoFormat, type VideoSelection } from './formats'
 
 type AdapterState = {
   snapshot: PlaybackSnapshot
@@ -336,14 +336,15 @@ export const createSabrSession = (
   liveFromMs?: number,
   stableVolume = false,
   callbacks?: LiveSessionCallbacks,
+  videoSelection?: Omit<VideoSelection, 'maxHeight'>,
 ) => {
   const videoFormats = source.playbackFormats.filter((format) => format.width && format.height)
   const audioFormats = source.playbackFormats.filter((format) => !format.width)
-  const shortSide = (format: PlaybackFormat) => Math.min(format.width!, format.height!)
-  const initialVideoFormat = videoFormats
-    .filter((format) => shortSide(format) <= maxHeight && MediaSource.isTypeSupported(format.mimeType))
-    .sort((a, b) => shortSide(b) - shortSide(a) || a.bitrate - b.bitrate)[0]
-    ?? videoFormats.find((format) => MediaSource.isTypeSupported(format.mimeType))
+  const initialVideoFormat = pickInitialVideoFormat(
+    videoFormats,
+    { maxHeight, ...videoSelection },
+    (mimeType) => MediaSource.isTypeSupported(mimeType),
+  )
   const supportedAudio = audioFormats.filter((format) => MediaSource.isTypeSupported(format.mimeType))
   const initialAudioFormat = pickAudioFormat(supportedAudio, { drc: !source.isLive && stableVolume })
   if (!initialVideoFormat || !initialAudioFormat) throw new Error('youtube: no supported audio and video formats')

@@ -403,6 +403,7 @@ const ShortsPlayer = (
     video.loop = true
     const abort = new AbortController()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
+    let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     setReady(false)
     setHasFrame(false)
@@ -442,15 +443,39 @@ const ShortsPlayer = (
         if (!abort.signal.aborted) setAttempt((value) => value + 1)
       }, 400)
     }
+    const shakaModule = warmShaka()
+    void shakaModule.catch(() => {})
     void (async () => {
-      const [api, { startShakaPlayback }] = await Promise.all([startEngine(), warmShaka()])
+      const api = await startEngine()
+      if (abort.signal.aborted) return
+      // Pick the smallest format covering the rendered box BEFORE load so prewarmStart() and Shaka open directly on
+      // the final Short tier without downloading a low-res segment only to clear buffers and re-fetch.
+      const rect = video.getBoundingClientRect()
+      const cover = rect.width > 0 && rect.height > 0
+        ? { width: Math.ceil(rect.width * devicePixelRatio), height: Math.ceil(rect.height * devicePixelRatio) }
+        : undefined
+      const maxHeight = cover ? Math.max(360, cover.height) : 1_080
+      const openOptions = cover ? { cover } : undefined
+      const sessionPromise = openOptions
+        ? api.openPlayback(videoId, maxHeight, undefined, settings.stableVolume, openOptions)
+        : api.openPlayback(videoId, maxHeight, undefined, settings.stableVolume)
+      void sessionPromise.catch(() => {})
+      ownedSession = { api, promise: sessionPromise }
+      const { startShakaPlayback } = await shakaModule
+      if (abort.signal.aborted) return
+      ownedSession = undefined
       controller = await startShakaPlayback({
         api,
         video,
         videoId,
+        stableVolume: settings.stableVolume,
         startTime: 0,
         autoPlay: false,
         bufferingGoal: activeRef.current ? ACTIVE_BUFFER_GOAL : PRELOAD_BUFFER_GOAL,
+        maxHeight,
+        pinVideoFormat: true,
+        openOptions,
+        sessionPromise,
         signal: abort.signal,
         onError: fail,
         onAutoplayMuted: () => {
@@ -463,12 +488,6 @@ const ShortsPlayer = (
       setTranslationLanguages(controller.translationLanguages)
       setReady(true)
       onFrame()
-      // through selectQuality, not Shaka restrictions: the frame's SABR session must serve the format before Shaka may select it
-      const displayHeight = Math.ceil(video.getBoundingClientRect().height * devicePixelRatio)
-      const covering = displayHeight > 0
-        ? [...controller.heights].sort((a, b) => a - b).find((height) => height >= displayHeight)
-        : undefined
-      if (covering) await controller.selectQuality(covering).catch(() => {})
     })().catch(fail)
     return () => {
       abort.abort()
@@ -486,6 +505,10 @@ const ShortsPlayer = (
       setCaption(undefined)
       lastCaption.current = undefined
       onReadyRef.current?.(false)
+      if (ownedSession) {
+        const { api, promise } = ownedSession
+        void promise.then((session) => api.closePlayback(session.id)).catch(() => {})
+      }
       void controller?.destroy()
     }
   }, [videoId, shouldLoad, attempt])

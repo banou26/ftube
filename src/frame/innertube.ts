@@ -16,7 +16,7 @@ import type { Storyboard } from './storyboard'
 import { parseCaptionTracks, parseTranslationLanguages } from './captions'
 import { egressFetch } from './egress'
 import { parseEndScreen } from './end-screen'
-import { playableFormats } from './formats'
+import { pickAudioFormat, pickInitialVideoFormat, playableFormats } from './formats'
 import { PLAYBACK_REFUSED } from './protocol'
 import { readRefusal } from './refusal'
 import { parseStoryboards } from './storyboard'
@@ -101,6 +101,8 @@ const keepOnSuccess = <T>(build: () => Promise<T>) => {
   })
 }
 
+let resolvedCatalog: Innertube | undefined
+
 export const catalogInnertube = keepOnSuccess(() => Innertube.create({
   fetch: youtubeFetch,
   generate_session_locally: false,
@@ -116,6 +118,7 @@ export const catalogInnertube = keepOnSuccess(() => Innertube.create({
     context.client.clientVersion = rawVersion.match(/(\d+\.\d{8}\.\d{2}\.\d{2})$/)?.[1] ?? WEB_CLIENT_VERSION
   }
   storeVisitorData(context.client.visitorData)
+  resolvedCatalog = client
   return client
 }))
 
@@ -204,25 +207,34 @@ export const warmPlaybackResources = () => {
 const playbackResponseCache = new Map<string, Promise<Record<string, unknown>>>()
 const prefetchedPlayerFor = new WeakMap<Promise<Record<string, unknown>>, () => Promise<Player> | undefined>()
 
+const playbackCacheKey = (videoId: string, playerParams?: string) =>
+  playerParams ? `${videoId}\0${playerParams}` : videoId
+
 /* Plain /watch reads omit X-Goog-Visitor-Id: sending it on plain signed-out reads scheduled pre-roll ads on 16 of 18
    opens (5.9 to 15.2 s start), whereas omitting it dropped pre-roll scheduling to 0 of 4 (1.78 to 2.91 s start,
-   measured 2026-11-21). */
-export const prefetchInitialPlayerResponse = (videoId: string) => {
-  const cached = playbackResponseCache.get(videoId)
+   measured 2026-11-21). Card reads carry playerParams (pp), which skip pre-roll holds, so they send the catalog's visitor. */
+export const prefetchInitialPlayerResponse = (videoId: string, playerParams?: string) => {
+  const key = playbackCacheKey(videoId, playerParams)
+  const cached = playbackResponseCache.get(key)
   if (cached) return cached
   let startedPlayer: Promise<Player> | undefined
-  const promise = fetchPlayerResponse(videoId, undefined, undefined, (pageId) => {
-    startedPlayer = loadPagePlayer(pageId)
-    void startedPlayer.catch(() => {})
-  })
+  const promise = fetchPlayerResponse(
+    videoId,
+    playerParams ? catalogVisitor() : undefined,
+    playerParams,
+    (pageId) => {
+      startedPlayer = loadPagePlayer(pageId)
+      void startedPlayer.catch(() => {})
+    },
+  )
   prefetchedPlayerFor.set(promise, () => startedPlayer)
-  playbackResponseCache.set(videoId, promise)
+  playbackResponseCache.set(key, promise)
   promise.catch(() => {
-    if (playbackResponseCache.get(videoId) === promise) playbackResponseCache.delete(videoId)
+    if (playbackResponseCache.get(key) === promise) playbackResponseCache.delete(key)
   })
   if (playbackResponseCache.size > 6) {
     const oldest = playbackResponseCache.keys().next().value
-    if (oldest !== undefined && oldest !== videoId) playbackResponseCache.delete(oldest)
+    if (oldest !== undefined && oldest !== key) playbackResponseCache.delete(oldest)
   }
   return promise
 }
@@ -393,17 +405,24 @@ const fetchPreviewPlayerResponse = async (
  * When `preview` is true and a warmed web player is already available, tries `/player` with `playerParams` first
  * (matching youtube.com's inline hover preview) and falls back to the watch page if `/player` cannot serve it.
  */
-export const getSabrSource = async (videoId: string, playerParams?: string, preview = false): Promise<SabrSource> => {
+export const getSabrSource = async (
+  videoId: string,
+  playerParams?: string,
+  preview = false,
+  previewMaxHeight?: number,
+): Promise<SabrSource> => {
   // The /player API alternative is NOT an option for full watch playback: anonymous /player calls yield preview-tier (~60s) SABR sessions.
   let startedPlayer: Promise<Player> | undefined
-  let catalogClient: Innertube
+  let catalogClient = resolvedCatalog
   let raw: Record<string, unknown>
   let rawPromise: Promise<Record<string, unknown>> | undefined
   // The WEB GVS/streaming poToken is bound to the VIDEO ID, not the visitor or datasync id; the botguard session itself stays visitor/attestation-bound.
   const mintIdentifier = videoId
   warmPoTokenSession(mintIdentifier)
 
-  const previewClient = preview && playerParams && lastPlayerId ? await catalogInnertube() : undefined
+  const previewClient = preview && playerParams && lastPlayerId
+    ? (catalogClient ?? await catalogInnertube())
+    : undefined
   const previewAnswer = previewClient && playerParams
     ? await fetchPreviewPlayerResponse(videoId, playerParams, previewClient)
     : undefined
@@ -416,14 +435,10 @@ export const getSabrSource = async (videoId: string, playerParams?: string, prev
     /* YouTube counts a playback toward the Home of the visitor its watch page was read as, and only when the
        registration names that visitor too (3 of 3 with both, 0 of 4 with either alone, measured 2026-11-10). Card reads
        carry playerParams (pp), which skip pre-roll holds, so they send the catalog's visitor while plain reads omit it. */
-    rawPromise = playerParams
-      ? fetchPlayerResponse(videoId, catalogVisitor(), playerParams, (pageId) => {
-          startedPlayer = loadPagePlayer(pageId)
-          void startedPlayer.catch(() => {})
-        })
-      : prefetchInitialPlayerResponse(videoId)
+    const cacheKey = playbackCacheKey(videoId, playerParams)
+    rawPromise = prefetchInitialPlayerResponse(videoId, playerParams)
     // Consumed and EVICTED: a session refresh or retry re-enters here needing fresh streaming URLs and must not reuse the cached response.
-    if (!playerParams) playbackResponseCache.delete(videoId)
+    playbackResponseCache.delete(cacheKey)
     void rawPromise.catch(() => {})
     void rawPromise.then((answer) => {
       const streamingUrl = (answer as {
@@ -433,13 +448,25 @@ export const getSabrSource = async (videoId: string, playerParams?: string, prev
       return Promise.resolve(egressFetch(`${new URL(streamingUrl).origin}/generate_204`, { method: 'GET' }))
         .then((response) => response?.body?.cancel())
     }).catch(() => {})
-    ;[catalogClient, raw] = await Promise.all([catalogInnertube(), rawPromise])
+    // Do not stall cold direct /watch or /shorts opens on catalogInnertube() (/sw.js_data + /config): playback
+    // builds its DASH manifest and SABR URL off the watch page alone while catalog warms in the background.
+    raw = await rawPromise
+    catalogClient = resolvedCatalog
   }
-  const context = catalogClient.session.context as unknown as InnertubeContext
-  warmPoTokenSession(context.client.visitorData)
+  const catalogReady = catalogClient ? Promise.resolve(catalogClient) : catalogInnertube()
+  if (catalogClient) {
+    warmPoTokenSession((catalogClient.session.context as unknown as InnertubeContext).client.visitorData)
+  } else {
+    void catalogReady.then((client) => {
+      warmPoTokenSession((client.session.context as unknown as InnertubeContext).client.visitorData)
+    }).catch(() => {})
+  }
   if (playerParams && !playsWithParams(raw)) return getSabrSource(videoId)
   const nonce = Utils.generateRandomString(16)
-  const info = new YT.VideoInfo([{ data: raw } as never], catalogClient.actions, Utils.generateRandomString(16))
+  const actions = catalogClient?.actions && 'session' in catalogClient.actions
+    ? catalogClient.actions
+    : ({ session: {} } as never)
+  const info = new YT.VideoInfo([{ data: raw } as never], actions, Utils.generateRandomString(16))
   if (info.playability_status?.status !== 'OK') throw new Error(`${PLAYBACK_REFUSED}${JSON.stringify(readRefusal(raw))}`)
   const streaming = info.streaming_data
   /* `is_live` rather than `is_live_content`, which stays true for the VOD a finished stream leaves behind. */
@@ -450,14 +477,30 @@ export const getSabrSource = async (videoId: string, playerParams?: string, prev
     .map((format) => playbackFormat(format, isLive))
     .filter((format) => format !== undefined)
   // The manifest must advertise EXACTLY the formats the SABR session can serve, so it is filtered by format KEY rather than by itag: a DRC or dubbed audio track shares itag 251 with the plain one and differs only in xtags.
-  const allowedKeys = new Set(playbackFormats.map((format) => format.key))
+  let allowedKeys = new Set(playbackFormats.map((format) => format.key))
+  // Hover previews are pinned to one video + one audio format (ABR off, no quality/track menu), so emit a 2-track DASH
+  // manifest instead of serializing and probing ~35 unused representations.
+  if (preview && !isLive && previewMaxHeight !== undefined && typeof MediaSource !== 'undefined') {
+    const selectedVideo = pickInitialVideoFormat(
+      playbackFormats.filter((format) => format.width && format.height),
+      { maxHeight: previewMaxHeight },
+    )
+    const selectedAudio = pickAudioFormat(
+      playbackFormats.filter((format) => !format.width && MediaSource.isTypeSupported(format.mimeType)),
+    )
+    if (selectedVideo && selectedAudio) {
+      allowedKeys = new Set([selectedVideo.key, selectedAudio.key])
+    }
+  }
   const playerPromise = decipherPlayer(
     pagePlayerOf(raw),
     startedPlayer ?? (rawPromise ? prefetchedPlayerFor.get(rawPromise)?.() : undefined),
   )
   void Promise.resolve().then(async () => {
-    const answer = await trackingAnswer(videoId, raw, catalogClient, () => playerPromise.then((player) => player.signature_timestamp))
-    return registerPlayback(answer, nonce, beaconFormats(raw), context.client.visitorData)
+    const client = catalogClient ?? await catalogReady
+    const clientContext = client.session.context as unknown as InnertubeContext
+    const answer = await trackingAnswer(videoId, raw, client, () => playerPromise.then((player) => player.signature_timestamp))
+    return registerPlayback(answer, nonce, beaconFormats(raw), clientContext.client.visitorData)
   }).catch(() => {})
   const [manifest, decipheredUrl] = await Promise.all([
     isLive ? Promise.resolve('') : info.toDash({
@@ -474,6 +517,7 @@ export const getSabrSource = async (videoId: string, playerParams?: string, prev
   url.searchParams.set('cpn', nonce)
   const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config
   if (!ustreamerConfig) throw new Error('youtube: ustreamer configuration is missing')
+  const activeContext = (catalogClient ?? resolvedCatalog)?.session.context as unknown as InnertubeContext | undefined
   return {
     videoId,
     isLive,
@@ -491,10 +535,12 @@ export const getSabrSource = async (videoId: string, playerParams?: string, prev
     endScreen: parseEndScreen(raw),
     playerParams,
     clientInfo: {
-      clientName: Number((Constants.CLIENT_NAME_IDS as Record<string, string>)[context.client.clientName]),
-      clientVersion: context.client.clientVersion,
-      osName: context.client.osName,
-      osVersion: context.client.osVersion,
+      clientName: activeContext
+        ? Number((Constants.CLIENT_NAME_IDS as Record<string, string>)[activeContext.client.clientName])
+        : Number(Constants.CLIENT_NAME_IDS.WEB),
+      clientVersion: activeContext?.client.clientVersion ?? WEB_CLIENT_VERSION,
+      osName: activeContext?.client.osName ?? '',
+      osVersion: activeContext?.client.osVersion ?? '',
     },
     mint: () => mintPoToken(mintIdentifier),
     recoverMint: () => recoverPoTokenSession(),

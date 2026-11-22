@@ -467,6 +467,7 @@ const VideoPlayer = (
     video.playbackRate = audio.playbackRate
     const abort = new AbortController()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
+    let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     const restart = (error: unknown) => {
       if (abort.signal.aborted || retryTimer !== undefined) return
@@ -519,15 +520,46 @@ const VideoPlayer = (
     setStatus('')
     setStreamRefused(false)
     setAutoMuted(false)
+    const shakaModule = warmShaka()
+    void shakaModule.catch(() => {})
     void (async () => {
-      const [api, { startShakaPlayback }] = await Promise.all([startEngine(), warmShaka()])
+      const api = await startEngine()
+      if (abort.signal.aborted) return
+      const settings = getSettings()
+      const startTime = resumeAt.current
+      const storedQuality = settings.quality
+      const elementHeight = Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
+      // In auto mode at t = 0, cap segment 0 at 720p so the prewarmed opening segment paints fast over WebVPN;
+      // Shaka unlocks full ABR on loadeddata and steps up to 1080p/1440p cleanly on segment 1.
+      const maxHeight = storedQuality !== 'auto'
+        ? storedQuality
+        : startTime === 0
+        ? Math.min(720, elementHeight)
+        : elementHeight
+      const openOptions = storedQuality !== 'auto'
+        ? { pinnedHeight: storedQuality, ...(startTime > 0 ? { prewarm: false } : {}) }
+        : startTime > 0
+        ? { prewarm: false }
+        : undefined
+      const sessionPromise = openOptions
+        ? api.openPlayback(videoId, maxHeight, playerParams, settings.stableVolume, openOptions)
+        : api.openPlayback(videoId, maxHeight, playerParams, settings.stableVolume)
+      void sessionPromise.catch(() => {})
+      ownedSession = { api, promise: sessionPromise }
+      const { startShakaPlayback } = await shakaModule
+      if (abort.signal.aborted) return
+      ownedSession = undefined
       controller = await startShakaPlayback({
         api,
         video,
         videoId,
         playerParams,
-        stableVolume: getSettings().stableVolume,
-        startTime: resumeAt.current,
+        stableVolume: settings.stableVolume,
+        startTime,
+        maxHeight,
+        pinVideoFormat: storedQuality !== 'auto',
+        openOptions,
+        sessionPromise,
         signal: abort.signal,
         onError: restart,
         onEndScreen: setEndScreen,
@@ -560,8 +592,6 @@ const VideoPlayer = (
       setCaptionTracks(controller.captionTracks)
       setTranslationLanguages(controller.translationLanguages)
       selectCaptionRef.current = controller.selectCaption
-      const stored = getSettings().quality
-      if (stored !== 'auto') void controller.selectQuality(stored).catch(() => {})
       const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, getSettings(), navigator.language)
       setCaption(wanted)
       if (wanted) {
@@ -603,6 +633,10 @@ const VideoPlayer = (
       setCaptionTracks([])
       setTranslationLanguages([])
       setAutoMuted(false)
+      if (ownedSession) {
+        const { api, promise } = ownedSession
+        void promise.then((session) => api.closePlayback(session.id)).catch(() => {})
+      }
       void controller?.destroy()
     }
   }, [attempt, videoId, playerParams])

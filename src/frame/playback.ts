@@ -1,5 +1,5 @@
 import type { CaptionSource, TranslationLanguage } from './captions'
-import type { SegmentEnvelope, SegmentRequest } from './protocol'
+import type { OpenPlaybackOptions, SegmentEnvelope, SegmentRequest } from './protocol'
 import type { LiveSessionCallbacks } from './sabr'
 
 import { getSabrSource } from './innertube'
@@ -66,15 +66,22 @@ const handleLiveRefresh = (entry: PlaybackEntry, session: SabrSession, reason: s
 export const isCancellation = (error: unknown) =>
   (error instanceof Error && error.message === SEGMENT_CANCELLED) || (error instanceof DOMException && error.name === 'AbortError')
 
+const normalizeOpenOptions = (options?: boolean | OpenPlaybackOptions): OpenPlaybackOptions =>
+  typeof options === 'boolean' ? { preview: options } : (options ?? {})
+
 /** Reads the video's watch page, with a card's inline playback params when given, and opens a SABR session on it. */
 export const openPlaybackEntry = async (
   videoId: string,
   maxHeight?: number,
   playerParams?: string,
   stableVolume?: boolean,
-  preview = false,
+  options?: boolean | OpenPlaybackOptions,
 ) => {
-  const source = preview ? await getSabrSource(videoId, playerParams, true) : await getSabrSource(videoId, playerParams)
+  const { preview = false, prewarm = true, cover, pinnedHeight } = normalizeOpenOptions(options)
+  const source = preview
+    ? await getSabrSource(videoId, playerParams, true, maxHeight)
+    : await getSabrSource(videoId, playerParams)
+  const videoSelection = cover || pinnedHeight !== undefined ? { cover, pinnedHeight } : undefined
   const ref: { entry?: PlaybackEntry, session?: SabrSession } = {}
   const player = source.isLive
     ? createSabrSession(source, maxHeight, undefined, stableVolume, {
@@ -85,6 +92,8 @@ export const openPlaybackEntry = async (
           if (ref.entry && ref.session) handleLiveRefresh(ref.entry, ref.session, reason)
         },
       })
+    : videoSelection
+    ? createSabrSession(source, maxHeight, undefined, stableVolume, undefined, videoSelection)
     : createSabrSession(source, maxHeight, undefined, stableVolume)
   const entry: PlaybackEntry = {
     videoId,
@@ -103,7 +112,7 @@ export const openPlaybackEntry = async (
   }
   ref.entry = entry
   ref.session = player
-  if (preview && !source.isLive) player.prewarmStart()
+  if (!source.isLive && prewarm) player.prewarmStart?.()
   return { source, entry }
 }
 

@@ -5,7 +5,7 @@ import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
 import { EllipsisVertical, Link2, Share2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
 
@@ -469,15 +469,15 @@ const RELATED_SKELETON_KEYS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 const WatchPage = () => {
   const params = new URLSearchParams(useSearch())
   const videoId = params.get('v') ?? ''
-  prefetchPlayback(videoId)
+  // each video's page mounts anew, and a card's link carries its params in the history entry it opens
+  const [playerParams] = useState(() => cardParamsIn(history.state))
+  prefetchPlayback(videoId, playerParams)
   // `index` is 1-BASED in the URL, matching youtube.com, while the schema takes a 0-based `playlistIndex`
   const listId = params.get('list') ?? undefined
   // app.tsx keeps `t` out of the route identity, so changing it does NOT remount the player
   const startAt = parseStartSeconds(params.get('t'))
   const indexParam = Number(params.get('index'))
   const playlistIndex = Number.isInteger(indexParam) && indexParam > 0 ? indexParam - 1 : undefined
-  // each video's page mounts anew, and a card's link carries its params in the history entry it opens
-  const [playerParams] = useState(() => cardParamsIn(history.state))
   const [{ data: watchData, error: watchError, fetching: watchFetching }, reexecuteWatch] = useQuery({
     query: WATCH_META_QUERY,
     variables: { id: videoId, playlistId: listId, playlistIndex },
@@ -502,7 +502,7 @@ const WatchPage = () => {
   const channel = watch?.channel
   const unavailable = watch?.unavailableText ?? undefined
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (videoId === '') return
     if (unavailable) {
       if (getPlayerSession().videoId === videoId) closePlayer()

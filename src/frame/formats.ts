@@ -24,7 +24,7 @@ export type AudioTrack = {
   hasDrc: boolean
 }
 
-type AudioFormatLike = {
+export type AudioFormatLike = {
   itag: number
   mimeType: string
   bitrate: number
@@ -34,6 +34,54 @@ type AudioFormatLike = {
   isAutoDubbed?: boolean
   isDrc?: boolean
   language?: string
+}
+
+export type VideoFormatLike = {
+  mimeType: string
+  bitrate: number
+  width?: number
+  height?: number
+}
+
+export type VideoSelection = {
+  maxHeight?: number
+  cover?: { width: number, height: number }
+  pinnedHeight?: number
+}
+
+/**
+ * Picks the opening video format for a SABR session.
+ *
+ * - `pinnedHeight`: exact manual height when available.
+ * - `cover`: smallest format covering an `object-fit: contain` box (`width >= boxW || height >= boxH`) at >= 1:1
+ *   physical pixels (used by Shorts so vertical, 4:5 and landscape Shorts never over-fetch 1440p/4K or upscale 360p).
+ * - default: largest format whose short side is at most `maxHeight`, preferring the lowest bitrate at that tier.
+ */
+export const pickInitialVideoFormat = <Format extends VideoFormatLike>(
+  videoFormats: readonly Format[],
+  { maxHeight = 1_080, cover, pinnedHeight }: VideoSelection = {},
+  isSupported: (mimeType: string) => boolean = (mimeType) =>
+    typeof MediaSource === 'undefined' || MediaSource.isTypeSupported(mimeType),
+): Format | undefined => {
+  const supported = videoFormats.filter((format) => format.width && format.height && isSupported(format.mimeType))
+  if (supported.length === 0) return undefined
+  const shortSide = (format: Format) => Math.min(format.width!, format.height!)
+  if (pinnedHeight !== undefined) {
+    const exact = supported
+      .filter((format) => format.height === pinnedHeight)
+      .sort((a, b) => b.bitrate - a.bitrate)[0]
+    if (exact) return exact
+  }
+  if (cover && cover.width > 0 && cover.height > 0) {
+    const covering = supported
+      .filter((format) => format.width! >= cover.width || format.height! >= cover.height)
+      .sort((a, b) => shortSide(a) - shortSide(b) || a.bitrate - b.bitrate)[0]
+    return covering ?? [...supported].sort((a, b) => shortSide(b) - shortSide(a) || a.bitrate - b.bitrate)[0]
+  }
+  return supported
+    .filter((format) => shortSide(format) <= maxHeight)
+    .sort((a, b) => shortSide(b) - shortSide(a) || a.bitrate - b.bitrate)[0]
+    ?? supported[0]
 }
 
 type XTag = { key: string, value: string }

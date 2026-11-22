@@ -19,6 +19,9 @@ const { id: _sourceId, ...sourceApi } = createYoutubeSource({
   fetch: youtubeFetch,
   createClient: () => catalogInnertube() as unknown as Promise<YoutubeClient>,
   signedIn: hasSessionCookie,
+  onShortsSeed: (videoId) => {
+    void prefetchInitialPlayerResponse(videoId).catch(() => {})
+  },
 })
 
 const sessions = new Map<string, PlaybackEntry>()
@@ -75,16 +78,16 @@ const liveManifestFor = (entry: PlaybackEntry) => {
 const api = {
   ...sourceApi,
   resetIdentity,
-  prefetchPlayback: async (videoId) => {
-    prefetchInitialPlayerResponse(videoId)
+  prefetchPlayback: async (videoId, playerParams) => {
+    prefetchInitialPlayerResponse(videoId, playerParams)
   },
   warmPlayback: async () => {
     warmPlaybackResources()
   },
-  openPlayback: async (videoId, maxHeight, playerParams, stableVolume, preview) => {
+  openPlayback: async (videoId, maxHeight, playerParams, stableVolume, options) => {
     const id = `playback:${++sessionId}`
-    const { source, entry } = preview
-      ? await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume, true)
+    const { source, entry } = options !== undefined
+      ? await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume, options)
       : await openPlaybackEntry(videoId, maxHeight, playerParams, stableVolume)
     let manifest: string
     try {

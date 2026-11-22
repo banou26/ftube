@@ -11,7 +11,9 @@ import { startGroupSync } from './groups/sync-live'
 import { markStartup } from './perf'
 import { startEngine } from './engine/client'
 import { cleanUpScramjet } from './engine/scramjet-cleanup'
-import { warmShaka } from './player/prefetch'
+import { safeDecode } from './components/format'
+import { cardParamsIn } from './player/card-params'
+import { prefetchPlayback, warmShaka } from './player/prefetch'
 import { applyTheme, watchDeviceTheme } from './settings'
 import { setSource } from './sources/runtime'
 import { lazyCodeList, warmLazyCode } from './warm-code'
@@ -193,12 +195,26 @@ watchDeviceTheme()
 const root = document.createElement('div')
 root.id = 'app'
 document.body.appendChild(root)
+const bootPath = location.pathname
+if (bootPath.startsWith('/watch') || bootPath.startsWith('/shorts')) {
+  void warmShaka().catch(() => {})
+}
 void startEngine().then(
   (source) => {
     setSource(source)
     markStartup('engine-ready')
     document.documentElement.dataset.engine = 'ready'
     const path = location.pathname
+    if (path === '/watch') {
+      const videoId = new URLSearchParams(location.search).get('v')
+      const playerParams = cardParamsIn(history.state)
+      if (videoId) prefetchPlayback(videoId, playerParams)
+    } else if (path.startsWith('/shorts/')) {
+      const shortId = safeDecode(path.slice('/shorts/'.length).split('/')[0] ?? '')
+      if (shortId) prefetchPlayback(shortId)
+    } else if (path === '/shorts') {
+      void source.warmPlayback().catch(() => {})
+    }
     const browsePage = !path.startsWith('/watch') && !path.startsWith('/shorts') && path !== '/privacy' && path !== '/settings'
     if (browsePage) {
       void source.warmPlayback().catch(() => {})

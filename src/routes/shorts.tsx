@@ -21,9 +21,9 @@ import { useDislikes } from '../dislikes'
 import { gql } from '../generated'
 import { isTypingTarget } from '../player/controls'
 import { shortsHrefFor } from '../player/links'
+import { prefetchPlayback } from '../player/prefetch'
 import ShortsPlayer from '../player/shorts-player'
 import { closePlayer } from '../player/session'
-import { useSession } from '../session'
 
 const SHORTS_FEED_QUERY = gql(`
   query ShortsFeed($seed: ID, $sequence: String, $cursor: String) {
@@ -582,7 +582,7 @@ const ShortsPage = () => {
   // frozen at mount: re-reading the param would refetch the whole sequence on every path rewrite the pager makes
   const [seed] = useState(() => (params?.videoId ? safeDecode(params.videoId) : undefined))
   const [sequence] = useState(() => shortsSequenceIn(history.state))
-  const { ready } = useSession()
+  if (seed) prefetchPlayback(seed)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState<ShortsPage[]>([])
   const [activeId, setActiveId] = useState<string | undefined>(seed)
@@ -606,15 +606,20 @@ const ShortsPage = () => {
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: SHORTS_FEED_QUERY,
     variables: { seed, sequence, cursor: loaded[loaded.length - 1]?.cursor },
-    pause: !ready,
   })
   const page = data?.shorts
   const { items: feed } = useInfiniteFeed({
     pages: page ? [...loaded, page] : loaded,
     key: short => short.id,
   })
+  // When the URL already names a seed Short, mount its slide immediately instead of waiting on the sequence query;
+  // once the feed arrives it keeps the same key so ShortsPlayer and SHORT_META_QUERY never remount.
+  const seeded = useMemo(() => {
+    if (!seed || feed.some(short => short.id === seed)) return feed
+    return [{ id: seed, poster: null, title: null }, ...feed]
+  }, [seed, feed])
   // a Short the address named stays to say why it does not play; any other YouTube refuses is passed over
-  const items = feed.filter(short => !refused.has(short.id))
+  const items = seeded.filter(short => !refused.has(short.id))
   const active = useMemo(() => items.find(short => short.id === activeId), [items, activeId])
 
   useDocumentTitle((active ? activeTitle : undefined) || 'Shorts')
@@ -683,7 +688,7 @@ const ShortsPage = () => {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  if (!ready || (fetching && items.length === 0)) {
+  if (fetching && items.length === 0) {
     return <main css={style}><p className='notice'>Loading Shorts…</p></main>
   }
 

@@ -8,6 +8,7 @@ import {
   audioRepresentationId,
   audioTracksOf,
   pickAudioFormat,
+  pickInitialVideoFormat,
   playableFormats,
   trackHasDrc,
 } from '../../../src/frame/formats'
@@ -154,5 +155,41 @@ describe('audioTracksOf, trackHasDrc, and pickAudioFormat', () => {
     expect(audioManifestRole(singleWithDrc[2]!, true)).toBe('main')
     expect(audioManifestRole(singleWithDrc[3]!, true)).toBe('alternate')
     expect(audioManifestRole(singleWithDrc[2]!, false)).toBe('')
+  })
+})
+
+describe('pickInitialVideoFormat', () => {
+  const portrait = [
+    { key: '396:', mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 360, height: 640 },
+    { key: '397:', mimeType: 'video/mp4; codecs="av01.0.04M.08"', bitrate: 400_000, width: 480, height: 854 },
+    { key: '398:', mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 800_000, width: 720, height: 1_280 },
+    { key: '399:', mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 1_500_000, width: 1_080, height: 1_920 },
+  ]
+  const fourByFive = [
+    { key: '398:', mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 700_000, width: 720, height: 900 },
+    { key: '399:', mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 1_400_000, width: 1_080, height: 1_350 },
+    { key: '400:', mimeType: 'video/mp4; codecs="av01.0.12M.08"', bitrate: 3_000_000, width: 1_440, height: 1_800 },
+  ]
+  const landscape = [
+    { key: '397:', mimeType: 'video/mp4; codecs="av01.0.04M.08"', bitrate: 400_000, width: 854, height: 480 },
+    { key: '247:', mimeType: 'video/webm; codecs="vp9"', bitrate: 1_100_000, width: 1_280, height: 720 },
+    { key: '398:', mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 800_000, width: 1_280, height: 720 },
+    { key: '399:', mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 2_000_000, width: 1_920, height: 1_080 },
+  ]
+
+  it('picks the smallest tier covering an object-fit: contain box across 9:16, 4:5, and 16:9 Shorts', () => {
+    expect(pickInitialVideoFormat(portrait, { cover: { width: 405, height: 720 } })?.key).toBe('397:')
+    expect(pickInitialVideoFormat(portrait, { cover: { width: 690, height: 1_227 } })?.key).toBe('398:')
+    expect(pickInitialVideoFormat(portrait, { cover: { width: 810, height: 1_440 } })?.key).toBe('399:')
+    // 4:5 video in an 810x1440 box renders at 810x1012: 1080x1350 already covers it without pulling 1440x1800
+    expect(pickInitialVideoFormat(fourByFive, { cover: { width: 810, height: 1_440 } })?.key).toBe('399:')
+    // 16:9 Short in an 810x1440 box renders at 810x456: 854x480 covers it without pulling 1080p/4K
+    expect(pickInitialVideoFormat(landscape, { cover: { width: 810, height: 1_440 } })?.key).toBe('397:')
+  })
+
+  it('honors pinnedHeight directly and falls back to maxHeight when absent', () => {
+    expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 1_080 })?.key).toBe('399:')
+    expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 720 })?.key).toBe('247:')
+    expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 2_160 })?.key).toBe('398:')
   })
 })

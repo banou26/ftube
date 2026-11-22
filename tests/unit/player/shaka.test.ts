@@ -445,3 +445,134 @@ describe('unmuted autoplay fallback in Shaka', () => {
     await controller.destroy()
   })
 })
+
+describe('startup ABR alignment and cache reporting in Shaka', () => {
+  const videoFormats = [
+    { key: '398:', itag: 398, mimeType: 'video/mp4; codecs="av01.0.05M.08"', bitrate: 800_000, width: 1_280, height: 720 },
+    { key: '399:', itag: 399, mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 2_000_000, width: 1_920, height: 1_080 },
+  ]
+  const audioFormats = [
+    { key: '251:', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000 },
+  ]
+
+  beforeEach(() => {
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('marks 0 ms cached segments fromCache without poisoning ABR bandwidth, and reports real media downloads', async () => {
+    const { api, controller, player } = await start({
+      videoFormats,
+      audioFormats,
+      selectedVideoKey: '398:',
+      selectedAudioKey: '251:',
+    })
+    const requestSegment = vi.fn()
+      .mockResolvedValueOnce({ generation: 0, track: 'video', kind: 'init', formatKey: '398:', mimeType: 'video/mp4', elapsedMs: 0, end: false, data: new Uint8Array(64).buffer })
+      .mockResolvedValueOnce({ generation: 0, track: 'video', kind: 'media', formatKey: '398:', mimeType: 'video/mp4', elapsedMs: 0, end: false, data: new Uint8Array(1024).buffer })
+      .mockResolvedValueOnce({ generation: 0, track: 'video', kind: 'media', formatKey: '398:', mimeType: 'video/mp4', elapsedMs: 120, end: false, data: new Uint8Array(2048).buffer })
+    ;(api as unknown as { requestSegment: typeof requestSegment }).requestSegment = requestSegment
+
+    const scheme = fake.getScheme()!
+    const run = async (media: boolean) => {
+      const req = { uris: ['sabr://video?key=398%3A'], headers: {} }
+      player.requestFilter!(fake.shaka.net.NetworkingEngine.RequestType.SEGMENT, req, media ? { segment: { getStartTime: () => 0 } } : {})
+      const progress = vi.fn()
+      const op = scheme(req.uris[0], req, fake.shaka.net.NetworkingEngine.RequestType.SEGMENT, progress, () => {}) as { promise: Promise<{ fromCache: boolean, timeMs: number }> }
+      return { res: await op.promise, progress }
+    }
+
+    const initHit = await run(false)
+    expect(initHit.res.fromCache).toBe(true)
+    expect(initHit.progress).not.toHaveBeenCalled()
+
+    const cachedMedia = await run(true)
+    expect(cachedMedia.res.fromCache).toBe(true)
+    expect(cachedMedia.progress).not.toHaveBeenCalled()
+
+    const liveMedia = await run(true)
+    expect(liveMedia.res.fromCache).toBe(false)
+    expect(liveMedia.res.timeMs).toBe(120)
+    expect(liveMedia.progress).toHaveBeenCalledExactlyOnceWith(120, 2048, 0)
+    await controller.destroy()
+  })
+
+  it('aligns opening VOD format with prewarmStart and unlocks ABR once loadeddata fires', async () => {
+    const { video, controller, player } = await start({
+      videoFormats,
+      audioFormats,
+      selectedVideoKey: '398:',
+      selectedAudioKey: '251:',
+    })
+    expect(player.configs).toContainEqual(expect.objectContaining({
+      preferredVideoCodecs: ['av01'],
+      abr: expect.objectContaining({
+        restrictToElementSize: false,
+        restrictions: { minHeight: 720, maxHeight: 720 },
+      }),
+    }))
+    video.dispatchEvent(new Event('loadeddata'))
+    expect(player.configs.at(-1)).toEqual({
+      abr: { restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } },
+    })
+    await controller.destroy()
+  })
+
+  it('keeps ABR enabled during load for pinned portrait Shorts using Shaka short-side height restrictions, then disables ABR after load', async () => {
+    const portraitFormats = [
+      { key: '399:', itag: 399, mimeType: 'video/mp4; codecs="av01.0.09M.08"', bitrate: 2_000_000, width: 1_080, height: 1_350 },
+    ]
+    const api = {
+      openPlayback: vi.fn(async () => ({
+        id: 'playback:1',
+        isLive: false,
+        manifest: '<MPD/>',
+        videoFormats: portraitFormats,
+        audioFormats,
+        selectedVideoKey: '399:',
+        selectedAudioKey: '251:',
+        storyboards: [],
+        captionTracks: [],
+        translationLanguages: [],
+        endScreen: [],
+      })),
+      closePlayback: vi.fn(async () => {}),
+      selectVideoFormat: vi.fn(async () => {}),
+      selectAudioFormat: vi.fn(async () => {}),
+      endScreen: vi.fn(async () => []),
+    }
+    const video = Object.assign(new EventTarget(), {
+      getBoundingClientRect: () => ({ height: 720 }),
+      play: vi.fn(async () => {}),
+      currentTime: 0,
+      paused: false,
+      muted: false,
+      videoHeight: 1_350,
+      buffered: { length: 1, start: () => 0, end: () => 10 },
+    })
+    const controller = await startShakaPlayback({
+      api: api as unknown as FrameApi,
+      video: video as unknown as HTMLVideoElement,
+      videoId: 'short-1',
+      startTime: 0,
+      autoPlay: false,
+      pinVideoFormat: true,
+      signal: new AbortController().signal,
+      onError: vi.fn(),
+    })
+    const player = fake.players.at(-1)!
+    const openingConfig = player.configs.find((config) => 'preferredVideoCodecs' in config)
+    expect(openingConfig).toMatchObject({
+      preferredVideoCodecs: ['av01'],
+      abr: { enabled: true, restrictToElementSize: false, restrictions: { minHeight: 1_080, maxHeight: 1_080 } },
+    })
+    expect(player.configs.at(-1)).toEqual({
+      abr: { enabled: false, restrictToElementSize: false, restrictions: { minHeight: 0, maxHeight: Infinity } },
+    })
+    await controller.destroy()
+  })
+})

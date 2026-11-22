@@ -740,7 +740,9 @@ const ResultPlaceholder = () => (
 )
 
 const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
-  const prefetch = usePrefetchOnIntent(row.id)
+  // youtube.com mounts a player only on a row that carries its inline playback params
+  const playerParams = row.isUpcoming !== true ? row.inlinePlayerParams ?? undefined : undefined
+  const prefetch = usePrefetchOnIntent(row.id, playerParams)
   const [hovered, setHovered] = useState(false)
   const watchHref = watchHrefFor(row.id)
   const duration = formatDuration(row.durationSeconds)
@@ -748,8 +750,6 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
   const snippet = row.snippetRuns?.map((run, index) => run.bold ? <b key={index}>{run.text}</b> : run.text)
     ?? row.descriptionSnippet
     ?? row.description
-  // youtube.com mounts a player only on a row that carries its inline playback params
-  const playerParams = row.isUpcoming !== true ? row.inlinePlayerParams ?? undefined : undefined
   const state = cardState(playerParams)
   return (
     <article
@@ -762,7 +762,7 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
         if (!playerParams) prefetch.onPointerLeave()
         setHovered(false)
       }}
-      onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
+      onPointerDown={prefetch.onPointerDown}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {row.thumbnail ? <Thumbnail src={row.thumbnail} srcSet={row.thumbnailSrcset} sizes='50rem' /> : undefined}

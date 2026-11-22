@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { Link } from 'wouter'
 
 import { shortsHrefFor } from '../player/links'
+import { usePrefetchOnIntent } from '../player/prefetch'
 import { formatViews } from './format'
 import { Thumbnail } from './thumbnail'
 import { VideoCardMenu } from './video-card'
@@ -100,8 +101,9 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
   const href = shortsHrefFor(short.id)
   const state: ShortsLinkState | undefined = short.shortsSequence ? { sequence: short.shortsSequence } : undefined
   const views = formatViews(short.viewCount)
+  const prefetch = usePrefetchOnIntent(short.id)
   return (
-    <article css={shortsTileStyle} className='tile'>
+    <article css={shortsTileStyle} className='tile' {...prefetch}>
       <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}
       </Link>

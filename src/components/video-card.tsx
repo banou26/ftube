@@ -528,14 +528,14 @@ export const VideoCard = (
   const byline = rowByline(video, variant === 'channel')
   const duration = formatDuration(video.durationSeconds)
   const progress = resumePercent(video.progressPercent)
-  const prefetch = usePrefetchOnIntent(video.id)
+  const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
+  const prefetch = usePrefetchOnIntent(video.id, playerParams)
   const [hovered, setHovered] = useState(false)
   const classes = [variant, video.isShort && !carouselShort ? 'short' : undefined]
     .filter(Boolean)
     .join(' ')
   // youtube.com mounts a player only on a card that carries its inline playback params (search rows, Home), and plays the
   // moving thumbnail on the rest (a channel's Home rows and Videos tab), measured signed out on 2026-11-10
-  const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
   const moving = hovered && !playerParams ? video.animatedThumbnail ?? undefined : undefined
   const state = carouselShort ? undefined : cardState(playerParams)
   const avatar = variant === undefined || variant === 'carousel'
@@ -552,7 +552,7 @@ export const VideoCard = (
         if (!playerParams) prefetch.onPointerLeave()
         setHovered(false)
       }}
-      onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
+      onPointerDown={prefetch.onPointerDown}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {video.thumbnail

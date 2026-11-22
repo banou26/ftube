@@ -310,6 +310,7 @@ export type YoutubeSourceOptions = {
   fetch: typeof globalThis.fetch
   createClient?: () => Promise<YoutubeClient>
   signedIn?: () => boolean
+  onShortsSeed?: (videoId: string) => void
 }
 
 const shortsItems = (feed: Feed) => {
@@ -654,7 +655,7 @@ const requireSignIn = (client: YoutubeClient, action: string) => {
   if (!client.session.logged_in) throw new Error(`youtube: sign in to ${action}`)
 }
 
-export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSourceOptions): Source => {
+export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSeed }: YoutubeSourceOptions): Source => {
   const client = createClient?.() ?? Innertube.create({ fetch, retrieve_player: false }) as unknown as Promise<YoutubeClient>
   const videoContinuations = createContinuations<SourceVideoPage>()
   const sectionContinuations = createContinuations<SourceSectionedVideoPage>()
@@ -1253,6 +1254,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn }: YoutubeSo
       const active = await client
       const from = seed ?? await seedShort(active)
       if (!from) return { items: [] }
+      if (!seed) onShortsSeed?.(from)
       const info = await active.getShortsVideoInfo(from, undefined, sequence)
       const details = (info.basic_info ?? {}) as { id?: string, title?: string, thumbnail?: { url?: string, width?: number }[] }
       const seeded: SourceShort | undefined = details.id

@@ -9,7 +9,7 @@ vi.mock('youtubei.js/web', async (importOriginal) => {
   return {
     ...actual,
     Innertube: {
-      create: async () => ({ session: { context, player: { decipher: async (url: string) => url } }, actions: {} }),
+      create: async () => ({ session: { context, player: { decipher: async (url: string) => url } }, actions: { session: {} } }),
     },
     Player: {
       create: async () => ({ signature_timestamp: 20774, decipher: async (url: string) => url }),
@@ -167,4 +167,43 @@ it('uses /player over the media lane for hover previews once a player is warmed,
   const fallback = await getSabrSource(VIDEO, PARAMS, true)
   expect(fallback.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([{ url: card, visitor: 'visitor' }])
+})
+
+it('caches and evicts card-params prefetches separately from plain reads', async () => {
+  const { getSabrSource, prefetchInitialPlayerResponse } = await import('../../../src/frame/innertube')
+  await prefetchInitialPlayerResponse(VIDEO, PARAMS)
+  await prefetchInitialPlayerResponse(VIDEO)
+  await getSabrSource(VIDEO, PARAMS)
+  await getSabrSource(VIDEO)
+  await getSabrSource(VIDEO, PARAMS)
+  expect(fetched).toEqual([
+    { url: card, visitor: 'visitor' },
+    { url: plain, visitor: null },
+    { url: card, visitor: 'visitor' },
+  ])
+})
+
+it('trims VOD hover preview manifests to the single selected video and audio format', async () => {
+  vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+  const vodResponse = {
+    playabilityStatus: { status: 'OK' },
+    videoDetails: { videoId: 'vod-1', title: 'VOD', lengthSeconds: '120', isLive: false },
+    streamingData: {
+      serverAbrStreamingUrl: 'https://rr1.googlevideo.com/videoplayback?id=2',
+      adaptiveFormats: [
+        { itag: 396, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 640, height: 360, qualityLabel: '360p', approxDurationMs: '120000', initRange: { start: '0', end: '700' }, indexRange: { start: '701', end: '1400' } },
+        { itag: 399, mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 2_000_000, width: 1920, height: 1080, qualityLabel: '1080p', approxDurationMs: '120000', initRange: { start: '0', end: '700' }, indexRange: { start: '701', end: '1400' } },
+        { itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioQuality: 'AUDIO_QUALITY_MEDIUM', approxDurationMs: '120000', initRange: { start: '0', end: '265' }, indexRange: { start: '266', end: '900' } },
+        { itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128_000, audioQuality: 'AUDIO_QUALITY_MEDIUM', approxDurationMs: '120000', initRange: { start: '0', end: '265' }, indexRange: { start: '266', end: '900' } },
+      ],
+    },
+    playerConfig: { mediaCommonConfig: { mediaUstreamerRequestConfig: { videoPlaybackUstreamerConfig: 'config' } } },
+  }
+  respond = () => page(vodResponse)
+  const { getSabrSource } = await import('../../../src/frame/innertube')
+  const preview = await getSabrSource('vod-1', undefined, true, 360)
+  expect(preview.manifest).toContain('id="396"')
+  expect(preview.manifest).toContain('id="251"')
+  expect(preview.manifest).not.toContain('id="399"')
+  expect(preview.manifest).not.toContain('id="140"')
 })

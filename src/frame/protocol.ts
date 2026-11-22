@@ -133,15 +133,31 @@ export type SegmentEnvelope = SegmentMetadata & ({
   data: ArrayBuffer
 })
 
+export type OpenPlaybackOptions = {
+  /** Uses the faster `/player` path when a warmed player is ready and trims the VOD manifest to the selected pair. */
+  preview?: boolean
+  /** Prewarms the opening dual-track SABR request at t = 0 before returning. Defaults to true for VOD. */
+  prewarm?: boolean
+  /** Physical box size for `object-fit: contain` (Shorts): picks the smallest tier covering either dimension. */
+  cover?: { width: number, height: number }
+  /** Exact height pinned by user settings so playback opens directly on it without a post-load switch. */
+  pinnedHeight?: number
+}
+
 export type FrameApi = SourceApi & {
-  prefetchPlayback(videoId: string): Promise<void>
+  prefetchPlayback(videoId: string, playerParams?: string): Promise<void>
   warmPlayback(): Promise<void>
   /**
    * Opens a playback of the video; a card's hover preview, or a click on the card, passes its inline playback params
-   * as `playerParams`. When `preview` is true, prefers the faster `/player` endpoint when a warmed player is ready and
-   * starts the initial dual-track SABR fetch before returning.
+   * as `playerParams`.
    */
-  openPlayback(videoId: string, maxHeight?: number, playerParams?: string, stableVolume?: boolean, preview?: boolean): Promise<PlaybackSession>
+  openPlayback(
+    videoId: string,
+    maxHeight?: number,
+    playerParams?: string,
+    stableVolume?: boolean,
+    options?: boolean | OpenPlaybackOptions,
+  ): Promise<PlaybackSession>
   /** The end screen of the video's plain watch page, which the answer to a card's params leaves out. */
   endScreen(videoId: string): Promise<EndScreenElement[]>
   requestSegment(request: SegmentRequest): Promise<SegmentEnvelope>

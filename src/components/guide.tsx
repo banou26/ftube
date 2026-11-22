@@ -10,6 +10,7 @@ import { Link, useLocation, useSearch } from 'wouter'
 
 import { gql } from '../generated'
 import { groupHrefFor, groupTreeOrder, useGroups } from '../groups/store'
+import { warmShaka } from '../player/prefetch'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
 import GroupDialog from './group-dialog'
@@ -85,6 +86,7 @@ const GuideLink = ({ entry }: { entry: GuideEntry }) => {
       href={entry.href}
       className={active ? 'item active' : 'item'}
       aria-current={active ? 'page' : undefined}
+      onPointerDown={entry.href === '/shorts' ? () => { void warmShaka().catch(() => {}) } : undefined}
     >
       <entry.Icon size={24} strokeWidth={1.5} />
       <span className='label'>{entry.label}</span>

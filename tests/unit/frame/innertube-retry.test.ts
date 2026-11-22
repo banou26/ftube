@@ -317,4 +317,24 @@ describe('the frame Innertube sessions', () => {
     await getSabrSource(VIDEO)
     expect(youtube.builds).toEqual(['catalog', 'player'])
   })
+
+  it('does not wait for a slow catalogInnertube build when the watch page names its own player', async () => {
+    vi.stubGlobal('fetch', async () => streamed([watchPage({
+      playerJsUrl: '\\/s\\/player\\/a5c2aafe\\/player_ias.vflset\\/en_US\\/base.js',
+    })]))
+    const { Innertube } = await import('youtubei.js/web')
+    let releaseCatalog: () => void = () => {}
+    const origCreate = Innertube.create
+    vi.spyOn(Innertube, 'create').mockImplementationOnce(async (options) => {
+      await new Promise<void>((resolve) => { releaseCatalog = resolve })
+      return origCreate(options)
+    })
+    const { getSabrSource } = await import('../../../src/frame/innertube')
+    const source = await getSabrSource(VIDEO)
+    expect(source.videoId).toBe(VIDEO)
+    expect(source.streamingUrl).toContain('player=a5c2aafe')
+    expect(source.clientInfo.clientName).toBe(1)
+    releaseCatalog()
+    await settle()
+  })
 })

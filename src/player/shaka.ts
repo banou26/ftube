@@ -1,4 +1,4 @@
-import type { EndScreenElement, FrameApi, PlaybackSession } from '../frame/protocol'
+import type { EndScreenElement, FrameApi, OpenPlaybackOptions, PlaybackSession } from '../frame/protocol'
 
 import shaka from 'shaka-player'
 
@@ -11,6 +11,7 @@ import { createStallWatch, isStreamRefusal } from './restart'
 type Bridge = {
   api: FrameApi
   generation: number
+  initialLiveManifest?: string
   pendingInits: Set<Promise<unknown>>
   player: shaka.Player
   requestNumber: number
@@ -114,7 +115,8 @@ const installScheme = () => {
       bridge = bridges.get(url.searchParams.get('session') ?? '')
       if (!bridge) throw new Error('shaka: playback session is closed')
       if (requestType === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-        const manifest = await bridge.api.liveManifest(bridge.session.id)
+        const manifest = bridge.initialLiveManifest ?? await bridge.api.liveManifest(bridge.session.id)
+        bridge.initialLiveManifest = undefined
         if (isAborted) throw abortError(uri)
         ;(globalThis as { __liveManifest?: unknown }).__liveManifest = { at: Math.round(performance.now()), manifest }
         const headers = { 'content-type': 'application/dash+xml' }
@@ -169,8 +171,13 @@ const installScheme = () => {
         'content-length': String(segment.data.byteLength),
         'content-type': segment.mimeType.split(';')[0] ?? 'application/octet-stream',
       }
+      // Cached init/harvested segments return in 0 ms; mark them fromCache and skip progressUpdated so Shaka's ABR
+      // estimator is not poisoned with fake multi-gigabit speeds that cause a 1440p stall on segment 0.
+      const fromCache = segment.elapsedMs === 0
       headersReceived(headers)
-      progressUpdated(performance.now() - started, segment.data.byteLength, 0)
+      if (kind === 'media' && !fromCache) {
+        progressUpdated(segment.elapsedMs, segment.data.byteLength, 0)
+      }
       return {
         uri,
         originalUri: uri,
@@ -178,7 +185,7 @@ const installScheme = () => {
         data: segment.data,
         status: 200,
         headers,
-        fromCache: false,
+        fromCache,
         timeMs: segment.elapsedMs,
       }
     })().catch((error) => {
@@ -200,17 +207,23 @@ const installScheme = () => {
   }, shaka.net.NetworkingEngine.PluginPriority.PREFERRED, false)
 }
 
+// Shaka's StreamUtils.meetsRestrictions swaps width and height whenever height > width (comparing minHeight/maxHeight
+// against the SHORT side), so portrait formats (Shorts, vertical previews) must pass Math.min(width, height).
+const restrictionHeight = (video: { width?: number, height?: number }) =>
+  video.width && video.height ? Math.min(video.width, video.height) : video.height
+
 /* Shaka opens a live stream on the formats the frame's session already streams. Its own pick differs (it rounds the
    element height UP and keeps the cheapest codec per resolution, the frame rounds down: 244 against 134 on a 1280x720
    window, measured 2026-11-06), and every listed segment the session holds only in another format is a fetch by address. */
 const liveOpening = (session: PlaybackSession) => {
   const video = session.videoFormats.find((format) => format.key === session.selectedVideoKey)
   const audio = session.audioFormats.find((format) => format.key === session.selectedAudioKey)
-  if (!video?.height || !audio) return {}
+  const height = video ? restrictionHeight(video) : undefined
+  if (!video || !height || !audio) return {}
   return {
     preferredVideoCodecs: [codecsOf(video.mimeType).split('.')[0]!],
     preferredAudioCodecs: [codecsOf(audio.mimeType)],
-    abr: { restrictToElementSize: false, restrictions: { minHeight: video.height, maxHeight: video.height } },
+    abr: { restrictToElementSize: false, restrictions: { minHeight: height, maxHeight: height } },
   }
 }
 
@@ -229,19 +242,23 @@ const vodAudioOpening = (session: PlaybackSession) => {
   }
 }
 
-// Pins a hover preview to the exact capped video format prewarmStart() already requested over SABR, avoiding
-// 720p downloads on HiDPI thumbnails and ensuring a cache hit on init + segment 0.
-const vodPreviewOpening = (session: PlaybackSession) => {
+// Aligns Shaka's opening video variant to the exact format prewarmStart() already requested over SABR so both init and
+// segment 0 hit the prewarmed dual-track response. Keeps ABR enabled during load() so AbrManager honors
+// abr.restrictions and picks highest-bitrate Opus audio (with abr.enabled: false during load, Shaka bypasses
+// AbrManager and falls back to the first lowest-bitrate video/audio variant in the manifest).
+const vodOpening = (session: PlaybackSession, { pinned }: { pinned: boolean }) => {
   const video = session.videoFormats.find((format) => format.key === session.selectedVideoKey)
+  const height = video ? restrictionHeight(video) : undefined
   return {
     ...vodAudioOpening(session),
-    ...(video?.height
+    ...(video && height
       ? {
           preferredVideoCodecs: [codecsOf(video.mimeType).split('.')[0]!],
           abr: {
-            enabled: false,
+            enabled: true,
             restrictToElementSize: false,
-            restrictions: { minHeight: video.height, maxHeight: video.height },
+            defaultBandwidthEstimate: Math.max(pinned ? 10_000_000 : 1_500_000, video.bitrate * 2),
+            restrictions: { minHeight: height, maxHeight: height },
           },
         }
       : {}),
@@ -267,6 +284,8 @@ export const startShakaPlayback = async ({
   bufferingGoal = 30,
   maxHeight: requestedMaxHeight,
   preview = false,
+  pinVideoFormat = false,
+  openOptions,
   sessionPromise: existingSessionPromise,
   signal,
   onError,
@@ -284,6 +303,9 @@ export const startShakaPlayback = async ({
   bufferingGoal?: number
   maxHeight?: number
   preview?: boolean
+  /** Keeps ABR off on `session.selectedVideoKey` after load (used by Shorts and fixed manual Watch quality). */
+  pinVideoFormat?: boolean
+  openOptions?: OpenPlaybackOptions
   sessionPromise?: Promise<PlaybackSession>
   signal: AbortSignal
   onError(error: unknown): void
@@ -297,9 +319,11 @@ export const startShakaPlayback = async ({
   if (!shaka.Player.isBrowserSupported()) throw new Error('shaka: browser is not supported')
 
   const maxHeight = requestedMaxHeight ?? Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
+  const resolvedOptions: OpenPlaybackOptions | undefined = openOptions
+    ?? (preview ? { preview: true } : startTime > 0 ? { prewarm: false } : undefined)
   const sessionPromise = existingSessionPromise
-    ?? (preview
-      ? api.openPlayback(videoId, maxHeight, playerParams, stableVolume, true)
+    ?? (resolvedOptions
+      ? api.openPlayback(videoId, maxHeight, playerParams, stableVolume, resolvedOptions)
       : api.openPlayback(videoId, maxHeight, playerParams, stableVolume))
   void sessionPromise.catch(() => {})
   const closeSession = () => {
@@ -314,6 +338,8 @@ export const startShakaPlayback = async ({
   let playerError: ((event: Event) => void) | undefined
   let buffering: ((event: Event) => void) | undefined
   let seeking: (() => void) | undefined
+  let unlockAbr: (() => void) | undefined
+  let openingRestricted = false
   let stallTimer: ReturnType<typeof setInterval> | undefined
   const captionUrls: string[] = []
   // eslint-disable-next-line prefer-const
@@ -330,6 +356,7 @@ export const startShakaPlayback = async ({
     if (player && playerError) player.removeEventListener('error', playerError)
     if (player && buffering) player.removeEventListener('buffering', buffering)
     if (seeking) video.removeEventListener('seeking', seeking)
+    if (unlockAbr) video.removeEventListener('loadeddata', unlockAbr)
     if (diagnosticBridgeId === bridgeId) {
       diagnosticBridgeId = undefined
       delete document.documentElement.dataset.playbackBuffering
@@ -391,9 +418,10 @@ export const startShakaPlayback = async ({
 
     const session = await sessionPromise
     if (signal.aborted) throw signal.reason
-    const bridge = {
+    const bridge: Bridge = {
       api,
       generation: 0,
+      initialLiveManifest: session.isLive && session.manifest ? session.manifest : undefined,
       pendingInits: new Set<Promise<unknown>>(),
       player: activePlayer,
       requestNumber: 0,
@@ -424,6 +452,7 @@ export const startShakaPlayback = async ({
     }
     video.addEventListener('seeking', seeking)
     // live gets its streaming budget BEFORE load, not after
+    const pinnedOpening = preview || pinVideoFormat
     if (session.isLive) {
       activePlayer.configure({
         streaming: {
@@ -440,13 +469,33 @@ export const startShakaPlayback = async ({
         abr: { enabled: false, defaultBandwidthEstimate: 400_000 },
       })
       activePlayer.configure(liveOpening(session))
-    } else if (preview) {
-      activePlayer.configure(vodPreviewOpening(session))
+    } else if (pinnedOpening) {
+      activePlayer.configure(vodOpening(session, { pinned: true }))
+    } else if (startTime === 0 && resolvedOptions?.prewarm !== false) {
+      openingRestricted = true
+      activePlayer.configure(vodOpening(session, { pinned: false }))
     } else {
       activePlayer.configure(vodAudioOpening(session))
     }
     await activePlayer.load(loadUrl, startTime || undefined, 'application/dash+xml')
     if (signal.aborted) throw signal.reason
+    const showEndScreen = (elements: EndScreenElement[]) => {
+      if (!destroyed) onEndScreen?.(elements)
+    }
+    if (!session.playerParams) showEndScreen(session.endScreen)
+    else if (onEndScreen) void api.endScreen(videoId).then(showEndScreen, () => {})
+    if (pinnedOpening && !session.isLive) {
+      activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false, restrictions: { minHeight: 0, maxHeight: Infinity } } })
+    } else if (openingRestricted) {
+      unlockAbr = () => {
+        if (!openingRestricted || destroyed) return
+        openingRestricted = false
+        if (unlockAbr) video.removeEventListener('loadeddata', unlockAbr)
+        activePlayer.configure({ abr: { restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } } })
+      }
+      if (video.readyState >= 2) unlockAbr()
+      else video.addEventListener('loadeddata', unlockAbr, { once: true })
+    }
     // no goToLive(): it seeks to the availability end, which is where the NEXT segment will begin, not where the newest one is
     if (session.isLive) {
       activePlayer.configure({ abr: { restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } } })
@@ -523,8 +572,10 @@ export const startShakaPlayback = async ({
       const token = ++qualityRequestId
       const stopped = () => destroyed || token !== qualityRequestId
       if (stopped()) return
+      openingRestricted = false
+      if (unlockAbr) video.removeEventListener('loadeddata', unlockAbr)
       if (height === 'auto') {
-        activePlayer.configure({ abr: { enabled: true, restrictToElementSize: true } })
+        activePlayer.configure({ abr: { enabled: true, restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } } })
         return
       }
       const format = session.videoFormats
@@ -541,7 +592,7 @@ export const startShakaPlayback = async ({
         if (bridge.pendingInits.size === 0) break
       }
       // restrictToElementSize also restricts manual picks, so it has to come off before selecting a taller track
-      activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false } })
+      activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false, restrictions: { minHeight: 0, maxHeight: Infinity } } })
       const variants = activePlayer.getVariantTracks()
       const activeAudioId = variants.find((candidate) => candidate.active)?.audioId
       const sameAudio = activeAudioId != null
@@ -666,12 +717,6 @@ export const startShakaPlayback = async ({
       captionChain = run.catch(() => {})
       return run
     }
-
-    const showEndScreen = (elements: EndScreenElement[]) => {
-      if (!destroyed) onEndScreen?.(elements)
-    }
-    if (!session.playerParams) showEndScreen(session.endScreen)
-    else if (onEndScreen) void api.endScreen(videoId).then(showEndScreen, () => {})
 
     return {
       player: activePlayer,
