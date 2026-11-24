@@ -14,7 +14,7 @@ import { cleanUpScramjet } from './engine/scramjet-cleanup'
 import { safeDecode } from './components/format'
 import { cardParamsIn } from './player/card-params'
 import { prefetchPlayback, warmShaka } from './player/prefetch'
-import { applyTheme, watchDeviceTheme } from './settings'
+import { applyTheme, getSettings, watchDeviceTheme } from './settings'
 import { setSource } from './sources/runtime'
 import { lazyCodeList, warmLazyCode } from './warm-code'
 
@@ -196,7 +196,7 @@ const root = document.createElement('div')
 root.id = 'app'
 document.body.appendChild(root)
 const bootPath = location.pathname
-if (bootPath.startsWith('/watch') || bootPath.startsWith('/shorts')) {
+if (bootPath.startsWith('/watch') || bootPath.startsWith('/shorts/') || (bootPath === '/shorts' && !getSettings().hideShorts)) {
   void warmShaka().catch(() => {})
 }
 void startEngine().then(

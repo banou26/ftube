@@ -18,6 +18,7 @@ import { canImportBrowserHistory, dayHeading, importBrowserHistory, importFailur
 import { deleteImportedHistory, readImportedHistory } from '../history/store'
 import { startPlatform } from '../engine/platform'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
 
 const WATCH_HISTORY_QUERY = gql(`
@@ -220,6 +221,7 @@ const HistoryFeedPage = () => {
   const [removing, setRemoving] = useState<string[]>([])
 
   const page = data?.history
+  const hideShorts = useSetting('hideShorts')
   const { items, cursor } = useInfiniteFeed({
     pages: (page ? [...loaded, page] : loaded).map(entry => ({
       items: entry.sections.flatMap(section =>
@@ -232,7 +234,7 @@ const HistoryFeedPage = () => {
   const sections: HistorySection[] = []
   const byTitle = new Map<string, HistorySection>()
   for (const video of items) {
-    if (removed.has(video.id)) continue
+    if (removed.has(video.id) || (hideShorts && video.isShort === true)) continue
     let section = byTitle.get(video.sectionTitle)
     if (!section) {
       section = { title: video.sectionTitle, items: [] }
@@ -327,6 +329,7 @@ const importedSections = (entries: HistoryEntry[], now: Date) => {
 
 const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
   const exposed = useExtensionExposed()
+  const hideShorts = useSetting('hideShorts')
   const offered = exposed === true && canImportBrowserHistory()
   const [imported, setImported] = useState<ImportedHistory | undefined>()
   // a kept copy this page cannot match to the browser's YouTube session: never listed, still deletable
@@ -413,6 +416,8 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
     )
   }
 
+  const visibleEntries = hideShorts ? imported.entries.filter(entry => entry.isShort !== true) : imported.entries
+
   return (
     <main css={style}>
       <h1 className='heading'>Watch history</h1>
@@ -421,7 +426,7 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
         {deleteButton}
       </div>
       {failure ? <p className='notice'>{failure}</p> : undefined}
-      {importedSections(imported.entries, new Date()).map(section => (
+      {importedSections(visibleEntries, new Date()).map(section => (
         <section className='section' key={section.key}>
           {section.title ? <h2 className='section-title'>{section.title}</h2> : undefined}
           <div className='entries'>
@@ -429,7 +434,7 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
           </div>
         </section>
       ))}
-      {imported.entries.length === 0
+      {visibleEntries.length === 0
         ? (
           <div className='prompt'>
             <h2>Nothing watched yet</h2>

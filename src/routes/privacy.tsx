@@ -10,7 +10,7 @@ const EXTENSION_PRIVACY_URL = 'https://fkn.app/extension/privacy'
 const KEPT: { title: string, what: string }[] = [
   {
     title: 'Settings',
-    what: 'Your theme, autoplay, volume and mute, quality, speed, captions and their language, and theater mode, whether to show dislike counts and skip sponsors, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
+    what: 'Your theme, autoplay, volume and mute, quality, speed, captions and their language, and theater mode, whether to show dislike counts and skip sponsors, whether to hide Shorts, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
   },
   {
     title: 'Channel groups',

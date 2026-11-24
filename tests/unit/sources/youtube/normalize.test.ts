@@ -508,12 +508,41 @@ describe('youtube normalization', () => {
       content_id: 'abc',
       content_type: 'SHORT',
       metadata: { title: { text: 'A short' } },
-    })).toMatchObject({ id: 'abc', title: 'A short' })
+    })).toMatchObject({ id: 'abc', title: 'A short', isShort: true })
+    expect(normalizeLockupVideo({
+      content_id: 'def',
+      content_type: 'VIDEO',
+      metadata: { title: { text: 'Tapped short' } },
+      renderer_context: { command_context: { on_tap: { name: 'reelWatchEndpoint', metadata: { url: '/shorts/def' } } } },
+    })).toMatchObject({ id: 'def', title: 'Tapped short', isShort: true })
     expect(normalizeLockupVideo({
       content_id: 'UC123',
       content_type: 'CHANNEL',
       metadata: { title: { text: 'A channel' } },
     })).toBeUndefined()
+  })
+
+  it('marks feed videos as Shorts from their SHORTS overlay, reelWatchEndpoint, or /shorts/ url', () => {
+    expect(normalizeFeedVideo({
+      video_id: 's1',
+      title: { text: 'Overlay short' },
+      thumbnail_overlays: [{ type: 'ThumbnailOverlayTimeStatus', style: 'SHORTS' }],
+    })?.isShort).toBe(true)
+    expect(normalizeFeedVideo({
+      video_id: 's2',
+      title: { text: 'Endpoint short' },
+      endpoint: { name: 'reelWatchEndpoint' },
+    })?.isShort).toBe(true)
+    expect(normalizeFeedVideo({
+      video_id: 's3',
+      title: { text: 'Url short' },
+      endpoint: { metadata: { url: '/shorts/s3' } },
+    })?.isShort).toBe(true)
+    expect(normalizeFeedVideo({
+      video_id: 'v1',
+      title: { text: 'Regular video' },
+      endpoint: { name: 'watchEndpoint', metadata: { url: '/watch?v=v1' } },
+    })?.isShort).toBeUndefined()
   })
 
   it('normalizes a playlist lockup through its collection thumbnail', () => {

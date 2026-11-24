@@ -15,6 +15,7 @@ import { gql } from '../generated'
 import { EMPTY_PAGES_LIMIT, emptyPagesInARow, matchesFilter } from '../groups/filter'
 import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 
 const SUBSCRIPTIONS_FEED_QUERY = gql(`
   query SubscriptionsFeed($cursor: String) {
@@ -205,10 +206,12 @@ const SubscriptionsFeedPage = () => {
   const { items, cursor } = useInfiniteFeed({ pages, key: video => video.id })
   const orderedGroups = groupTreeOrder(groups)
   const group = groups.find(candidate => candidate.id === groupId)
+  const hideShorts = useSetting('hideShorts')
   const filter = {
     channelIds: group ? new Set(groupChannelsWithDescendants(groups, group.id).map(channel => channel.id)) : undefined,
     hideLive,
     hideWatched,
+    hideShorts,
   }
   const shown = items.filter(item => matchesFilter(item, filter))
   const stalled = emptyPagesInARow(pages, filter) >= EMPTY_PAGES_LIMIT

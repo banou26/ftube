@@ -1,5 +1,7 @@
 import type { CaptionLook } from './player/caption-style'
 
+import { useEffect, useState } from 'preact/hooks'
+
 import { CAPTION_OPTIONS } from './player/caption-style'
 import { toRate } from './player/rates'
 
@@ -33,6 +35,7 @@ export type Settings = {
   showDislikes: boolean
   skipSponsors: boolean
   guideCollapsed: boolean
+  hideShorts: boolean
   // off for good once dismissed: an offer that keeps coming back after being declined is an ad
   suggestExtension: boolean
   // a CACHE rather than a preference, and the live DOM signal always wins over it
@@ -61,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showDislikes: true,
   skipSponsors: true,
   guideCollapsed: false,
+  hideShorts: false,
   suggestExtension: true,
 }
 
@@ -97,6 +101,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,
     guideCollapsed: typeof stored.guideCollapsed === 'boolean' ? stored.guideCollapsed : DEFAULT_SETTINGS.guideCollapsed,
+    hideShorts: typeof stored.hideShorts === 'boolean' ? stored.hideShorts : DEFAULT_SETTINGS.hideShorts,
     suggestExtension: typeof stored.suggestExtension === 'boolean' ? stored.suggestExtension : DEFAULT_SETTINGS.suggestExtension,
     extensionSeen: typeof stored.extensionSeen === 'boolean' ? stored.extensionSeen : undefined,
     themeChosen: stored.themeChosen === true ? true : undefined,
@@ -126,6 +131,16 @@ export const subscribeSettings = (listener: (settings: Settings) => void) => {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/** Current value of one setting key, kept synchronized with updates. */
+export const useSetting = <Key extends keyof Settings>(key: Key): Settings[Key] => {
+  const [value, setValue] = useState<Settings[Key]>(() => current[key])
+  useEffect(() => {
+    setValue(current[key])
+    return subscribeSettings(settings => setValue(settings[key]))
+  }, [key])
+  return value
 }
 
 export const updateSettings = (patch: Partial<Settings>) => {

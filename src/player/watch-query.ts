@@ -63,6 +63,7 @@ export const WATCH_META_QUERY = gql(`
         metaDelimiter
         isLive
         isMembersOnly
+        isShort
         channel { id name isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }

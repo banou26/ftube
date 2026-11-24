@@ -17,7 +17,7 @@ import PersistentPlayer from './player/persistent-player'
 import { CHANNEL_TAB_PATHS, channelTabFor } from './routes/channel-tabs'
 import HomePage from './routes/home'
 import NotFound from './routes/not-found'
-import { getSettings, updateSettings } from './settings'
+import { getSettings, updateSettings, useSetting } from './settings'
 
 // HomePage is deliberately static while every other route is lazy: routing the landing page through Suspense would put a chunk fetch in front of the very first paint, the one navigation with no previous page to keep showing
 const ChannelPage = lazyRoute(() => import('./routes/channel'))
@@ -113,20 +113,29 @@ const WatchRedirect = ({ videoId }: { videoId: string }) => {
   return <Redirect to={`/watch?${watch}`} replace />
 }
 
+const ShortsRoute = ({ videoId }: { videoId?: string }) => {
+  const hideShorts = useSetting('hideShorts')
+  if (!hideShorts) return <ShortsPage />
+  return videoId ? <WatchRedirect videoId={videoId} /> : <Redirect to='/' replace />
+}
+
 // `base` is the channel's address as given (`/@handle`, `/channel/<id>`, `/c/<name>` or `/user/<name>`) and `word` the
 // tab's word after it. `?tab=<TAB>` is how this client addressed a tab before it took youtube.com's addresses.
 const ChannelRoute = ({ id, base, word }: { id: string, base: string, word?: string }) => {
+  const hideShorts = useSetting('hideShorts')
   const query = new URLSearchParams(useSearch())
   const legacy = query.get('tab')
   query.delete('tab')
   const rest = query.size > 0 ? `?${query}` : ''
   if (legacy !== null) {
+    if (hideShorts && legacy === 'SHORTS') return <Redirect to={`${base}${rest}`} replace />
     const path = Object.hasOwn(CHANNEL_TAB_PATHS, legacy) ? `/${CHANNEL_TAB_PATHS[legacy as ChannelTab]}` : ''
     return <Redirect to={`${base}${path}${rest}`} replace />
   }
   if (word === undefined) return <ChannelPage id={id} base={base} />
   const tab = channelTabFor(safeDecode(word))
   if (!tab) return <NotFound />
+  if (hideShorts && tab === 'SHORTS') return <Redirect to={base} replace />
   if (word !== CHANNEL_TAB_PATHS[tab]) return <Redirect to={`${base}/${CHANNEL_TAB_PATHS[tab]}${rest}`} replace />
   return <ChannelPage id={id} base={base} tab={tab} />
 }
@@ -212,8 +221,8 @@ export const App = () => {
               <Route path='/results' component={SearchPage} />
               <Route path='/watch' component={WatchPage} />
               <Route path='/playlist' component={PlaylistPage} />
-              <Route path='/shorts' component={ShortsPage} />
-              <Route path='/shorts/:videoId' component={ShortsPage} />
+              <Route path='/shorts'>{() => <ShortsRoute />}</Route>
+              <Route path='/shorts/:videoId'>{(params: { videoId: string }) => <ShortsRoute videoId={params.videoId} />}</Route>
               <Route path='/feed/subscriptions' component={FeedSubscriptionsPage} />
               <Route path='/feed/channels' component={FeedChannelsPage} />
               <Route path='/feed/history' component={FeedHistoryPage} />

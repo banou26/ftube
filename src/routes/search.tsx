@@ -31,7 +31,9 @@ import { gql } from '../generated'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { usePrefetchOnIntent } from '../player/prefetch'
+import { useSetting } from '../settings'
 import { withPage } from './feed-pages'
+import { visibleSearchRows } from './search-results'
 
 type ResultsPage = SearchResultsQuery['search']
 type SearchRow = ResultsPage['results'][number]
@@ -863,6 +865,8 @@ const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
 
 const SearchPage = () => {
   const params = searchParams(useSearch())
+  const hideShorts = useSetting('hideShorts')
+  if (hideShorts && params.get('type') === 'SHORTS') params.delete('type')
   const query = params.get('search_query') ?? ''
   const [, navigate] = useLocation()
   useDocumentTitle(query.length > 0 ? query : 'Search')
@@ -887,6 +891,7 @@ const SearchPage = () => {
     pages: withPage(pages, page).map(entry => ({ items: entry.results, cursor: entry.cursor })),
     key: rowKey
   })
+  const visibleItems = visibleSearchRows(items, hideShorts)
 
   // shown until the first page says upstream has none, so the row does not shift on most searches
   const unwatchedChip = (pages[0] ?? page)?.unwatchedChip ?? true
@@ -910,7 +915,7 @@ const SearchPage = () => {
       <h1 className='sr-only'>Results for {query}</h1>
       <div className='toolbar'>
         <div className='filter-chips'>
-          {SEARCH_CHIPS.filter(entry => entry.id !== 'unwatched' || unwatchedChip).map(entry => (
+          {SEARCH_CHIPS.filter(entry => (entry.id !== 'unwatched' || unwatchedChip) && (!hideShorts || entry.id !== 'shorts')).map(entry => (
             <button
               type='button'
               key={entry.id}
@@ -934,7 +939,9 @@ const SearchPage = () => {
               {FILTER_GROUPS.map(group => (
                 <div key={group.param}>
                   <h3 className='group-title'>{group.label}</h3>
-                  {group.options.map(option => {
+                  {group.options
+                    .filter(option => !hideShorts || !(group.param === 'type' && option.value === 'SHORTS'))
+                    .map(option => {
                     const active = chosen(params, group).includes(option.value)
                     return (
                       <button
@@ -973,7 +980,7 @@ const SearchPage = () => {
         : undefined}
       <div className='columns'>
         <div className='results'>
-          {items.map(row => {
+          {visibleItems.map(row => {
             if (row.__typename === 'SearchCard') return <SearchCard key={rowKey(row)} card={row} />
             if (row.__typename === 'SearchShelf') return <ResultShelf key={rowKey(row)} shelf={row} />
             if (row.__typename === 'Channel') {
@@ -1042,7 +1049,7 @@ const SearchPage = () => {
 
             return <VideoRow key={rowKey(row)} row={row} />
           })}
-          {fetching && items.length === 0
+          {fetching && visibleItems.length === 0
             ? Array.from({ length: PLACEHOLDER_ROWS }, (_, index) => <ResultPlaceholder key={index} />)
             : undefined}
         </div>
@@ -1058,10 +1065,10 @@ const SearchPage = () => {
           )
           : undefined}
       </div>
-      {query.length > 0 && !fetching && !error && items.length === 0
+      {query.length > 0 && !fetching && !error && visibleItems.length === 0
         ? <p className='status'>No results found.</p>
         : undefined}
-      {fetching && items.length > 0 ? <p className='status'>Loading more…</p> : undefined}
+      {fetching && visibleItems.length > 0 ? <p className='status'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || !cursor} />
     </main>

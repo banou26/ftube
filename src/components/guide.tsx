@@ -12,6 +12,7 @@ import { gql } from '../generated'
 import { groupHrefFor, groupTreeOrder, useGroups } from '../groups/store'
 import { warmShaka } from '../player/prefetch'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
 import GroupDialog from './group-dialog'
 import { Logo } from './header'
@@ -421,12 +422,14 @@ const sectionsStyle = css`
 
 const GuideSections = () => {
   const { ready, signedIn } = useSession()
+  const hideShorts = useSetting('hideShorts')
+  const mainEntries = hideShorts ? MAIN_ENTRIES.filter(entry => entry.href !== '/shorts') : MAIN_ENTRIES
   // until the session answers, keep the signed-in layout, so a signed-in guide never rearranges itself on load
   const signedOut = ready && !signedIn
   return (
     <div css={sectionsStyle}>
       <div className='section'>
-        {MAIN_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />)}
+        {mainEntries.map(entry => <GuideLink key={entry.label} entry={entry} />)}
         {signedOut ? SIGNED_OUT_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />) : undefined}
       </div>
       {signedOut
@@ -583,6 +586,9 @@ export const Guide = (
   { variant, onClose }:
   { variant: 'expanded' | 'mini' | 'drawer', onClose?: () => void }
 ) => {
+  const hideShorts = useSetting('hideShorts')
+  const miniEntries = hideShorts ? MINI_ENTRIES.filter(entry => entry.href !== '/shorts') : MINI_ENTRIES
+
   useEffect(() => {
     if (variant !== 'drawer') return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -601,7 +607,7 @@ export const Guide = (
     variant === 'mini'
       ? (
         <nav css={miniStyle} aria-label='Guide'>
-          {MINI_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />)}
+          {miniEntries.map(entry => <GuideLink key={entry.label} entry={entry} />)}
         </nav>
       )
       : variant === 'drawer'

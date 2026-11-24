@@ -249,6 +249,20 @@ export const SettingsPage = () => {
         </div>
       </section>
 
+      <section className='section'>
+        <h2 className='section-title'>Shorts</h2>
+        <div className='row'>
+          <div className='row-label'>Hide Shorts</div>
+          <input
+            type='checkbox'
+            className='toggle'
+            aria-label='Hide Shorts'
+            checked={settings.hideShorts}
+            onChange={() => set({ hideShorts: !settings.hideShorts })}
+          />
+        </div>
+      </section>
+
       {/* The one place the header offer can be brought back */}
       <section className='section'>
         <h2 className='section-title'>Connection</h2>

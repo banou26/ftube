@@ -228,29 +228,33 @@ export const SearchCard = ({ card }: { card: SearchCardData }) => {
           </div>
         </div>
       </div>
-      <div className='card-rail'>
-        <Rail label={`${channel.name} videos`} count={videos.length + (mix ? 1 : 0)}>
-          {mix && mixHref
-            ? (
-              <Link href={mixHref} className='card-tile'>
-                <span className='card-mix-thumb'>
-                  {mix.thumbnail ? <Thumbnail src={mix.thumbnail} /> : undefined}
-                  <span className='card-mix-badge'>
-                    <Radio size={14} strokeWidth={2} />
-                    Mix
-                  </span>
-                </span>
-                <span className='card-mix-title'>{mix.title}</span>
-              </Link>
-            )
-            : undefined}
-          {videos.map(video => (
-            <div className='card-tile' key={video.id}>
-              <VideoCard video={video} variant='shelf' />
-            </div>
-          ))}
-        </Rail>
-      </div>
+      {videos.length > 0 || mix
+        ? (
+          <div className='card-rail'>
+            <Rail label={`${channel.name} videos`} count={videos.length + (mix ? 1 : 0)}>
+              {mix && mixHref
+                ? (
+                  <Link href={mixHref} className='card-tile'>
+                    <span className='card-mix-thumb'>
+                      {mix.thumbnail ? <Thumbnail src={mix.thumbnail} /> : undefined}
+                      <span className='card-mix-badge'>
+                        <Radio size={14} strokeWidth={2} />
+                        Mix
+                      </span>
+                    </span>
+                    <span className='card-mix-title'>{mix.title}</span>
+                  </Link>
+                )
+                : undefined}
+              {videos.map(video => (
+                <div className='card-tile' key={video.id}>
+                  <VideoCard video={video} variant='shelf' />
+                </div>
+              ))}
+            </Rail>
+          </div>
+        )
+        : undefined}
     </section>
   )
 }

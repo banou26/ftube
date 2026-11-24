@@ -21,9 +21,11 @@ import { VerifiedBadge } from '../components/verified-badge'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE } from '../sources/types'
 import { CHANNEL_ABOUT_QUERY, ChannelAboutDialog } from './channel-about'
 import { ChannelHome } from './channel-home'
+import { visibleChannelShelves } from './channel-rows'
 import { ChannelStore } from './channel-store'
 import { CHANNEL_TAB_PATHS } from './channel-tabs'
 
@@ -954,8 +956,13 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   }
 
   const showHeaderSkeleton = !channel && fetching && !error
+  const hideShorts = useSetting('hideShorts')
   const expectsSorts = tab !== undefined && SORTABLE_TABS.has(tab)
   const isPlaylistTab = displayTab !== undefined && PLAYLIST_TABS.has(displayTab)
+  const visibleItems = hideShorts ? items.filter(video => !video.isShort) : items
+  const visibleHome = data?.channel.home
+    ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts) }
+    : undefined
 
   return (
     <main css={style}>
@@ -1056,7 +1063,7 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
             {!data && fetching && !error
               ? Array.from({ length: 6 }, (_, index) => <span key={index} className='tab-skeleton' aria-hidden='true' />)
               : undefined}
-            {(data?.channel.availableTabs ?? []).filter(available => available !== 'ABOUT' && available !== 'SEARCH').map(available => {
+            {(data?.channel.availableTabs ?? []).filter(available => available !== 'ABOUT' && available !== 'SEARCH' && (!hideShorts || available !== 'SHORTS')).map(available => {
               const active = available === data?.channel.tab
               return (
                 <Link
@@ -1187,22 +1194,22 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
               {data.channel.store.length === 0 ? <p className='status'>{emptyMessageFor('STORE')}</p> : undefined}
             </div>
           )
-          : activeTab === 'HOME' && data?.channel.home
-            ? (
-              <div className='videos'>
-                <ChannelHome home={data.channel.home} />
-                {!data.channel.home.featured && data.channel.home.shelves.length === 0
-                  ? <p className='status'>{data.channel.home.message ?? emptyMessageFor('HOME')}</p>
-                  : undefined}
-              </div>
-            )
-            : (
+          : activeTab === 'HOME' && visibleHome
+          ? (
+            <div className='videos'>
+              <ChannelHome home={visibleHome} />
+              {!visibleHome.featured && visibleHome.shelves.length === 0
+                ? <p className='status'>{visibleHome.message ?? emptyMessageFor('HOME')}</p>
+                : undefined}
+            </div>
+          )
+          : (
               <>
                 <div className='videos'>
                   {displayTab === 'SHORTS'
-                    ? <ShortsGrid shorts={items} fetching={fetching && !error} />
-                    : items.length > 0 || (fetching && !error && !isPlaylistTab)
-                      ? <VideoGrid videos={items} fetching={fetching && !error && !isPlaylistTab && items.length === 0} variant='channel' />
+                    ? <ShortsGrid shorts={visibleItems} fetching={fetching && !error} />
+                    : visibleItems.length > 0 || (fetching && !error && !isPlaylistTab)
+                      ? <VideoGrid videos={visibleItems} fetching={fetching && !error && !isPlaylistTab && visibleItems.length === 0} variant='channel' />
                       : undefined}
                   {playlists.length > 0
                     ? (
@@ -1220,18 +1227,18 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                         ))}
                       </div>
                     )
-                    : fetching && !error && isPlaylistTab && items.length === 0
+                    : fetching && !error && isPlaylistTab && visibleItems.length === 0
                       ? (
                         <div className='playlist-grid' aria-hidden='true'>
                           {Array.from({ length: 10 }, (_, index) => <PlaylistCardSkeleton key={index} />)}
                         </div>
                       )
                       : undefined}
-                  {data && !fetching && !error && items.length === 0 && playlists.length === 0
+                  {data && !fetching && !error && visibleItems.length === 0 && playlists.length === 0
                     ? <p className='status'>{emptyMessageFor(tab)}</p>
                     : undefined}
                 </div>
-                {fetching && items.length > 0 ? <p className='status'>Loading more…</p> : undefined}
+                {fetching && visibleItems.length > 0 ? <p className='status'>Loading more…</p> : undefined}
                 {error && !fetching && pages.length > 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
                 <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
               </>

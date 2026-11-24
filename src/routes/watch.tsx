@@ -36,7 +36,7 @@ import {
 } from '../player/session'
 import { descriptionOf, WATCH_META_QUERY } from '../player/watch-query'
 import { Menu, MenuItem } from '../components/ui/menu'
-import { getSettings, updateSettings } from '../settings'
+import { getSettings, updateSettings, useSetting } from '../settings'
 
 // youtube.com's one column, from 999 px down, which also opens the chat replay and chapters under the player
 const ONE_COLUMN = '(max-width: 999px)'
@@ -418,6 +418,7 @@ const RELATED_MORE_QUERY = gql(`
         metaDelimiter
         isLive
         isMembersOnly
+        isShort
         channel { id name isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
@@ -520,9 +521,11 @@ const WatchPage = () => {
     pause: !wantMoreRelated || !relatedCursor,
   })
   const morePage = moreData?.relatedVideos
+  const hideShorts = useSetting('hideShorts')
   const related: VideoCardData[] | undefined = watch?.related
     ? [...watch.related, ...relatedPages.flatMap(entry => entry.items)]
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
+      .filter(video => !hideShorts || video.isShort !== true)
     : undefined
   // gated on the URL: WatchMeta is keyed by video id, so its one `playlist` slot can hold another queue's panel
   const playlist: PlaylistPanelData | undefined =
@@ -680,7 +683,13 @@ const WatchPage = () => {
                 ? (
                   <div className='related-grid'>
                     {related
-                      ? related.map(item => <VideoCard key={item.id} video={item} variant='shelf' />)
+                      ? related.map(item => (
+                        <VideoCard
+                          key={item.id}
+                          video={item.isShort ? { ...item, isShort: undefined } : item}
+                          variant='shelf'
+                        />
+                      ))
                       : RELATED_SKELETON_KEYS.map(key => <VideoCardSkeleton key={key} />)}
                   </div>
                 )

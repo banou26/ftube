@@ -220,3 +220,24 @@ describe('the Stable Volume setting', () => {
     expect((await load(JSON.parse(written.at(-1)!))).getSettings().stableVolume).toBe(true)
   })
 })
+
+describe('the Hide Shorts setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to off, persists toggles, and ignores non-boolean values', async () => {
+    expect((await load()).getSettings().hideShorts).toBe(false)
+    expect((await load({ hideShorts: 'yes' })).getSettings().hideShorts).toBe(false)
+    expect((await load({ hideShorts: 1 })).getSettings().hideShorts).toBe(false)
+    expect((await load({ hideShorts: true })).getSettings().hideShorts).toBe(true)
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ hideShorts: true })
+    expect(JSON.parse(written.at(-1)!).hideShorts).toBe(true)
+    expect((await load(JSON.parse(written.at(-1)!))).getSettings().hideShorts).toBe(true)
+  })
+})

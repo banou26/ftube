@@ -68,6 +68,7 @@ type FeedVideo = {
   is_upcoming?: boolean
   badges?: { label?: string, text?: string, style?: string }[]
   thumbnail_overlays?: { type?: string, icon_type?: string, style?: string }[]
+  endpoint?: { name?: string, metadata?: { url?: string } }
   expandable_metadata?: {
     header?: { expanded_title?: Text }
     expanded_content?: { cards?: { title?: Text, time_description?: Text, thumbnail?: Thumbnail[] }[] }
@@ -177,7 +178,7 @@ type LockupVideo = {
     }
     metadata?: MetadataParts
   }
-  renderer_context?: { command_context?: { on_tap?: { payload?: { videoId?: string } } } }
+  renderer_context?: { command_context?: { on_tap?: { name?: string, metadata?: { url?: string }, payload?: { videoId?: string } } } }
   inline_player_params?: string
 }
 
@@ -817,6 +818,11 @@ const searchChapters = (metadata: FeedVideo['expandable_metadata']) => {
     : undefined
 }
 
+const isShortFeedVideo = (video: FeedVideo) =>
+  video.thumbnail_overlays?.some((overlay) => overlay.type === 'ThumbnailOverlayTimeStatus' && overlay.style === 'SHORTS') === true
+  || video.endpoint?.name === 'reelWatchEndpoint'
+  || video.endpoint?.metadata?.url?.startsWith('/shorts/') === true
+
 export const normalizeFeedVideo = (input: unknown): SourceVideo | undefined => {
   const video = input as FeedVideo
   const id = video.video_id ?? video.id
@@ -841,6 +847,7 @@ export const normalizeFeedVideo = (input: unknown): SourceVideo | undefined => {
     isLive: video.is_live === true ? true : undefined,
     progressPercent: legacyProgressPercent(video),
     isUpcoming: video.is_upcoming === true ? true : undefined,
+    isShort: isShortFeedVideo(video) ? true : undefined,
     isMembersOnly: hasBadgeStyle(video.badges, 'MEMBERS_ONLY') ? true : undefined,
     badges: badgeTexts(video.badges),
     inlinePlayerParams: inlinePlayerParams(video.inline_player_params),
@@ -917,6 +924,10 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
   const { byline, stats } = lockupLines(lockup, own)
   const metadata = lockup.metadata?.metadata
   const rowBadges = metadata?.metadata_rows?.flatMap((row) => row.badges ?? []) ?? []
+  const onTap = lockup.renderer_context?.command_context?.on_tap
+  const isShort = lockup.content_type === 'SHORT'
+    || onTap?.name === 'reelWatchEndpoint'
+    || onTap?.metadata?.url?.startsWith('/shorts/') === true
   return {
     id,
     title,
@@ -939,7 +950,7 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
     metaDelimiter: metadata?.delimiter ?? ' ',
     isLive: badges.some((badge) => badge.badge_style?.includes('LIVE')) ? true : undefined,
     progressPercent: lockupProgressPercent(image),
-    isShort: lockup.content_type === 'SHORT' ? true : undefined,
+    isShort: isShort ? true : undefined,
     // youtube.com's lockups carry it as a badge on a line of its own under the date (measured 2026-11-10)
     isMembersOnly: hasBadgeStyle([...badges.map((badge) => ({ style: badge.badge_style })), ...rowBadges], 'MEMBERS_ONLY')
       ? true
@@ -1259,14 +1270,7 @@ export const normalizeSearchShelf = (input: unknown): SourceSearchShelf | undefi
   const horizontal = node.content?.type === 'HorizontalList'
   if (node.type !== 'Shelf' || !node.content || (!horizontal && node.content.type !== 'VerticalList')) return undefined
   const title = presentText(node.title)
-  const videos = (node.content.items ?? []).flatMap((item) => {
-    const video = normalizeFeedVideo(item) ?? normalizeLockupVideo(item)
-    if (!video) return []
-    // read here and not in normalizeFeedVideo, as a feed draws isShort as a portrait tile while a carousel keeps the card
-    const short = (item as FeedVideo).thumbnail_overlays
-      ?.some((overlay) => overlay.type === 'ThumbnailOverlayTimeStatus' && overlay.style === 'SHORTS')
-    return short ? { ...video, isShort: true } : video
-  })
+  const videos = (node.content.items ?? []).flatMap((item) => normalizeFeedVideo(item) ?? normalizeLockupVideo(item) ?? [])
   if (!title || videos.length === 0) return undefined
   return horizontal
     ? { title, subtitle: presentText(node.subtitle), videos, horizontal, shorts: [] }

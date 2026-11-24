@@ -14,6 +14,7 @@ import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { VideoCard } from '../components/video-card'
 import { gql } from '../generated'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 
 const YOU_HISTORY_QUERY = gql(`
   query YouHistory {
@@ -168,9 +169,10 @@ const PlaylistShelf = ({ id, title }: { id: string, title: string }) => {
 }
 
 const SignedInYou = () => {
+  const hideShorts = useSetting('hideShorts')
   const [{ data: history, fetching: historyFetching }] = useQuery({ query: YOU_HISTORY_QUERY })
   const [{ data: library, fetching: libraryFetching }] = useQuery({ query: YOU_PLAYLISTS_QUERY })
-  const watched = (history?.history.sections ?? []).flatMap(section => section.items)
+  const watched = (history?.history.sections ?? []).flatMap(section => section.items).filter(video => !hideShorts || video.isShort !== true)
   const playlists = (library?.playlists.items ?? [])
     .filter(playlist => playlist.id !== WATCH_LATER_ID && playlist.id !== LIKED_VIDEOS_ID)
     .slice(0, SHELF_SIZE)

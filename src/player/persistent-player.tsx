@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
-import { getSettings, subscribeSettings, updateSettings } from '../settings'
+import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
 import { PlayerFrame } from './player-frame'
@@ -160,9 +160,10 @@ const PersistentPlayer = () => {
   // read when the video ends, since loop and shuffle change without re-rendering this
   const queued = () => playlist !== undefined && hasNextInQueue(current, count)
 
+  const hideShorts = useSetting('hideShorts')
   const suggestions = useMemo(
-    () => (watch?.related ?? []).filter(video => video.id !== videoId),
-    [watch, videoId],
+    () => (watch?.related ?? []).filter(video => video.id !== videoId && (!hideShorts || video.isShort !== true)),
+    [watch, videoId, hideShorts],
   )
   const preferred = watch?.autoplayId
   const pick = useMemo(

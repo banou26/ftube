@@ -12,6 +12,7 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
+import { useSetting } from '../settings'
 import { homeFeedPages } from './home-feed'
 
 const HOME_FEED_QUERY = gql(`
@@ -202,6 +203,8 @@ const HomePage = () => {
   const feed = homeFeedPages(pages, page)
   const shorts = useInfiniteFeed({ pages: feed.shorts, key: short => short.id }).items
   const { items, cursor } = useInfiniteFeed({ pages: feed.videos, key: video => video.id })
+  const hideShorts = useSetting('hideShorts')
+  const visibleItems = hideShorts ? items.filter(video => !video.isShort) : items
 
   useEffect(() => {
     const chips = page?.chips
@@ -249,7 +252,7 @@ const HomePage = () => {
   }
 
   const chips = rail.chips.filter(entry => entry.id !== rail.allId)
-  const empty = !fetching && !error && items.length === 0
+  const empty = !fetching && !error && visibleItems.length === 0
 
   return (
     <main css={style}>
@@ -305,9 +308,15 @@ const HomePage = () => {
             </div>
           )
           : <p className='notice'>No videos under this filter.</p>
-        : <VideoGrid videos={items} shelf={<ShortsShelf shorts={shorts} />} fetching={fetching && items.length === 0} />}
+        : (
+          <VideoGrid
+            videos={visibleItems}
+            shelf={hideShorts ? undefined : <ShortsShelf shorts={shorts} />}
+            fetching={fetching && visibleItems.length === 0}
+          />
+        )}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-      {fetching && items.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
+      {fetching && visibleItems.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || !cursor || Boolean(error)} />
     </main>
   )
