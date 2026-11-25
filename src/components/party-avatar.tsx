@@ -37,8 +37,19 @@ const graphemeSegmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl
   ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   : undefined
 
-const initialOf = (identity: NonNullable<Participant['identity']>) => {
-  const source = (identity.displayName.trim() || identity.name).normalize('NFC')
+const safeAvatarSrc = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  return trimmed.startsWith('data:image/') || trimmed.startsWith('https://') ? trimmed : null
+}
+
+const initialOf = (participant: Participant) => {
+  const identity = participant.identity!
+  const source = (
+    (participant.status === 'friend' ? identity.nickname?.trim() : undefined)
+    || identity.displayName.trim()
+    || identity.name
+  ).normalize('NFC')
   const first = graphemeSegmenter
     ? graphemeSegmenter.segment(source)[Symbol.iterator]().next().value?.segment
     : source.slice(0, 1)
@@ -51,8 +62,10 @@ const initialOf = (identity: NonNullable<Participant['identity']>) => {
  */
 export const PartyAvatar = ({ participant, size = 24 }: { participant?: Participant, size?: number }) => {
   const identity = participant?.identity ?? null
-  const primary = identity?.avatar ?? identity?.identicon ?? null
-  const fallback = identity?.avatar && identity?.identicon ? identity.identicon : null
+  const safeAvatar = safeAvatarSrc(identity?.avatar)
+  const safeIdenticon = safeAvatarSrc(identity?.identicon)
+  const primary = safeAvatar ?? safeIdenticon
+  const fallback = safeAvatar ? safeIdenticon : null
   const [failedPrimary, setFailedPrimary] = useState(false)
   const [failedFallback, setFailedFallback] = useState(false)
 
@@ -86,7 +99,7 @@ export const PartyAvatar = ({ participant, size = 24 }: { participant?: Particip
             }}
           />
         )
-        : <span>{initialOf(identity)}</span>}
+        : <span>{initialOf(participant)}</span>}
     </span>
   )
 }

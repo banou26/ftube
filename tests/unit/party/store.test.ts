@@ -1,5 +1,7 @@
 import type * as rooms from '@fkn/lib/rooms'
+import type { Hub } from '@banou/social'
 
+import { createSocial } from '@banou/social'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type { Participant, RoomBinding, SocialIdentity } from '../../../src/social'
@@ -452,5 +454,266 @@ describe('createPartyStore', () => {
     slow.finishAttach()
     await vi.advanceTimersByTimeAsync(20)
     expect(slow.calls.detached()).toBe(1)
+  })
+
+  it('forwards social.hello over room send and updates signed-in and signed-out peers via onParticipants', async () => {
+    const hub = createFakeHub()
+    const makeSocialHub = (
+      availability: 'ready' | 'signed-out',
+      selfProfile?: { memberId: string, identity: SocialIdentity },
+    ) => {
+      let currentParticipants: Participant[] = []
+      let pushParticipants: ((participants: Participant[]) => void) | undefined
+      const announced = new Map<string, Participant>()
+      if (selfProfile) {
+        announced.set(selfProfile.memberId, {
+          memberId: selfProfile.memberId,
+          status: 'verified',
+          identity: selfProfile.identity,
+          self: true,
+        })
+      }
+
+      const rpc = {
+        hello: async () => ({ protocol: 2, min: 1 }),
+        openInvite: async () => ({ ok: true as const }),
+        openAdd: async () => ({ ok: true as const }),
+        openEdit: async () => ({ ok: true as const }),
+        ownKey: async () => null,
+        openFriends: async () => ({ ok: false as const, reason: 'none' as const }),
+        deleteEntries: async () => ({ ok: true as const }),
+        setFavourite: async () => ({ ok: true as const }),
+        deleteComments: async () => ({ ok: true as const }),
+        sendComment: async () => ({ ok: true as const }),
+        state: async () => availability,
+        attach: async (binding: unknown) => {
+          const opts = binding as {
+            selfMemberId: string
+            send?: (frame: string) => Promise<void>
+            onParticipants?: (participants: Participant[]) => void
+          }
+          pushParticipants = opts.onParticipants
+          currentParticipants = [...announced.values()]
+          const announceSelf = () => {
+            if (!selfProfile) return
+            void opts.send?.(JSON.stringify({ t: 'social.hello', memberId: selfProfile.memberId, identity: selfProfile.identity }))
+          }
+          announceSelf()
+          return {
+            participants: async () => currentParticipants,
+            ingest: async (from: string, frame: string) => {
+              const parsed = JSON.parse(frame) as { t?: string, identity?: SocialIdentity }
+              if (parsed.t === 'social.whois') {
+                announceSelf()
+                return true
+              }
+              if (parsed.t !== 'social.hello' || !parsed.identity) return false
+              announced.set(from, {
+                memberId: from,
+                status: 'verified',
+                identity: parsed.identity,
+                self: from === opts.selfMemberId,
+              })
+              currentParticipants = [...announced.values()]
+              pushParticipants?.(currentParticipants)
+              return true
+            },
+            memberJoined: async (memberId: string) => {
+              if (memberId !== opts.selfMemberId) announceSelf()
+            },
+            memberLeft: async () => {},
+            announce: async () => { announceSelf() },
+            detach: async () => {},
+          }
+        },
+      }
+      return rpc as unknown as Hub
+    }
+
+    const aliceId = socialIdentity({ handle: 'fkn:name:alice', name: 'alice', displayName: 'Alice' })
+    const bobId = socialIdentity({ handle: 'fkn:name:bob', name: 'bob', displayName: 'Bob' })
+
+    const host = createPartyStore(
+      async () => hub.apiFor('host-1'),
+      memoryStorage(),
+      createSocial(async () => makeSocialHub('ready', { memberId: 'host-1', identity: aliceId })),
+    )
+    const guest = createPartyStore(
+      async () => hub.apiFor('guest-1'),
+      memoryStorage(),
+      createSocial(async () => makeSocialHub('ready', { memberId: 'guest-1', identity: bobId })),
+    )
+    const anonGuest = createPartyStore(
+      async () => hub.apiFor('anon-1'),
+      memoryStorage(),
+      createSocial(async () => makeSocialHub('signed-out')),
+    )
+
+    await host.create()
+    await guest.join(hub.invite)
+    await anonGuest.join(hub.invite)
+    await vi.advanceTimersByTimeAsync(30)
+
+    expect(host.nameOf('guest-1')).toBe('Bob')
+    expect(guest.nameOf('host-1')).toBe('Alice')
+    expect(anonGuest.nameOf('host-1')).toBe('Alice')
+    expect(anonGuest.nameOf('guest-1')).toBe('Bob')
+
+    const anonRoster = await anonGuest.roster()
+    expect(anonRoster.find((m) => m.id === 'host-1')?.identity?.identity?.name).toBe('alice')
+    expect(anonRoster.find((m) => m.id === 'guest-1')?.identity?.identity?.name).toBe('bob')
+
+    await anonGuest.leave()
+    await guest.leave()
+    await host.leave()
+  })
+
+  it('keeps synchronous on() replay frames, buffers early join/leave, detaches on member-load switch, and sends whois for existing peers', async () => {
+    const membersGate = Promise.withResolvers<rooms.RoomMember[]>()
+    const detachFirst = vi.fn(async () => {})
+    const detachSecond = vi.fn(async () => {})
+    const ingestFirst = vi.fn((_from: string, _frame: string, _at: number, _seq: number) => true)
+    const joinedFirst = vi.fn((_memberId: string) => {})
+    const leftFirst = vi.fn((_memberId: string) => {})
+    const sentFrames: string[] = []
+    let emitEvent: Listener | undefined
+
+    const customRoom = (roomId: string, selfId: string, withExistingPeer: boolean): rooms.Room => {
+      const closed = Promise.withResolvers<rooms.RoomEnd>()
+      return {
+        id: roomId,
+        name: 'custom',
+        key: 'A'.repeat(43),
+        invite: `${'A'.repeat(43)}.${roomId}`,
+        self: { id: selfId } as rooms.RoomMember,
+        owner: 'host-1',
+        claimed: false,
+        mailbox: null,
+        members: async () => (withExistingPeer ? membersGate.promise : [{ id: selfId }, { id: 'host-1' }] as rooms.RoomMember[]),
+        send: async (text: string) => {
+          sentFrames.push(text)
+          const parsed = JSON.parse(text) as { t?: string, p?: string }
+          if (parsed.t === 'social' && parsed.p) {
+            emitEvent?.({
+              type: 'message',
+              replayed: false,
+              message: { seq: 99, from: selfId, at: 1_000, text, envelope: null },
+            })
+          }
+        },
+        remove: async () => {},
+        block: async () => {},
+        on: async (listener: Listener) => {
+          emitEvent = listener
+          if (withExistingPeer) {
+            listener({
+              type: 'message',
+              replayed: true,
+              message: {
+                seq: 1,
+                from: 'host-1',
+                at: 500,
+                text: encodePartyMessage({ t: 'social', p: '{"t":"social.hello","v":1}' }),
+                envelope: null,
+              },
+            })
+          }
+          return () => {
+            if (emitEvent === listener) emitEvent = undefined
+          }
+        },
+        leave: async () => { closed.resolve({ reason: 'left' }) },
+        closed: closed.promise,
+      } as unknown as rooms.Room
+    }
+
+    let attachCall = 0
+    const fakeSocial: SocialPresenceApi = {
+      attach: async () => {
+        attachCall += 1
+        if (attachCall === 1) {
+          return {
+            participants: () => [],
+            of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
+            on: () => () => {},
+            ingest: ingestFirst,
+            memberJoined: joinedFirst,
+            memberLeft: leftFirst,
+            announce: async () => {},
+            detach: detachFirst,
+          }
+        }
+        return {
+          participants: () => [],
+          of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
+          on: () => () => {},
+          ingest: vi.fn(() => true),
+          memberJoined: vi.fn(),
+          memberLeft: vi.fn(),
+          announce: async () => {},
+          detach: detachSecond,
+        }
+      },
+    }
+
+    let joinCall = 0
+    const store = createPartyStore(async () => ({
+      create: async () => customRoom('https://youtube.fkn.app/room-a', 'self-1', true),
+      join: async () => {
+        joinCall += 1
+        return customRoom(`https://youtube.fkn.app/room-${joinCall}`, `self-${joinCall}`, joinCall === 1)
+      },
+    }), memoryStorage(), fakeSocial)
+
+    await store.join('invite-a')
+    // Emit an early joined and left while members() is still pending.
+    emitEvent?.({ type: 'joined', member: { id: 'early-peer' } as rooms.RoomMember })
+    emitEvent?.({ type: 'left', id: 'vanished-peer', reason: 'left' })
+
+    membersGate.resolve([{ id: 'self-1' }, { id: 'host-1' }] as rooms.RoomMember[])
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(ingestFirst).toHaveBeenCalledWith('host-1', '{"t":"social.hello","v":1}', 500, 1)
+    expect(joinedFirst).toHaveBeenCalledWith('early-peer')
+    expect(leftFirst).toHaveBeenCalledWith('vanished-peer')
+    // Whois was sent because host-1 was already present, and its self-echo was not fed into ingest.
+    expect(sentFrames.some((raw) => (JSON.parse(raw) as { p?: string }).p?.includes('"social.whois"'))).toBe(true)
+    expect(ingestFirst.mock.calls.some((call) => String(call[1]).includes('social.whois'))).toBe(false)
+
+    // Verify stale attach is detached cleanly if the store switches rooms before members() resolves.
+    const gate2 = Promise.withResolvers<rooms.RoomMember[]>()
+    const attachGate = Promise.withResolvers<void>()
+    const detachRace = vi.fn(async () => {})
+    const raceStore = createPartyStore(async () => ({
+      create: async () => customRoom('https://youtube.fkn.app/race-2', 'self-r2', false),
+      join: async () => ({
+        ...customRoom('https://youtube.fkn.app/race-1', 'self-r1', false),
+        members: async () => gate2.promise,
+      }) as unknown as rooms.Room,
+    }), memoryStorage(), {
+      attach: async () => {
+        await attachGate.promise
+        return {
+          participants: () => [],
+          of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
+          on: () => () => {},
+          ingest: () => true,
+          memberJoined: () => {},
+          memberLeft: () => {},
+          announce: async () => {},
+          detach: detachRace,
+        }
+      },
+    })
+    await raceStore.join('race-1')
+    attachGate.resolve()
+    await Promise.resolve()
+    await raceStore.create()
+    gate2.resolve([{ id: 'self-r1' }] as rooms.RoomMember[])
+    await vi.advanceTimersByTimeAsync(20)
+    expect(detachRace).toHaveBeenCalledTimes(1)
+
+    await store.leave()
+    await raceStore.leave()
   })
 })

@@ -89,6 +89,16 @@ export const CLOCK_SAMPLES = 5
 export const CLOCK_SPACING_MS = 400
 export const CLOCK_INTERVAL_MS = 60_000
 const MAX_PENDING_SOCIAL = 64
+const SOCIAL_WHOIS_FRAME = '{"t":"social.whois","v":1}'
+
+const isSocialWhois = (frame: string): boolean => {
+  try {
+    const parsed = JSON.parse(frame) as { t?: unknown } | null
+    return parsed !== null && typeof parsed === 'object' && parsed.t === 'social.whois'
+  } catch {
+    return false
+  }
+}
 
 const defaultStorage = (): StorageLike | undefined => {
   try {
@@ -112,6 +122,7 @@ export const createPartyStore = (
   let presence: Presence | undefined
   let presenceUnlisten: (() => void) | undefined
   let pendingSocial: { from: string, frame: string, at: number, seq: number }[] = []
+  let pendingMembership: { type: 'joined' | 'left', id: string }[] = []
   let openGeneration = 0
   let hostLocation = '/'
   let hostPlayback: PlaybackState | undefined
@@ -259,6 +270,7 @@ export const createPartyStore = (
     const detaching = presence
     presence = undefined
     pendingSocial = []
+    pendingMembership = []
     if (detaching) {
       void detaching.detach().catch(() => {})
       notifyPresence()
@@ -279,6 +291,8 @@ export const createPartyStore = (
       return
     }
     room = joined
+    pendingSocial = []
+    pendingMembership = []
     const role: PartyRole = joined.owner === joined.self.id ? 'host' : 'guest'
     remember(joined.invite)
     emitState({
@@ -294,14 +308,20 @@ export const createPartyStore = (
     const off = await joined.on((event) => {
       if (room !== joined || state.status !== 'active') return
       if (event.type === 'joined') {
-        presence?.memberJoined(event.member.id)
+        if (presence) presence.memberJoined(event.member.id)
+        else if (social && pendingMembership.length < MAX_PENDING_SOCIAL) {
+          pendingMembership.push({ type: 'joined', id: event.member.id })
+        }
         void refreshMembers(joined)
         if (role === 'host') send(whereWeAre())
         if (ownName) send({ t: 'name', name: ownName })
         return
       }
       if (event.type === 'left') {
-        presence?.memberLeft(event.id)
+        if (presence) presence.memberLeft(event.id)
+        else if (social && pendingMembership.length < MAX_PENDING_SOCIAL) {
+          pendingMembership.push({ type: 'left', id: event.id })
+        }
         if (role === 'guest' && event.id === joined.owner) {
           void end('host-left')
           return
@@ -318,6 +338,7 @@ export const createPartyStore = (
 
       const self = from === joined.self.id
       if (message.t === 'social') {
+        if (self && isSocialWhois(message.p)) return
         if (presence) presence.ingest(from, message.p, event.message.at, event.message.seq)
         else if (pendingSocial.length < MAX_PENDING_SOCIAL) {
           pendingSocial.push({ from, frame: message.p, at: event.message.at, seq: event.message.seq })
@@ -406,28 +427,46 @@ export const createPartyStore = (
     }
 
     if (social) {
-      pendingSocial = []
       const currentRoom = joined
       void social.attach({
         roomId: joined.id,
         selfMemberId: joined.self.id,
-        send: (frame) => send({ t: 'social', p: frame }),
+        send: (frame) => { if (room === currentRoom) send({ t: 'social', p: frame }) },
       }).then(async (attached) => {
+        if (room !== currentRoom) {
+          await attached.detach().catch(() => {})
+          return
+        }
+        const currentMembers = await joined.members().catch(() => [])
         if (room !== currentRoom) {
           await attached.detach().catch(() => {})
           return
         }
         presence = attached
         presenceUnlisten = attached.on(() => notifyPresence())
-        const currentMembers = await joined.members().catch(() => [])
-        if (room !== currentRoom || presence !== attached) return
+        const seenMembers = new Set<string>()
         for (const member of currentMembers) {
-          if (member.id !== joined.self.id) attached.memberJoined(member.id)
+          if (member.id !== joined.self.id) {
+            seenMembers.add(member.id)
+            attached.memberJoined(member.id)
+          }
+        }
+        for (const pending of pendingMembership.splice(0)) {
+          if (pending.type === 'joined') {
+            if (pending.id !== joined.self.id && !seenMembers.has(pending.id)) {
+              seenMembers.add(pending.id)
+              attached.memberJoined(pending.id)
+            }
+          } else {
+            seenMembers.delete(pending.id)
+            attached.memberLeft(pending.id)
+          }
         }
         for (const buffered of pendingSocial.splice(0)) {
           attached.ingest(buffered.from, buffered.frame, buffered.at, buffered.seq)
         }
         notifyPresence()
+        if (seenMembers.size > 0) send({ t: 'social', p: SOCIAL_WHOIS_FRAME })
       }, () => {})
     }
   }

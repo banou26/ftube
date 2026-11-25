@@ -58,7 +58,7 @@
   },
   "dependencies": {
     "@banou/ponyfill": "^0.0.16",
-    "@banou/social": "^0.0.3",
+    "@banou/social": "^0.0.6",
     "@bufbuild/protobuf": "2.12.1",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.87",
