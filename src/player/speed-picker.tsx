@@ -4,11 +4,9 @@ import { css } from '@emotion/react'
 
 import { MAX_RATE, MIN_RATE, RATE_CHIPS, RATE_STEP, toRate } from './rates'
 
-/* youtube.com's Playback speed panel, measured 2026-11-10: the speed in 18 px black weight 24 px above a row of 32 px
-   round - and + buttons 16 px either side of the slider, and 53 by 32 px chips 24 px below, 8 px apart, as wide as the
-   chips it shows */
+/* Playback speed panel: 24.4 rem wide (shrinking to fit narrow players) with 5 equal-flex chips in a 0.6 rem gap */
 const style = css`
-  width: 23.6rem;
+  width: min(24.4rem, 100%);
   color: var(--text-primary);
 
   .speed {
@@ -99,17 +97,19 @@ const style = css`
 
   .chips {
     display: flex;
-    gap: 0.8rem;
+    gap: 0.6rem;
   }
 
   .chip {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
   }
 
   .chip .speed-button {
-    width: 5.3rem;
+    width: 100%;
     font-size: 1.2rem;
   }
 
