@@ -2,8 +2,9 @@ import type * as rooms from '@fkn/lib/rooms'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
+import type { Participant, RoomBinding, SocialIdentity } from '../../../src/social'
 import type { PartyMessage } from '../../../src/party/protocol'
-import type { PartyMessageMeta, RoomsApi, StorageLike } from '../../../src/party/store'
+import type { PartyMessageMeta, RoomsApi, SocialPresenceApi, StorageLike } from '../../../src/party/store'
 
 import { encodePartyMessage } from '../../../src/party/protocol'
 import {
@@ -271,5 +272,185 @@ describe('createPartyStore', () => {
     expect(store.getState()).toMatchObject({ status: 'active', role: 'guest' })
     await host.leave()
     await store.leave()
+  })
+
+  const socialIdentity = (over: Partial<SocialIdentity> = {}): SocialIdentity => ({
+    handle: 'fkn:name:alice',
+    name: 'alice',
+    displayName: 'Alice',
+    avatar: null,
+    identicon: 'data:image/svg+xml;utf8,<svg/>',
+    ...over,
+  })
+
+  const createFakeSocial = (holdAttach = false) => {
+    let binding: RoomBinding | undefined
+    const joined: string[] = []
+    const left: string[] = []
+    const ingested: { from: string, frame: string, at: number, seq: number }[] = []
+    let detached = 0
+    const byId = new Map<string, Participant>()
+    const listeners = new Set<(participants: Participant[]) => void>()
+    const release = Promise.withResolvers<void>()
+    if (!holdAttach) release.resolve()
+
+    const presence = () => ({
+      participants: () => Array.from(byId.values()),
+      of: (memberId: string): Participant =>
+        byId.get(memberId) ?? { memberId, status: 'silent', identity: null, self: false },
+      on: (listener: (participants: Participant[]) => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      ingest: (from: string, frame: string, at: number, seq: number) => {
+        ingested.push({ from, frame, at, seq })
+        return true
+      },
+      memberJoined: (memberId: string) => { joined.push(memberId) },
+      memberLeft: (memberId: string) => { left.push(memberId) },
+      announce: async () => {},
+      detach: async () => { detached += 1 },
+    })
+
+    const api: SocialPresenceApi = {
+      attach: async (next) => {
+        binding = next
+        await release.promise
+        return presence()
+      },
+    }
+
+    const emitParticipant = (participant: Participant) => {
+      byId.set(participant.memberId, participant)
+      const all = Array.from(byId.values())
+      for (const listener of listeners) listener(all)
+    }
+
+    return {
+      api,
+      calls: { binding: () => binding, joined, left, ingested, detached: () => detached },
+      finishAttach: () => release.resolve(),
+      emitParticipant,
+    }
+  }
+
+  it('attaches social over the room, forwards outbound frames, and buffers early inbound social frames', async () => {
+    const hub = createFakeHub()
+    const social = createFakeSocial(true)
+    const host = createPartyStore(async () => hub.apiFor('host-1'), memoryStorage())
+    const guest = createPartyStore(async () => hub.apiFor('guest-1'), memoryStorage(), social.api)
+    const onPresence = vi.fn()
+    guest.onPresence(onPresence)
+    const guestMessages: PartyMessage['t'][] = []
+    guest.onMessage((message) => guestMessages.push(message.t))
+
+    await host.create()
+    await guest.join(hub.invite)
+    await vi.advanceTimersByTimeAsync(20)
+
+    host.send({ t: 'chat', text: 'hi' })
+    host.send({ t: 'social', p: '{"t":"social.hello","v":1}' })
+    expect(guestMessages).toContain('chat')
+    expect(guestMessages).not.toContain('social')
+    expect(social.calls.ingested).toEqual([])
+
+    social.finishAttach()
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(social.calls.binding()?.roomId).toBe('https://youtube.fkn.app/room-1')
+    expect(social.calls.binding()?.selfMemberId).toBe('guest-1')
+    expect(social.calls.joined).toEqual(['host-1'])
+    expect(social.calls.ingested).toMatchObject([{ from: 'host-1', frame: '{"t":"social.hello","v":1}' }])
+    expect(onPresence).toHaveBeenCalled()
+
+    await social.calls.binding()!.send('{"t":"social.hello","out":1}')
+    const guest2 = createPartyStore(async () => hub.apiFor('guest-2'), memoryStorage())
+    const seen: PartyMessage['t'][] = []
+    guest2.onMessage((message) => seen.push(message.t))
+    await guest2.join(hub.invite)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(social.calls.joined).toContain('guest-2')
+
+    await guest2.leave()
+    await vi.advanceTimersByTimeAsync(20)
+    expect(social.calls.left).toEqual(['guest-2'])
+
+    await guest.leave()
+    await host.leave()
+  })
+
+  it('prefers friend nickname, displayName, verified name, then party name and updates chat retroactively', async () => {
+    const hub = createFakeHub()
+    const social = createFakeSocial()
+    const host = createPartyStore(async () => hub.apiFor('host-1'), memoryStorage(), social.api)
+    const ann = createPartyStore(async () => hub.apiFor('ann'), memoryStorage())
+    const bob = createPartyStore(async () => hub.apiFor('bob'), memoryStorage())
+    const raw = createPartyStore(async () => hub.apiFor('raw'), memoryStorage())
+
+    host.setName('FallbackHost')
+    await host.create()
+    await ann.join(hub.invite)
+    await bob.join(hub.invite)
+    await raw.join(hub.invite)
+    await vi.advanceTimersByTimeAsync(20)
+
+    ann.send({ t: 'chat', text: 'earlier' })
+    expect(host.chat()[0]?.name).toBeUndefined()
+
+    social.emitParticipant({
+      memberId: 'host-1',
+      status: 'friend',
+      identity: socialIdentity({ name: 'hosthandle', displayName: 'Host Public', nickname: 'Bestie' }),
+      self: true,
+    })
+    social.emitParticipant({
+      memberId: 'ann',
+      status: 'verified',
+      identity: socialIdentity({ name: 'annhandle', displayName: 'AnnDisplay' }),
+      self: false,
+    })
+    social.emitParticipant({
+      memberId: 'bob',
+      status: 'verified',
+      identity: socialIdentity({ name: 'bobhandle', displayName: '   ' }),
+      self: false,
+    })
+    social.emitParticipant({ memberId: 'raw', status: 'unverified', identity: null, self: false })
+
+    expect(host.nameOf('host-1')).toBe('Bestie')
+    expect(host.nameOf('ann')).toBe('AnnDisplay')
+    expect(host.nameOf('bob')).toBe('bobhandle')
+    expect(host.nameOf('raw')).toBeUndefined()
+    expect(host.chat()[0]?.name).toBe('AnnDisplay')
+    expect(host.identityOf('ann')?.identity?.name).toBe('annhandle')
+    expect(host.identityOf('raw')).toBeUndefined()
+
+    const roster = await host.roster()
+    expect(roster.find((m) => m.id === 'host-1')?.identity?.status).toBe('friend')
+    expect(roster.find((m) => m.id === 'raw')?.identity).toBeUndefined()
+
+    await raw.leave()
+    await bob.leave()
+    await ann.leave()
+    await host.leave()
+  })
+
+  it('detaches social cleanly on leave and detaches late attaches that resolve after leave', async () => {
+    const hub = createFakeHub()
+    const social = createFakeSocial()
+    const host = createPartyStore(async () => hub.apiFor('host-1'), memoryStorage(), social.api)
+    await host.create()
+    await vi.advanceTimersByTimeAsync(20)
+    await host.leave()
+    expect(social.calls.detached()).toBe(1)
+
+    const slow = createFakeSocial(true)
+    const slowHost = createPartyStore(async () => hub.apiFor('host-1'), memoryStorage(), slow.api)
+    await slowHost.create()
+    await slowHost.leave()
+    expect(slow.calls.detached()).toBe(0)
+    slow.finishAttach()
+    await vi.advanceTimersByTimeAsync(20)
+    expect(slow.calls.detached()).toBe(1)
   })
 })

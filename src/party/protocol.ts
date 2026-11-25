@@ -22,6 +22,7 @@ export type PartyMessage =
   | { t: 'state', path: string, s?: PlaybackState }
   | { t: 'chat', text: string }
   | { t: 'name', name: string }
+  | { t: 'social', p: string }
   | { t: 'ping', n: number, at: number }
   | { t: 'pong', n: number, at: number, host: number }
 
@@ -30,6 +31,7 @@ const HOST_ONLY: ReadonlySet<PartyMessage['t']> = new Set(['nav', 'playback', 's
 export const MAX_PATH_LENGTH = 1024
 export const MAX_NAME_LENGTH = 32
 export const MAX_CHAT_LENGTH = 500
+export const SOCIAL_MAX_CHARS = 3_500
 const MAX_RATE = 16
 
 /** Whether a message may only be accepted from the room owner. */
@@ -133,6 +135,10 @@ export const decodePartyMessage = (raw: string): PartyMessage | undefined => {
       const name = displayName(record.name)
       return name ? { t: 'name', name } : undefined
     }
+    case 'social':
+      return typeof record.p === 'string' && record.p.length > 0 && record.p.length <= SOCIAL_MAX_CHARS
+        ? { t: 'social', p: record.p }
+        : undefined
     case 'ping': {
       if (!Number.isInteger(record.n) || !isFiniteNumber(record.at) || record.at < 0) return undefined
       return { t: 'ping', n: record.n as number, at: record.at }

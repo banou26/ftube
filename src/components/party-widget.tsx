@@ -1,5 +1,5 @@
 import type { TargetedEvent } from 'preact'
-import type { PartyEndReason } from '../party'
+import type { PartyEndReason, PartyRosterMember } from '../party'
 
 import { css } from '@emotion/react'
 import { Check, Copy, LogOut, Play, Radio, Users } from 'lucide-react'
@@ -7,7 +7,8 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter'
 
 import { party, PARTY_PATH, partyLink } from '../party'
-import { useParty } from '../party/use-party'
+import { useParty, usePartyPresence } from '../party/use-party'
+import { PartyAvatar } from './party-avatar'
 import { Popup, useDismiss } from './ui/popup'
 
 const rootStyle = css`
@@ -92,6 +93,24 @@ const panelStyle = css`
   .meta {
     color: var(--text-secondary);
     font-size: 1.2rem;
+  }
+
+  .avatars {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+  }
+
+  .avatars-member {
+    display: inline-flex;
+  }
+
+  .avatars-more {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding-left: 0.2rem;
   }
 
   .message {
@@ -192,8 +211,10 @@ export const failMessage = (code: string): string => {
 /** Header control for starting, sharing, following, and leaving a Watch Together session. */
 export const PartyWidget = () => {
   const state = useParty()
+  const presence = usePartyPresence()
   const [, navigate] = useLocation()
   const [open, setOpen] = useState(false)
+  const [roster, setRoster] = useState<PartyRosterMember[]>([])
   const [copied, setCopied] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -233,6 +254,38 @@ export const PartyWidget = () => {
   }
 
   const active = state.status === 'active'
+  const memberCount = active ? state.members : 0
+  useEffect(() => {
+    if (!open || !active) {
+      setRoster([])
+      return
+    }
+    let cancelled = false
+    void party.roster().then((list) => {
+      if (!cancelled) setRoster(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, active, memberCount, presence])
+
+  const socialMembers = roster.filter((member) => member.identity?.identity)
+  const renderAvatars = () => {
+    if (!socialMembers.length) return undefined
+    const shown = socialMembers.slice(0, 6)
+    const extra = socialMembers.length - shown.length
+    return (
+      <div className='avatars'>
+        {shown.map((member) => (
+          <span key={member.id} className='avatars-member' title={member.name ?? member.id}>
+            <PartyAvatar participant={member.identity} size={24} />
+          </span>
+        ))}
+        {extra > 0 ? <span className='avatars-more'>+{extra}</span> : undefined}
+      </div>
+    )
+  }
+
   const ended = state.status === 'ended' || state.status === 'failed'
   const label = active
     ? (state.role === 'host' ? 'Hosting' : 'Following')
@@ -277,6 +330,7 @@ export const PartyWidget = () => {
                         <span className='title'>{state.role === 'host' ? 'Hosting' : 'Following'}</span>
                         <span className='meta'>{state.members === 1 ? '1 viewer' : `${state.members} viewers`}</span>
                       </div>
+                      {renderAvatars()}
                       <div className='link-row'>
                         <input
                           readOnly

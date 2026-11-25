@@ -1,24 +1,67 @@
 {
-  "name": "@banou/yt-client",
-  "private": true,
+  "name": "@banou/ftube",
   "version": "0.0.0",
+  "description": "Fast, private YouTube client running in your browser over FKN.",
+  "license": "MIT",
+  "homepage": "https://youtube.fkn.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/banou26/ftube.git"
+  },
+  "keywords": [
+    "fkn",
+    "fkn-type:app",
+    "youtube",
+    "video",
+    "ftube"
+  ],
+  "fkn": {
+    "app": "fkn:app:17w6qu6cmzioxe4rcja53gvopyfy4673ti3ljucedts57kumfzzoq",
+    "signed": true,
+    "url": "https://youtube.fkn.app/",
+    "network": [
+      "www.youtube.com",
+      "*.youtube.com",
+      "*.googlevideo.com",
+      "*.ytimg.com",
+      "*.ggpht.com",
+      "*.googleusercontent.com",
+      "*.gstatic.com",
+      "www.google.com",
+      "youtubei.googleapis.com",
+      "jnn-pa.googleapis.com",
+      "returnyoutubedislikeapi.com",
+      "sponsor.ajay.app"
+    ],
+    "background": "store/background.webp",
+    "cover": "store/cover.webp",
+    "screenshots": [
+      "store/watch.webp",
+      "store/search.webp",
+      "store/channel.webp",
+      "store/phone.webp"
+    ]
+  },
   "type": "module",
   "scripts": {
     "build": "npm run build:agent && npm run generate && vp build",
     "build:agent": "vp build -c vite.agent.config.ts",
+    "build:npm": "npm run build:agent && npm run generate && vp build -c vite.npm.config.ts && node scripts/write-npm-manifest.mjs && node scripts/check-npm-package.mjs",
     "dev": "npm run build:agent && npm run generate && vp dev --port 4561",
     "generate": "graphql-codegen --config codegen.ts",
     "lint": "vp lint src tests functions",
     "postinstall": "patch-package",
+    "store-art": "node scripts/store-art.mjs",
     "test": "npm run build:agent && vp test run tests/unit",
     "test:browser": "playwright test",
     "type-check": "npm run generate && tsc --noEmit"
   },
   "dependencies": {
     "@banou/ponyfill": "^0.0.16",
+    "@banou/social": "^0.0.3",
     "@bufbuild/protobuf": "2.12.1",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.9.61",
+    "@fkn/lib": "^0.9.87",
     "@urql/exchange-graphcache": "^9.0.1",
     "bgutils-js": "3.2.0",
     "googlevideo": "4.0.4",

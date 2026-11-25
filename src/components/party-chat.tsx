@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { party } from '../party'
 import { chatText, MAX_CHAT_LENGTH } from '../party/protocol'
-import { useParty, usePartyMessages } from '../party/use-party'
+import { useParty, usePartyMessages, usePartyPresence } from '../party/use-party'
+import { PartyAvatar } from './party-avatar'
 
 const style = css`
   position: fixed;
@@ -109,6 +110,9 @@ const style = css`
   }
 
   .line .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 1.1rem;
     color: var(--text-secondary);
   }
@@ -165,11 +169,12 @@ const style = css`
 `
 
 const senderLabel = (line: { from: string, name?: string, self: boolean }, owner: string) =>
-  line.self ? 'You' : line.name ?? (line.from === owner ? 'Host' : line.from.slice(0, 6))
+  line.self ? 'You' : (party.nameOf(line.from) ?? line.name ?? (line.from === owner ? 'Host' : line.from.slice(0, 6)))
 
 /** Floating Watch Together chat drawer pinned bottom-left to stay clear of the bottom-right miniplayer. */
 export const PartyChat = () => {
   const state = useParty()
+  usePartyPresence()
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
   const [draft, setDraft] = useState('')
@@ -226,7 +231,10 @@ export const PartyChat = () => {
                 ? <span className='empty'>No messages yet.</span>
                 : lines.map((line) => (
                   <div key={line.id} className={line.self ? 'line self' : 'line'}>
-                    <span className='who'>{senderLabel(line, state.owner)}</span>
+                    <span className='who'>
+                      <PartyAvatar participant={party.identityOf(line.from)} size={18} />
+                      <span>{senderLabel(line, state.owner)}</span>
+                    </span>
                     <span>{line.text}</span>
                   </div>
                 ))}

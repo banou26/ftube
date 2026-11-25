@@ -7,10 +7,11 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
+import { PartyAvatar } from '../components/party-avatar'
 import { endMessage, failMessage } from '../components/party-widget'
 import { inviteFromHash, party, partyLink } from '../party'
 import { displayName, MAX_NAME_LENGTH } from '../party/protocol'
-import { useParty } from '../party/use-party'
+import { useParty, usePartyPresence } from '../party/use-party'
 
 const style = css`
   max-width: 60rem;
@@ -134,6 +135,11 @@ const style = css`
     font-weight: 500;
   }
 
+  .member-handle {
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+  }
+
   .member-id {
     color: var(--text-secondary);
     font-size: 1.2rem;
@@ -151,8 +157,13 @@ const style = css`
     text-transform: uppercase;
   }
 
-  .badge.you {
+  .badge.you,
+  .badge.friend {
     color: var(--membership);
+  }
+
+  .badge.warn {
+    color: var(--danger);
   }
 
   .member-actions {
@@ -186,6 +197,7 @@ const style = css`
 const PartyPage = () => {
   useDocumentTitle('Watch together')
   const state = useParty()
+  const presence = usePartyPresence()
   const [hash, setHash] = useState(() => window.location.hash)
   const [name, setName] = useState(() => party.name() ?? '')
   const [members, setMembers] = useState<PartyRosterMember[]>([])
@@ -227,7 +239,7 @@ const PartyPage = () => {
     return () => {
       live = false
     }
-  }, [state])
+  }, [state, presence])
 
   const link = active ? partyLink(window.location.origin, state.invite) : ''
 
@@ -343,28 +355,47 @@ const PartyPage = () => {
             <div className='section'>
               <div className='label'>In the party ({members.length})</div>
               <div className='roster'>
-                {members.map((member) => (
-                  <div key={member.id} className='member' data-member={member.id}>
-                    {member.name ? <span className='member-name'>{member.name}</span> : undefined}
-                    <span className='member-id' title={member.id}>{member.id.slice(0, 8)}</span>
-                    {member.host ? <span className='badge'>Host</span> : undefined}
-                    {member.self ? <span className='badge you'>You</span> : undefined}
-                    {state.role === 'host' && !member.self
-                      ? (
-                        <div className='member-actions'>
-                          <button type='button' className='action danger' onClick={() => void party.kick(member.id)}>
-                            <UserX size={14} strokeWidth={1.75} />
-                            Kick
-                          </button>
-                          <button type='button' className='action danger' onClick={() => void party.ban(member.id)}>
-                            <Ban size={14} strokeWidth={1.75} />
-                            Ban
-                          </button>
-                        </div>
-                      )
-                      : undefined}
-                  </div>
-                ))}
+                {members.map((member) => {
+                  const verified = member.identity?.identity
+                  const atName = verified ? `@${verified.name}` : undefined
+                  const showHandle = Boolean(atName && member.name && member.name !== verified?.name)
+                  return (
+                    <div key={member.id} className='member' data-member={member.id}>
+                      <PartyAvatar participant={member.identity} size={28} />
+                      {atName
+                        ? (
+                          <>
+                            <span className='member-name' title={verified?.handle}>{showHandle ? member.name : atName}</span>
+                            {showHandle ? <span className='member-handle' title={verified?.handle}>{atName}</span> : undefined}
+                          </>
+                        )
+                        : (
+                          <>
+                            {member.name ? <span className='member-name'>{member.name}</span> : undefined}
+                            <span className='member-id' title={member.id}>{member.id.slice(0, 8)}</span>
+                          </>
+                        )}
+                      {member.identity?.status === 'friend' ? <span className='badge friend'>Friend</span> : undefined}
+                      {member.identity?.status === 'rekeyed' ? <span className='badge warn'>New key</span> : undefined}
+                      {member.host ? <span className='badge'>Host</span> : undefined}
+                      {member.self ? <span className='badge you'>You</span> : undefined}
+                      {state.role === 'host' && !member.self
+                        ? (
+                          <div className='member-actions'>
+                            <button type='button' className='action danger' onClick={() => void party.kick(member.id)}>
+                              <UserX size={14} strokeWidth={1.75} />
+                              Kick
+                            </button>
+                            <button type='button' className='action danger' onClick={() => void party.ban(member.id)}>
+                              <Ban size={14} strokeWidth={1.75} />
+                              Ban
+                            </button>
+                          </div>
+                        )
+                        : undefined}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 

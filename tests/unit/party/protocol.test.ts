@@ -10,6 +10,7 @@ import {
   MAX_NAME_LENGTH,
   normalizePartyPath,
   sanitizePath,
+  SOCIAL_MAX_CHARS,
   videoIdOfPath,
 } from '../../../src/party/protocol'
 
@@ -63,6 +64,7 @@ describe('party protocol validation', () => {
       { t: 'state' as const, path: '/' },
       { t: 'chat' as const, text: 'ready' },
       { t: 'name' as const, name: 'Sam' },
+      { t: 'social' as const, p: '{"t":"social.hello","v":1}' },
       { t: 'ping' as const, n: 3, at: 500 },
       { t: 'pong' as const, n: 3, at: 500, host: 520 },
     ]
@@ -70,6 +72,8 @@ describe('party protocol validation', () => {
       expect(decodePartyMessage(encodePartyMessage(message))).toStrictEqual(message)
     }
 
+    expect(decodePartyMessage(JSON.stringify({ t: 'social', p: '' }))).toBeUndefined()
+    expect(decodePartyMessage(JSON.stringify({ t: 'social', p: 'x'.repeat(SOCIAL_MAX_CHARS + 1) }))).toBeUndefined()
     expect(decodePartyMessage('not json')).toBeUndefined()
     expect(decodePartyMessage(JSON.stringify({ t: 'unknown' }))).toBeUndefined()
     expect(decodePartyMessage(JSON.stringify({ t: 'nav', path: '//bad' }))).toBeUndefined()

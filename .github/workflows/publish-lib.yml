@@ -1,0 +1,190 @@
+# Publishes @banou/ftube to npm with no token stored anywhere: the job exchanges its OIDC identity
+# for a short lived credential against the trusted publisher registered on npmjs.org.
+#
+# THE FILENAME IS PART OF THE TRUST RELATIONSHIP AND MUST NOT CHANGE. npm binds the package to a
+# repository PLUS a workflow filename (banou26/ftube + publish-lib.yml), so renaming this file or
+# changing repository casing breaks publishing and has to be re-registered on npmjs.org by hand.
+#
+# Only a version bump above 0.0.0 publishes. Every release is signed in place against FTube's app
+# key list with FKN_RELEASE_KEY and verified the way a device verifies it.
+name: Publish
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Publish even when no green ci run exists for this commit'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_sha == github.sha
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require a green ci run for this commit
+        if: github.event_name == 'workflow_dispatch' && inputs.force != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GREEN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq .total_count)
+          if ! [ "$GREEN" -ge 1 ]; then
+            echo "::error::no green ci run for $GITHUB_SHA: wait for ci, or dispatch again with force"
+            exit 1
+          fi
+          echo "::notice::$GREEN green ci run(s) for $GITHUB_SHA"
+
+      # NO registry-url on purpose: that writes an .npmrc pinning auth to ${NODE_AUTH_TOKEN}, which is
+      # empty here and causes npm to skip the OIDC exchange.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Use an npm that supports trusted publishing
+        run: |
+          npm install -g npm@12.2.2
+          echo "npm $(npm --version)"
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: The manifest has to name this repository
+        run: |
+          URL=$(node -p "require('./package.json').repository?.url ?? ''")
+          CLEAN=${URL#git+}
+          CLEAN=${CLEAN%.git}
+          if [ "$CLEAN" != "https://github.com/$GITHUB_REPOSITORY" ]; then
+            echo "::error::package.json repository.url is '$CLEAN', and provenance expects 'https://github.com/$GITHUB_REPOSITORY'"
+            exit 1
+          fi
+          echo "::notice::repository.url matches $GITHUB_REPOSITORY"
+
+      - name: Decide whether the version moved
+        id: decide
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          DOC=$(node -p "encodeURIComponent(require('./package.json').name)")
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "doc=$DOC" >> "$GITHUB_OUTPUT"
+          if [ "$VERSION" = "0.0.0" ]; then
+            echo "::notice::$NAME is at placeholder version 0.0.0; skipping publish"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if OUT=$(node scripts/npm-version-gate.mjs "$NAME" "$VERSION" 2> "$RUNNER_TEMP/gate.err"); then
+            echo "::notice::$(cat "$RUNNER_TEMP/gate.err")"
+            echo "$OUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::$(cat "$RUNNER_TEMP/gate.err")"
+            exit 1
+          fi
+
+      - name: Build npm package
+        if: steps.decide.outputs.changed == 'true'
+        run: npm run build:npm
+
+      - name: The built manifest has to be the one the gate cleared
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          BUILT=$(node -p "require('./dist/package.json').version")
+          if [ "$BUILT" != "$VERSION" ]; then
+            echo "::error::dist/package.json is $BUILT and the repo is $VERSION"
+            exit 1
+          fi
+          echo "::notice::publishing dist/ as $(node -p "require('./dist/package.json').name") $BUILT"
+
+      - name: Fetch FTube's key list
+        if: steps.decide.outputs.changed == 'true'
+        run: set -o pipefail; curl -fsS https://api.fkn.app/v1/apps/fkn:app:17w6qu6cmzioxe4rcja53gvopyfy4673ti3ljucedts57kumfzzoq/keys | jq .list > "$RUNNER_TEMP/fkn-keys.json"
+
+      - name: Sign the package in place
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          FKN_RELEASE_KEY: ${{ secrets.FKN_RELEASE_KEY }}
+        run: npx --yes @fkn/sign@0.0.16 release ./dist --npm --list "$RUNNER_TEMP/fkn-keys.json"
+
+      - name: Publish
+        id: publish
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          NPM_CONFIG_LOGLEVEL: verbose
+          NAME: ${{ steps.decide.outputs.name }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set +e
+          npm publish ./dist --access public 2>&1 | tee "$RUNNER_TEMP/publish.log"
+          CODE=${PIPESTATUS[0]}
+          set -e
+          if [ "$CODE" != "0" ] && grep -qF "Cannot publish over previously staged version \"$VERSION\"" "$RUNNER_TEMP/publish.log"; then
+            echo "::notice::npm already holds $NAME $VERSION as staged from an earlier run; it goes live when the owner releases it on npmjs.com, so the registry checks are skipped"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit "$CODE"
+
+      - name: Confirm the registry serves it
+        if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'
+        env:
+          NAME: ${{ steps.decide.outputs.name }}
+          VERSION: ${{ steps.decide.outputs.version }}
+          DOC: ${{ steps.decide.outputs.doc }}
+        run: |
+          for attempt in $(seq 1 120); do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$DOC/$VERSION")
+            if [ "$CODE" = "200" ]; then
+              echo "::notice::the registry serves $NAME $VERSION"
+              exit 0
+            fi
+            echo "attempt $attempt: the registry answered $CODE"
+            sleep 15
+          done
+          echo "::error::the registry still does not serve $NAME $VERSION"
+          exit 1
+
+      - name: Confirm devices verify it
+        if: steps.decide.outputs.changed == 'true' && steps.publish.outputs.held != 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for attempt in $(seq 1 40); do
+            set +e
+            npx --yes @fkn/sign@0.0.16 verify "npm:@banou/ftube@$VERSION" --list "$RUNNER_TEMP/fkn-keys.json"
+            CODE=$?
+            set -e
+            if [ "$CODE" = "0" ]; then exit 0; fi
+            if [ "$CODE" != "2" ]; then exit "$CODE"; fi
+            echo "attempt $attempt: unpkg does not serve every file yet"
+            sleep 15
+          done
+          echo "::error::unpkg still does not serve every file of @banou/ftube $VERSION"
+          exit 1

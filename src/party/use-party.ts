@@ -15,6 +15,13 @@ export const useParty = () => {
   return state
 }
 
+/** Increments whenever verified FKN Social room presence changes (names, avatars, friend badges). */
+export const usePartyPresence = () => {
+  const [tick, setTick] = useState(0)
+  useEffect(() => party.onPresence(() => setTick((value) => value + 1)), [])
+  return tick
+}
+
 /** Subscribes to decoded party messages with a ref-backed listener that stays current across renders. */
 export const usePartyMessages = (listener: (message: PartyMessage, meta: PartyMessageMeta) => void) => {
   const latest = useRef(listener)

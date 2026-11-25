@@ -2,6 +2,7 @@
 
 import type * as rooms from '@fkn/lib/rooms'
 
+import type { Participant, Presence, RoomBinding } from '../social'
 import type { ClockSample } from './clock'
 import type { PartyMessage, PlaybackState } from './protocol'
 
@@ -10,6 +11,8 @@ import { advance } from './playback'
 import { decodePartyMessage, displayName, encodePartyMessage, isHostOnly } from './protocol'
 
 export type RoomsApi = Pick<typeof rooms, 'create' | 'join'>
+/** The slice of `@banou/social` room presence the party store uses, injectable for tests. */
+export type SocialPresenceApi = { attach: (binding: RoomBinding) => Promise<Presence> }
 export type PartyRole = 'host' | 'guest'
 export type PartyEndReason = 'left' | 'host-left' | 'removed' | 'blocked' | 'closed'
 
@@ -38,6 +41,8 @@ export type PartyChatLine = {
 export type PartyRosterMember = {
   id: string
   name?: string
+  /** Verified FKN Social identity for this member, when available. */
+  identity?: Participant
   host: boolean
   self: boolean
 }
@@ -48,6 +53,8 @@ export type PartyStore = {
   getState: () => PartyState
   subscribe: (listener: (state: PartyState) => void) => () => void
   onMessage: (listener: (message: PartyMessage, meta: PartyMessageMeta) => void) => () => void
+  /** Subscribes to verified FKN Social room presence changes (names, avatars, friend statuses). */
+  onPresence: (listener: () => void) => () => void
   create: () => Promise<void>
   join: (invite: string) => Promise<void>
   resume: () => Promise<void>
@@ -66,6 +73,8 @@ export type PartyStore = {
   name: () => string | undefined
   setName: (name: string | undefined) => void
   nameOf: (id: string) => string | undefined
+  /** Verified FKN Social participant for a member, or undefined while silent or unverified. */
+  identityOf: (id: string) => Participant | undefined
   roster: () => Promise<PartyRosterMember[]>
   kick: (id: string) => Promise<void>
   ban: (id: string) => Promise<void>
@@ -79,6 +88,7 @@ export const NAME_HEARTBEAT_MS = 30_000
 export const CLOCK_SAMPLES = 5
 export const CLOCK_SPACING_MS = 400
 export const CLOCK_INTERVAL_MS = 60_000
+const MAX_PENDING_SOCIAL = 64
 
 const defaultStorage = (): StorageLike | undefined => {
   try {
@@ -94,10 +104,14 @@ const isRoomsError = (error: unknown): error is rooms.RoomsError =>
 export const createPartyStore = (
   loadRooms: () => Promise<RoomsApi>,
   storage: StorageLike | undefined = defaultStorage(),
+  social?: SocialPresenceApi,
 ): PartyStore => {
   let state: PartyState = { status: 'idle' }
   let room: rooms.Room | undefined
   let unlisten: (() => void) | undefined
+  let presence: Presence | undefined
+  let presenceUnlisten: (() => void) | undefined
+  let pendingSocial: { from: string, frame: string, at: number, seq: number }[] = []
   let openGeneration = 0
   let hostLocation = '/'
   let hostPlayback: PlaybackState | undefined
@@ -107,6 +121,7 @@ export const createPartyStore = (
   let clockTimer: ReturnType<typeof setInterval> | undefined
   const stateListeners = new Set<(state: PartyState) => void>()
   const messageListeners = new Set<(message: PartyMessage, meta: PartyMessageMeta) => void>()
+  const presenceListeners = new Set<() => void>()
   const heard = new Map<PartyMessage['t'], PartyMessage>()
   let heardPlayback: { path: string, state: PlaybackState } | undefined
   const names = new Map<string, string>()
@@ -127,11 +142,32 @@ export const createPartyStore = (
 
   const emitState = (next: PartyState) => {
     state = next
-    for (const listener of [...stateListeners]) listener(state)
+    for (const listener of Array.from(stateListeners)) listener(state)
   }
 
   const bumpState = () => {
     if (state.status === 'active') emitState({ ...state })
+  }
+
+  const notifyPresence = () => {
+    for (const listener of Array.from(presenceListeners)) listener()
+  }
+
+  const verifiedOf = (id: string): Participant | undefined => {
+    const participant = presence?.of(id)
+    return participant?.identity ? participant : undefined
+  }
+
+  // Friend nickname > verified displayName > verified @name > self-declared party name.
+  const resolvedNameOf = (id: string): string | undefined => {
+    const participant = verifiedOf(id)
+    const identity = participant?.identity
+    if (identity) {
+      if (participant.status === 'friend' && identity.nickname?.trim()) return identity.nickname.trim()
+      if (identity.displayName.trim()) return identity.displayName.trim()
+      if (identity.name) return identity.name
+    }
+    return names.get(id)
   }
 
   const remember = (invite: string) => {
@@ -155,7 +191,7 @@ export const createPartyStore = (
   }
 
   const tell = (message: PartyMessage, meta: PartyMessageMeta) => {
-    for (const listener of [...messageListeners]) listener(message, meta)
+    for (const listener of Array.from(messageListeners)) listener(message, meta)
   }
 
   const send = (message: PartyMessage) => {
@@ -218,6 +254,15 @@ export const createPartyStore = (
     unlisten = undefined
     room = undefined
     off?.()
+    presenceUnlisten?.()
+    presenceUnlisten = undefined
+    const detaching = presence
+    presence = undefined
+    pendingSocial = []
+    if (detaching) {
+      void detaching.detach().catch(() => {})
+      notifyPresence()
+    }
   }
 
   const end = async (reason: PartyEndReason) => {
@@ -249,12 +294,14 @@ export const createPartyStore = (
     const off = await joined.on((event) => {
       if (room !== joined || state.status !== 'active') return
       if (event.type === 'joined') {
+        presence?.memberJoined(event.member.id)
         void refreshMembers(joined)
         if (role === 'host') send(whereWeAre())
         if (ownName) send({ t: 'name', name: ownName })
         return
       }
       if (event.type === 'left') {
+        presence?.memberLeft(event.id)
         if (role === 'guest' && event.id === joined.owner) {
           void end('host-left')
           return
@@ -270,6 +317,13 @@ export const createPartyStore = (
       if (isHostOnly(message) && from !== joined.owner) return
 
       const self = from === joined.self.id
+      if (message.t === 'social') {
+        if (presence) presence.ingest(from, message.p, event.message.at, event.message.seq)
+        else if (pendingSocial.length < MAX_PENDING_SOCIAL) {
+          pendingSocial.push({ from, frame: message.p, at: event.message.at, seq: event.message.seq })
+        }
+        return
+      }
       if (message.t === 'name') {
         names.set(from, message.name)
         bumpState()
@@ -350,6 +404,32 @@ export const createPartyStore = (
       measureClock()
       clockTimer = setInterval(measureClock, CLOCK_INTERVAL_MS)
     }
+
+    if (social) {
+      pendingSocial = []
+      const currentRoom = joined
+      void social.attach({
+        roomId: joined.id,
+        selfMemberId: joined.self.id,
+        send: (frame) => send({ t: 'social', p: frame }),
+      }).then(async (attached) => {
+        if (room !== currentRoom) {
+          await attached.detach().catch(() => {})
+          return
+        }
+        presence = attached
+        presenceUnlisten = attached.on(() => notifyPresence())
+        const currentMembers = await joined.members().catch(() => [])
+        if (room !== currentRoom || presence !== attached) return
+        for (const member of currentMembers) {
+          if (member.id !== joined.self.id) attached.memberJoined(member.id)
+        }
+        for (const buffered of pendingSocial.splice(0)) {
+          attached.ingest(buffered.from, buffered.frame, buffered.at, buffered.seq)
+        }
+        notifyPresence()
+      }, () => {})
+    }
   }
 
   const open = async (invite: string | undefined, start: (api: RoomsApi) => Promise<rooms.Room>, resuming = false) => {
@@ -400,6 +480,12 @@ export const createPartyStore = (
         messageListeners.delete(listener)
       }
     },
+    onPresence: (listener) => {
+      presenceListeners.add(listener)
+      return () => {
+        presenceListeners.delete(listener)
+      }
+    },
     create: () => open(undefined, (api) => api.create()),
     join: (invite) => open(invite, (api) => api.join(invite)),
     resume: async () => {
@@ -446,7 +532,10 @@ export const createPartyStore = (
         if (message) tell(message, { from: room.owner, self: false, replayed: true })
       }
     },
-    chat: () => lines.slice(),
+    chat: () => lines.map((line) => ({
+      ...line,
+      name: line.self ? (resolvedNameOf(line.from) ?? ownName ?? line.name) : (resolvedNameOf(line.from) ?? line.name),
+    })),
     name: () => ownName,
     setName: (raw) => {
       ownName = displayName(raw)
@@ -464,14 +553,16 @@ export const createPartyStore = (
         bumpState()
       }
     },
-    nameOf: (id) => names.get(id),
+    nameOf: (id) => resolvedNameOf(id),
+    identityOf: (id) => verifiedOf(id),
     roster: async () => {
       if (!room) return []
       const current = room
       const members = await current.members().catch(() => [])
       return members.map((member) => ({
         id: member.id,
-        name: names.get(member.id),
+        name: resolvedNameOf(member.id),
+        identity: verifiedOf(member.id),
         host: member.id === current.owner,
         self: member.id === current.self.id,
       }))
