@@ -21,6 +21,7 @@ import { getSettings, updateSettings, useSetting } from './settings'
 
 // HomePage is deliberately static while every other route is lazy: routing the landing page through Suspense would put a chunk fetch in front of the very first paint, the one navigation with no previous page to keep showing
 const ChannelPage = lazyRoute(() => import('./routes/channel'))
+const DownloadsPage = lazyRoute(() => import('./routes/downloads'))
 const FeedChannelsPage = lazyRoute(() => import('./routes/feed-channels'))
 const FeedGroupsPage = lazyRoute(() => import('./routes/feed-groups'))
 const FeedHistoryPage = lazyRoute(() => import('./routes/feed-history'))
@@ -235,6 +236,7 @@ export const App = () => {
                 {(params: { channelId: string, tab?: string }) => <ChannelRoute id={params.channelId} base={`/channel/${params.channelId}`} word={params.tab} />}
               </Route>
               <Route path='/settings' component={SettingsPage} />
+              <Route path='/downloads' component={DownloadsPage} />
               <Route path='/privacy' component={PrivacyPage} />
               <Route path='/party' component={PartyPage} />
               <Route path='/account' component={AccountPage} />

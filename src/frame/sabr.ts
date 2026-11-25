@@ -42,6 +42,26 @@ type ExecutedResponse = PlayerHttpResponse & {
     youtube.com's live player asks first. */
 export const LIVE_HEAD_MS = Number.MAX_SAFE_INTEGER
 
+/** Populates default playback authorization, AV1 threshold, audio track, and DRC fields on a SABR ABR request. */
+export const applyClientAbrDefaults = (
+  decoded: ReturnType<typeof VideoPlaybackAbrRequest.decode>,
+  audioFormat: Pick<SabrFormat, 'audioTrackId' | 'isDrc'> | undefined,
+) => {
+  decoded.clientAbrState ??= {}
+  decoded.clientAbrState.playbackAuthorization ??= {
+    authorizedFormats: [
+      { trackType: 1, isHdr: false },
+      { trackType: 2, isHdr: false },
+      { trackType: 2, isHdr: true },
+    ],
+  }
+  decoded.clientAbrState.av1QualityThreshold = 1_080
+  if (audioFormat) {
+    decoded.clientAbrState.audioTrackId = audioFormat.audioTrackId
+    decoded.clientAbrState.drcEnabled = audioFormat.isDrc ?? false
+  }
+}
+
 const MAX_SEGMENT_ATTEMPTS = 3
 const MAX_HARVESTED_SEGMENT_BYTES = 32 * 1024 * 1024
 const MAX_MEDIA_CACHE_BYTES = 64 * 1024 * 1024
@@ -642,24 +662,13 @@ export const createSabrSession = (
     let requestBody = bytes(filtered.body)
     if (requestBody && filtered.url.includes('googlevideo.com')) {
       const decoded = VideoPlaybackAbrRequest.decode(requestBody)
+      // SabrStreamingAdapter fills audioTrackId and drcEnabled from the requested format, which leaves them unset on video requests
+      applyClientAbrDefaults(decoded, state.audio)
       decoded.clientAbrState ??= {}
-      decoded.clientAbrState.playbackAuthorization ??= {
-        authorizedFormats: [
-          { trackType: 1, isHdr: false },
-          { trackType: 2, isHdr: false },
-          { trackType: 2, isHdr: true },
-        ],
-      }
       decoded.clientAbrState.clientViewportWidth = state.snapshot.viewportWidth
       decoded.clientAbrState.clientViewportHeight = state.snapshot.viewportHeight
-      decoded.clientAbrState.av1QualityThreshold = 1_080
       // the adapter's trip through seconds sends 9007199254740990, which googlevideo answers sabr.invalid_input_stream (measured 2026-11-11)
       if (startTimeMs === LIVE_HEAD_MS) decoded.clientAbrState.playerTimeMs = String(LIVE_HEAD_MS)
-      // SabrStreamingAdapter fills audioTrackId and drcEnabled from the requested format, which leaves them unset on video requests
-      if (state.audio) {
-        decoded.clientAbrState.audioTrackId = state.audio.audioTrackId
-        decoded.clientAbrState.drcEnabled = state.audio.isDrc ?? false
-      }
       const cachedTracks = new Set(Array.from(mediaCache.values(), (segment) => segment.track))
       if (init && dualTrack && state.audio && state.video && cachedTracks.size < 2) {
         decoded.clientAbrState.enabledTrackTypesBitfield = 0

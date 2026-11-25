@@ -230,6 +230,7 @@ export const VideoCardCompact = ({ video, context, recommendable }: { video: Vid
         notInterestedToken={video.notInterestedToken}
         dontRecommendToken={video.dontRecommendToken}
         recommendable={recommendable}
+        live={Boolean(video.isLive || video.isUpcoming)}
         iconSize={16}
         class='more-menu'
       />

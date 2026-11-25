@@ -784,6 +784,7 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
             thumbnail={row.thumbnail}
             durationSeconds={row.durationSeconds}
             channel={row.channel}
+            live={Boolean(row.isLive || row.isUpcoming)}
             iconSize={24}
           />
         </div>

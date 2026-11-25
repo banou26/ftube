@@ -144,6 +144,59 @@ export type OpenPlaybackOptions = {
   pinnedHeight?: number
 }
 
+/** Selectable MP4 video or M4A/WebM audio stream entry returned by `downloadFormats`. */
+export type DownloadFormatOption = {
+  key: string
+  itag: number
+  kind: 'video' | 'audio'
+  container: 'mp4' | 'm4a' | 'webm'
+  mimeType: string
+  codec: string
+  qualityLabel: string
+  height?: number
+  bitrate: number
+  estimatedBytes?: number
+  audioTrackId?: string
+  audioTrackName?: string
+  isOriginal?: boolean
+  isAutoDubbed?: boolean
+}
+
+/** Available downloadable streams for a video, or `isLive: true` when still broadcasting. */
+export type DownloadFormatsResult = {
+  videoId: string
+  durationMs: number
+  isLive: boolean
+  videoFormats: DownloadFormatOption[]
+  audioFormats: DownloadFormatOption[]
+}
+
+/** Stream selection passed to `startDownload` in the engine frame. */
+export type StartDownloadOptions = {
+  videoId: string
+  mode: 'video' | 'audio'
+  videoKey?: string
+  audioKey: string
+}
+
+/** Handle and MIME metadata returned when a SABR download session starts. */
+export type StartDownloadResult = {
+  downloadId: string
+  estimatedBytes?: number
+  container: 'mp4' | 'm4a' | 'webm'
+  mimeType: string
+}
+
+/** Batch of transferable stream buffers and progress counters returned by `pollDownload`. */
+export type DownloadPollResult = {
+  videoChunks: ArrayBuffer[]
+  audioChunks: ArrayBuffer[]
+  loadedBytes: number
+  totalBytes?: number
+  done: boolean
+  error?: string
+}
+
 export type FrameApi = SourceApi & {
   prefetchPlayback(videoId: string, playerParams?: string): Promise<void>
   warmPlayback(): Promise<void>
@@ -167,6 +220,10 @@ export type FrameApi = SourceApi & {
   selectVideoFormat(sessionId: string, formatKey: string): Promise<void>
   selectAudioFormat(sessionId: string, formatKey: string): Promise<void>
   closePlayback(sessionId: string): Promise<void>
+  downloadFormats(videoId: string): Promise<DownloadFormatsResult>
+  startDownload(options: StartDownloadOptions): Promise<StartDownloadResult>
+  pollDownload(downloadId: string): Promise<DownloadPollResult>
+  cancelDownload(downloadId: string): Promise<void>
   resetIdentity(): Promise<void>
 }
 
@@ -183,6 +240,10 @@ export const FRAME_METHODS = [
   'selectVideoFormat',
   'selectAudioFormat',
   'closePlayback',
+  'downloadFormats',
+  'startDownload',
+  'pollDownload',
+  'cancelDownload',
   'resetIdentity',
 ] as const satisfies readonly (keyof FrameApi)[]
 

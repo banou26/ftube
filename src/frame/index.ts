@@ -1,4 +1,4 @@
-import type { FrameApi, FrameProgress, FrameRequest, FrameResponse, SegmentEnvelope } from './protocol'
+import type { DownloadPollResult, FrameApi, FrameProgress, FrameRequest, FrameResponse, SegmentEnvelope } from './protocol'
 
 import type { YoutubeClient } from '../sources/youtube'
 
@@ -7,6 +7,7 @@ import type { PlaybackEntry } from './playback'
 
 import { createYoutubeSource } from '../sources/youtube'
 import { json3ToWebVtt, parseCaptionTracks, signedTextUrl, timedTextUrl } from './captions'
+import { cancelAllDownloadSessions, cancelDownloadSession, getDownloadFormats, pollDownloadSession, startDownloadSession } from './download'
 import { parseEndScreen } from './end-screen'
 import { anonymousCueTracks, catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
 import { buildLiveManifest, liveAnchor, timelineEndMs } from './live-manifest'
@@ -194,6 +195,12 @@ const api = {
     closePlaybackEntry(entry)
     sessions.delete(id)
   },
+  downloadFormats: (videoId) => getDownloadFormats(videoId),
+  startDownload: (options) => startDownloadSession(options),
+  pollDownload: (downloadId) => pollDownloadSession(downloadId),
+  cancelDownload: async (downloadId) => {
+    cancelDownloadSession(downloadId)
+  },
 } satisfies FrameApi
 
 // a refused stream fails every later segment request of its playback with the same error, which is logged once
@@ -229,7 +236,11 @@ export const connect = (port: MessagePort) => {
       (result) => {
         document.documentElement.dataset.frameApi = `${request.method}:done`
         const segment = result as SegmentEnvelope
-        const transferables = request.method === 'requestSegment' && !segment.end ? [segment.data] : []
+        const transferables: Transferable[] = request.method === 'requestSegment' && !segment.end
+          ? [segment.data]
+          : request.method === 'pollDownload'
+          ? [...(result as DownloadPollResult).videoChunks, ...(result as DownloadPollResult).audioChunks]
+          : []
         port.postMessage({ id: request.id, result } satisfies FrameResponse, transferables)
       },
       (error) => {
@@ -247,5 +258,6 @@ export const connect = (port: MessagePort) => {
     port.close()
     for (const entry of sessions.values()) closePlaybackEntry(entry)
     sessions.clear()
+    cancelAllDownloadSessions()
   }
 }

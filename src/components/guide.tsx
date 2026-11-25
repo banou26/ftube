@@ -3,7 +3,7 @@ import type { FunctionComponent } from 'preact'
 import type { Group } from '../groups/store'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Gamepad2, History, House, Library, ListVideo, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -45,13 +45,16 @@ const YOU_ENTRY: GuideEntry = { label: 'You', href: '/feed/you', Icon: CircleUse
 
 const HISTORY_ENTRY: GuideEntry = { label: 'History', href: '/feed/history', Icon: History, match: '/feed/history' }
 
+const DOWNLOADS_ENTRY: GuideEntry = { label: 'Downloads', href: '/downloads', Icon: Download, match: '/downloads' }
+
 // youtube.com signed out keeps these two in its first section and puts a Sign in button where the rest of You would be
-const SIGNED_OUT_ENTRIES: GuideEntry[] = [YOU_ENTRY, HISTORY_ENTRY]
+const SIGNED_OUT_ENTRIES: GuideEntry[] = [YOU_ENTRY, HISTORY_ENTRY, DOWNLOADS_ENTRY]
 
 const YOU_ENTRIES: GuideEntry[] = [
   HISTORY_ENTRY,
   { label: 'Playlists', href: '/feed/playlists', Icon: Library, match: '/feed/playlists' },
   { label: 'Watch later', href: playlistHrefFor(WATCH_LATER_ID), Icon: Clock, match: playlistHrefFor(WATCH_LATER_ID) },
+  DOWNLOADS_ENTRY,
   { label: 'Liked videos', href: playlistHrefFor(LIKED_VIDEOS_ID), Icon: ThumbsUp, match: playlistHrefFor(LIKED_VIDEOS_ID) }
 ]
 

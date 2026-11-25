@@ -4,7 +4,7 @@ import type { Channel, SavePlaylistsQuery, Video } from '../generated/graphql'
 import type { CollaborationData } from './byline'
 
 import { css } from '@emotion/react'
-import { Ban, Check, ChevronLeft, CircleMinus, Clock, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
+import { Ban, Check, ChevronLeft, CircleMinus, Clock, Download, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
@@ -12,6 +12,7 @@ import { Link } from 'wouter'
 // reuses save-menu.tsx's documents rather than a second gql() copy: two operations cannot share a name
 import { gql } from '../generated'
 import { AddToPlaylistDocument, SavePlaylistsDocument } from '../generated/graphql'
+import { openDownloadDialog } from '../downloads/store'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor, shortsLink } from '../player/links'
@@ -119,7 +120,7 @@ const CardMenuPanel = (
   {
     videoId, title, thumbnail, durationSeconds, channel,
     notInterestedToken, dontRecommendToken, recommendable,
-    short, saved, onSaved,
+    short, live, saved, onSaved,
   }: {
     videoId: string
     title: string
@@ -130,6 +131,7 @@ const CardMenuPanel = (
     dontRecommendToken?: string | null
     recommendable: boolean
     short: boolean
+    live: boolean
     saved: string[]
     onSaved: (playlistId: string) => void
   },
@@ -271,6 +273,20 @@ const CardMenuPanel = (
               }}
             />
             <MenuSeparator />
+            {!live
+              ? (
+                <MenuItem
+                  icon={Download}
+                  label='Download'
+                  onSelect={() => openDownloadDialog({
+                    videoId,
+                    title,
+                    thumbnail,
+                    channelName: channel?.name,
+                  })}
+                />
+              )
+              : undefined}
             <MenuItem icon={Share2} label='Share' onSelect={onShare} />
             {recommendable && !short
               ? (
@@ -332,7 +348,7 @@ export const VideoCardMenu = (
   {
     videoId, title, thumbnail, durationSeconds, channel,
     notInterestedToken, dontRecommendToken, recommendable = false,
-    iconSize = 20, short = false, class: className,
+    iconSize = 20, short = false, live = false, class: className,
   }: {
     videoId: string
     title: string
@@ -344,6 +360,7 @@ export const VideoCardMenu = (
     recommendable?: boolean
     iconSize?: number
     short?: boolean
+    live?: boolean
     class?: string
   },
 ) => {
@@ -371,6 +388,7 @@ export const VideoCardMenu = (
         dontRecommendToken={dontRecommendToken}
         recommendable={recommendable}
         short={short}
+        live={live}
         saved={saved}
         onSaved={(playlistId: string) => setSaved(ids => ids.includes(playlistId) ? ids : [...ids, playlistId])}
       />
@@ -717,6 +735,7 @@ export const VideoCard = (
           notInterestedToken={video.notInterestedToken}
           dontRecommendToken={video.dontRecommendToken}
           recommendable={recommendable}
+          live={Boolean(video.isLive || video.isUpcoming)}
           class='more-menu'
         />
       </div>

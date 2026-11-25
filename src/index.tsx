@@ -5,6 +5,7 @@ import { render } from 'preact'
 import { Provider } from 'urql'
 
 import App from './app'
+import { DownloadDialogHost } from './components/download-dialog'
 import Toasts from './components/ui/toast'
 import { client } from './graphql'
 import { startGroupSync } from './groups/sync-live'
@@ -236,6 +237,7 @@ render(
   <Provider value={client}>
     <Global styles={globalStyles} />
     <App />
+    <DownloadDialogHost />
     <Toasts />
   </Provider>,
   root,

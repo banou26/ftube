@@ -260,3 +260,15 @@ export const audioManifestRole = (format: Pick<AudioFormatLike, 'audioTrackId' |
   if (!format.audioTrackId && !hasAnyDrc) return ''
   return format.isOriginal ? 'main' : 'alternate'
 }
+
+/** Extracts a short codec name (`H.264`, `AV1`, `VP9`, `AAC`, `Opus`) from a format MIME type. */
+export const codecLabel = (mimeType: string): string => {
+  const match = mimeType.match(/codecs="([^"]+)"/i)?.[1] ?? mimeType
+  const lower = match.toLowerCase()
+  if (lower.includes('avc1')) return 'H.264'
+  if (lower.includes('av01')) return 'AV1'
+  if (lower.includes('vp09') || lower.includes('vp9')) return 'VP9'
+  if (lower.includes('mp4a')) return 'AAC'
+  if (lower.includes('opus')) return 'Opus'
+  return match.split(',')[0]?.trim() || mimeType
+}

@@ -4,7 +4,7 @@ import { expect, test } from './test'
 
 test.use({ colorScheme: 'light' })
 
-const ITEMS = ['Add to queue', 'Save to Watch later', 'Save to playlist', 'Share']
+const ITEMS = ['Add to queue', 'Save to Watch later', 'Save to playlist', 'Download', 'Share']
 
 const scrollOf = (track: Locator) => track.evaluate(element => [element.scrollTop, element.scrollLeft])
 

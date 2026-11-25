@@ -17,6 +17,10 @@ const KEPT: { title: string, what: string }[] = [
     what: 'Up to 500 videos you marked "Not interested" and up to 500 channels you marked "Don\'t recommend channel", stored locally in this browser so they stay hidden across visits. Kept until you undo them or reset them in Settings.',
   },
   {
+    title: 'Download history',
+    what: 'Up to 100 download records (video ID, title, channel name, thumbnail address, mode, container format, quality label, filename, file size, creation and completion times, status, and any error message) stored locally in this browser for the Downloads page. Kept until you remove them or choose Clear history on the Downloads page.',
+  },
+  {
     title: 'Channel groups',
     what: 'Each group\'s name and emoji, when it was last changed, and the name, ID and picture address of each channel in it. Kept until you delete the group on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While FTube is signed in to FKN, also a random ID for your account\'s copy of the groups.',
   },

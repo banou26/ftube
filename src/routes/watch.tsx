@@ -4,7 +4,7 @@ import type { RelatedVideosQuery } from '../generated/graphql'
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { EllipsisVertical, Link2, Share2 } from 'lucide-react'
+import { Download, EllipsisVertical, Link2, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
@@ -18,7 +18,8 @@ import DescriptionBox from '../components/description-box'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { parseStartSeconds } from '../components/format'
 import { LikePill } from '../components/like-pill'
-import LiveChat from '../components/live-chat'
+import LiveChat, { LiveChatTeaser } from '../components/live-chat'
+import { openDownloadDialog } from '../downloads/store'
 import PlaylistPanel from '../components/playlist-panel'
 import { QueuePanel } from '../components/queue-panel'
 import { MembersOnly } from '../components/row-marks'
@@ -208,7 +209,9 @@ const style = css`
     padding-top: 2.4rem;
   }
 
-  .primary > .chat-replay {
+  .primary > .chat-replay,
+  .primary > .live-chat,
+  .primary > .live-chat-teaser {
     margin-top: 1.2rem;
   }
 
@@ -542,12 +545,19 @@ const WatchPage = () => {
     listId === undefined || watch?.playlist?.id !== listId ? undefined : watch.playlist
 
   const [sharing, setSharing] = useState(false)
+  const [chatHiddenFor, setChatHiddenFor] = useState<string | undefined>(undefined)
   // held as the video it was opened on, so the next video starts with the panel closed
   const [replayFor, setReplayFor] = useState<string | undefined>(undefined)
   const replayOpen = watch?.hasChatReplay === true && replayFor === videoId
   const oneColumn = useMediaQuery(ONE_COLUMN)
   const replay = replayOpen
     ? <ChatReplay key={`replay:${videoId}`} videoId={videoId} onClose={() => setReplayFor(undefined)} />
+    : undefined
+  const chatHidden = chatHiddenFor === videoId
+  const liveChat = watch?.isLive
+    ? chatHidden
+      ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
+      : <LiveChat key={`chat:${videoId}`} videoId={videoId} onHide={() => setChatHiddenFor(videoId)} />
     : undefined
 
   const chapters = watch?.chapters ?? []
@@ -584,7 +594,7 @@ const WatchPage = () => {
       {oneColumn && videoPanel ? <div className='panel-slot'>{videoPanel}</div> : undefined}
       <div className='columns'>
         <div className='primary'>
-          {oneColumn ? replay : undefined}
+          {oneColumn ? (replay ?? liveChat) : undefined}
           {watch?.title ? <h1 className='title'>{watch.title}</h1> : undefined}
           {watch?.isMembersOnly ? <MembersOnly /> : undefined}
           {watchError && !watch && !watchFetching ? <DataFailure error={watchError} reexecute={reexecuteWatch} /> : undefined}
@@ -643,6 +653,23 @@ const WatchPage = () => {
                     <Share2 size={20} strokeWidth={1.5} />
                     Share
                   </button>
+                  {!watch.isLive
+                    ? (
+                      <button
+                        type='button'
+                        className='pill'
+                        onClick={() => openDownloadDialog({
+                          videoId,
+                          title: watch.title ?? 'Video',
+                          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                          channelName: channel?.name ?? watch.byline?.map(part => part.text).join(' '),
+                        })}
+                      >
+                        <Download size={20} strokeWidth={1.5} />
+                        Download
+                      </button>
+                    )
+                    : undefined}
                   {/* Save sits beside Share rather than inside the More menu: a menu's panel is drawn on the body, so a press in a nested one would close the menu holding it */}
                   <SaveMenu videoId={videoId} />
                   <Menu
@@ -682,13 +709,13 @@ const WatchPage = () => {
             {watch?.hasChatReplay ? <ChatReplayTeaser open={replayOpen} onOpen={() => setReplayFor(videoId)} /> : undefined}
           </div>
         </div>
-        {watchFetching || playlist || queue.items.length > 0 || watch?.isLive || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
+        {watchFetching || playlist || queue.items.length > 0 || (watch?.isLive && !oneColumn) || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
           ? (
             <aside className='secondary'>
               {oneColumn ? undefined : replay}
+              {oneColumn ? undefined : liveChat}
               {oneColumn ? undefined : videoPanel}
               {playlist ? <PlaylistPanel playlist={playlist} /> : queue.items.length > 0 ? <QueuePanel /> : undefined}
-              {watch?.isLive ? <LiveChat key={`chat:${videoId}`} videoId={videoId} /> : undefined}
               {oneColumn
                 ? (
                   <div className='related-grid'>
