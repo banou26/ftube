@@ -19,6 +19,7 @@ import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from
 import { CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
+import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
@@ -604,6 +605,7 @@ export const PlayerControls = (
   const [preview, setPreview] = useState<number | undefined>(undefined)
   const [hover, setHover] = useState<{ time: number, ratio: number } | undefined>(undefined)
   const [pip, setPip] = useState(false)
+  const [pipSupported, setPipSupported] = useState(false)
   const [menu, setMenu] = useState<'root' | 'audio' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
   const [settings, setSettings] = useState(getSettings)
   useEffect(() => subscribeSettings(setSettings), [])
@@ -638,14 +640,12 @@ export const PlayerControls = (
   }, [video])
 
   useEffect(() => {
-    const sync = () => setPip(document.pictureInPictureElement === video)
-    video.addEventListener('enterpictureinpicture', sync)
-    video.addEventListener('leavepictureinpicture', sync)
-    sync()
-    return () => {
-      video.removeEventListener('enterpictureinpicture', sync)
-      video.removeEventListener('leavepictureinpicture', sync)
+    const sync = () => {
+      setPip(isVideoInPip(video))
+      setPipSupported(isPipSupported(video))
     }
+    sync()
+    return subscribeVideoPip(video, sync)
   }, [video])
 
   // a live stream's bar is its DVR window, so its times are drawn from the window's start
@@ -719,15 +719,8 @@ export const PlayerControls = (
   }
 
   const togglePip = () => {
-    if (document.pictureInPictureElement) {
-      void document.exitPictureInPicture().catch(() => {})
-      return
-    }
-    void video.requestPictureInPicture().catch(() => {})
+    void toggleVideoPip(video).catch(() => {})
   }
-
-  // hidden rather than disabled where the browser cannot do it at all (Firefox exposes no API, and a video can opt out)
-  const pipSupported = document.pictureInPictureEnabled === true && !video.disablePictureInPicture
 
   const board = bestStoryboard(storyboards)
   const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
@@ -917,6 +910,21 @@ export const PlayerControls = (
                         onSelect={() => onStableVolume(!stableVolume)}
                       >
                         Stable Volume
+                      </MenuItem>
+                    )
+                    : undefined}
+                  {pipSupported
+                    ? (
+                      <MenuItem
+                        role='menuitemcheckbox'
+                        selected={pip}
+                        detail={pip ? 'On' : 'Off'}
+                        onSelect={() => {
+                          togglePip()
+                          setMenu(undefined)
+                        }}
+                      >
+                        Picture in picture
                       </MenuItem>
                     )
                     : undefined}

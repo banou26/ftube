@@ -61,9 +61,12 @@ const boot = async () => {
   serveMediaPort(media.port2, { extFetch, remote, prefix: `frame:${crypto.randomUUID().slice(0, 8)}` })
   connectEgress(media.port1)
   connectAgent(agent)
-  window.addEventListener('pagehide', () => {
+  const onPageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) return
+    window.removeEventListener?.('pagehide', onPageHide)
     for (const port of [egress, extFetchPort, media.port1, media.port2, agent]) port.close()
-  }, { once: true })
+  }
+  window.addEventListener('pagehide', onPageHide)
 
   stage('session')
   const session = signedIn ? await readSession(() => pageCookie(SESSION_READ_MS)) : { signedOut: false }

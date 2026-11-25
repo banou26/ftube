@@ -317,7 +317,8 @@ const PersistentPlayer = () => {
                   videoId={session.videoId}
                   playerParams={session.playerParams}
                   list={session.list}
-                  title={session.title}
+                  title={watch?.title ?? session.title}
+                  channelName={watch?.channel?.name ?? undefined}
                   startAt={session.startAt}
                   docked={docked}
                   theater={session.theater}

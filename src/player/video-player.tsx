@@ -42,7 +42,9 @@ import { EndScreenElements } from './end-screen-elements'
 import { InfoCards } from './info-cards'
 import { pictureOf } from './end-screen-layout'
 import { getFullscreenElement, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
+import { bindMediaSession, syncMediaSessionState, updateMediaSessionMetadata } from './media-session'
 import { MiniplayerControls } from './miniplayer'
+import { isVideoInPip, subscribeVideoPip } from './pip'
 import { useFrame } from './player-frame'
 import { RefusalScreen } from './refusal-screen'
 import { stepRate } from './rates'
@@ -249,13 +251,14 @@ const captionBase = (video: HTMLVideoElement) => {
 
 const VideoPlayer = (
   {
-    videoId, playerParams, list, title, startAt, docked = false, theater = false, onTheater, onMiniplayer, upNext,
+    videoId, playerParams, list, title, channelName, startAt, docked = false, theater = false, onTheater, onMiniplayer, upNext,
     chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
     list?: string
     title?: string
+    channelName?: string
     startAt?: number
     docked?: boolean
     theater?: boolean
@@ -406,14 +409,9 @@ const VideoPlayer = (
       setInPip(false)
       return
     }
-    const sync = () => setInPip(document.pictureInPictureElement === videoElement)
+    const sync = () => setInPip(isVideoInPip(videoElement))
     sync()
-    videoElement.addEventListener('enterpictureinpicture', sync)
-    videoElement.addEventListener('leavepictureinpicture', sync)
-    return () => {
-      videoElement.removeEventListener('enterpictureinpicture', sync)
-      videoElement.removeEventListener('leavepictureinpicture', sync)
-    }
+    return subscribeVideoPip(videoElement, sync)
   }, [videoElement])
 
   const sponsors = useRef(segments)
@@ -770,6 +768,48 @@ const VideoPlayer = (
   // read at key time, so the listener is bound once rather than on every rendered frame
   const latest = useRef({ docked, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
   latest.current = { docked, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
+
+  useEffect(() => {
+    updateMediaSessionMetadata({ videoId, title, artist: channelName })
+  }, [videoId, title, channelName])
+
+  const hasNext = Boolean(onNext)
+  const hasPrevious = Boolean(onPrevious)
+  useEffect(() => {
+    if (!videoElement) return
+    const target = {
+      get paused () {
+        return videoElement.paused
+      },
+      get currentTime () {
+        return videoElement.currentTime
+      },
+      set currentTime (value: number) {
+        videoElement.currentTime = value
+      },
+      get duration () {
+        return videoElement.duration
+      },
+      get playbackRate () {
+        return videoElement.playbackRate
+      },
+      play: () => videoElement.play(),
+      pause: () => videoElement.pause(),
+      fastSeek: typeof videoElement.fastSeek === 'function' ? (time: number) => videoElement.fastSeek(time) : undefined,
+      seekRange: () => seekWindow(videoElement, latest.current.player),
+    }
+    const unbind = bindMediaSession(target, {
+      onPrevious: hasPrevious ? () => latest.current.onPrevious?.() : undefined,
+      onNext: hasNext ? () => latest.current.onNext?.() : undefined,
+    })
+    const sync = () => syncMediaSessionState(target)
+    const events = ['play', 'pause', 'ratechange', 'seeked', 'durationchange', 'loadedmetadata'] as const
+    for (const event of events) videoElement.addEventListener(event, sync)
+    return () => {
+      for (const event of events) videoElement.removeEventListener(event, sync)
+      unbind()
+    }
+  }, [videoElement, hasNext, hasPrevious])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

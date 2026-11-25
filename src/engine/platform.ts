@@ -135,10 +135,13 @@ export const loadedLib = () => fknLib
 const create = async () => {
   const worker = new Worker(new URL('./egress.worker.ts', import.meta.url), { type: 'module' })
   const relayAbort = new AbortController()
-  window.addEventListener('pagehide', () => {
+  const onPageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) return
+    window.removeEventListener?.('pagehide', onPageHide)
     relayAbort.abort()
     worker.terminate()
-  }, { once: true })
+  }
+  window.addEventListener('pagehide', onPageHide)
 
   const brokerLoaded = mountBroker()
   const [, lib] = await Promise.all([brokerLoaded, import('@fkn/lib').then((module) => (fknLib = module))])

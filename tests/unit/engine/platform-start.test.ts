@@ -87,4 +87,39 @@ describe('starting the platform', () => {
     expect(appendChild).not.toHaveBeenCalled()
     expect(relayWorker).toHaveBeenCalledTimes(1)
   })
+
+  it('keeps the egress worker alive across persisted pagehide transitions', async () => {
+    relayWorker.mockResolvedValue(undefined)
+    const terminate = vi.fn()
+    vi.stubGlobal('Worker', class {
+      postMessage() {}
+      terminate = terminate
+    })
+    const listeners = new Map<string, Set<(event: { persisted?: boolean }) => void>>()
+    const emitPagehide = (persisted: boolean) => {
+      for (const listener of Array.from(listeners.get('pagehide') ?? [])) listener({ persisted })
+    }
+    vi.stubGlobal('window', {
+      addEventListener: (type: string, listener: (event: { persisted?: boolean }) => void) => {
+        let set = listeners.get(type)
+        if (!set) {
+          set = new Set()
+          listeners.set(type, set)
+        }
+        set.add(listener)
+      },
+      removeEventListener: (type: string, listener: (event: { persisted?: boolean }) => void) => {
+        listeners.get(type)?.delete(listener)
+      },
+    })
+
+    const { startPlatform } = await import('../../../src/engine/platform')
+    await startPlatform()
+
+    emitPagehide(true)
+    expect(terminate).not.toHaveBeenCalled()
+
+    emitPagehide(false)
+    expect(terminate).toHaveBeenCalledTimes(1)
+  })
 })
