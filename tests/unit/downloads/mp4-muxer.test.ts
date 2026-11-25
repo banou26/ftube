@@ -333,7 +333,6 @@ const extractTrackPayloadsFromStbl = (fileBytes: Uint8Array, stblChildren: { typ
 
 describe('muxMp4', () => {
   it('remuxes fragmented H.264 and AAC DASH tracks into standard fast-start interleaved MP4', () => {
-    // Realistic H.264 parameters matching YouTube 15 fps VOD (`avc1`, timescale 15360, sample delta 1024, elst media_time 1024)
     const videoSamplesFrag1: SampleSpec[] = Array.from({ length: 30 }, (_, i) => ({
       payload: makePattern(10 + i, 80 + (i % 7)),
       flags: i === 0 || i === 15 ? 0x0 : 0x10000,
@@ -344,7 +343,6 @@ describe('muxMp4', () => {
       flags: i === 0 ? 0x0 : 0x10000,
       cto: 0,
     }))
-    // 45 video frames * 1024 / 15360 = 3.0s = 46080 ticks
     const videoTrack = concat([
       box('ftyp', fourcc('dash'), u32(0), fourcc('iso6'), fourcc('avc1'), fourcc('mp41')),
       makeMoov({
@@ -380,8 +378,6 @@ describe('muxMp4', () => {
       }),
     ])
 
-    // Realistic AAC parameters (timescale 44100, sample delta 1024, default_sample_flags 0x0 sync)
-    // 130 audio frames * 1024 / 44100 = ~3.0186s = 133120 ticks
     const audioSamplesFrag1: SampleSpec[] = Array.from({ length: 86 }, (_, i) => ({
       payload: makePattern(100 + i, 40 + (i % 4)),
     }))
@@ -423,10 +419,8 @@ describe('muxMp4', () => {
     const muxed = concat(muxMp4(split(videoTrack), split(audioTrack)))
     const top = listBoxes(muxed)
 
-    // Standard non-fragmented progressive MP4 top-level layout
     expect(top.map((item) => item.type)).toEqual(['ftyp', 'moov', 'mdat'])
 
-    // ftyp carries isom major brand and compatible avc1 + mp41 brands
     const ftypData = top[0]!.data
     expect(String.fromCharCode(...ftypData.subarray(8, 12))).toBe('isom')
     const compatBrands: string[] = []
@@ -438,13 +432,11 @@ describe('muxMp4', () => {
     const moovChildren = listBoxes(top[1]!.data, 8)
     expect(moovChildren.map((child) => child.type)).toEqual(['mvhd', 'trak', 'trak'])
 
-    // mvhd normalized to timescale 1000 with max(3000, 3019) duration and next_track_id = 3
     const mvhd = moovChildren[0]!.data
     expect(readUint32(mvhd, 20)).toBe(1000)
     expect(readUint32(mvhd, 24)).toBe(Math.round((133_120 * 1000) / 44_100))
     expect(readUint32(mvhd, mvhd.byteLength - 4)).toBe(3)
 
-    // Video trak (track 1): tkhd duration scaled to movie timescale (3000 ms), elst preserved & rescaled
     const videoTrak = listBoxes(moovChildren[1]!.data, 8)
     const videoTkhd = videoTrak.find((b) => b.type === 'tkhd')!.data
     expect(readUint32(videoTkhd, 20)).toBe(1)
@@ -454,7 +446,6 @@ describe('muxMp4', () => {
     expect(readUint32(elstData, 16)).toBe(3000)
     expect(readInt32(elstData, 20)).toBe(1024)
 
-    // Audio trak (track 2): tkhd duration must be ~3019 ms in movie timescale (NOT 133120 or unscaled)
     const audioTrak = listBoxes(moovChildren[2]!.data, 8)
     const audioTkhd = audioTrak.find((b) => b.type === 'tkhd')!.data
     expect(readUint32(audioTkhd, 20)).toBe(2)
@@ -489,7 +480,6 @@ describe('muxMp4', () => {
       { sampleCount: 130, sampleDelta: 1024 },
     ])
 
-    // Exact sample bytes extracted via stco/stsc/stsz must match the original video and audio inputs byte-for-byte
     const extractedVideo = extractTrackPayloadsFromStbl(muxed, videoStblChildren)
     const extractedAudio = extractTrackPayloadsFromStbl(muxed, audioStblChildren)
     expect(extractedVideo.samples.map((s) => [...s])).toEqual(
@@ -499,7 +489,6 @@ describe('muxMp4', () => {
       [...audioSamplesFrag1, ...audioSamplesFrag2].map((s) => [...s.payload]),
     )
 
-    // 2s first fragment was sub-chunked into ~1s chunks (> 2 input fragments), and audio/video chunks interleave in mdat
     expect(extractedVideo.chunks.length).toBeGreaterThanOrEqual(3)
     expect(extractedAudio.chunks.length).toBeGreaterThanOrEqual(3)
     expect(extractedVideo.chunks[0]!).toBeLessThan(extractedAudio.chunks[0]!)
@@ -540,6 +529,13 @@ describe('muxMp4', () => {
     ])
 
     const muxed = concat(muxMp4([videoTrack], [audioTrack]))
+    const ftypData = listBoxes(muxed)[0]!.data
+    const brands: string[] = []
+    for (let pos = 16; pos < ftypData.byteLength; pos += 4) {
+      brands.push(String.fromCharCode(...ftypData.subarray(pos, pos + 4)))
+    }
+    expect(brands).toEqual(['isom', 'iso2', 'iso4', 'avc1', 'mp41'])
+
     const moovChildren = listBoxes(listBoxes(muxed).find((b) => b.type === 'moov')!.data, 8)
     expect(moovChildren.some((b) => b.type === 'mvex')).toBe(false)
 
@@ -557,12 +553,88 @@ describe('muxMp4', () => {
     ])
   })
 
-  it('throws a clear error when either stream lacks a moov atom or media samples', () => {
+  it('supports tfhd base_data_offset, 64-bit tfdt, and multiple truns in one traf', () => {
+    const s1 = makePattern(11, 14)
+    const s2 = makePattern(22, 18)
+    const audioSample = makePattern(33, 12)
+
+    const videoHeader = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+    ])
+
+    const mfhdPayload = new Uint8Array(8)
+    new DataView(mfhdPayload.buffer).setUint32(4, 1)
+    const tfhdPayload = new Uint8Array(20)
+    const tfhdView = new DataView(tfhdPayload.buffer)
+    tfhdView.setUint32(0, 0x000009) // base_data_offset + default_sample_duration
+    tfhdView.setUint32(4, 1)
+    tfhdView.setBigUint64(8, BigInt(videoHeader.byteLength))
+    tfhdView.setUint32(16, 3000)
+
+    const tfdtPayload = new Uint8Array(12)
+    const tfdtView = new DataView(tfdtPayload.buffer)
+    tfdtView.setUint32(0, 1 << 24)
+    tfdtView.setBigUint64(4, 0n)
+
+    const makeTrun = (sampleLen: number, dataOff: number) => {
+      const payload = new Uint8Array(16)
+      const view = new DataView(payload.buffer)
+      view.setUint32(0, 0x000201)
+      view.setUint32(4, 1)
+      view.setInt32(8, dataOff)
+      view.setUint32(12, sampleLen)
+      return box('trun', payload)
+    }
+
+    const tfhdBox = box('tfhd', tfhdPayload)
+    const tfdtBox = box('tfdt', tfdtPayload)
+    const mfhdBox = box('mfhd', mfhdPayload)
+    const dummyTrun1 = makeTrun(s1.byteLength, 0)
+    const dummyTrun2 = makeTrun(s2.byteLength, 0)
+    const trafSize = 8 + tfhdBox.byteLength + tfdtBox.byteLength + dummyTrun1.byteLength + dummyTrun2.byteLength
+    const moofSize = 8 + mfhdBox.byteLength + trafSize
+    const mdatPayloadStart = moofSize + 8
+
+    const traf = box(
+      'traf',
+      tfhdBox,
+      tfdtBox,
+      makeTrun(s1.byteLength, mdatPayloadStart),
+      makeTrun(s2.byteLength, mdatPayloadStart + s1.byteLength),
+    )
+    const moof = box('moof', mfhdBox, traf)
+    const mdat = box('mdat', s1, s2)
+    const videoTrack = concat([videoHeader, moof, mdat])
+
+    const audioTrack = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 48_000, handlerType: 'soun', codecFourcc: 'mp4a' }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1600,
+        samples: [{ payload: audioSample }],
+      }),
+    ])
+
+    const muxed = concat(muxMp4([videoTrack], [audioTrack]))
+    const moovChildren = listBoxes(listBoxes(muxed).find((b) => b.type === 'moov')!.data, 8)
+    const videoStbl = listBoxes(
+      listBoxes(listBoxes(moovChildren[1]!.data, 8).find((b) => b.type === 'mdia')!.data, 8).find((b) => b.type === 'minf')!.data,
+      8,
+    ).find((b) => b.type === 'stbl')!
+    const extracted = extractTrackPayloadsFromStbl(muxed, listBoxes(videoStbl.data, 8))
+    expect(extracted.samples.map((s) => [...s])).toEqual([[...s1], [...s2]])
+  })
+
+  it('throws clear errors on missing moov, empty samples, truncated tfhd, bad data_offset, and zero-size trun', () => {
     const emptyVideo = concat([
       box('ftyp', fourcc('iso6')),
       makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
     ])
-    const videoWithSample = concat([
+    const validVideo = concat([
       box('ftyp', fourcc('iso6')),
       makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
       makeDashFragment({
@@ -585,7 +657,47 @@ describe('muxMp4', () => {
       }),
     ])
     expect(() => muxMp4([box('ftyp', u32(0))], [audio])).toThrow('missing moov box')
-    expect(() => muxMp4([videoWithSample], [box('ftyp', u32(0))])).toThrow('missing moov box')
+    expect(() => muxMp4([validVideo], [box('ftyp', u32(0))])).toThrow('missing moov box')
     expect(() => muxMp4([emptyVideo], [audio])).toThrow('no media samples')
+
+    const truncTfhd = new Uint8Array(8)
+    new DataView(truncTfhd.buffer).setUint32(0, 0x000001)
+    new DataView(truncTfhd.buffer).setUint32(4, 1)
+    const truncVideo = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+      box('moof', box('traf', box('tfhd', truncTfhd))),
+      box('mdat', makePattern(1, 8)),
+    ])
+    expect(() => muxMp4([truncVideo], [audio])).toThrow('truncated tfhd')
+
+    const badOffTfhd = new Uint8Array(8)
+    new DataView(badOffTfhd.buffer).setUint32(0, 0x020000)
+    new DataView(badOffTfhd.buffer).setUint32(4, 1)
+    const badOffTrun = new Uint8Array(16)
+    const badOffView = new DataView(badOffTrun.buffer)
+    badOffView.setUint32(0, 0x000201)
+    badOffView.setUint32(4, 1)
+    badOffView.setInt32(8, 99_999)
+    badOffView.setUint32(12, 4)
+    const badOffVideo = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+      box('moof', box('traf', box('tfhd', badOffTfhd), box('trun', badOffTrun))),
+      box('mdat', makePattern(1, 8)),
+    ])
+    expect(() => muxMp4([badOffVideo], [audio])).toThrow('out of mdat bounds')
+
+    const zeroSzTrun = new Uint8Array(8)
+    const zeroSzView = new DataView(zeroSzTrun.buffer)
+    zeroSzView.setUint32(0, 0)
+    zeroSzView.setUint32(4, 10)
+    const zeroSzVideo = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+      box('moof', box('traf', box('tfhd', badOffTfhd), box('trun', zeroSzTrun))),
+      box('mdat', makePattern(1, 8)),
+    ])
+    expect(() => muxMp4([zeroSzVideo], [audio])).toThrow('zero-size samples')
   })
 })

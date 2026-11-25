@@ -379,8 +379,18 @@ const style = css`
       gap: 0.8rem;
     }
 
+    .icon-button {
+      width: 3.6rem;
+      height: 3.6rem;
+    }
+
     .end {
       gap: 0;
+    }
+
+    .sign-in {
+      padding: 0 1rem;
+      gap: 0.5rem;
     }
   }
 `

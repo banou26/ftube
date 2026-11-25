@@ -306,6 +306,7 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
     let runningMdatOffset = mdatPayloadStart
 
     const moofChildren = readBoxes(bytes, box.start + box.headerSize, box.start + box.size)
+    let firstTraf = true
     for (const traf of moofChildren) {
       if (traf.type !== 'traf') continue
       const trafChildren = readBoxes(bytes, traf.start + traf.headerSize, traf.start + traf.size)
@@ -313,22 +314,41 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
       if (!tfhd || tfhd.size < tfhd.headerSize + 8) {
         throw new Error(`mp4-muxer: invalid tfhd on track ${trackId}`)
       }
+      const tfhdEnd = tfhd.start + tfhd.size
       const tfFlags = (bytes[tfhd.start + tfhd.headerSize + 1]! << 16)
         | (bytes[tfhd.start + tfhd.headerSize + 2]! << 8)
         | bytes[tfhd.start + tfhd.headerSize + 3]!
       let tfPos = tfhd.start + tfhd.headerSize + 8
       let baseDataOffset: number | undefined
       if (tfFlags & 0x000001) {
-        if (tfPos + 8 > tfhd.start + tfhd.size) throw new Error(`mp4-muxer: truncated tfhd base_data_offset`)
+        if (tfPos + 8 > tfhdEnd) throw new Error(`mp4-muxer: truncated tfhd base_data_offset on track ${trackId}`)
         baseDataOffset = readUint64(bytes, tfPos)
         tfPos += 8
       }
-      if (tfFlags & 0x000002) tfPos += 4
-      const tfhdDefaultDur = (tfFlags & 0x000008) ? readUint32(bytes, tfPos) : trex.defaultDuration
-      if (tfFlags & 0x000008) tfPos += 4
-      const tfhdDefaultSize = (tfFlags & 0x000010) ? readUint32(bytes, tfPos) : trex.defaultSize
-      if (tfFlags & 0x000010) tfPos += 4
-      const tfhdDefaultFlags = (tfFlags & 0x000020) ? readUint32(bytes, tfPos) : trex.defaultFlags
+      if (tfFlags & 0x000002) {
+        if (tfPos + 4 > tfhdEnd) throw new Error(`mp4-muxer: truncated tfhd on track ${trackId}`)
+        tfPos += 4
+      }
+      let tfhdDefaultDur = trex.defaultDuration
+      if (tfFlags & 0x000008) {
+        if (tfPos + 4 > tfhdEnd) throw new Error(`mp4-muxer: truncated tfhd on track ${trackId}`)
+        tfhdDefaultDur = readUint32(bytes, tfPos)
+        tfPos += 4
+      }
+      let tfhdDefaultSize = trex.defaultSize
+      if (tfFlags & 0x000010) {
+        if (tfPos + 4 > tfhdEnd) throw new Error(`mp4-muxer: truncated tfhd on track ${trackId}`)
+        tfhdDefaultSize = readUint32(bytes, tfPos)
+        tfPos += 4
+      }
+      let tfhdDefaultFlags = trex.defaultFlags
+      if (tfFlags & 0x000020) {
+        if (tfPos + 4 > tfhdEnd) throw new Error(`mp4-muxer: truncated tfhd on track ${trackId}`)
+        tfhdDefaultFlags = readUint32(bytes, tfPos)
+      }
+
+      const defaultBase = (tfFlags & 0x020000) || firstTraf ? box.start : runningMdatOffset
+      firstTraf = false
 
       const tfdt = trafChildren.find((entry) => entry.type === 'tfdt')
       let decodeTime = runningDecodeTime
@@ -356,22 +376,40 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
 
         let dataOffset: number | undefined
         if (trFlags & 0x000001) {
-          if (trPos + 4 > trunEnd) throw new Error(`mp4-muxer: truncated trun data_offset`)
+          if (trPos + 4 > trunEnd) throw new Error(`mp4-muxer: truncated trun data_offset on track ${trackId}`)
           dataOffset = readInt32(bytes, trPos)
           trPos += 4
         }
         let firstSampleFlags: number | undefined
         if (trFlags & 0x000004) {
-          if (trPos + 4 > trunEnd) throw new Error(`mp4-muxer: truncated trun first_sample_flags`)
+          if (trPos + 4 > trunEnd) throw new Error(`mp4-muxer: truncated trun first_sample_flags on track ${trackId}`)
           firstSampleFlags = readUint32(bytes, trPos)
           trPos += 4
         }
 
-        const anchor = baseDataOffset ?? box.start
-        const candidateStart = dataOffset !== undefined ? anchor + dataOffset : runningMdatOffset
-        const runByteStart = candidateStart >= mdatPayloadStart && candidateStart <= mdatEnd
-          ? candidateStart
-          : runningMdatOffset
+        const anchor = baseDataOffset ?? defaultBase
+        let runByteStart = runningMdatOffset
+        if (dataOffset !== undefined) {
+          const candidateStart = anchor + dataOffset
+          if (candidateStart < mdatPayloadStart || candidateStart > mdatEnd) {
+            throw new Error(`mp4-muxer: trun data_offset out of mdat bounds on track ${trackId}`)
+          }
+          runByteStart = candidateStart
+        }
+
+        const fieldsPerSample = Number(Boolean(trFlags & 0x000100))
+          + Number(Boolean(trFlags & 0x000200))
+          + Number(Boolean(trFlags & 0x000400))
+          + Number(Boolean(trFlags & 0x000800))
+        if (trPos + sampleCount * fieldsPerSample * 4 > trunEnd) {
+          throw new Error(`mp4-muxer: truncated trun entries on track ${trackId}`)
+        }
+        if (sampleCount > 1 && !(trFlags & 0x000200) && tfhdDefaultSize === 0) {
+          throw new Error(`mp4-muxer: trun has zero-size samples on track ${trackId}`)
+        }
+        if (!(trFlags & 0x000200) && tfhdDefaultSize > 0 && runByteStart + sampleCount * tfhdDefaultSize > mdatEnd) {
+          throw new Error(`mp4-muxer: sample exceeds mdat bounds on track ${trackId}`)
+        }
 
         const fragStartSample = samples.length
         let runBytes = 0
@@ -392,7 +430,6 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
           const ctsOffset = (trFlags & 0x000800)
             ? (trVer === 1 ? readInt32(bytes, (trPos += 4) - 4) : readUint32(bytes, (trPos += 4) - 4))
             : 0
-          if (trPos > trunEnd) throw new Error(`mp4-muxer: truncated trun entries on track ${trackId}`)
           if (runByteStart + runBytes + size > mdatEnd) {
             throw new Error(`mp4-muxer: sample exceeds mdat bounds on track ${trackId}`)
           }
@@ -504,8 +541,9 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
   }
 }
 
-const buildFtyp = (videoCodecBrand: string): Uint8Array => {
+const buildFtyp = (videoCodecBrand: string, hasSignedCtts: boolean): Uint8Array => {
   const brands = ['isom', 'iso2']
+  if (hasSignedCtts) brands.push('iso4')
   if (videoCodecBrand && !brands.includes(videoCodecBrand)) brands.push(videoCodecBrand)
   if (!brands.includes('mp41')) brands.push('mp41')
   const payload = new Uint8Array(8 + brands.length * 4)
@@ -753,7 +791,9 @@ export const muxMp4 = (videoChunks: readonly Uint8Array[], audioChunks: readonly
   const video = parseTrack(videoChunks, 1)
   const audio = parseTrack(audioChunks, 2)
 
-  const ftyp = buildFtyp(video.codecBrand)
+  const hasSignedCtts = video.samples.some((sample) => sample.ctsOffset < 0)
+    || audio.samples.some((sample) => sample.ctsOffset < 0)
+  const ftyp = buildFtyp(video.codecBrand, hasSignedCtts)
   const videoDurationMs = Math.round((video.totalDurationTicks * MOVIE_TIMESCALE) / video.mdhdTimescale)
   const audioDurationMs = Math.round((audio.totalDurationTicks * MOVIE_TIMESCALE) / audio.mdhdTimescale)
   const movieDurationMs = Math.max(videoDurationMs, audioDurationMs)

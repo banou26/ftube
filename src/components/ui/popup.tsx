@@ -26,9 +26,12 @@ export const useDismiss = (
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      const active = document.activeElement
+      const inside = active instanceof Node
+        && Boolean(rootRef.current?.contains(active) || panelRef?.current?.contains(active))
       event.stopPropagation()
       onClose()
-      triggerRef?.current?.focus()
+      if (inside) triggerRef?.current?.focus()
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -133,12 +136,13 @@ const placeAt = (panel: HTMLElement, { x, y }: Point) => {
  * `media` gives it youtube.com's player menu look.
  */
 export const Popup = (
-  { align = 'end', side = 'below', anchor, at, media = false, panelRef, onKeyDown, label, children, class: className }: {
+  { align = 'end', side = 'below', anchor, at, media = false, role = 'menu', panelRef, onKeyDown, label, children, class: className }: {
     align?: 'start' | 'end'
     side?: 'below' | 'above'
     anchor?: RefObject<HTMLElement | null>
     at?: () => Point
     media?: boolean
+    role?: 'menu' | 'dialog'
     panelRef?: RefObject<HTMLDivElement | null>
     onKeyDown?: (event: KeyboardEvent) => void
     label: string
@@ -185,7 +189,7 @@ export const Popup = (
       css={popupStyle}
       className={[floating ? 'anchored' : `align-${align}`, media ? 'media' : undefined, className].filter(part => part !== undefined).join(' ')}
       ref={panelRef}
-      role='menu'
+      role={role}
       aria-label={label}
       onKeyDown={onKeyDown}
     >

@@ -26,8 +26,7 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   const audioDownloadPromise = page.waitForEvent('download')
   await dialog.getByRole('button', { name: 'Download', exact: true }).click()
 
-  // Floating download progress menu opens right in the header without navigating to /downloads.
-  const floatingMenu = page.getByRole('menu', { name: 'Downloads' })
+  const floatingMenu = page.getByRole('dialog', { name: 'Downloads' })
   await expect(floatingMenu).toBeVisible()
   await expect(floatingMenu.getByText(/M4A/)).toBeVisible()
 
@@ -56,11 +55,20 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   expect(audioMeta.duration).toBeGreaterThan(10)
   expect(audioMeta.readyState).toBeGreaterThanOrEqual(1)
 
-  // Closing the popup leaves the header trigger visible across route changes.
   await page.keyboard.press('Escape')
   await expect(floatingMenu).toBeHidden()
   const trayTrigger = page.getByRole('button', { name: /^Downloads:/ })
   await expect(trayTrigger).toBeVisible()
+
+  await page.setViewportSize({ width: 360, height: 860 })
+  const signInButton = page.getByRole('button', { name: 'Sign in' })
+  await expect(signInButton).toBeVisible({ timeout: 30_000 })
+  const trayBox = (await trayTrigger.boundingBox())!
+  const signInBox = (await signInButton.boundingBox())!
+  expect(trayBox.x).toBeGreaterThanOrEqual(0)
+  expect(trayBox.x + trayBox.width).toBeLessThanOrEqual(signInBox.x + 0.5)
+  expect(signInBox.x + signInBox.width).toBeLessThanOrEqual(360)
+  await page.setViewportSize({ width: 1280, height: 900 })
 
   await downloadBtn.click()
   await expect(dialog).toBeVisible()
@@ -78,8 +86,6 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   const videoBytes = readFileSync(videoPath!)
   expect(videoBytes.byteLength).toBeGreaterThan(20_000)
 
-  // Muxed MP4 must use standard non-fragmented ISO-BMFF layout (`isom` with `moov` + `mdat` and zero `moof`)
-  // and decode both video and AAC audio in Chromium.
   const boxTypes: string[] = []
   let offset = 0
   while (offset + 8 <= videoBytes.byteLength) {
@@ -125,7 +131,6 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   expect(videoMeta.readyState).toBeGreaterThanOrEqual(2)
   expect(videoMeta.decodedAudio).toBeGreaterThan(0)
 
-  // Navigate to Home and reopen the floating downloads popup before clearing it.
   await page.keyboard.press('Escape')
   await page.getByRole('link', { name: 'FTube home' }).click()
   await expect(page).toHaveURL(/\/$/)

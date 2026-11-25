@@ -373,7 +373,6 @@ describe('download store history and flow', () => {
     expect(downloadPercent({ loadedBytes: 50, totalBytes: undefined })).toBeUndefined()
     expect(downloadStatusLabel('muxing')).toBe('Muxing MP4…')
 
-    // Cold persisted history stays on /downloads without showing in the floating header tray.
     expect(getDownloads()).toHaveLength(1)
     expect(getDownloadTray()).toEqual({ items: [], active: [], startedSeq: 0 })
 
@@ -408,7 +407,6 @@ describe('download store history and flow', () => {
       items: [{ id: result.id, status: 'completed' }],
     })
 
-    // Dismissing from the floating tray hides it there while keeping /downloads history intact.
     dismissDownloadFromTray(result.id)
     expect(getDownloadTray().items).toHaveLength(0)
     expect(getDownloads().some((entry) => entry.id === result.id)).toBe(true)

@@ -294,21 +294,18 @@ export const startDownloadSession = async (options: StartDownloadOptions): Promi
   const requestedAudio = byKey.get(options.audioKey)
   if (!requestedAudio) throw new Error('youtube: selected audio format is unavailable')
 
-  const isMp4Audio = (format: SabrFormat) => Boolean(format.mimeType?.startsWith('audio/mp4'))
-  const isAacMp4 = (format: SabrFormat) => isMp4Audio(format) && Boolean(format.mimeType?.toLowerCase().includes('mp4a'))
-  const audioFormat = options.mode === 'video' && !isMp4Audio(requestedAudio)
-    ? source.formats.find((format) =>
-        !format.width
-        && isAacMp4(format)
-        && (!requestedAudio.audioTrackId || format.audioTrackId === requestedAudio.audioTrackId),
-      )
-      ?? source.formats.find((format) =>
-        !format.width
-        && isMp4Audio(format)
-        && (!requestedAudio.audioTrackId || format.audioTrackId === requestedAudio.audioTrackId),
-      )
-      ?? requestedAudio
-    : requestedAudio
+  const audioRank = (format: SabrFormat) => {
+    if (format.width || !format.mimeType?.startsWith('audio/mp4')) return 0
+    return format.mimeType.toLowerCase().includes('mp4a') ? 2 : 1
+  }
+  let fallbackAudio: SabrFormat | undefined
+  if (options.mode === 'video' && !requestedAudio.mimeType?.startsWith('audio/mp4')) {
+    for (const format of source.formats) {
+      if (requestedAudio.audioTrackId && format.audioTrackId !== requestedAudio.audioTrackId) continue
+      if (audioRank(format) > (fallbackAudio ? audioRank(fallbackAudio) : 0)) fallbackAudio = format
+    }
+  }
+  const audioFormat = fallbackAudio ?? requestedAudio
 
   const videoFormat = options.mode === 'video'
     ? (options.videoKey ? byKey.get(options.videoKey) : undefined)

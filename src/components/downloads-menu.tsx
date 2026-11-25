@@ -101,6 +101,10 @@ const triggerStyle = css`
     color: var(--danger);
   }
 
+  .cancelled-icon {
+    color: var(--text-secondary);
+  }
+
   @media (max-width: 1359px) {
     padding: 0 0.8rem;
 
@@ -117,6 +121,11 @@ const triggerStyle = css`
     width: 3.6rem;
     padding: 0;
     justify-content: center;
+  }
+
+  @media (max-width: 399px) {
+    width: 3.2rem;
+    height: 3.2rem;
   }
 `
 
@@ -337,6 +346,7 @@ export const DownloadsMenu = () => {
   const aggregatePercent = active.length > 0 ? aggregateProgress(active) : undefined
   const allMuxing = active.length > 0 && active.every((item) => item.status === 'muxing')
   const hasFailed = active.length === 0 && items.some((item) => item.status === 'failed')
+  const allCancelled = active.length === 0 && items.every((item) => item.status === 'cancelled')
 
   const triggerLabel = active.length > 0
     ? active.length > 1
@@ -352,11 +362,11 @@ export const DownloadsMenu = () => {
             : 'Preparing…')
     : hasFailed
       ? 'Failed'
-      : 'Done'
+      : allCancelled
+        ? 'Cancelled'
+        : 'Done'
 
-  const triggerAriaLabel = active.length > 0
-    ? `Downloads: ${active.length} active${aggregatePercent !== undefined ? `, ${aggregatePercent}%` : ''}`
-    : `Downloads: ${hasFailed ? 'failed' : 'completed'}`
+  const triggerAriaLabel = `Downloads: ${triggerLabel}`
 
   const ringFraction = allMuxing
     ? 1
@@ -371,7 +381,7 @@ export const DownloadsMenu = () => {
         ref={triggerRef}
         type='button'
         css={triggerStyle}
-        className={active.length === 0 ? (hasFailed ? 'failed' : 'done') : undefined}
+        className={active.length === 0 ? (hasFailed ? 'failed' : allCancelled ? undefined : 'done') : undefined}
         aria-label={triggerAriaLabel}
         aria-haspopup='dialog'
         aria-expanded={open}
@@ -396,13 +406,15 @@ export const DownloadsMenu = () => {
           )
           : hasFailed
             ? <AlertCircle className='failed-icon' size={18} strokeWidth={1.75} aria-hidden='true' />
-            : <Check className='done-icon' size={18} strokeWidth={2} aria-hidden='true' />}
+            : allCancelled
+              ? <X className='cancelled-icon' size={16} strokeWidth={2} aria-hidden='true' />
+              : <Check className='done-icon' size={18} strokeWidth={2} aria-hidden='true' />}
         <span className='label'>{triggerLabel}</span>
       </button>
 
       {open
         ? (
-          <Popup label='Downloads' align='end' anchor={triggerRef} panelRef={panelRef}>
+          <Popup label='Downloads' role='dialog' align='end' anchor={triggerRef} panelRef={panelRef}>
             <div css={panelStyle}>
               <div className='head'>
                 <div>
