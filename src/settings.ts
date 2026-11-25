@@ -9,6 +9,8 @@ export type ThemePreference = 'device' | 'light' | 'dark'
 
 export type QualityPreference = 'auto' | number
 
+export type CaptionPosition = { x: number, y: number }
+
 export type Settings = {
   theme: ThemePreference
   autoplay: boolean
@@ -31,6 +33,7 @@ export type Settings = {
   captionBackgroundOpacity: number
   captionEdge: string
   captionOpacity: number
+  captionPosition?: CaptionPosition
   theater: boolean
   ambientMode: boolean
   showDislikes: boolean
@@ -81,6 +84,12 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
   const volume = stored.volume
   const playbackRate = stored.playbackRate
   const captionsLanguage = stored.captionsLanguage
+  const rawPosition = stored.captionPosition as { x?: unknown, y?: unknown } | null | undefined
+  const captionPosition = rawPosition && typeof rawPosition === 'object'
+    && typeof rawPosition.x === 'number' && Number.isFinite(rawPosition.x)
+    && typeof rawPosition.y === 'number' && Number.isFinite(rawPosition.y)
+    ? { x: clamp(rawPosition.x, 0, 1), y: clamp(rawPosition.y, 0, 1) }
+    : undefined
   return {
     theme: theme === 'light' || (theme === 'dark' && stored.themeChosen === true) ? theme : DEFAULT_SETTINGS.theme,
     autoplay: typeof stored.autoplay === 'boolean' ? stored.autoplay : DEFAULT_SETTINGS.autoplay,
@@ -99,6 +108,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
       key,
       choices.some(choice => choice.value === stored[key]) ? stored[key] : DEFAULT_SETTINGS[key],
     ])) as CaptionLook,
+    captionPosition,
     theater: typeof stored.theater === 'boolean' ? stored.theater : DEFAULT_SETTINGS.theater,
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,

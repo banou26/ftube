@@ -180,6 +180,32 @@ describe('the caption look settings', () => {
   })
 })
 
+describe('the caption position setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to undefined, clamps valid coordinates, and drops malformed values', async () => {
+    expect((await load()).getSettings().captionPosition).toBeUndefined()
+    expect((await load({ captionPosition: { x: 0.2, y: 0.8 } })).getSettings().captionPosition).toEqual({ x: 0.2, y: 0.8 })
+    expect((await load({ captionPosition: { x: -1, y: 3 } })).getSettings().captionPosition).toEqual({ x: 0, y: 1 })
+    expect((await load({ captionPosition: 'top-left' })).getSettings().captionPosition).toBeUndefined()
+    expect((await load({ captionPosition: { x: Number.NaN, y: 0.5 } })).getSettings().captionPosition).toBeUndefined()
+    expect((await load({ captionPosition: { x: '0.1', y: 0.5 } })).getSettings().captionPosition).toBeUndefined()
+  })
+
+  it('persists updates and clears when reset to undefined', async () => {
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ captionPosition: { x: 0.15, y: 0.25 } })
+    expect(JSON.parse(written.at(-1)!).captionPosition).toEqual({ x: 0.15, y: 0.25 })
+    updateSettings({ captionPosition: undefined })
+    expect(JSON.parse(written.at(-1)!).captionPosition).toBeUndefined()
+  })
+})
+
 describe('the captions on or off choice', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

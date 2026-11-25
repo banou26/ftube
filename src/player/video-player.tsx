@@ -32,6 +32,7 @@ import { showToast } from '../components/ui/toast'
 import { PartyPlayback } from '../components/party-playback'
 import { AudioPermissionPrompt } from './audio-prompt'
 import { Bezel } from './bezel'
+import { CaptionOverlay } from './caption-overlay'
 import { captionDeclarations, stepCaptionSize } from './caption-style'
 import { chapterIndexAt, chapterStep } from './chapters'
 import { isTypingTarget, PlayerControls } from './controls'
@@ -143,14 +144,12 @@ const playerStyle = css`
     background: rgba(0, 0, 0, 0.8);
   }
 
-  /* youtube.com's sample after + or - while no cue is on screen, drawn where Chrome draws a cue and in the cue's look */
-  .caption-sample {
-    position: absolute;
-    left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    pointer-events: none;
+  &.custom-captions video::cue {
+    visibility: hidden;
+    opacity: 0;
+    color: transparent;
+    background-color: transparent;
+    text-shadow: none;
   }
 
   @container player (max-width: 600px) {
@@ -206,10 +205,6 @@ type CardTeaser = NonNullable<WatchMetaQuery['watch']>['cardTeasers'][number]
 
 const captionStyle = (declarations: string) => css`
   video::cue {
-    ${declarations};
-  }
-
-  .caption-sample {
     ${declarations};
   }
 `
@@ -322,6 +317,8 @@ const VideoPlayer = (
   const closeShortcuts = useCallback(() => setShortcuts(false), [])
   const [loop, setLoop] = useState(false)
   const [cueStyle, setCueStyle] = useState('')
+  const [captionBaseSize, setCaptionBaseSize] = useState(0)
+  const [inPip, setInPip] = useState(false)
   const [sample, setSample] = useState<number | undefined>(undefined)
   const sampleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [timesUp, setTimesUp] = useState(false)
@@ -388,7 +385,11 @@ const VideoPlayer = (
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    const update = () => setCueStyle(captionDeclarations(getSettings(), captionBase(video)))
+    const update = () => {
+      const base = captionBase(video)
+      setCaptionBaseSize(base)
+      setCueStyle(captionDeclarations(getSettings(), base))
+    }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(video)
@@ -399,7 +400,22 @@ const VideoPlayer = (
       video.removeEventListener('resize', update)
       unsubscribe()
     }
-  }, [attempt])
+  }, [attempt, videoElement])
+
+  useEffect(() => {
+    if (!videoElement) {
+      setInPip(false)
+      return
+    }
+    const sync = () => setInPip(document.pictureInPictureElement === videoElement)
+    sync()
+    videoElement.addEventListener('enterpictureinpicture', sync)
+    videoElement.addEventListener('leavepictureinpicture', sync)
+    return () => {
+      videoElement.removeEventListener('enterpictureinpicture', sync)
+      videoElement.removeEventListener('leavepictureinpicture', sync)
+    }
+  }, [videoElement])
 
   const sponsors = useRef(segments)
   sponsors.current = segments
@@ -904,11 +920,30 @@ const VideoPlayer = (
     ? undefined
     : segments.find(part => !excused.current.has(part) && part.start > time && part.start - time <= SPONSOR_NOTICE)
 
+  const playerClasses = [
+    !active && !state.paused && !menu && !grid ? 'idle' : undefined,
+    !inPip ? 'custom-captions' : undefined,
+  ].filter(Boolean).join(' ') || undefined
+
+  const togglePlay = () => {
+    const current = videoRef.current
+    // a click that closes the menu only closes it, as on youtube.com
+    if (!current || menuAtPress.current) return
+    if (current.paused) {
+      void current.play().catch(() => {})
+      flash('play')
+    } else {
+      current.pause()
+      flash('pause')
+    }
+  }
+  const toggleFullscreen = docked ? undefined : () => requestPlayerFullscreen(videoRef.current)
+
   return (
     <div
       css={[playerStyle, captionStyle(cueStyle)]}
       data-player-surface
-      className={!active && !state.paused && !menu && !grid ? 'idle' : undefined}
+      className={playerClasses}
       onPointerMove={wake}
       onPointerLeave={() => setActive(false)}
       onPointerDown={() => {
@@ -940,22 +975,25 @@ const VideoPlayer = (
         loop={loop}
         onLoadedData={() => setHasFrame(true)}
         onPlaying={() => setHasFrame(true)}
-        onClick={() => {
-          const current = videoRef.current
-          // a click that closes the menu only closes it, as on youtube.com
-          if (!current || menuAtPress.current) return
-          if (current.paused) {
-            void current.play().catch(() => {})
-            flash('play')
-          } else {
-            current.pause()
-            flash('pause')
-          }
-        }}
-        onDblClick={docked ? undefined : () => requestPlayerFullscreen(videoRef.current)}
+        onClick={togglePlay}
+        onDblClick={toggleFullscreen}
       />
       {showSpinner ? <div className='spinner' /> : undefined}
-      {sample !== undefined ? <span className='caption-sample' style={{ fontSize: `${sample}px` }}>Captions look like this</span> : undefined}
+      {video && !inPip && !status && !refusal
+        ? (
+          <CaptionOverlay
+            video={video}
+            cueStyle={cueStyle}
+            baseSize={captionBaseSize}
+            controlsVisible={(active || state.paused || settingsOpen) && !grid}
+            docked={docked}
+            sample={sample}
+            onDragStart={wake}
+            onClick={togglePlay}
+            onDblClick={toggleFullscreen}
+          />
+        )
+        : undefined}
       {bezel ? <Bezel key={bezel.id} cue={bezel} /> : undefined}
       {status
         ? (

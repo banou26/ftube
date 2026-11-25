@@ -209,6 +209,95 @@ test('the Options panel restyles the captions, the look stays for the next visit
   expect((await next())!.family).toContain('Roboto')
 })
 
+test('subtitles can be dragged around the player, persist across reloads, and reset via Options -> Reset', async ({ page }) => {
+  test.setTimeout(300_000)
+  await startPlayback(page)
+  await page.getByRole('button', { name: 'Turn on captions' }).click()
+  await holdOnCue(page)
+
+  const overlay = page.locator('[data-caption-overlay]')
+  const captionWindow = page.locator('[data-caption-window]')
+  await expect(captionWindow).toBeVisible({ timeout: 30_000 })
+
+  const before = (await captionWindow.boundingBox())!
+  const overlayBox = (await overlay.boundingBox())!
+  const wasPaused = await page.locator('video').evaluate(video => (video as HTMLVideoElement).paused)
+
+  const startX = before.x + before.width / 2
+  const startY = before.y + before.height / 2
+  const targetX = overlayBox.x + before.width / 2 + 4
+  const targetY = overlayBox.y + before.height / 2 + 4
+
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(targetX, targetY, { steps: 10 })
+  await page.mouse.up()
+
+  const afterDrag = (await captionWindow.boundingBox())!
+  expect(afterDrag.y).toBeLessThan(before.y - 40)
+  expect(afterDrag.x).toBeLessThan(before.x - 40)
+  expect(await page.locator('video').evaluate(video => (video as HTMLVideoElement).paused)).toBe(wasPaused)
+
+  const savedPosition = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').captionPosition)
+  expect(savedPosition.x).toBeLessThan(0.25)
+  expect(savedPosition.y).toBeLessThan(0.25)
+
+  // A plain click on the caption window toggles playback without moving the caption box.
+  const boxBeforeClick = (await captionWindow.boundingBox())!
+  await page.mouse.click(boxBeforeClick.x + boxBeforeClick.width / 2, boxBeforeClick.y + boxBeforeClick.height / 2)
+  expect(await page.locator('video').evaluate(video => (video as HTMLVideoElement).paused)).toBe(!wasPaused)
+  await page.mouse.click(boxBeforeClick.x + boxBeforeClick.width / 2, boxBeforeClick.y + boxBeforeClick.height / 2)
+  expect(await page.locator('video').evaluate(video => (video as HTMLVideoElement).paused)).toBe(wasPaused)
+  const boxAfterClick = (await captionWindow.boundingBox())!
+  expect(Math.abs(boxAfterClick.x - boxBeforeClick.x)).toBeLessThanOrEqual(2)
+  expect(Math.abs(boxAfterClick.y - boxBeforeClick.y)).toBeLessThanOrEqual(2)
+
+  // If the cue disappears mid-drag (gap between cues), releasing the pointer still commits and never leaves drag stuck.
+  const gapDragStartX = boxAfterClick.x + boxAfterClick.width / 2
+  const gapDragStartY = boxAfterClick.y + boxAfterClick.height / 2
+  const gapDragEndX = overlayBox.x + overlayBox.width - boxAfterClick.width / 2 - 4
+  const gapDragEndY = overlayBox.y + boxAfterClick.height / 2 + 4
+  await page.mouse.move(gapDragStartX, gapDragStartY)
+  await page.mouse.down()
+  await page.mouse.move((gapDragStartX + gapDragEndX) / 2, gapDragStartY, { steps: 5 })
+  await page.locator('video').evaluate((video) => {
+    for (const track of (video as HTMLVideoElement).textTracks) {
+      if (track.mode === 'showing') track.mode = 'hidden'
+    }
+  })
+  await page.mouse.move(gapDragEndX, gapDragEndY, { steps: 5 })
+  await page.mouse.up()
+  await page.locator('video').evaluate((video) => {
+    const track = [...(video as HTMLVideoElement).textTracks].find(candidate => candidate.mode === 'hidden')
+    if (track) track.mode = 'showing'
+  })
+  await expect(captionWindow).toBeVisible({ timeout: 30_000 })
+  const afterGapDrag = (await captionWindow.boundingBox())!
+  expect(afterGapDrag.x).toBeGreaterThan(boxAfterClick.x + 40)
+  // Moving the cursor back without holding a button must not drag the new cue.
+  await page.mouse.move(gapDragStartX, gapDragStartY, { steps: 5 })
+  const afterHover = (await captionWindow.boundingBox())!
+  expect(Math.abs(afterHover.x - afterGapDrag.x)).toBeLessThanOrEqual(2)
+  expect(Math.abs(afterHover.y - afterGapDrag.y)).toBeLessThanOrEqual(2)
+
+  await startPlayback(page)
+  await page.getByRole('button', { name: 'Turn off captions' }).waitFor({ timeout: 30_000 })
+  await holdOnCue(page)
+  await expect(captionWindow).toBeVisible({ timeout: 30_000 })
+  const afterReload = (await captionWindow.boundingBox())!
+  expect(Math.abs(afterReload.x - afterGapDrag.x)).toBeLessThan(20)
+  expect(Math.abs(afterReload.y - afterGapDrag.y)).toBeLessThan(20)
+
+  await openSubtitles(page)
+  await page.getByRole('menuitem', { name: 'Options' }).click()
+  await page.getByRole('menuitem', { name: 'Reset' }).click()
+  await page.keyboard.press('Escape')
+
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').captionPosition)).toBeUndefined()
+  const afterReset = (await captionWindow.boundingBox())!
+  expect(afterReset.y).toBeGreaterThan(afterReload.y + 40)
+})
+
 // rows wholly inside the open menu, which scrolls the rest
 const menuFit = (page: Page) => page.evaluate(() => {
   const menu = document.querySelector('[role="menu"]')!.getBoundingClientRect()

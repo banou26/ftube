@@ -1197,7 +1197,10 @@ export const PlayerControls = (
                                 {option.label}
                               </MenuItem>
                             ))}
-                            <MenuItem onSelect={() => updateSettings(Object.fromEntries(CAPTION_OPTIONS.map(({ key }) => [key, DEFAULT_SETTINGS[key]])))}>
+                            <MenuItem onSelect={() => updateSettings({
+                              ...Object.fromEntries(CAPTION_OPTIONS.map(({ key }) => [key, DEFAULT_SETTINGS[key]])),
+                              captionPosition: undefined,
+                            })}>
                               Reset
                             </MenuItem>
                           </Popup>
