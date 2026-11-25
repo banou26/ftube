@@ -4,7 +4,7 @@ import { Parser, YTNodes } from 'youtubei.js'
 
 import type { AccountRowFixture } from '../../fixtures/accounts-list'
 
-import { normalizeChannel, normalizeChannelAbout, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist } from '../../../../src/sources/youtube/normalize'
+import { normalizeChannel, normalizeChannelAbout, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist } from '../../../../src/sources/youtube/normalize'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../../fixtures/accounts-list'
 
 // the AccountItem nodes youtubei.js parses out of a WEB accounts_list answer, as the source's session read takes them
@@ -1302,3 +1302,75 @@ describe('video recommendation feedback tokens', () => {
     expect(normalized?.dontRecommendToken).toBe('lockup-dr')
   })
 })
+
+describe('live chat banners and custom emojis', () => {
+  it('normalizes pinned banners with header text and message content', () => {
+    expect(normalizeLiveChatPinned({
+      action_id: 'pin-1',
+      header: { text: { text: 'Pinned by Streamer' } },
+      contents: {
+        id: 'msg-pin',
+        message: { text: 'Read the rules', runs: [{ text: 'Read the rules' }] },
+        author: { id: 'UCowner', name: 'Streamer' },
+      },
+    })).toEqual({
+      id: 'pin-1',
+      header: 'Pinned by Streamer',
+      message: {
+        id: 'msg-pin',
+        author: { id: 'UCowner', name: 'Streamer', avatar: undefined, handle: undefined, isVerified: undefined },
+        text: 'Read the rules',
+        runs: [{ text: 'Read the rules', bold: undefined, url: undefined, videoId: undefined, startSeconds: undefined, browseId: undefined }],
+        timestampText: undefined,
+        isOwner: undefined,
+        isModerator: undefined,
+        isMember: undefined,
+        purchaseAmountText: undefined,
+        headerBackgroundColor: undefined,
+        bodyBackgroundColor: undefined,
+      },
+    })
+    expect(normalizeLiveChatPinned({
+      action_id: 'redirect-1',
+      banner_type: 'LIVE_CHAT_BANNER_TYPE_CROSS_CHANNEL_REDIRECT',
+      contents: { id: 'r1', message: { text: 'Channel redirected' }, author: { id: 'UC1', name: 'Other' } },
+    })).toBeUndefined()
+    expect(normalizeLiveChatPinned({
+      action_id: 'poll-1',
+      contents: { id: 'poll-msg' },
+    })).toBeUndefined()
+    expect(normalizeLiveChatPinned({})).toBeUndefined()
+  })
+
+  it('extracts deduplicated custom emojis with shortcuts and image URLs', () => {
+    expect(normalizeLiveChatEmojis([
+      {
+        emoji_id: 'e1',
+        shortcuts: [':party:'],
+        image: [{ url: 'https://yt3.ggpht.com/party.png', width: 48 }],
+        is_custom_emoji: true,
+      },
+      {
+        emoji_id: 'e1-dup',
+        shortcuts: [':party:'],
+        image: [{ url: 'https://yt3.ggpht.com/party2.png', width: 48 }],
+        is_custom_emoji: true,
+      },
+      {
+        emoji_id: 'e-std',
+        shortcuts: [':smile:'],
+        image: [{ url: 'https://yt3.ggpht.com/smile.png', width: 48 }],
+        is_custom_emoji: false,
+      },
+      {
+        emoji_id: 'e-no-img',
+        shortcuts: [':empty:'],
+        image: [],
+        is_custom_emoji: true,
+      },
+    ])).toEqual([
+      { id: 'e1', shortcut: ':party:', url: 'https://yt3.ggpht.com/party.png' },
+    ])
+  })
+})
+

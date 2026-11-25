@@ -64,6 +64,8 @@ export const createCache = () => cacheExchange({
     WatchPlaylist: () => null,
     Chapter: () => null,
     LiveChatPage: () => null,
+    LiveChatPinnedMessage: () => null,
+    LiveChatEmoji: () => null,
     LiveChatRun: () => null,
     TextRun: () => null,
     BylinePart: () => null,

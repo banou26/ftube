@@ -14,7 +14,7 @@ vi.mock('preact/hooks', () => ({
   useState: () => [false, () => {}],
 }))
 
-const { EMOJI_CATEGORIES, filterEmojis, insertAtCursor } = await import('../../../src/components/emoji-picker')
+const { EMOJI_CATEGORIES, filterCustomEmojis, filterEmojis, insertAtCursor } = await import('../../../src/components/emoji-picker')
 
 describe('insertAtCursor', () => {
   it('inserts an emoji at the start, middle, and end of a draft', () => {
@@ -44,5 +44,15 @@ describe('filterEmojis', () => {
     expect(filterEmojis('FIRE').map(entry => entry.emoji)).toContain('🔥')
     expect(filterEmojis('rofl').map(entry => entry.emoji)).toContain('🤣')
     expect(filterEmojis('definitely-not-an-emoji-name')).toEqual([])
+  })
+
+  it('filters channel custom emojis by shortcut case-insensitively', () => {
+    const custom = [
+      { id: 'c1', shortcut: ':hypers:', url: 'https://img/hypers.png' },
+      { id: 'c2', shortcut: ':gg:', url: 'https://img/gg.png' },
+    ]
+    expect(filterCustomEmojis(custom, '')).toHaveLength(2)
+    expect(filterCustomEmojis(custom, 'HYP')).toEqual([custom[0]])
+    expect(filterCustomEmojis(custom, 'none')).toEqual([])
   })
 })

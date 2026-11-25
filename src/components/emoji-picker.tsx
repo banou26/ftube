@@ -1,4 +1,5 @@
 import type { TargetedEvent } from 'preact'
+import type { LiveChatEmoji } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 import { Smile } from 'lucide-react'
@@ -15,6 +16,8 @@ export type EmojiEntry = {
   category: EmojiCategory
   keywords: readonly string[]
 }
+
+export type CustomEmoji = LiveChatEmoji
 
 export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   'Smileys',
@@ -179,6 +182,16 @@ export const filterEmojis = (query: string, category?: EmojiCategory): readonly 
   )
 }
 
+/** Filters custom channel emojis by shortcut when a search `query` is non-empty. */
+export const filterCustomEmojis = (
+  customEmojis: readonly CustomEmoji[],
+  query: string,
+): readonly CustomEmoji[] => {
+  const term = query.trim().toLowerCase()
+  if (!term) return customEmojis
+  return customEmojis.filter(entry => entry.shortcut.toLowerCase().includes(term))
+}
+
 const triggerStyle = css`
   display: inline-flex;
   align-items: center;
@@ -292,6 +305,20 @@ const panelStyle = css`
     background: var(--bg-hover-strong);
   }
 
+  .emoji-cell img {
+    width: 2.2rem;
+    height: 2.2rem;
+    object-fit: contain;
+  }
+
+  .emoji-section-title {
+    grid-column: 1 / -1;
+    padding: 0.4rem 0.2rem 0.2rem;
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
   .emoji-empty {
     grid-column: 1 / -1;
     padding: 1.6rem 0;
@@ -316,10 +343,11 @@ const placePanel = (panel: HTMLElement, trigger: HTMLElement) => {
   panel.style.left = `${Math.max(GAP, Math.min(anchor.left, maxLeft))}px`
 }
 
-/** Button opening a local searchable Unicode emoji picker anchored beside the trigger. */
-export const EmojiButton = ({ onPick, disabled = false }: {
+/** Button opening a local searchable Unicode and optional channel custom emoji picker anchored beside the trigger. */
+export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
   onPick: (emoji: string) => void
   disabled?: boolean
+  customEmojis?: readonly CustomEmoji[]
 }) => {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -372,9 +400,11 @@ export const EmojiButton = ({ onPick, disabled = false }: {
       window.removeEventListener('resize', schedule)
       observer.disconnect()
     }
-  }, [open, query, category])
+  }, [open, query, category, customEmojis.length])
 
+  const matchingCustom = customEmojis.length > 0 ? filterCustomEmojis(customEmojis, query) : []
   const entries = filterEmojis(query, category)
+  const showCustom = matchingCustom.length > 0 && (query.trim().length > 0 || category === 'Smileys')
 
   return (
     <div ref={rootRef}>
@@ -422,6 +452,26 @@ export const EmojiButton = ({ onPick, disabled = false }: {
               )
               : undefined}
             <div id={gridId} className='emoji-grid'>
+              {showCustom
+                ? (
+                  <>
+                    <div className='emoji-section-title'>Channel emojis</div>
+                    {matchingCustom.map(entry => (
+                      <button
+                        key={entry.id}
+                        type='button'
+                        className='emoji-cell'
+                        aria-label={entry.shortcut}
+                        title={entry.shortcut}
+                        onClick={() => onPick(`${entry.shortcut} `)}
+                      >
+                        <img src={entry.url} alt={entry.shortcut} loading='lazy' />
+                      </button>
+                    ))}
+                    {entries.length > 0 ? <div className='emoji-section-title'>Standard</div> : undefined}
+                  </>
+                )
+                : undefined}
               {entries.length > 0
                 ? entries.map(entry => (
                   <button
@@ -435,7 +485,9 @@ export const EmojiButton = ({ onPick, disabled = false }: {
                     {entry.emoji}
                   </button>
                 ))
-                : <div className='emoji-empty'>No matching emojis</div>}
+                : !showCustom
+                ? <div className='emoji-empty'>No matching emojis</div>
+                : undefined}
             </div>
           </div>,
           document.fullscreenElement ?? document.body,

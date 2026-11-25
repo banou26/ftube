@@ -155,17 +155,30 @@ const createFakeClient = () => {
   const calls: string[] = []
   type ChatListener = (action: { item?: unknown, target_item_id?: string }) => void
   const chatListeners: ChatListener[] = []
+  const chatStartListeners: ((contents: unknown) => void)[] = []
   const chatEnders: (() => void)[] = []
+  const smoothedGroups: unknown[][] = []
+  let activeContinuation: string | undefined
   const liveChat = {
     on: (event: string, listener: (value: never) => void) => {
+      if (event === 'start') chatStartListeners.push(listener as (contents: unknown) => void)
       if (event === 'chat-update') chatListeners.push(listener as ChatListener)
       if (event === 'end') chatEnders.push(listener as () => void)
     },
-    start: () => void calls.push('livechat:start'),
+    smoothed_queue: {
+      enqueueActionGroup: (group: unknown[]) => {
+        smoothedGroups.push(group)
+      },
+    },
+    applyFilter: (filter: string) => void calls.push(`livechat:filter:${filter}`),
+    start: () => void calls.push(`livechat:start:${activeContinuation ?? 'default'}`),
     stop: () => void calls.push('livechat:stop'),
     sendMessage: async (body: string) => void calls.push(`livechat:send:${body}`),
   }
-  const emitChat = (action: { item?: unknown, target_item_id?: string }) => {
+  const emitChatStart = (contents: unknown) => {
+    for (const listener of chatStartListeners) listener(contents)
+  }
+  const emitChat = (action: { item?: unknown, target_item_id?: string, banner?: unknown, target_action_id?: string }) => {
     for (const listener of chatListeners) listener(action)
   }
   const endChat = () => {
@@ -175,8 +188,10 @@ const createFakeClient = () => {
   const searchFilters: unknown[] = []
   return {
     calls,
+    emitChatStart,
     emitChat,
     endChat,
+    smoothedGroups,
     payloads,
     searchFilters,
     getHomeFeed: async () => feed('first', async () => feed('second')),
@@ -254,9 +269,13 @@ const createFakeClient = () => {
     getInfo: async (id: string) => {
       calls.push(`getInfo:${id}`)
       if (id === 'nochat') return { livechat: undefined, getLiveChat: () => { throw new Error('Live Chat is not available') } }
+      const chatRef: { continuation?: string } = { continuation: 'top-tok' }
       return {
-        livechat: {},
-        getLiveChat: () => liveChat,
+        livechat: chatRef,
+        getLiveChat: () => {
+          activeContinuation = chatRef.continuation
+          return liveChat
+        },
       }
     },
     getPlaylists: async () => playlists('PLone', async () => playlists('PLtwo')),
@@ -683,14 +702,82 @@ describe('youtube source', () => {
     await chatStarted(client)
     client.emitChat({ item: chatItem('c1', 'hello') })
     const first = await opened
-    expect(client.calls).toContain('livechat:start')
+    expect(client.calls).toContain('livechat:start:top-tok')
     expect(first.items.map((item) => item.id)).toEqual(['c1'])
     expect(first.cursor).toBeTruthy()
 
     client.emitChat({ item: chatItem('c2', 'still here') })
     const second = await source.liveChat('abc', first.cursor)
     expect(second.items.map((item) => item.id)).toEqual(['c2'])
-    expect(client.calls.filter((call) => call === 'livechat:start')).toHaveLength(1)
+    expect(client.calls.filter((call) => call.startsWith('livechat:start'))).toHaveLength(1)
+  })
+
+  it('captures start backlog, pinned banners, custom emojis, unsmoothed groups, and Top/Live view switching', async () => {
+    const client = createFakeClient()
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const chatStarted = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const opened = source.liveChat('v-stream', undefined, 'TOP')
+    await chatStarted()
+    client.emitChatStart({
+      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok' }, { continuation: 'all-tok' }] } },
+      emojis: [{ emoji_id: 'e1', shortcuts: [':wave:'], image: [{ url: 'https://img/wave.png', width: 48 }], is_custom_emoji: true }],
+      actions: [
+        { item: chatItem('init-1', 'initial backlog') },
+        {
+          banner: {
+            action_id: 'pin-1',
+            header: { text: { text: 'Pinned message' } },
+            contents: chatItem('pin-msg', 'Read FAQ'),
+          },
+        },
+      ],
+    })
+    const first = await opened
+    expect(first.items.map((item) => item.id)).toEqual(['init-1'])
+    expect(first.pinned).toMatchObject({ id: 'pin-1', header: 'Pinned message' })
+    expect(first.customEmojis).toEqual([{ id: 'e1', shortcut: ':wave:', url: 'https://img/wave.png' }])
+
+    client.emitChat({ target_action_id: 'other-banner' })
+    const afterOtherRemoval = await source.liveChat('v-stream', first.cursor, 'TOP')
+    expect(afterOtherRemoval.pinnedCleared).toBeUndefined()
+
+    const nextPoll = source.liveChat('v-stream', afterOtherRemoval.cursor, 'TOP')
+    const info = await client.getInfo('v-stream')
+    const liveChatObj = info.getLiveChat()
+    liveChatObj.smoothed_queue.enqueueActionGroup([
+      { item: chatItem('fast-1', 'instant delivery') },
+      { target_action_id: 'pin-1' },
+    ] as never)
+    const second = await nextPoll
+    expect(second.items.map((item) => item.id)).toEqual(['fast-1'])
+    expect(second.pinnedCleared).toBe(true)
+    expect(client.smoothedGroups.at(-1)).toEqual([])
+
+    const switched = source.liveChat('v-stream', undefined, 'ALL')
+    await chatStarted()
+    client.emitChat({ item: chatItem('all-1', 'unfiltered') })
+    const allPage = await switched
+    expect(client.calls).toContain('livechat:start:all-tok')
+    expect(allPage.items.map((item) => item.id)).toEqual(['all-1'])
+  })
+
+  it('switches a cold liveChat(ALL) opening via applyFilter without pushing stale TOP actions or calling getInfo twice', async () => {
+    const client = createFakeClient()
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const opened = source.liveChat('v-cold', undefined, 'ALL')
+    await chatStarted(client)
+    client.emitChatStart({
+      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok', selected: true }, { continuation: 'all-tok', selected: false }] } },
+      actions: [{ item: chatItem('top-stale', 'top message should not leak into ALL') }],
+    })
+    client.emitChatStart({
+      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok', selected: false }, { continuation: 'all-tok', selected: true }] } },
+      actions: [{ item: chatItem('all-real', 'live chat unfiltered') }],
+    })
+    const first = await opened
+    expect(client.calls.filter((call) => call === 'getInfo:v-cold')).toHaveLength(1)
+    expect(client.calls).toContain('livechat:filter:LIVE_CHAT')
+    expect(first.items.map((item) => item.id)).toEqual(['all-real'])
   })
 
   it('carries a removal as its own instruction', async () => {

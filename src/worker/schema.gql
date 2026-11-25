@@ -777,6 +777,18 @@ type LiveChatRun {
   emojiLabel: String
 }
 
+type LiveChatEmoji {
+  id: ID!
+  shortcut: String!
+  url: String!
+}
+
+type LiveChatPinnedMessage {
+  id: ID!
+  header: String
+  message: LiveChatMessage!
+}
+
 type LiveChatPage {
   items: [LiveChatMessage!]!
   # Poll this for whatever arrives next. Absent once the chat has ended, which
@@ -788,6 +800,9 @@ type LiveChatPage {
   # Chat is off for this video. Distinct from an empty page, which just means
   # nothing was said since the last poll.
   disabled: Boolean
+  pinned: LiveChatPinnedMessage
+  pinnedCleared: Boolean
+  customEmojis: [LiveChatEmoji!]
 }
 
 type CommentPage {
@@ -939,7 +954,7 @@ type Query {
   # request. Call without a cursor to open the chat, then follow the cursor it
   # returns. A poll parks on the server until something arrives or it times out,
   # so an empty page is a heartbeat rather than a reason to back off.
-  liveChat(videoId: ID!, cursor: String): LiveChatPage!
+  liveChat(videoId: ID!, view: ChatReplayView, cursor: String): LiveChatPage!
   # The chat of a finished stream or premiere. Without a cursor it starts at
   # `offsetMs`, which is how the panel opens and follows a seek, and the page
   # carries some lines from before that point; a cursor continues past the

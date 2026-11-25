@@ -1,4 +1,4 @@
-import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
+import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
 
 type Thumbnail = {
   url?: string
@@ -2056,4 +2056,52 @@ export const normalizeLiveChatMessage = (input: unknown): SourceLiveChatMessage 
     headerBackgroundColor: argbColor(item.header_background_color),
     bodyBackgroundColor: argbColor(item.body_background_color),
   }
+}
+
+type LiveChatBannerNode = {
+  action_id?: string
+  target_id?: string
+  banner_type?: string
+  header?: { text?: Text }
+  contents?: Record<string, unknown>
+}
+
+type LiveChatEmojiNode = {
+  emoji_id?: string
+  shortcuts?: string[]
+  image?: Thumbnail[]
+  is_custom_emoji?: boolean
+}
+
+/** Normalizes a pinned live chat banner into a header label and pinned message. */
+export const normalizeLiveChatPinned = (input: unknown): SourceLiveChatPinnedMessage | undefined => {
+  const banner = input as LiveChatBannerNode | undefined
+  if (!banner?.contents) return undefined
+  if (banner.banner_type && banner.banner_type !== 'LIVE_CHAT_BANNER_TYPE_PINNED_MESSAGE') return undefined
+  const fallbackId = banner.action_id ?? banner.target_id
+  const rawMessage = (banner.contents as { id?: string }).id || !fallbackId
+    ? banner.contents
+    : { ...banner.contents, id: fallbackId }
+  const message = normalizeLiveChatMessage(rawMessage)
+  if (!message) return undefined
+  if (!message.author && !message.text.trim() && message.runs.length === 0) return undefined
+  const id = fallbackId ?? message.id
+  const header = text(banner.header?.text)
+  return header ? { id, header, message } : { id, message }
+}
+
+/** Extracts channel custom emojis from a live chat continuation response. */
+export const normalizeLiveChatEmojis = (input: unknown): SourceLiveChatEmoji[] => {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const emojis: SourceLiveChatEmoji[] = []
+  for (const entry of input as LiveChatEmojiNode[]) {
+    if (entry.is_custom_emoji === false) continue
+    const shortcut = entry.shortcuts?.find((item) => Boolean(item?.trim()))
+    const url = thumbnail(entry.image, EMOJI_WIDTH)
+    if (!shortcut || !url || seen.has(shortcut)) continue
+    seen.add(shortcut)
+    emojis.push({ id: entry.emoji_id ?? shortcut, shortcut, url })
+  }
+  return emojis
 }

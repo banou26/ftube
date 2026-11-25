@@ -54,7 +54,7 @@ export const resolvers = {
       context.source.comments(videoId, sort ?? undefined, cursor ?? undefined),
     postComments: (_, { postId, channelId, sort, cursor }, context) =>
       context.source.postComments(postId, channelId, sort ?? undefined, cursor ?? undefined),
-    liveChat: (_, { videoId, cursor }, context) => context.source.liveChat(videoId, cursor ?? undefined),
+    liveChat: (_, { videoId, view, cursor }, context) => context.source.liveChat(videoId, cursor ?? undefined, view ?? undefined),
     liveChatReplay: (_, { videoId, offsetMs, view, cursor }, context) =>
       context.source.liveChatReplay(videoId, offsetMs, view ?? undefined, cursor ?? undefined),
     commentReplies: (_, { cursor }, context) => context.source.commentReplies(cursor),

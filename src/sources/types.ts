@@ -548,12 +548,27 @@ export type SourceLiveChatRun = SourceTextRun & {
   emojiLabel?: string
 }
 
+export type SourceLiveChatEmoji = {
+  id: string
+  shortcut: string
+  url: string
+}
+
+export type SourceLiveChatPinnedMessage = {
+  id: string
+  header?: string
+  message: SourceLiveChatMessage
+}
+
 export type SourceLiveChatPage = {
   items: SourceLiveChatMessage[]
   cursor?: string
   // The client holds the transcript, so a removal has to travel as its own instruction
   removedIds?: string[]
   disabled?: boolean
+  pinned?: SourceLiveChatPinnedMessage
+  pinnedCleared?: boolean
+  customEmojis?: SourceLiveChatEmoji[]
 }
 
 export type SourceComment = {
@@ -670,7 +685,7 @@ export type Source = {
   postComments(postId: string, channelId: string, sort?: SourceCommentSort, cursor?: string): Promise<SourceCommentPage>
   commentReplies(cursor: string): Promise<SourceCommentPage>
   // Polled rather than streamed: the emitter is kept running and each call drains what it buffered since the previous cursor
-  liveChat(videoId: string, cursor?: string): Promise<SourceLiveChatPage>
+  liveChat(videoId: string, cursor?: string, view?: SourceChatReplayView): Promise<SourceLiveChatPage>
   /**
    * A finished stream's or premiere's chat, as pages of lines placed by `offsetMs`. Without a cursor it starts at
    * `offsetMs`, with some lines from before that point; a cursor continues past the previous page and ignores

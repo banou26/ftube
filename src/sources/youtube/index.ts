@@ -1,11 +1,11 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceCommentPage, SourceCommentSort, SourceLikeStatus, SourceLiveChatMessage, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { EntityMutation } from './normalize'
 
 import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
 
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
-import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeLiveChatMessage, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
+import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeLiveChatEmojis, normalizeLiveChatMessage, normalizeLiveChatPinned, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
 import { base64Bytes, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -203,10 +203,21 @@ type PlaylistsFeed = {
   getContinuation(): Promise<PlaylistsFeed>
 }
 
+type LiveChatStart = {
+  actions?: LiveChatAction[]
+  emojis?: unknown[]
+  header?: { view_selector?: { sub_menu_items?: { continuation?: string, selected?: boolean }[] } }
+}
+
 type LiveChatEmitter = {
+  on(event: 'start', listener: (contents: LiveChatStart) => void): void
   on(event: 'chat-update', listener: (action: LiveChatAction) => void): void
   on(event: 'error', listener: (error: Error) => void): void
   on(event: 'end', listener: () => void): void
+  smoothed_queue?: {
+    enqueueActionGroup(group: LiveChatAction[]): void
+  }
+  applyFilter?(filter: 'TOP_CHAT' | 'LIVE_CHAT'): void
   start(): void
   stop(): void
   sendMessage(text: string): Promise<unknown>
@@ -216,6 +227,8 @@ type LiveChatAction = {
   type?: string
   item?: unknown
   target_item_id?: string
+  banner?: unknown
+  target_action_id?: string
 }
 
 type LiveChatReplayResponse = {
@@ -227,7 +240,7 @@ type LiveChatReplayResponse = {
 }
 
 type VideoInfoWithChat = {
-  livechat?: unknown
+  livechat?: { continuation?: string }
   getLiveChat(): LiveChatEmitter
 }
 
@@ -675,9 +688,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const paceFeed = createPacer(FEED_INTERVAL_MS)
 
   type LiveChatSession = {
+    view: SourceChatReplayView
     chat: LiveChatEmitter
     buffer: SourceLiveChatMessage[]
     removed: string[]
+    pinned?: SourceLiveChatPinnedMessage
+    pinnedDirty: boolean
+    pinnedCleared: boolean
+    customEmojis?: SourceLiveChatEmoji[]
+    emojisDirty: boolean
     ended: boolean
     failure?: Error
     lastReadAt: number
@@ -685,11 +704,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     arrived: Promise<void>
   }
   const liveChatSessions = new Map<string, LiveChatSession>()
+  const liveChatViewTokens = new Map<string, { TOP?: string, ALL?: string }>()
 
   // A ceiling so the request never looks hung upstream and the UI gets a heartbeat.
-  const LIVE_CHAT_WAIT_MS = 6_000
-  // The FIRST call waits only briefly: the emitter's opening fetch usually carries the backlog, but a quiet chat has nothing to catch and the full wait would hold the panel blank for six seconds.
-  const LIVE_CHAT_OPEN_GRACE_MS = 1_000
+  const LIVE_CHAT_WAIT_MS = 4_000
+  // The FIRST call waits only briefly: the emitter's opening fetch usually carries the backlog, but a quiet chat has nothing to catch and the full wait would hold the panel blank.
+  const LIVE_CHAT_OPEN_GRACE_MS = 400
   const LIVE_CHAT_IDLE_MS = 60_000
   const LIVE_CHAT_BUFFER_LIMIT = 300
 
@@ -710,26 +730,49 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     })
   }
 
-  const openLiveChat = async (videoId: string) => {
+  const openLiveChat = async (videoId: string, view: SourceChatReplayView = 'TOP') => {
     const existing = liveChatSessions.get(videoId)
-    if (existing) return existing
+    if (existing) {
+      if (existing.view === view) return existing
+      closeLiveChat(videoId)
+    }
     // getInfo(), never getBasicInfo(): live chat hangs off the /next half of the response and getBasicInfo only issues /player, so its result carries no `livechat` and getLiveChat() throws on it.
-    const info = await (await client).getInfo(videoId)
+    const info = await (await client).getInfo(videoId) as unknown as VideoInfoWithChat
     // getLiveChat() THROWS when the video carries no chat, so absence is checked rather than caught.
     if (!info.livechat) return undefined
+    const requestedToken = liveChatViewTokens.get(videoId)?.[view]
+    if (requestedToken) info.livechat.continuation = requestedToken
+    const chat = info.getLiveChat()
     const session: LiveChatSession = {
-      chat: info.getLiveChat(),
+      view,
+      chat,
       buffer: [],
       removed: [],
+      pinnedDirty: false,
+      pinnedCleared: false,
+      emojisDirty: false,
       ended: false,
       lastReadAt: Date.now(),
       wake: () => {},
       arrived: Promise.resolve(),
     }
     armLiveChatWake(session)
+    let filterPending = view === 'ALL' && !requestedToken
     const push = (action: LiveChatAction) => {
       if (action.target_item_id) {
         session.removed.push(action.target_item_id)
+      } else if (action.banner) {
+        const pinned = normalizeLiveChatPinned(action.banner)
+        if (!pinned) return
+        session.pinned = pinned
+        session.pinnedDirty = true
+        session.pinnedCleared = false
+      } else if (action.target_action_id) {
+        if (session.pinned && session.pinned.id === action.target_action_id) {
+          session.pinned = undefined
+          session.pinnedDirty = false
+          session.pinnedCleared = true
+        }
       } else if (action.item) {
         const message = normalizeLiveChatMessage(action.item)
         if (!message) return
@@ -740,17 +783,46 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       } else return
       session.wake()
     }
-    session.chat.on('chat-update', push)
-    session.chat.on('error', (error) => {
+    // youtubei.js's SmoothedQueue drips small batches out over up to 10 s before polling again; flushing incoming groups directly removes the lag while keeping its empty-batch poll timer alive.
+    if (chat.smoothed_queue?.enqueueActionGroup) {
+      const originalEnqueue = chat.smoothed_queue.enqueueActionGroup.bind(chat.smoothed_queue)
+      chat.smoothed_queue.enqueueActionGroup = (group: LiveChatAction[]) => {
+        for (const action of group) push(action)
+        originalEnqueue([])
+      }
+    }
+    chat.on('start', (contents) => {
+      const menuItems = contents?.header?.view_selector?.sub_menu_items ?? []
+      const [top, all] = menuItems.map((item) => item.continuation)
+      if (top || all) {
+        const previous = liveChatViewTokens.get(videoId)
+        liveChatViewTokens.set(videoId, { TOP: top ?? previous?.TOP, ALL: all ?? previous?.ALL })
+      }
+      const emojis = normalizeLiveChatEmojis(contents?.emojis)
+      if (emojis.length > 0) {
+        session.customEmojis = emojis
+        session.emojisDirty = true
+      }
+      if (filterPending && menuItems[1]?.selected !== true && all && all !== top) {
+        filterPending = false
+        chat.applyFilter?.('LIVE_CHAT')
+        return
+      }
+      filterPending = false
+      for (const action of contents?.actions ?? []) push(action)
+      session.wake()
+    })
+    chat.on('chat-update', push)
+    chat.on('error', (error) => {
       session.failure = error
       session.wake()
     })
-    session.chat.on('end', () => {
+    chat.on('end', () => {
       session.ended = true
       session.wake()
     })
     liveChatSessions.set(videoId, session)
-    session.chat.start()
+    chat.start()
     return session
   }
 
@@ -760,20 +832,32 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     const removedIds = session.removed.splice(0, session.removed.length)
     const page: SourceLiveChatPage = { items }
     if (removedIds.length) page.removedIds = removedIds
+    if (session.pinnedDirty && session.pinned) {
+      page.pinned = session.pinned
+      session.pinnedDirty = false
+    } else if (session.pinnedCleared) {
+      page.pinnedCleared = true
+      session.pinnedCleared = false
+    }
+    if (session.emojisDirty && session.customEmojis) {
+      page.customEmojis = session.customEmojis
+      session.emojisDirty = false
+    }
     // No cursor once the stream is over: that is what stops the client polling.
     if (session.ended) {
       closeLiveChat(videoId)
       return page
     }
     const kind = `livechat:${videoId}`
+    const view = session.view
     page.cursor = liveChatContinuations.register(kind, async () => {
       const current = liveChatSessions.get(videoId)
-      if (!current) {
-        const reopened = await openLiveChat(videoId)
+      if (!current || current.view !== view) {
+        const reopened = await openLiveChat(videoId, view)
         if (!reopened) return { items: [], disabled: true }
         return drainLiveChat(videoId, reopened)
       }
-      if (!current.buffer.length && !current.removed.length && !current.ended) {
+      if (!current.buffer.length && !current.removed.length && !current.pinnedDirty && !current.pinnedCleared && !current.emojisDirty && !current.ended) {
         const waited = current.arrived
         armLiveChatWake(current)
         await Promise.race([waited, new Promise((resolve) => setTimeout(resolve, LIVE_CHAT_WAIT_MS))])
@@ -1526,14 +1610,17 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
       return true
     },
-    liveChat: async (videoId, cursor) => {
+    liveChat: async (videoId, cursor, view = 'TOP') => {
       reapIdleLiveChats(videoId)
       // this video's cursor from an engine a reset replaced is unknown here: the chat opens again rather than failing every poll
       const replaced = cursor?.startsWith(`youtube:livechat:${videoId}:`) && !liveChatContinuations.kindOf(cursor)
-      if (cursor && !replaced) return liveChatContinuations.resolve(`livechat:${videoId}`, cursor)
-      const session = await openLiveChat(videoId)
+      if (cursor && !replaced) {
+        const current = liveChatSessions.get(videoId)
+        if (!current || current.view === view) return liveChatContinuations.resolve(`livechat:${videoId}`, cursor)
+      }
+      const session = await openLiveChat(videoId, view)
       if (!session) return { items: [], disabled: true }
-      if (!session.buffer.length && !session.ended) {
+      if (!session.buffer.length && !session.pinnedDirty && !session.emojisDirty && !session.ended) {
         const waited = session.arrived
         armLiveChatWake(session)
         await Promise.race([waited, new Promise((resolve) => setTimeout(resolve, LIVE_CHAT_OPEN_GRACE_MS))])
