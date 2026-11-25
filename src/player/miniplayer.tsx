@@ -4,8 +4,10 @@ import { css } from '@emotion/react'
 import { Pause, Play, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
+import { updateSettings } from '../settings'
 import { clock } from './controls'
 import { closePlayer } from './session'
+import { stepVideoVolume, wheelVolumeDelta } from './volume'
 import { VolumeControl } from './volume-control'
 
 /* youtube.com's miniplayer, measured signed out 2026-11-10 at 1280 and 1920 px: while the pointer is on the video, a
@@ -110,15 +112,35 @@ const style = css`
  * video cannot play, which leaves Expand and Close; at the end of the video the end screen has the middle of it.
  */
 export const MiniplayerControls = (
-  { video, state, isLive, onExpand }: {
+  { video, state, isLive, onExpand, onVolumeChange }: {
     video?: HTMLVideoElement
     state: PlayerState
     isLive: boolean
     onExpand?: () => void
+    onVolumeChange?: (next: { volume: number, muted: boolean }) => void
   },
 ) => {
   const [adjusting, setAdjusting] = useState(false)
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
+  const onVolumeRef = useRef(onVolumeChange)
+  onVolumeRef.current = onVolumeChange
+
+  useEffect(() => {
+    const target = video?.closest('aside[aria-label="Miniplayer"]') ?? video?.closest('[data-player-root]')
+    if (!video || !target) return
+    const onWheel = (event: Event) => {
+      const wheel = event as WheelEvent
+      if (wheel.ctrlKey || wheel.metaKey || wheel.altKey) return
+      const delta = wheelVolumeDelta(wheel.deltaY)
+      if (delta === 0) return
+      wheel.preventDefault()
+      const next = stepVideoVolume(video, delta)
+      updateSettings(next)
+      onVolumeRef.current?.(next)
+    }
+    target.addEventListener('wheel', onWheel, { passive: false })
+    return () => target.removeEventListener('wheel', onWheel)
+  }, [video])
 
   const setAdjustingState = useCallback((next: boolean) => {
     if (!next) {

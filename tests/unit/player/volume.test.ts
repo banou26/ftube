@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { applyVideoVolume, effectiveVolumeOf, toggleVideoMute } from '../../../src/player/volume'
+import {
+  applyVideoVolume,
+  effectiveVolumeOf,
+  stepVideoVolume,
+  toggleVideoMute,
+  VOLUME_STEP,
+  wheelVolumeDelta,
+} from '../../../src/player/volume'
 
 describe('player volume helpers', () => {
   it('computes effective volume and clamps out-of-range inputs', () => {
@@ -37,5 +44,37 @@ describe('player volume helpers', () => {
     const zeroUnmuted = { volume: 0, muted: false }
     expect(toggleVideoMute(zeroUnmuted)).toStrictEqual({ volume: 0.5, muted: false })
     expect(zeroUnmuted).toStrictEqual({ volume: 0.5, muted: false })
+  })
+
+  it('maps wheel deltaY to volume step directions', () => {
+    expect(VOLUME_STEP).toBe(0.05)
+    expect(wheelVolumeDelta(-120)).toBe(1)
+    expect(wheelVolumeDelta(-1)).toBe(1)
+    expect(wheelVolumeDelta(120)).toBe(-1)
+    expect(wheelVolumeDelta(1)).toBe(-1)
+    expect(wheelVolumeDelta(0)).toBe(0)
+    expect(wheelVolumeDelta(-0)).toBe(0)
+    expect(wheelVolumeDelta(Number.NaN)).toBe(0)
+  })
+
+  it('steps video volume cleanly with clamping and mute-aware transitions', () => {
+    const video = { volume: 0.5, muted: false }
+    expect(stepVideoVolume(video, 1)).toStrictEqual({ volume: 0.55, muted: false })
+    expect(stepVideoVolume(video, -2)).toStrictEqual({ volume: 0.45, muted: false })
+
+    const precision = { volume: 0.1, muted: false }
+    expect(stepVideoVolume(precision, 4)).toStrictEqual({ volume: 0.3, muted: false })
+
+    const ceiling = { volume: 0.98, muted: false }
+    expect(stepVideoVolume(ceiling, 1)).toStrictEqual({ volume: 1, muted: false })
+
+    const floor = { volume: 0.03, muted: false }
+    expect(stepVideoVolume(floor, -1)).toStrictEqual({ volume: 0, muted: true })
+
+    const mutedUp = { volume: 0.6, muted: true }
+    expect(stepVideoVolume(mutedUp, 1)).toStrictEqual({ volume: 0.05, muted: false })
+
+    const mutedDown = { volume: 0.6, muted: true }
+    expect(stepVideoVolume(mutedDown, -1)).toStrictEqual({ volume: 0, muted: true })
   })
 })

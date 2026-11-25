@@ -54,7 +54,7 @@ import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
-import { applyVideoVolume, toggleVideoMute } from './volume'
+import { stepVideoVolume, toggleVideoMute } from './volume'
 
 // the player's box is its frame's, which stays as the video changes; this fills it, less the panel beside it in full screen
 const playerStyle = css`
@@ -836,8 +836,8 @@ const VideoPlayer = (
         video.currentTime = clampToWindow(range, video.currentTime + delta)
         flash(delta < 0 ? 'back' : 'forward', String(Math.abs(delta)))
       }
-      const setVolume = (volume: number) => {
-        const next = applyVideoVolume(video, volume)
+      const stepVolume = (steps: number) => {
+        const next = stepVideoVolume(video, steps)
         updateSettings(next)
         flash(next.muted ? 'mute' : 'volume', `${Math.round(next.volume * 100)}%`)
       }
@@ -861,8 +861,8 @@ const VideoPlayer = (
         case 'ArrowRight': handled(); seekBy(SEEK_STEP); return
         case 'j': handled(); seekBy(-JUMP_STEP); return
         case 'l': handled(); seekBy(JUMP_STEP); return
-        case 'ArrowUp': handled(); setVolume(Math.round((video.volume + 0.05) * 100) / 100); return
-        case 'ArrowDown': handled(); setVolume(Math.round((video.volume - 0.05) * 100) / 100); return
+        case 'ArrowUp': handled(); stepVolume(1); return
+        case 'ArrowDown': handled(); stepVolume(-1); return
         case 'm': {
           handled()
           const next = toggleVideoMute(video)
@@ -1096,7 +1096,18 @@ const VideoPlayer = (
           ? <EndScreen videos={upNext.suggestions} onOpen={upNext.onOpen} />
           : undefined}
       {docked
-        ? <MiniplayerControls video={video && !status && !refusal ? video : undefined} state={state} isLive={isLive} onExpand={onMiniplayer} />
+        ? (
+          <MiniplayerControls
+            video={video && !status && !refusal ? video : undefined}
+            state={state}
+            isLive={isLive}
+            onExpand={onMiniplayer}
+            onVolumeChange={(next: { volume: number, muted: boolean }) => {
+              wake()
+              flash(next.muted ? 'mute' : 'volume', `${Math.round(next.volume * 100)}%`)
+            }}
+          />
+        )
         : undefined}
       {video && !status && !refusal
         ? (

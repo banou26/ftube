@@ -182,7 +182,54 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
 
   await page.setViewportSize({ width: 1280, height: 800 })
   const restoredPicture = await box(video)
+  await page.evaluate(() => {
+    document.body.style.minHeight = '2000px'
+    window.scrollTo(0, 200)
+  })
+  const scrollBefore = await page.evaluate(() => window.scrollY)
+  expect(scrollBefore).toBeGreaterThan(0)
   await page.mouse.move(restoredPicture.left + 100, restoredPicture.top + 60)
+
+  // Scrolling over the miniplayer adjusts volume by 5% per step without scrolling the page behind it.
+  await page.mouse.wheel(0, -120)
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.55, muted: false })
+  expect(await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('yt-client:settings') || '{}') as { volume?: number, muted?: boolean }
+    return { volume: raw.volume, muted: raw.muted }
+  })).toEqual({ volume: 0.55, muted: false })
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
+
+  await page.mouse.wheel(0, 120)
+  await page.mouse.wheel(0, 120)
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.45, muted: false })
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
+
+  // Scrolling down past zero mutes cleanly and only scrolling up unmutes from 0 -> 0.05.
+  await volumeSlider.fill('0.05')
+  await page.mouse.wheel(0, 120)
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0, muted: true })
+  await page.mouse.wheel(0, 120)
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
+  await page.mouse.wheel(0, -120)
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.05, muted: false })
+
+  await volumeSlider.fill('0.5')
+  await page.evaluate(() => {
+    document.body.style.minHeight = ''
+    window.scrollTo(0, 0)
+  })
 
   // Expand takes the same video element back to its watch page, still playing with adjusted volume.
   await video.evaluate((element) => {
