@@ -1,3 +1,4 @@
+import { MediaSource } from '@banou/ponyfill'
 import { BinaryReader, WireType } from '@bufbuild/protobuf/wire'
 
 export type AdaptiveFormat = {
@@ -60,8 +61,7 @@ export type VideoSelection = {
 export const pickInitialVideoFormat = <Format extends VideoFormatLike>(
   videoFormats: readonly Format[],
   { maxHeight = 1_080, cover, pinnedHeight }: VideoSelection = {},
-  isSupported: (mimeType: string) => boolean = (mimeType) =>
-    typeof MediaSource === 'undefined' || MediaSource.isTypeSupported(mimeType),
+  isSupported: (mimeType: string) => boolean = (mimeType) => MediaSource.isTypeSupported(mimeType),
 ): Format | undefined => {
   const supported = videoFormats.filter((format) => format.width && format.height && isSupported(format.mimeType))
   if (supported.length === 0) return undefined

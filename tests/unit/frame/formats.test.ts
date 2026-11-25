@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type { AdaptiveFormat } from '../../../src/frame/formats'
 
@@ -159,6 +159,14 @@ describe('audioTracksOf, trackHasDrc, and pickAudioFormat', () => {
 })
 
 describe('pickInitialVideoFormat', () => {
+  beforeEach(() => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   const portrait = [
     { key: '396:', mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 360, height: 640 },
     { key: '397:', mimeType: 'video/mp4; codecs="av01.0.04M.08"', bitrate: 400_000, width: 480, height: 854 },
@@ -191,5 +199,11 @@ describe('pickInitialVideoFormat', () => {
     expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 1_080 })?.key).toBe('399:')
     expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 720 })?.key).toBe('247:')
     expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 2_160 })?.key).toBe('398:')
+  })
+
+  it('consults ManagedMediaSource when MediaSource is absent (iOS WebKit)', () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('ManagedMediaSource', { isTypeSupported: (mime: string) => mime.includes('mp4') })
+    expect(pickInitialVideoFormat(landscape, { maxHeight: 720, pinnedHeight: 720 })?.key).toBe('398:')
   })
 })

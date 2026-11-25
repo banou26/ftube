@@ -322,6 +322,28 @@ describe('a multi-track and DRC SABR session', () => {
     expect(requests[3]?.bufferedRanges.some((range) => range.formatId?.itag === 251)).toBe(false)
     session.close()
   })
+
+  it('falls back to ManagedMediaSource when MediaSource is absent (iOS WebKit)', () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('ManagedMediaSource', { isTypeSupported: (mime: string) => mime.includes('mp4') })
+    const videoAvc = { itag: 137, lastModified: '1', width: 1_920, height: 1_080, mimeType: 'video/mp4; codecs="avc1.640028"', bitrate: 2_000_000, approxDurationMs: 213_000 }
+    const videoVp9 = { itag: 248, lastModified: '1', width: 1_920, height: 1_080, mimeType: 'video/webm; codecs="vp9"', bitrate: 900_000, approxDurationMs: 213_000 }
+    const audioAac = { itag: 140, lastModified: '1', mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128_000, approxDurationMs: 213_000 }
+    const iosSource: SabrSource = {
+      ...multiSource,
+      formats: [videoVp9, videoAvc, audioEn, audioAac],
+      playbackFormats: [
+        { key: '248:', itag: 248, mimeType: videoVp9.mimeType, bitrate: 900_000, width: 1_920, height: 1_080 },
+        { key: '137:', itag: 137, mimeType: videoAvc.mimeType, bitrate: 2_000_000, width: 1_920, height: 1_080 },
+        { key: '251:en', itag: 251, mimeType: audioEn.mimeType, bitrate: 130_000 },
+        { key: '140:', itag: 140, mimeType: audioAac.mimeType, bitrate: 128_000 },
+      ],
+    }
+    const session = createSabrSession(iosSource, 1_080, undefined, false)
+    expect(session.videoFormat.key).toBe('137:')
+    expect(session.audioFormat.key).toBe('140:')
+    session.close()
+  })
 })
 
 describe('live pump refresh detection and backfill buffer tracking', () => {

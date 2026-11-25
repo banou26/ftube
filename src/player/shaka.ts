@@ -1,5 +1,6 @@
 import type { EndScreenElement, FrameApi, OpenPlaybackOptions, PlaybackSession } from '../frame/protocol'
 
+import { MediaSource } from '@banou/ponyfill'
 import shaka from 'shaka-player'
 
 import { captionLabel } from '../frame/captions'
@@ -610,9 +611,7 @@ export const startShakaPlayback = async ({
 
     const supportedAudio = session.isLive
       ? []
-      : session.audioFormats.filter((format) =>
-          typeof MediaSource === 'undefined' || MediaSource.isTypeSupported(format.mimeType),
-        )
+      : session.audioFormats.filter((format) => MediaSource.isTypeSupported(format.mimeType))
     const audioTracks = audioTracksOf(supportedAudio)
     const initialAudio = session.audioFormats.find((format) => format.key === session.selectedAudioKey)
     let activeAudioKey = initialAudio?.key

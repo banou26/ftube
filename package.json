@@ -15,6 +15,7 @@
     "type-check": "npm run generate && tsc --noEmit"
   },
   "dependencies": {
+    "@banou/ponyfill": "^0.0.16",
     "@bufbuild/protobuf": "2.12.1",
     "@emotion/react": "^11.14.0",
     "@fkn/lib": "^0.9.61",

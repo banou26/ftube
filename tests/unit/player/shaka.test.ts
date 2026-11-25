@@ -141,6 +141,7 @@ describe('a Shaka player whose stream the frame refused', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {
@@ -175,6 +176,7 @@ describe('the end screen a Shaka player shows', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {
@@ -221,6 +223,7 @@ describe('audio track and Stable Volume selection in Shaka', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {
@@ -321,12 +324,44 @@ describe('audio track and Stable Volume selection in Shaka', () => {
     expect(api.selectAudioFormat).toHaveBeenCalledExactlyOnceWith('playback:1', '251:es')
     expect(player.selectedAudioCalls).toEqual([[esTrack, 1]])
   })
+
+  it('filters supported audio tracks using ManagedMediaSource when MediaSource is absent (iOS WebKit)', async () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('ManagedMediaSource', { isTypeSupported: (mime: string) => mime.includes('mp4') })
+
+    const iosAudioFormats = [
+      { key: '251:fr', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioTrackId: 'fr.3', audioTrackName: 'French', language: 'fr' },
+      { key: '251:en-drc', itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 131_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true, isDrc: true },
+      { key: '140:es', itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128_000, audioTrackId: 'es.3', audioTrackName: 'Spanish', language: 'es' },
+      { key: '140:en', itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128_000, audioTrackId: 'en-US.4', audioTrackName: 'English (US) original', language: 'en-US', isOriginal: true },
+    ]
+    const { api, controller, player } = await start({
+      videoFormats,
+      audioFormats: iosAudioFormats,
+      selectedVideoKey: '399:',
+      selectedAudioKey: '140:en',
+    }, undefined, false)
+
+    expect(controller.audioTracks.map((track) => track.id)).toEqual(['en-US.4', 'es.3'])
+    expect(controller.hasDrc('en-US.4')).toBe(false)
+
+    const esTrack = { language: 'es', label: 'Spanish', codecs: 'mp4a.40.2', roles: ['alternate', 'dub'], active: false }
+    player.audioTracks = [
+      { language: 'en-US', label: 'English (US) original', codecs: 'mp4a.40.2', roles: ['main'], active: true },
+      esTrack,
+    ]
+    await controller.selectAudio('es.3', false)
+    expect(api.selectAudioFormat).toHaveBeenCalledWith('playback:1', '140:es')
+  })
 })
 
 describe('preloading without autoplay in Shaka', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {
@@ -382,6 +417,7 @@ describe('unmuted autoplay fallback in Shaka', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {
@@ -458,6 +494,7 @@ describe('startup ABR alignment and cache reporting in Shaka', () => {
   beforeEach(() => {
     vi.stubGlobal('devicePixelRatio', 1)
     vi.stubGlobal('document', { documentElement: { dataset: {} }, visibilityState: 'visible' })
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
   })
 
   afterEach(() => {

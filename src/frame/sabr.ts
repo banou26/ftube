@@ -11,6 +11,7 @@ import type { CacheManager, RequestMetadataManager } from 'googlevideo/utils'
 import type { PlaybackFormat, PlaybackSnapshot, SegmentEnvelope, SegmentRequest } from './protocol'
 import type { SabrSource } from './innertube'
 
+import { MediaSource } from '@banou/ponyfill'
 import { BinaryReader, BinaryWriter, WireType } from '@bufbuild/protobuf/wire'
 import { SabrStreamingAdapter, SabrUmpProcessor } from 'googlevideo/sabr-streaming-adapter'
 import { LiveMetadata, MediaHeader, UMPPartId, VideoPlaybackAbrRequest } from 'googlevideo/protos'

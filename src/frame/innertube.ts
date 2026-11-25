@@ -1,5 +1,6 @@
 import type { SabrFormat } from 'googlevideo/shared-types'
 
+import { MediaSource } from '@banou/ponyfill'
 import { buildURL } from 'bgutils-js'
 import { buildSabrFormat, FormatKeyUtils } from 'googlevideo/utils'
 import { Constants, Innertube, Platform, Player, Types, UniversalCache, Utils, YT } from 'youtubei.js/web'
@@ -495,7 +496,7 @@ export const getSabrSource = async (
   let allowedKeys = new Set(playbackFormats.map((format) => format.key))
   // Hover previews are pinned to one video + one audio format (ABR off, no quality/track menu), so emit a 2-track DASH
   // manifest instead of serializing and probing ~35 unused representations.
-  if (preview && !isLive && previewMaxHeight !== undefined && typeof MediaSource !== 'undefined') {
+  if (preview && !isLive && previewMaxHeight !== undefined) {
     const selectedVideo = pickInitialVideoFormat(
       playbackFormats.filter((format) => format.width && format.height),
       { maxHeight: previewMaxHeight },
