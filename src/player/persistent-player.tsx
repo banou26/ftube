@@ -10,6 +10,7 @@ import { getSettings, subscribeSettings, updateSettings, useSetting } from '../s
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
+import { getFullscreenElement, subscribeFullscreen } from './fullscreen'
 import { PlayerFrame } from './player-frame'
 import { useSponsorSegments } from './sponsorblock'
 import { hasNextInQueue, markPlayed, nextQueueIndex, pickAutoplay, previousQueueIndex } from './up-next'
@@ -190,7 +191,7 @@ const PersistentPlayer = () => {
   // the watch page navigates; the miniplayer, and the watch page in full screen, play in place and leave the page alone
   const open = (target: UpNext) => {
     if (getPlayerSession().claimed) {
-      if (!document.fullscreenElement) {
+      if (!getFullscreenElement()) {
         navigate(upNextHref(target))
         return
       }
@@ -202,7 +203,7 @@ const PersistentPlayer = () => {
   // once full screen ends, the watch page catches up with the video played in it, unless the page moved on meanwhile
   useEffect(() => {
     const follow = () => {
-      if (document.fullscreenElement) return
+      if (getFullscreenElement()) return
       const left = behind.current
       behind.current = undefined
       const current = getPlayerSession()
@@ -210,8 +211,7 @@ const PersistentPlayer = () => {
       if (new URLSearchParams(window.location.search).get('v') === current.videoId) return
       navigate(upNextHref({ id: current.videoId, list: current.list, index: current.index }))
     }
-    document.addEventListener('fullscreenchange', follow)
-    return () => document.removeEventListener('fullscreenchange', follow)
+    return subscribeFullscreen(follow)
   }, [navigate])
 
   const queueEntry = (index: number | undefined) => {

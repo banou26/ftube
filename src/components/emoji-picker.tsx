@@ -6,6 +6,7 @@ import { Smile } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
+import { getFullscreenElement } from '../player/fullscreen'
 import { useDismiss } from './ui/popup'
 
 export type EmojiCategory = 'Smileys' | 'Gestures' | 'Hearts' | 'Nature' | 'Food' | 'Objects'
@@ -490,7 +491,7 @@ export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
                 : undefined}
             </div>
           </div>,
-          document.fullscreenElement ?? document.body,
+          getFullscreenElement() ?? document.body,
         )
         : undefined}
     </div>

@@ -2,6 +2,8 @@ import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
 import { useEffect, useState } from 'preact/hooks'
 
+import { getFullscreenElement, subscribeFullscreen } from '../../player/fullscreen'
+
 export type Toast = {
   id: number
   message: string
@@ -106,15 +108,15 @@ const style = css`
 export const Toasts = () => {
   const [items, setItems] = useState(toasts)
   // drawn on the full screen element while there is one, since nothing outside it shows
-  const [fullscreen, setFullscreen] = useState(() => document.fullscreenElement)
+  const [fullscreen, setFullscreen] = useState(() => getFullscreenElement())
   useEffect(() => {
     listeners.add(setItems)
     setItems(toasts)
-    const onFullscreen = () => setFullscreen(document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onFullscreen)
+    const onFullscreen = () => setFullscreen(getFullscreenElement())
+    const unsubscribe = subscribeFullscreen(onFullscreen)
     return () => {
       listeners.delete(setItems)
-      document.removeEventListener('fullscreenchange', onFullscreen)
+      unsubscribe()
     }
   }, [])
 

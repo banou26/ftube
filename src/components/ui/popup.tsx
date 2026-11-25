@@ -4,6 +4,8 @@ import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
 import { useLayoutEffect, useRef } from 'preact/hooks'
 
+import { getFullscreenElement } from '../../player/fullscreen'
+
 /**
  * `panelRef` is for a panel drawn outside `rootRef`, as an anchored Popup is: a press inside either keeps it open. The
  * listeners are in place as the panel is drawn, so an Escape or a press that comes before the next paint closes it too.
@@ -196,7 +198,7 @@ export const Popup = (
       {children}
     </div>
   )
-  return floating ? createPortal(panel, document.fullscreenElement ?? document.body) : panel
+  return floating ? createPortal(panel, getFullscreenElement() ?? document.body) : panel
 }
 
 const itemStyle = css`

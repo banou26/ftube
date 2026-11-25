@@ -13,6 +13,7 @@ import ShareDialog from '../components/share-dialog'
 import { Thumbnail } from '../components/thumbnail'
 import { isTypingTarget } from './controls'
 import { openOnClick, upNextHref } from './end-screen'
+import { getFullscreenElement } from './fullscreen'
 import { useFrame } from './player-frame'
 import { setPanel } from './session'
 
@@ -260,7 +261,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'v' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
-      if (isTypingTarget(event.target) || latest.current.sharing || document.fullscreenElement?.querySelector('[role="dialog"]')) return
+      if (isTypingTarget(event.target) || latest.current.sharing || getFullscreenElement()?.querySelector('[role="dialog"]')) return
       event.preventDefault()
       latest.current.setGrid(!latest.current.grid)
     }

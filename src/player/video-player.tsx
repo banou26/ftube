@@ -41,6 +41,7 @@ import { EndScreen, UpNextCountdown } from './end-screen'
 import { EndScreenElements } from './end-screen-elements'
 import { InfoCards } from './info-cards'
 import { pictureOf } from './end-screen-layout'
+import { getFullscreenElement, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { MiniplayerControls } from './miniplayer'
 import { useFrame } from './player-frame'
 import { RefusalScreen } from './refusal-screen'
@@ -174,11 +175,7 @@ const SEEK_STEP = 5
 const JUMP_STEP = 10
 
 const requestPlayerFullscreen = (video: HTMLVideoElement | null) => {
-  if (document.fullscreenElement) {
-    void document.exitFullscreen().catch(() => {})
-    return
-  }
-  void video?.closest('[data-player-root]')?.requestFullscreen().catch(() => {})
+  void togglePlayerFullscreen(video?.closest('[data-player-root]') ?? null, video).catch(() => {})
 }
 
 /**
@@ -744,10 +741,7 @@ const VideoPlayer = (
   useEffect(() => () => clearTimeout(idleTimer.current), [])
 
   // the menu is drawn on the fullscreen element or the body, so a switch between the two would strand it
-  useEffect(() => {
-    document.addEventListener('fullscreenchange', closeMenu)
-    return () => document.removeEventListener('fullscreenchange', closeMenu)
-  }, [closeMenu])
+  useEffect(() => subscribeFullscreen(closeMenu, videoElement), [closeMenu, videoElement])
 
   const onContextMenu = (event: MouseEvent) => {
     // a second right-click gets the browser's own menu, as on youtube.com
@@ -1137,7 +1131,7 @@ const VideoPlayer = (
             title={title}
             loop={loop}
             onLoop={() => setLoop(value => !value)}
-            onMiniplayer={docked || document.fullscreenElement ? undefined : onMiniplayer}
+            onMiniplayer={docked || getFullscreenElement() ? undefined : onMiniplayer}
             onCopied={flash}
           />
         )
@@ -1151,7 +1145,7 @@ const VideoPlayer = (
               <button type='button' className='done' onClick={closeTimesUp}>Close</button>
             </div>
           </Dialog>,
-          document.fullscreenElement ?? document.body,
+          getFullscreenElement() ?? document.body,
         )
         : undefined}
     </div>

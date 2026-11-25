@@ -17,6 +17,7 @@ import { AudioPermissionPrompt } from './audio-prompt'
 import { captionDeclarations } from './caption-style'
 import { isTypingTarget } from './controls'
 import { pictureOf } from './end-screen-layout'
+import { getFullscreenElement, isVideoFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { warmShaka } from './prefetch'
 
 const playerStyle = css`
@@ -410,10 +411,13 @@ const ShortsPlayer = (
   }, [active, attempt])
 
   useEffect(() => {
-    const onFullscreen = () => setFullscreen(document.fullscreenElement === rootRef.current)
-    document.addEventListener('fullscreenchange', onFullscreen)
-    return () => document.removeEventListener('fullscreenchange', onFullscreen)
-  }, [])
+    const onFullscreen = () => {
+      const element = getFullscreenElement()
+      setFullscreen(element !== null ? element === rootRef.current : isVideoFullscreen(videoRef.current))
+    }
+    onFullscreen()
+    return subscribeFullscreen(onFullscreen, videoRef.current)
+  }, [attempt])
 
   useEffect(() => {
     const video = videoRef.current
@@ -679,11 +683,7 @@ const ShortsPlayer = (
   }
 
   const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement === rootRef.current) {
-      void document.exitFullscreen().catch(() => {})
-    } else {
-      void rootRef.current?.requestFullscreen?.().catch(() => {})
-    }
+    void togglePlayerFullscreen(rootRef.current, videoRef.current).catch(() => {})
   }, [])
 
   const applyCaption = useCallback((next: CaptionPick | undefined) => {

@@ -18,6 +18,7 @@ import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
 import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from '../settings'
 import { CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
+import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
@@ -631,11 +632,10 @@ export const PlayerControls = (
   }, [docked])
 
   useEffect(() => {
-    const onChange = () => setFullscreen(document.fullscreenElement !== null)
-    document.addEventListener('fullscreenchange', onChange)
+    const onChange = () => setFullscreen(isPlayerFullscreen(video))
     onChange()
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
+    return subscribeFullscreen(onChange, video)
+  }, [video])
 
   useEffect(() => {
     const sync = () => setPip(document.pictureInPictureElement === video)
@@ -715,9 +715,7 @@ export const PlayerControls = (
   }
 
   const toggleFullscreen = () => {
-    const container = video.closest('[data-player-root]')
-    if (!document.fullscreenElement) void container?.requestFullscreen().catch(() => {})
-    else void document.exitFullscreen().catch(() => {})
+    void togglePlayerFullscreen(video.closest('[data-player-root]') ?? null, video).catch(() => {})
   }
 
   const togglePip = () => {

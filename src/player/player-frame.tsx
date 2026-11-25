@@ -11,6 +11,7 @@ import { createContext } from 'preact'
 import { useContext, useEffect, useRef, useState } from 'preact/hooks'
 
 import { watchPanel } from '../components/watch-panel'
+import { getFullscreenElement, subscribeFullscreen } from './fullscreen'
 import { setPanel } from './session'
 
 type RelatedVideo = NonNullable<WatchMetaQuery['watch']>['related'][number]
@@ -129,16 +130,17 @@ export const PlayerFrame = (
   // youtube.com closes the open list on every switch in or out, including one open beside the player on the watch page
   useEffect(() => {
     const sync = () => {
-      const next = document.fullscreenElement !== null && document.fullscreenElement === ref.current
+      const element = getFullscreenElement()
+      const next = element !== null && element === ref.current
       setFullscreen(next)
       onFullscreenChange?.(next)
       setGrid(false)
       setAside(undefined)
       setPanel(undefined)
     }
-    document.addEventListener('fullscreenchange', sync)
+    const unsubscribe = subscribeFullscreen(sync)
     return () => {
-      document.removeEventListener('fullscreenchange', sync)
+      unsubscribe()
       onFullscreenChange?.(false)
     }
   }, [onFullscreenChange])
@@ -163,7 +165,7 @@ export const PlayerFrame = (
     if (!fullscreen) return
     const top = scrollY
     const hold = () => {
-      if (document.fullscreenElement && scrollY !== top) scrollTo(scrollX, top)
+      if (getFullscreenElement() && scrollY !== top) scrollTo(scrollX, top)
     }
     addEventListener('scroll', hold)
     return () => removeEventListener('scroll', hold)
