@@ -37,6 +37,8 @@ export const resolvers = {
     channelUploads: (_, { channelId }, context) => context.source.channelUploads(channelId),
     search: (_, { query, filters, cursor }, context) =>
       context.source.search(query, searchFilters(filters), cursor ?? undefined),
+    hashtag: (_, { tag, tab, cursor }, context) =>
+      context.source.hashtag(tag, tab ?? undefined, cursor ?? undefined),
     searchSuggestions: (_, { query, previousQuery }, context) =>
       context.source.searchSuggestions(query, previousQuery ?? undefined),
     video: (_, { id }, context) => context.source.video(id).then((video) => video ?? null),

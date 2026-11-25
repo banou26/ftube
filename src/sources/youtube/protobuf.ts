@@ -1,3 +1,5 @@
+import { BinaryWriter, WireType } from '@bufbuild/protobuf/wire'
+
 const varint = (bytes: Uint8Array, start: number) => {
   let value = 0
   let at = start
@@ -45,3 +47,21 @@ export const base64Bytes = (text: string) =>
     atob(decodeURIComponent(text).replaceAll(' ', '+').replaceAll('-', '+').replaceAll('_', '/')),
     (char) => char.charCodeAt(0),
   )
+
+/** Encodes `FEhashtag` browse params (field 93 wrapping `{ 1: tag, 2: 0, 3: 1 | 3 }`). */
+export const encodeHashtagParams = (tag: string, tab: 'ALL' | 'SHORTS' = 'ALL') => {
+  const bytes = new BinaryWriter()
+    .tag(93, WireType.LengthDelimited)
+    .fork()
+    .tag(1, WireType.LengthDelimited)
+    .string(tag)
+    .tag(2, WireType.Varint)
+    .int32(0)
+    .tag(3, WireType.Varint)
+    .int32(tab === 'SHORTS' ? 3 : 1)
+    .join()
+    .finish()
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return encodeURIComponent(btoa(binary))
+}

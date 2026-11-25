@@ -35,11 +35,17 @@ const style = css`
   }
 `
 
+/** Builds the in-app `/hashtag/<tag>` route for a hashtag string with or without a leading `#`. */
+export const hashtagHrefFor = (raw: string): string | undefined => {
+  const name = raw.trim().replace(/^#/, '').toLowerCase()
+  return name ? `/hashtag/${encodeURIComponent(name)}` : undefined
+}
+
 /** Resolves an InnerTube `browseId` run to its in-app route, or `undefined` for non-routable browse tabs. */
 export const browseHrefFor = (browseId: string, text: string): string | undefined => {
   if (browseId === 'FEhashtag') {
     const tag = text.trim()
-    return tag.startsWith('#') && tag.length > 1 ? `/results?${new URLSearchParams({ search_query: tag })}` : undefined
+    return tag.startsWith('#') && tag.length > 1 ? hashtagHrefFor(tag) : undefined
   }
   if (browseId.startsWith('FE')) return undefined
   if (browseId.startsWith('VL')) return browseId.length > 2 ? `/playlist?${new URLSearchParams({ list: browseId.slice(2) })}` : undefined

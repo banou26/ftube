@@ -1,4 +1,4 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { EntityMutation } from './normalize'
 
 import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
@@ -6,7 +6,7 @@ import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
 import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeLiveChatEmojis, normalizeLiveChatMessage, normalizeLiveChatPinned, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
-import { base64Bytes, protoField } from './protobuf'
+import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
 type Feed = {
@@ -147,6 +147,7 @@ const findContinuation = (nodes: Iterable<unknown>): EndpointNode | undefined =>
 }
 
 type ContinuationResponse = {
+  on_response_received_actions_memo?: Map<string, unknown[]>
   on_response_received_endpoints_memo?: Map<string, unknown[]>
 }
 
@@ -308,7 +309,7 @@ export type YoutubeClient = {
     execute(endpoint: 'playlist/delete', args: { playlistId: string }): Promise<ApiResponse>
     execute(endpoint: '/reel/reel_item_watch', args: { params: string, inputType: string }): Promise<SeedlessReelResponse>
     execute(endpoint: '/account/accounts_list', args: { client: 'WEB', parse: true }): Promise<{ actions_memo?: { get(type: string): unknown[] | undefined } }>
-    execute(endpoint: '/browse', args: { browseId: string, params?: string, parse: true }): Promise<{ contents_memo?: Map<string, unknown[]> }>
+    execute(endpoint: '/browse', args: { browseId: string, params?: string, parse: true }): Promise<{ header?: { item?: () => unknown }, contents_memo?: Map<string, unknown[]> }>
     execute(endpoint: 'live_chat/get_live_chat_replay', args: { continuation: string, currentPlayerState: { playerOffsetMs: string }, parse: true }): Promise<unknown>
     // unparsed: youtubei.js 18.3.0 has no parser for the view models of youtube.com's transcript panel
     execute(endpoint: '/get_panel', args: { panelId: string, params: string } | { continuation: string, formData: { searchInputFormData: { query: string } } }): Promise<{ data: unknown }>
@@ -329,7 +330,7 @@ export type YoutubeSourceOptions = {
   onShortsSeed?: (videoId: string) => void
 }
 
-const shortsItems = (feed: Feed) => {
+const shortsItems = (feed: Pick<Feed, 'memo'>) => {
   const seen = new Set<string>()
   const items: SourceVideo[] = []
   for (const node of feed.memo?.get('ShortsLockupView') ?? []) {
@@ -350,7 +351,7 @@ const shortsItems = (feed: Feed) => {
  * would show every short twice. A channel's Shorts TAB is the opposite case,
  * where the shorts are the grid.
  */
-const pageItems = (feed: Feed, { includeShorts = true, own = false }: { includeShorts?: boolean, own?: boolean } = {}) => {
+const pageItems = (feed: Pick<Feed, 'videos' | 'memo'>, { includeShorts = true, own = false }: { includeShorts?: boolean, own?: boolean } = {}) => {
   // normalizeFeedVideo reads the legacy Video/GridVideo nodes of the `videos` getter but not a LockupView, and a modern feed MIXES the two: merging rather than either/or is essential.
   const seen = new Set<string>()
   const items: SourceVideo[] = []
@@ -679,6 +680,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const playlistContinuations = createContinuations<SourcePlaylistPage>()
   const playlistListContinuations = createContinuations<SourcePlaylistListPage>()
   const searchContinuations = createContinuations<SourceSearchPage>()
+  const hashtagContinuations = createContinuations<SourceHashtagPage>()
   const homeContinuations = createContinuations<SourceHomePage>()
   const shortsContinuations = createContinuations<SourceShortsPage>()
   const postContinuations = createContinuations<SourcePostPage>()
@@ -1043,6 +1045,57 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         kind,
         async () => searchPage(kind, await feed.getContinuation() as SearchFeed, unwatchedChip),
       )
+    }
+    return result
+  }
+
+  const hashtagHeader = (headerNode: unknown, fallbackTag: string) => {
+    const item = (headerNode as { item?: () => unknown } | undefined)?.item?.() as {
+      type?: string
+      page_title?: string
+      hashtag?: unknown
+      hashtag_info?: unknown
+      content?: {
+        title?: { text?: unknown }
+        metadata?: { metadata_rows?: { metadata_parts?: { text?: unknown }[] }[] }
+      }
+    } | undefined
+    if (!item) return { title: `#${fallbackTag}` }
+    if (item.type === 'HashtagHeader') {
+      return {
+        title: text(item.hashtag) ?? `#${fallbackTag}`,
+        stats: text(item.hashtag_info),
+      }
+    }
+    const stats = (item.content?.metadata?.metadata_rows ?? [])
+      .flatMap((row) => (row.metadata_parts ?? []).map((part) => text(part.text)).filter((value): value is string => Boolean(value)))
+      .join(' • ')
+    return {
+      title: item.page_title ?? text(item.content?.title?.text) ?? `#${fallbackTag}`,
+      stats: stats || undefined,
+    }
+  }
+
+  const continuationMemo = (response: ContinuationResponse) =>
+    (response.on_response_received_actions_memo?.size ? response.on_response_received_actions_memo : undefined)
+    ?? response.on_response_received_endpoints_memo
+
+  const hashtagPage = (
+    kind: string,
+    meta: { tag: string, title: string, stats?: string, tab: SourceHashtagTab, availableTabs: SourceHashtagTab[] },
+    memo: Map<string, unknown[]> | undefined,
+  ): SourceHashtagPage => {
+    const feed = { videos: memo?.get('Video') ?? [], memo }
+    const result: SourceHashtagPage = {
+      ...meta,
+      items: meta.tab === 'SHORTS' ? shortsItems(feed) : pageItems(feed),
+    }
+    const next = findContinuation(memo?.get('ContinuationItem') ?? [])
+    if (next) {
+      result.cursor = hashtagContinuations.register(kind, async () => {
+        const continuation = await next.call((await client).actions, { parse: true }) as ContinuationResponse
+        return hashtagPage(kind, meta, continuationMemo(continuation))
+      })
     }
     return result
   }
@@ -1413,6 +1466,28 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const chip = findUnwatchedChip(feed)
       const shown = filters?.unwatched && chip && feed.applyRefinement ? await feed.applyRefinement(chip) : feed
       return searchPage(kind, shown, chip !== undefined)
+    },
+    hashtag: async (rawTag, tab = 'ALL', cursor) => {
+      const normalized = rawTag.trim().replace(/^#/, '').toLowerCase()
+      const kind = `hashtag:${normalized}:${tab}`
+      if (cursor) return hashtagContinuations.resolve(kind, cursor)
+      if (!normalized) return { tag: '', title: '#', tab, availableTabs: ['ALL'], items: [] }
+      const response = await (await client).actions.execute('/browse', {
+        browseId: 'FEhashtag',
+        params: encodeHashtagParams(normalized, tab),
+        parse: true,
+      })
+      const header = hashtagHeader(response.header, normalized)
+      const tabs = (response.contents_memo?.get('Tab') ?? []) as { endpoint?: { metadata?: { url?: string } } }[]
+      const availableTabs: SourceHashtagTab[] = ['ALL']
+      if (tab === 'SHORTS' || tabs.some((entry) => entry.endpoint?.metadata?.url?.endsWith('/shorts'))) {
+        availableTabs.push('SHORTS')
+      }
+      return hashtagPage(
+        kind,
+        { tag: normalized, title: header.title, stats: header.stats, tab, availableTabs },
+        response.contents_memo,
+      )
     },
     searchSuggestions: async (query, previousQuery) => {
       if (query.trim() === '') return []

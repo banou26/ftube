@@ -50,6 +50,7 @@ export const createCache = () => cacheExchange({
     ChannelAbout: () => null,
     ChannelLink: () => null,
     SearchPage: () => null,
+    HashtagPage: () => null,
     SearchCard: () => null,
     SearchShelf: () => null,
     SearchSuggestion: () => null,

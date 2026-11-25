@@ -49,26 +49,35 @@ test('opens /gaming on the Gaming topic channel', async ({ page }) => {
   await expect(page.locator('main h1')).toHaveText('Gaming', { timeout: 120_000 })
 })
 
-test('opens /hashtag/<tag> as a search for the tag', async ({ page }) => {
-  await page.goto('/hashtag/nevergonnagiveyouup')
-  await expect(page).toHaveURL('/results?search_query=%23nevergonnagiveyouup')
-  await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('#nevergonnagiveyouup')
+test('opens /hashtag/<tag> on the hashtag page and navigates to its Shorts tab', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.goto('/hashtag/ASMR')
+  await expect(page).toHaveURL('/hashtag/asmr')
+  await expect(page.locator('main h1')).toHaveText('#asmr', { timeout: 120_000 })
+  await expect(page.locator('main article a[href^="/watch?v="]').first()).toBeVisible({ timeout: 120_000 })
+
+  await page.getByRole('navigation', { name: 'Hashtag sections' }).getByRole('link', { name: 'Shorts', exact: true }).click()
+  await expect(page).toHaveURL('/hashtag/asmr/shorts')
+  await expect(page.locator('main a[href^="/shorts/"]').first()).toBeVisible({ timeout: 120_000 })
 })
 
-test('links description hashtags to tag search instead of /channel/FEhashtag', async ({ page }) => {
+test('links description hashtags to /hashtag/<tag> instead of /channel/FEhashtag or search', async ({ page }) => {
   test.setTimeout(180_000)
   await page.goto('/watch?v=dQw4w9WgXcQ')
   const description = page.locator('.about')
   await expect(description).toBeVisible({ timeout: 120_000 })
   const expand = description.getByRole('button', { name: '...more' })
   if (await expand.isVisible().catch(() => false)) await expand.click()
-  const hashtagLink = description.locator('a[href^="/results?search_query=%23"]').first()
+  const hashtagLink = description.locator('a[href^="/hashtag/"]').first()
   await expect(hashtagLink).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('a[href="/channel/FEhashtag"]')).toHaveCount(0)
-  const expectedTag = (await hashtagLink.innerText()).trim()
+  await expect(description.locator('a[href^="/results?search_query=%23"]')).toHaveCount(0)
+  const expectedTag = (await hashtagLink.innerText()).trim().toLowerCase()
+  const expectedSlug = expectedTag.replace(/^#/, '')
   await hashtagLink.click()
-  await expect(page).toHaveURL(/\/results\?search_query=%23/)
-  await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue(expectedTag)
+  await expect(page).toHaveURL(new RegExp(`/hashtag/${expectedSlug}$`))
+  await expect(page.locator('main h1')).toHaveText(expectedTag, { timeout: 120_000 })
+  await expect(page.locator('main article a[href^="/watch?v="]').first()).toBeVisible({ timeout: 120_000 })
 })
 
 test('opens /post/<id> on the post, and says when there is none', async ({ page }) => {

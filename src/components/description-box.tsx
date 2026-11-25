@@ -12,7 +12,7 @@ import { seekTo } from '../player/seek'
 import { ChapterCards } from './chapters'
 import { descriptionMeta } from './format'
 import { Rail } from './rail'
-import { RichText } from './rich-text'
+import { hashtagHrefFor, RichText } from './rich-text'
 import { Thumbnail } from './thumbnail'
 import { watchHrefFor } from './video-card'
 
@@ -452,9 +452,12 @@ export const DescriptionBox = (
         ? (
           <div className='meta'>
             {counts ? <span className='counts'>{counts}</span> : undefined}
-            {hashtags.map(tag => (
-              <Link key={tag} className='hashtag' href={`/results?${new URLSearchParams({ search_query: tag })}`}>{tag}</Link>
-            ))}
+            {hashtags.map(tag => {
+              const href = hashtagHrefFor(tag)
+              return href
+                ? <Link key={tag} className='hashtag' href={href}>{tag}</Link>
+                : <span key={tag} className='hashtag'>{tag}</span>
+            })}
           </div>
         )
         : undefined}

@@ -260,6 +260,21 @@ type SearchPage {
   unwatchedChip: Boolean!
 }
 
+enum HashtagTab {
+  ALL
+  SHORTS
+}
+
+type HashtagPage {
+  tag: String!
+  title: String!
+  stats: String
+  tab: HashtagTab!
+  availableTabs: [HashtagTab!]!
+  items: [Video!]!
+  cursor: String
+}
+
 # One suggestion for the search box, `query` being what it searches for. `name`
 # is set when upstream ties it to a person, a thing or a channel (then
 # `channelId`), with what that is in `description` and its `photo`.
@@ -916,6 +931,7 @@ type Query {
   # the query AND the filter set that minted it, so changing a filter starts a
   # fresh feed rather than paging the previous one's results.
   search(query: String!, filters: SearchFilters, cursor: String): SearchPage!
+  hashtag(tag: String!, tab: HashtagTab, cursor: String): HashtagPage!
   # Suggestions for the search box. Not an InnerTube call: it reads
   # suggestqueries-clients6.youtube.com through the same rewritten fetch, so it
   # is one tunneled round trip per call and callers must debounce.

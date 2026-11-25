@@ -225,6 +225,18 @@ export type SourceSearchPage = {
   unwatchedChip: boolean
 }
 
+export type SourceHashtagTab = 'ALL' | 'SHORTS'
+
+export type SourceHashtagPage = {
+  tag: string
+  title: string
+  stats?: string
+  tab: SourceHashtagTab
+  availableTabs: SourceHashtagTab[]
+  items: SourceVideo[]
+  cursor?: string
+}
+
 /**
  * One suggestion for the search box, `query` being what it searches for. `name` is set when upstream ties it to a
  * person, a thing or a channel (then `channelId`), with what that is in `description` and its `photo`.
@@ -666,6 +678,7 @@ export type Source = {
   // A channel's newest long uploads, read off its public feed, or its Videos tab when the feed fails; a channel id that is not of the `UC` form is refused
   channelUploads(channelId: string): Promise<SourceVideo[]>
   search(query: string, filters?: SourceSearchFilters, cursor?: string): Promise<SourceSearchPage>
+  hashtag(tag: string, tab?: SourceHashtagTab, cursor?: string): Promise<SourceHashtagPage>
   // Not an InnerTube call: every keystroke that reaches it is a tunneled round trip, so the caller is expected to debounce
   searchSuggestions(query: string, previousQuery?: string): Promise<SourceSearchSuggestion[]>
   video(id: string): Promise<SourceVideo | undefined>
@@ -732,6 +745,7 @@ export const SOURCE_METHODS = [
   'subscribedChannels',
   'channelUploads',
   'search',
+  'hashtag',
   'searchSuggestions',
   'video',
   'channel',
@@ -787,6 +801,7 @@ export const SOURCE_CURSOR_ARGUMENT = {
   subscriptions: 0,
   history: 0,
   search: 2,
+  hashtag: 2,
   channel: 4,
   comments: 2,
   postComments: 3,
@@ -809,6 +824,7 @@ export const SOURCE_REPLAY = {
   subscribedChannels: 'always',
   channelUploads: 'always',
   search: 'unless-cursor',
+  hashtag: 'unless-cursor',
   searchSuggestions: 'always',
   video: 'always',
   channel: 'unless-cursor',

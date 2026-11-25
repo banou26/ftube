@@ -29,6 +29,7 @@ const FeedPlaylistsPage = lazyRoute(() => import('./routes/feed-playlists'))
 const FeedSubscriptionsPage = lazyRoute(() => import('./routes/feed-subscriptions'))
 const FeedYouPage = lazyRoute(() => import('./routes/feed-you'))
 const GroupPage = lazyRoute(() => import('./routes/group'))
+const HashtagPage = lazyRoute(() => import('./routes/hashtag'))
 const PartyPage = lazyRoute(() => import('./routes/party'))
 const PlaylistPage = lazyRoute(() => import('./routes/playlist'))
 const PostPage = lazyRoute(() => import('./routes/post'))
@@ -118,6 +119,25 @@ const ShortsRoute = ({ videoId }: { videoId?: string }) => {
   const hideShorts = useSetting('hideShorts')
   if (!hideShorts) return <ShortsPage />
   return videoId ? <WatchRedirect videoId={videoId} /> : <Redirect to='/' replace />
+}
+
+const HashtagRoute = ({ tag, tab }: { tag: string, tab?: string }) => {
+  const hideShorts = useSetting('hideShorts')
+  const raw = safeDecode(tag)
+  const decoded = raw.trim().replace(/^#/, '')
+  if (!decoded) return <NotFound />
+  const canonical = decoded.toLowerCase()
+  const encoded = encodeURIComponent(canonical)
+  if (tab === undefined) {
+    if (raw !== canonical) return <Redirect to={`/hashtag/${encoded}`} replace />
+    return <HashtagPage tag={canonical} tab='ALL' />
+  }
+  if (safeDecode(tab).toLowerCase() === 'shorts') {
+    if (hideShorts) return <Redirect to={`/hashtag/${encoded}`} replace />
+    if (raw !== canonical || tab !== 'shorts') return <Redirect to={`/hashtag/${encoded}/shorts`} replace />
+    return <HashtagPage tag={canonical} tab='SHORTS' />
+  }
+  return <NotFound />
 }
 
 // `base` is the channel's address as given (`/@handle`, `/channel/<id>`, `/c/<name>` or `/user/<name>`) and `word` the
@@ -244,9 +264,9 @@ export const App = () => {
               <Route path='/search/:query'>
                 {(params: { query: string }) => <SearchRedirect query={safeDecode(params.query)} />}
               </Route>
-              {/* youtube.com's hashtag page lists what a search for the tag finds, which is where a description's hashtags lead */}
-              <Route path='/hashtag/:tag'>
-                {(params: { tag: string }) => <SearchRedirect query={`#${safeDecode(params.tag)}`} />}
+              {/* youtube.com's hashtag page lists videos and Shorts tagged with it */}
+              <Route path='/hashtag/:tag/:tab?'>
+                {(params: { tag: string, tab?: string }) => <HashtagRoute tag={params.tag} tab={params.tab} />}
               </Route>
               <Route path='/watch/:videoId'>{(params: { videoId: string }) => <WatchRedirect videoId={params.videoId} />}</Route>
               {/* the link youtube.com's Share button gives for a live stream */}
