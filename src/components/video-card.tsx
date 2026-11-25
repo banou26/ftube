@@ -4,20 +4,24 @@ import type { Channel, SavePlaylistsQuery, Video } from '../generated/graphql'
 import type { CollaborationData } from './byline'
 
 import { css } from '@emotion/react'
-import { Check, ChevronLeft, Clock, EllipsisVertical, ListPlus, Share2 } from 'lucide-react'
+import { Ban, Check, ChevronLeft, CircleMinus, Clock, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
 // reuses save-menu.tsx's documents rather than a second gql() copy: two operations cannot share a name
+import { gql } from '../generated'
 import { AddToPlaylistDocument, SavePlaylistsDocument } from '../generated/graphql'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor, shortsLink } from '../player/links'
 import { usePrefetchOnIntent } from '../player/prefetch'
+import { appendQueueEntry } from '../player/queue'
+import { getPlayerSession, openPlayer } from '../player/session'
 import { useSession } from '../session'
 import { AvatarStack, BylineNames, CollaboratorsButton } from './byline'
 import { lineFor, MenuDataFailure } from './data-failure'
+import { dismissChannel, dismissVideo, undismissChannel, undismissVideo } from './dismissed-videos'
 import { formatDuration, rowByline } from './format'
 import { WATCH_LATER_ID } from './playlist'
 import { CornerBadge, MembersOnly, MusicNote, RowMeta, ShortsMark } from './row-marks'
@@ -36,10 +40,12 @@ export type VideoCardData =
       | 'animatedThumbnail'
       | 'description'
       | 'durationSeconds'
+      | 'dontRecommendToken'
       | 'inlinePlayerParams'
       | 'isMembersOnly'
       | 'isMusic'
       | 'metaDelimiter'
+      | 'notInterestedToken'
       | 'progressPercent'
       | 'publishedText'
       | 'shortsSequence'
@@ -92,6 +98,12 @@ const menuPanelStyle = css`
   min-width: 24rem;
 `
 
+const SUBMIT_FEEDBACK = gql(`
+  mutation SubmitFeedback($token: String!) {
+    submitFeedback(token: $token)
+  }
+`)
+
 type CardMenuView = 'root' | 'playlists'
 
 /**
@@ -104,8 +116,19 @@ type CardMenuView = 'root' | 'playlists'
  * video has already been put into, so that state sits with the trigger.
  */
 const CardMenuPanel = (
-  { videoId, short, saved, onSaved }: {
+  {
+    videoId, title, thumbnail, durationSeconds, channel,
+    notInterestedToken, dontRecommendToken, recommendable,
+    short, saved, onSaved,
+  }: {
     videoId: string
+    title: string
+    thumbnail?: string | null
+    durationSeconds?: number | null
+    channel?: { id: string, name: string } | null
+    notInterestedToken?: string | null
+    dontRecommendToken?: string | null
+    recommendable: boolean
     short: boolean
     saved: string[]
     onSaved: (playlistId: string) => void
@@ -132,6 +155,7 @@ const CardMenuPanel = (
     pause: !wanted || !ready || !signedIn,
   })
   const [, addToPlaylist] = useMutation(AddToPlaylistDocument)
+  const [, submitFeedback] = useMutation(SUBMIT_FEEDBACK)
 
   const page = data?.playlists
   const { items, cursor } = useInfiniteFeed({
@@ -173,13 +197,53 @@ const CardMenuPanel = (
     )
   }
 
+  const onAddToQueue = () => {
+    const added = appendQueueEntry({
+      id: videoId,
+      title,
+      thumbnail,
+      durationSeconds,
+      channel,
+    })
+    const idle = !getPlayerSession().videoId
+    if (idle) openPlayer({ videoId, title, poster: thumbnail ?? undefined })
+    showToast(added ? 'Added to queue' : idle ? 'Playing from queue' : 'Already in queue')
+  }
+
+  const onNotInterested = () => {
+    dismissVideo(videoId)
+    if (signedIn && notInterestedToken) {
+      void submitFeedback({ token: notInterestedToken }).then((result) => {
+        if (result.error) showToast(lineFor(result.error))
+      })
+    }
+    showToast('Video removed', { label: 'Undo', onAction: () => undismissVideo(videoId) })
+  }
+
+  const onDontRecommend = () => {
+    const channelId = channel?.id
+    if (channelId) dismissChannel(channelId)
+    if (signedIn && dontRecommendToken) {
+      void submitFeedback({ token: dontRecommendToken }).then((result) => {
+        if (result.error) showToast(lineFor(result.error))
+      })
+    }
+    const message = channel?.name ? `We won't recommend ${channel.name}` : "We won't recommend this channel"
+    showToast(
+      message,
+      channelId ? { label: 'Undo', onAction: () => undismissChannel(channelId) } : undefined,
+    )
+  }
+
   const savedWatchLater = saved.includes(WATCH_LATER_ID)
+  const showDontRecommend = recommendable && !short && Boolean(channel?.id || dontRecommendToken)
 
   return (
     <div css={menuPanelStyle} role='presentation' ref={panelRef}>
       {view === 'root'
         ? (
           <>
+            {!short ? <MenuItem icon={ListVideo} label='Add to queue' onSelect={onAddToQueue} /> : undefined}
             <MenuItem
               icon={savedWatchLater ? Check : Clock}
               label={savedWatchLater ? 'Saved to Watch later' : 'Save to Watch later'}
@@ -208,6 +272,17 @@ const CardMenuPanel = (
             />
             <MenuSeparator />
             <MenuItem icon={Share2} label='Share' onSelect={onShare} />
+            {recommendable && !short
+              ? (
+                <>
+                  <MenuSeparator />
+                  <MenuItem icon={Ban} label='Not interested' onSelect={onNotInterested} />
+                  {showDontRecommend
+                    ? <MenuItem icon={CircleMinus} label="Don't recommend channel" onSelect={onDontRecommend} />
+                    : undefined}
+                </>
+              )
+              : undefined}
           </>
         )
         : (
@@ -254,9 +329,19 @@ const CardMenuPanel = (
  * looks wrong in the other. A Shorts tile sets `short`, so Share copies a /shorts/ link as youtube.com's does.
  */
 export const VideoCardMenu = (
-  { videoId, title, iconSize = 20, short = false, class: className }: {
+  {
+    videoId, title, thumbnail, durationSeconds, channel,
+    notInterestedToken, dontRecommendToken, recommendable = false,
+    iconSize = 20, short = false, class: className,
+  }: {
     videoId: string
     title: string
+    thumbnail?: string | null
+    durationSeconds?: number | null
+    channel?: { id: string, name: string } | null
+    notInterestedToken?: string | null
+    dontRecommendToken?: string | null
+    recommendable?: boolean
     iconSize?: number
     short?: boolean
     class?: string
@@ -278,6 +363,13 @@ export const VideoCardMenu = (
     >
       <CardMenuPanel
         videoId={videoId}
+        title={title}
+        thumbnail={thumbnail}
+        durationSeconds={durationSeconds}
+        channel={channel}
+        notInterestedToken={notInterestedToken}
+        dontRecommendToken={dontRecommendToken}
+        recommendable={recommendable}
         short={short}
         saved={saved}
         onSaved={(playlistId: string) => setSaved(ids => ids.includes(playlistId) ? ids : [...ids, playlistId])}
@@ -519,7 +611,12 @@ const style = css`
 `
 
 export const VideoCard = (
-  { video, variant, context }: { video: VideoCardData, variant?: 'channel' | 'shelf' | 'carousel', context?: WatchContext },
+  { video, variant, context, recommendable }: {
+    video: VideoCardData
+    variant?: 'channel' | 'shelf' | 'carousel'
+    context?: WatchContext
+    recommendable?: boolean
+  },
 ) => {
   // youtube.com's search carousel keeps a Short's 16:9 card, marks it and opens it in the Shorts player
   const carouselShort = variant === 'carousel' && video.isShort === true
@@ -611,7 +708,17 @@ export const VideoCard = (
           <RowMeta video={video} />
           {video.isMembersOnly ? <MembersOnly /> : undefined}
         </div>
-        <VideoCardMenu videoId={video.id} title={video.title} class='more-menu' />
+        <VideoCardMenu
+          videoId={video.id}
+          title={video.title}
+          thumbnail={video.thumbnail}
+          durationSeconds={video.durationSeconds}
+          channel={video.channel}
+          notInterestedToken={video.notInterestedToken}
+          dontRecommendToken={video.dontRecommendToken}
+          recommendable={recommendable}
+          class='more-menu'
+        />
       </div>
     </article>
   )

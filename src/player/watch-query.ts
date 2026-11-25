@@ -67,6 +67,8 @@ export const WATCH_META_QUERY = gql(`
         channel { id name isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
+        notInterestedToken
+        dontRecommendToken
       }
       playlist {
         id

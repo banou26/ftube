@@ -5,7 +5,9 @@ import { useEffect, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
+import { clearDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
+import { showToast } from '../components/ui/toast'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
@@ -120,12 +122,19 @@ const style = css`
     height: 1.8rem;
     accent-color: var(--accent);
   }
+
+  .choice:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
 `
 
 export const SettingsPage = () => {
   useDocumentTitle('Settings')
   const [settings, setSettings] = useState<Settings>(getSettings)
   const extension = useExtensionExposed()
+  const dismissed = useDismissed()
+  const dismissedCount = dismissed.videos.size + dismissed.channels.size
 
   // The store is shared, so this page follows it rather than owning a copy of it
   useEffect(() => subscribeSettings(setSettings), [])
@@ -214,6 +223,16 @@ export const SettingsPage = () => {
           />
         </div>
         <div className='row'>
+          <div className='row-label'>Ambient mode</div>
+          <input
+            type='checkbox'
+            className='toggle'
+            aria-label='Ambient mode'
+            checked={settings.ambientMode}
+            onChange={() => set({ ambientMode: !settings.ambientMode })}
+          />
+        </div>
+        <div className='row'>
           <div className='row-label'>
             Skip sponsors{' '}
             <span className='credit'>
@@ -290,6 +309,26 @@ export const SettingsPage = () => {
             </div>
           )
           : undefined}
+      </section>
+
+      <section className='section'>
+        <h2 className='section-title'>Recommendations</h2>
+        <div className='row'>
+          <div className='row-label'>
+            Hidden videos and channels ({dismissedCount})
+          </div>
+          <button
+            type='button'
+            className='choice'
+            disabled={dismissedCount === 0}
+            onClick={() => {
+              clearDismissed()
+              showToast('Hidden recommendations reset')
+            }}
+          >
+            Reset hidden recommendations
+          </button>
+        </div>
       </section>
 
       <section className='section'>

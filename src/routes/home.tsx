@@ -8,6 +8,7 @@ import { useQuery } from 'urql'
 import { useDocumentTitle } from '../app'
 import { cameBack } from '../back-navigation'
 import { DataFailure } from '../components/data-failure'
+import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
@@ -33,6 +34,8 @@ const HOME_FEED_QUERY = gql(`
         channel { id name avatar isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
+        notInterestedToken
+        dontRecommendToken
       }
       shorts {
         id
@@ -204,7 +207,9 @@ const HomePage = () => {
   const shorts = useInfiniteFeed({ pages: feed.shorts, key: short => short.id }).items
   const { items, cursor } = useInfiniteFeed({ pages: feed.videos, key: video => video.id })
   const hideShorts = useSetting('hideShorts')
-  const visibleItems = hideShorts ? items.filter(video => !video.isShort) : items
+  const dismissed = useDismissed()
+  const visibleShorts = shorts.filter(short => !isDismissedVideo(dismissed, short))
+  const visibleItems = items.filter(video => (!hideShorts || !video.isShort) && !isDismissedVideo(dismissed, video))
 
   useEffect(() => {
     const chips = page?.chips
@@ -311,8 +316,9 @@ const HomePage = () => {
         : (
           <VideoGrid
             videos={visibleItems}
-            shelf={hideShorts ? undefined : <ShortsShelf shorts={shorts} />}
+            shelf={hideShorts ? undefined : <ShortsShelf shorts={visibleShorts} />}
             fetching={fetching && visibleItems.length === 0}
+            recommendable
           />
         )}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}

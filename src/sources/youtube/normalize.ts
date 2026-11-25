@@ -73,7 +73,28 @@ type FeedVideo = {
     header?: { expanded_title?: Text }
     expanded_content?: { cards?: { title?: Text, time_description?: Text, thumbnail?: Thumbnail[] }[] }
   }
+  menu?: { items?: MenuServiceNode[] }
   inline_player_params?: string
+}
+
+type FeedbackEndpointNode = {
+  feedback_token?: string
+  payload?: { feedbackToken?: string }
+  command?: FeedbackEndpointNode
+  actions?: FeedbackEndpointNode[]
+  commands?: FeedbackEndpointNode[]
+}
+
+type MenuServiceNode = {
+  icon_type?: string
+  text?: string | Text
+  endpoint?: unknown
+}
+
+type LockupMenuItemNode = {
+  title?: string | Text
+  leading_image?: { client_resource?: { image_name?: string } }[] | { sources?: { client_resource?: { image_name?: string } }[] }
+  renderer_context?: { command_context?: { on_tap?: FeedbackEndpointNode } }
 }
 
 type VideoDetails = {
@@ -177,6 +198,17 @@ type LockupVideo = {
       renderer_context?: { command_context?: { on_tap?: CollaboratorsEndpoint & { payload?: { browseId?: string } } } }
     }
     metadata?: MetadataParts
+    menu_button?: {
+      on_tap?: {
+        command?: {
+          inline_content?: {
+            content?: {
+              items?: LockupMenuItemNode[]
+            }
+          }
+        }
+      }
+    }
   }
   renderer_context?: { command_context?: { on_tap?: { name?: string, metadata?: { url?: string }, payload?: { videoId?: string } } } }
   inline_player_params?: string
@@ -827,6 +859,71 @@ const isShortFeedVideo = (video: FeedVideo) =>
   || video.endpoint?.name === 'reelWatchEndpoint'
   || video.endpoint?.metadata?.url?.startsWith('/shorts/') === true
 
+const NOT_INTERESTED_ICONS = new Set(['NOT_INTERESTED'])
+const DONT_RECOMMEND_ICONS = new Set(['REMOVE_CIRCLE', 'DO_NOT_DISTURB', 'BLOCK'])
+
+const feedbackTokenOf = (endpoint: unknown): string | undefined => {
+  if (!endpoint || typeof endpoint !== 'object') return undefined
+  const node = endpoint as FeedbackEndpointNode
+  if (typeof node.feedback_token === 'string' && node.feedback_token.length > 0) return node.feedback_token
+  if (typeof node.payload?.feedbackToken === 'string' && node.payload.feedbackToken.length > 0) return node.payload.feedbackToken
+  if (node.command) {
+    const nested = feedbackTokenOf(node.command)
+    if (nested) return nested
+  }
+  for (const list of [node.actions, node.commands]) {
+    if (!Array.isArray(list)) continue
+    for (const item of list) {
+      const nested = feedbackTokenOf(item)
+      if (nested) return nested
+    }
+  }
+  return undefined
+}
+
+const classifyFeedbackTokens = (
+  entries: readonly { icon?: string, label?: string, endpoint?: unknown }[],
+) => {
+  let notInterestedToken: string | undefined
+  let dontRecommendToken: string | undefined
+  for (const entry of entries) {
+    const token = feedbackTokenOf(entry.endpoint)
+    if (!token) continue
+    const icon = entry.icon
+    const label = entry.label ?? ''
+    if (!notInterestedToken && ((icon && NOT_INTERESTED_ICONS.has(icon)) || /^not interested$/i.test(label))) {
+      notInterestedToken = token
+    } else if (!dontRecommendToken && ((icon && DONT_RECOMMEND_ICONS.has(icon)) || /don't recommend channel/i.test(label))) {
+      dontRecommendToken = token
+    }
+  }
+  return {
+    ...(notInterestedToken ? { notInterestedToken } : {}),
+    ...(dontRecommendToken ? { dontRecommendToken } : {}),
+  }
+}
+
+const feedMenuFeedback = (menu: FeedVideo['menu']) => classifyFeedbackTokens(
+  (menu?.items ?? []).map((item) => ({
+    icon: item.icon_type,
+    label: typeof item.text === 'string' ? item.text : presentText(item.text),
+    endpoint: item.endpoint,
+  })),
+)
+
+const leadingIconName = (image: LockupMenuItemNode['leading_image']) => {
+  const list = Array.isArray(image) ? image : image?.sources
+  return list?.[0]?.client_resource?.image_name
+}
+
+const lockupMenuFeedback = (lockup: LockupVideo) => classifyFeedbackTokens(
+  (lockup.metadata?.menu_button?.on_tap?.command?.inline_content?.content?.items ?? []).map((item) => ({
+    icon: leadingIconName(item.leading_image),
+    label: typeof item.title === 'string' ? item.title : presentText(item.title),
+    endpoint: item.renderer_context?.command_context?.on_tap,
+  })),
+)
+
 export const normalizeFeedVideo = (input: unknown): SourceVideo | undefined => {
   const video = input as FeedVideo
   const id = video.video_id ?? video.id
@@ -857,6 +954,7 @@ export const normalizeFeedVideo = (input: unknown): SourceVideo | undefined => {
     inlinePlayerParams: inlinePlayerParams(video.inline_player_params),
     ...authorByline(video.author),
     ...searchChapters(video.expandable_metadata),
+    ...feedMenuFeedback(video.menu),
   }
 }
 
@@ -963,6 +1061,7 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
     badges: [],
     inlinePlayerParams: inlinePlayerParams(lockup.inline_player_params),
     ...lockupByline(lockup, byline),
+    ...lockupMenuFeedback(lockup),
   }
 }
 
@@ -1392,7 +1491,7 @@ export const normalizePlaylistItem = (input: unknown): SourcePlaylistItem | unde
 
 type PlaylistEdit = { playlistId?: string, actions?: { action?: string, setVideoId?: string }[] }
 
-type PlaylistLockupRow = LockupVideo & {
+type PlaylistLockupRow = Omit<LockupVideo, 'metadata'> & {
   renderer_context?: { command_context?: { on_tap?: { payload?: { index?: number } } } }
   metadata?: {
     menu_button?: {

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 
+import { clearQueue } from './queue'
+
 import { getSettings } from '../settings'
 
 export type PlayerSession = {
@@ -75,6 +77,7 @@ export const openPlayer = (
  * unmount deliberately does not, which is the whole point of the dock.
  */
 export const closePlayer = () => {
+  clearQueue()
   update({
     videoId: undefined, startAt: undefined, title: undefined, poster: undefined, list: undefined, index: undefined,
     playerParams: undefined, theater: false,

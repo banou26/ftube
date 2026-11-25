@@ -15,10 +15,12 @@ import { ChatReplay, ChatReplayTeaser } from '../components/chat-replay'
 import Comments from '../components/comments'
 import { DataFailure } from '../components/data-failure'
 import DescriptionBox from '../components/description-box'
+import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { parseStartSeconds } from '../components/format'
 import { LikePill } from '../components/like-pill'
 import LiveChat from '../components/live-chat'
 import PlaylistPanel from '../components/playlist-panel'
+import { QueuePanel } from '../components/queue-panel'
 import { MembersOnly } from '../components/row-marks'
 import SaveMenu from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
@@ -31,6 +33,7 @@ import { watchPanel } from '../components/watch-panel'
 import { gql } from '../generated'
 import { cardParamsIn } from '../player/card-params'
 import { prefetchPlayback } from '../player/prefetch'
+import { useQueue } from '../player/queue'
 import {
   claimPlayer, closePlayer, getPlayerSession, openPlayer, setPanel, setTheater as setPlayerTheater, usePlayerSession,
 } from '../player/session'
@@ -71,6 +74,8 @@ const style = css`
   align-items: start;
   gap: 0 1.6rem;
   padding: 1.2rem 1.6rem 2.4rem;
+  overflow-x: clip;
+  isolation: isolate;
 
   .stage {
     grid-column: 1;
@@ -82,6 +87,7 @@ const style = css`
      the page would jump as the video arrives. */
   .player-slot,
   .player-slot > .player-host {
+    position: relative;
     display: block;
     width: 100%;
   }
@@ -422,6 +428,8 @@ const RELATED_MORE_QUERY = gql(`
         channel { id name isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
+        notInterestedToken
+        dontRecommendToken
       }
       cursor
     }
@@ -522,10 +530,12 @@ const WatchPage = () => {
   })
   const morePage = moreData?.relatedVideos
   const hideShorts = useSetting('hideShorts')
+  const dismissed = useDismissed()
+  const queue = useQueue()
   const related: VideoCardData[] | undefined = watch?.related
     ? [...watch.related, ...relatedPages.flatMap(entry => entry.items)]
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
-      .filter(video => !hideShorts || video.isShort !== true)
+      .filter(video => (!hideShorts || video.isShort !== true) && !isDismissedVideo(dismissed, video))
     : undefined
   // gated on the URL: WatchMeta is keyed by video id, so its one `playlist` slot can hold another queue's panel
   const playlist: PlaylistPanelData | undefined =
@@ -672,12 +682,12 @@ const WatchPage = () => {
             {watch?.hasChatReplay ? <ChatReplayTeaser open={replayOpen} onOpen={() => setReplayFor(videoId)} /> : undefined}
           </div>
         </div>
-        {watchFetching || playlist || watch?.isLive || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
+        {watchFetching || playlist || queue.items.length > 0 || watch?.isLive || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
           ? (
             <aside className='secondary'>
               {oneColumn ? undefined : replay}
               {oneColumn ? undefined : videoPanel}
-              {playlist ? <PlaylistPanel playlist={playlist} /> : undefined}
+              {playlist ? <PlaylistPanel playlist={playlist} /> : queue.items.length > 0 ? <QueuePanel /> : undefined}
               {watch?.isLive ? <LiveChat key={`chat:${videoId}`} videoId={videoId} /> : undefined}
               {oneColumn
                 ? (
@@ -688,13 +698,14 @@ const WatchPage = () => {
                           key={item.id}
                           video={item.isShort ? { ...item, isShort: undefined } : item}
                           variant='shelf'
+                          recommendable
                         />
                       ))
                       : RELATED_SKELETON_KEYS.map(key => <VideoCardSkeleton key={key} />)}
                   </div>
                 )
                 : related
-                ? related.map(item => <VideoCardCompact key={item.id} video={item} />)
+                ? related.map(item => <VideoCardCompact key={item.id} video={item} recommendable />)
                 : RELATED_SKELETON_KEYS.map(key => <VideoCardCompactSkeleton key={key} />)}
               {relatedCursor
                 ? oneColumn

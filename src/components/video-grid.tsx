@@ -30,19 +30,20 @@ const NEXT_PAGE_SKELETONS = 4
 
 // No paging props here: every route already renders its own FeedSentinel as a sibling, so a grid that owned one would fire the same page twice
 export const VideoGrid = (
-  { videos, fetching = false, variant, context, shelf }: {
+  { videos, fetching = false, variant, context, shelf, recommendable }: {
     videos: VideoCardData[]
     fetching?: boolean
     variant?: 'channel'
     context?: WatchContext
     shelf?: ComponentChildren
+    recommendable?: boolean
   }
 ) => (
   <div css={style} className={variant}>
     {/* placed by its own CSS after the first row, whatever its place here */}
     {shelf}
     {videos.map(video => (
-      <VideoCard key={video.id} video={video} variant={variant} context={context} />
+      <VideoCard key={video.id} video={video} variant={variant} context={context} recommendable={recommendable} />
     ))}
     {fetching
       ? Array.from(

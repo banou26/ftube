@@ -4,7 +4,7 @@ import { expect, test } from './test'
 
 test.use({ colorScheme: 'light' })
 
-const ITEMS = ['Save to Watch later', 'Save to playlist', 'Share']
+const ITEMS = ['Add to queue', 'Save to Watch later', 'Save to playlist', 'Share']
 
 const scrollOf = (track: Locator) => track.evaluate(element => [element.scrollTop, element.scrollLeft])
 
@@ -79,9 +79,9 @@ test('a menu in a channel Home row opens whole and keeps its keyboard', async ({
   expect(await scrollOf(track), 'the row scrolled').toEqual(before)
   expect(await anchored(menu, more)).toBe(true)
 
-  await expect(menu.getByRole('menuitem', { name: 'Save to Watch later' })).toBeFocused()
+  await expect(menu.getByRole('menuitem', { name: 'Add to queue' })).toBeFocused()
   await page.keyboard.press('ArrowDown')
-  await expect(menu.getByRole('menuitem', { name: 'Save to playlist' })).toBeFocused()
+  await expect(menu.getByRole('menuitem', { name: 'Save to Watch later' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
   await expect(more).toBeFocused()

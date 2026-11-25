@@ -9,9 +9,11 @@ import { Link, useLocation, useSearch } from 'wouter'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
+import { AmbientGlow } from './ambient-glow'
 import { PlayerFrame } from './player-frame'
 import { useSponsorSegments } from './sponsorblock'
 import { hasNextInQueue, markPlayed, nextQueueIndex, pickAutoplay, previousQueueIndex } from './up-next'
+import { nextInQueueIndex, previousInQueueIndex, syncQueueVideo, useQueue } from './queue'
 import VideoPlayer from './video-player'
 import { descriptionOf, WATCH_META_QUERY } from './watch-query'
 
@@ -139,6 +141,9 @@ const PersistentPlayer = () => {
   const search = useSearch()
   const [autoplay, setAutoplay] = useState(() => getSettings().autoplay)
   useEffect(() => subscribeSettings(settings => setAutoplay(settings.autoplay)), [])
+  const ambientMode = useSetting('ambientMode')
+  const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
 
   const videoId = session.videoId
   // the same document and variables as the watch route, so on the watch page both share its one /next
@@ -152,13 +157,20 @@ const PersistentPlayer = () => {
 
   useEffect(() => {
     if (videoId) markPlayed(videoId)
+    syncQueueVideo(videoId)
   }, [videoId])
 
+  const localQueue = useQueue()
   const playlist = session.list !== undefined && watch?.playlist?.id === session.list ? watch.playlist : undefined
   const count = playlist?.items.length ?? 0
   const current = Math.min(Math.max(playlist?.currentIndex ?? 0, 0), Math.max(count - 1, 0))
+  const localNextIndex = !playlist ? nextInQueueIndex(localQueue) : undefined
+  const localPrevIndex = !playlist ? previousInQueueIndex(localQueue) : undefined
+  const localPick = localNextIndex !== undefined ? localQueue.items[localNextIndex] : undefined
   // read when the video ends, since loop and shuffle change without re-rendering this
-  const queued = () => playlist !== undefined && hasNextInQueue(current, count)
+  const queued = () =>
+    (playlist !== undefined && hasNextInQueue(current, count))
+    || (!playlist && nextInQueueIndex(localQueue) !== undefined)
 
   const hideShorts = useSetting('hideShorts')
   const suggestions = useMemo(
@@ -166,10 +178,11 @@ const PersistentPlayer = () => {
     [watch, videoId, hideShorts],
   )
   const preferred = watch?.autoplayId
-  const pick = useMemo(
+  const autoplayPick = useMemo(
     () => (videoId ? pickAutoplay(suggestions, videoId, { preferred }) : undefined),
     [suggestions, videoId, preferred],
   )
+  const pick = localPick ?? autoplayPick
 
   // the page a full screen player left behind, since a navigation would move the player out of full screen
   const behind = useRef<string | undefined>(undefined)
@@ -219,7 +232,9 @@ const PersistentPlayer = () => {
 
   const next = count > 1 || pick
     ? () => {
-      const target = queueEntry(nextQueueIndex(current, count)) ?? pick
+      const target = playlist
+        ? queueEntry(nextQueueIndex(current, count)) ?? autoplayPick
+        : localPick ?? autoplayPick
       if (target) open(target)
     }
     : undefined
@@ -228,6 +243,11 @@ const PersistentPlayer = () => {
   const previous = playlist
     ? () => {
       const target = queueEntry(previousQueueIndex(current, count))
+      if (target) open(target)
+    }
+    : localPrevIndex !== undefined
+    ? () => {
+      const target = localQueue.items[localPrevIndex]
       if (target) open(target)
     }
     : undefined
@@ -246,11 +266,17 @@ const PersistentPlayer = () => {
                 {watch?.title ?? session.title ?? 'Now playing'}
               </Link>
               {/* youtube.com names the playlist and the place in it where it would name the channel */}
-              {playlist || watch?.channel?.name
+              {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
                 ? (
                   <div className='dock-byline'>
-                    <span className='dock-name'>{playlist ? playlist.title ?? 'Playlist' : watch?.channel?.name}</span>
-                    {playlist && count > 0 ? <span className='dock-index'>{current + 1} / {count}</span> : undefined}
+                    <span className='dock-name'>
+                      {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
+                    </span>
+                    {playlist && count > 0
+                      ? <span className='dock-index'>{current + 1} / {count}</span>
+                      : !playlist && localQueue.currentIndex >= 0
+                        ? <span className='dock-index'>{localQueue.currentIndex + 1} / {localQueue.items.length}</span>
+                        : undefined}
                   </div>
                 )
                 : undefined}
@@ -261,50 +287,62 @@ const PersistentPlayer = () => {
       {createPortal(
         session.videoId
           ? (
-            <PlayerFrame
-              details={{
-                videoId: session.videoId,
-                list: session.list,
-                title: watch?.title ?? session.title,
-                likeStatus: watch?.likeStatus,
-                commentsHidden: watch?.commentsHidden === true,
-                commentCountText: watch?.commentCountText,
-                videos: suggestions,
-                onOpen: open,
-                chapters: watch?.chapters ?? [],
-                chapter: session.chapter,
-                panel: session.panel,
-                transcript: watch?.transcriptPanel ?? undefined,
-                description: watch ? descriptionOf(watch) : undefined,
-              }}
-            >
-              <VideoPlayer
-                key={`player:${session.videoId}`}
-                videoId={session.videoId}
-                playerParams={session.playerParams}
-                list={session.list}
-                title={session.title}
-                startAt={session.startAt}
+            <>
+              <AmbientGlow
+                video={ambientVideo}
+                enabled={ambientMode}
+                fullscreen={fullscreen}
                 docked={docked}
-                theater={session.theater}
-                onTheater={() => setTheater(!session.theater)}
-                onMiniplayer={toggleMiniplayer}
-                chapters={watch?.chapters}
-                segments={segments}
-                teasers={watch?.cardTeasers}
-                cardsAvatar={watch?.channelCard?.avatar}
-                upNext={{
-                  autoplay,
-                  onAutoplay: (value: boolean) => updateSettings({ autoplay: value }),
-                  queued,
-                  pick,
-                  suggestions,
-                  onNext: next,
-                  onPrevious: previous,
-                  onOpen: open,
-                }}
               />
-            </PlayerFrame>
+              <PlayerFrame
+                onFullscreenChange={setFullscreen}
+                details={{
+                  videoId: session.videoId,
+                  list: session.list,
+                  title: watch?.title ?? session.title,
+                  likeStatus: watch?.likeStatus,
+                  commentsHidden: watch?.commentsHidden === true,
+                  commentCountText: watch?.commentCountText,
+                  videos: suggestions,
+                  onOpen: open,
+                  chapters: watch?.chapters ?? [],
+                  chapter: session.chapter,
+                  panel: session.panel,
+                  transcript: watch?.transcriptPanel ?? undefined,
+                  description: watch ? descriptionOf(watch) : undefined,
+                }}
+              >
+                <VideoPlayer
+                  key={`player:${session.videoId}`}
+                  videoId={session.videoId}
+                  playerParams={session.playerParams}
+                  list={session.list}
+                  title={session.title}
+                  startAt={session.startAt}
+                  docked={docked}
+                  theater={session.theater}
+                  onTheater={() => setTheater(!session.theater)}
+                  onMiniplayer={toggleMiniplayer}
+                  ambientMode={ambientMode}
+                  onAmbientMode={() => updateSettings({ ambientMode: !ambientMode })}
+                  onVideoElement={setAmbientVideo}
+                  chapters={watch?.chapters}
+                  segments={segments}
+                  teasers={watch?.cardTeasers}
+                  cardsAvatar={watch?.channelCard?.avatar}
+                  upNext={{
+                    autoplay,
+                    onAutoplay: (value: boolean) => updateSettings({ autoplay: value }),
+                    queued,
+                    pick,
+                    suggestions,
+                    onNext: next,
+                    onPrevious: previous,
+                    onOpen: open,
+                  }}
+                />
+              </PlayerFrame>
+            </>
           )
           : null,
         playerHost(),

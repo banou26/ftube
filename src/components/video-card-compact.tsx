@@ -163,7 +163,7 @@ const style = css`
   }
 `
 
-export const VideoCardCompact = ({ video, context }: { video: VideoCardData, context?: WatchContext }) => {
+export const VideoCardCompact = ({ video, context, recommendable }: { video: VideoCardData, context?: WatchContext, recommendable?: boolean }) => {
   const watchHref = watchHrefFor(video.id, context)
   const duration = formatDuration(video.durationSeconds)
   const progress = resumePercent(video.progressPercent)
@@ -221,7 +221,18 @@ export const VideoCardCompact = ({ video, context }: { video: VideoCardData, con
         <RowMeta video={video} />
         {video.isMembersOnly ? <MembersOnly /> : undefined}
       </div>
-      <VideoCardMenu videoId={video.id} title={video.title} iconSize={16} class='more-menu' />
+      <VideoCardMenu
+        videoId={video.id}
+        title={video.title}
+        thumbnail={video.thumbnail}
+        durationSeconds={video.durationSeconds}
+        channel={video.channel}
+        notInterestedToken={video.notInterestedToken}
+        dontRecommendToken={video.dontRecommendToken}
+        recommendable={recommendable}
+        iconSize={16}
+        class='more-menu'
+      />
     </article>
   )
 }

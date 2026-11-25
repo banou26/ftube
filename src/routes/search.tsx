@@ -778,7 +778,14 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
           <h2 className='title'>
             <Link href={watchHref} state={state}>{row.title}</Link>
           </h2>
-          <VideoCardMenu videoId={row.id} title={row.title} iconSize={24} />
+          <VideoCardMenu
+            videoId={row.id}
+            title={row.title}
+            thumbnail={row.thumbnail}
+            durationSeconds={row.durationSeconds}
+            channel={row.channel}
+            iconSize={24}
+          />
         </div>
         {meta ? <div className='meta'>{meta}</div> : undefined}
         {/* youtube.com opens the choice of a collaboration's channels from its avatars, and the video from its names */}

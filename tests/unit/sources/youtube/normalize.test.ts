@@ -1251,3 +1251,54 @@ describe('search topic cards', () => {
     })
   })
 })
+
+describe('video recommendation feedback tokens', () => {
+  it('extracts Not interested and Don\'t recommend tokens from legacy MenuServiceItem entries', () => {
+    const normalized = normalizeFeedVideo({
+      video_id: 'v-feed',
+      title: { text: 'Feed video' },
+      menu: {
+        items: [
+          { icon_type: 'NOT_INTERESTED', text: { text: 'Not interested' }, endpoint: { payload: { feedbackToken: 'tok-ni' } } },
+          { icon_type: 'REMOVE_CIRCLE', text: { text: "Don't recommend channel" }, endpoint: { payload: { feedbackToken: 'tok-dr' } } },
+        ],
+      },
+    })
+    expect(normalized?.notInterestedToken).toBe('tok-ni')
+    expect(normalized?.dontRecommendToken).toBe('tok-dr')
+  })
+
+  it('extracts feedback tokens from LockupView sheet menu items', () => {
+    const normalized = normalizeLockupVideo({
+      content_id: 'v-lockup',
+      content_type: 'VIDEO',
+      metadata: {
+        title: { text: 'Lockup video' },
+        menu_button: {
+          on_tap: {
+            command: {
+              inline_content: {
+                content: {
+                  items: [
+                    {
+                      title: { text: 'Not interested' },
+                      leading_image: [{ client_resource: { image_name: 'NOT_INTERESTED' } }],
+                      renderer_context: { command_context: { on_tap: { payload: { feedbackToken: 'lockup-ni' } } } },
+                    },
+                    {
+                      title: { text: "Don't recommend channel" },
+                      leading_image: { sources: [{ client_resource: { image_name: 'DO_NOT_DISTURB' } }] },
+                      renderer_context: { command_context: { on_tap: { command: { feedback_token: 'lockup-dr' } } } },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+    expect(normalized?.notInterestedToken).toBe('lockup-ni')
+    expect(normalized?.dontRecommendToken).toBe('lockup-dr')
+  })
+})

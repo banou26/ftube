@@ -10,7 +10,11 @@ const EXTENSION_PRIVACY_URL = 'https://fkn.app/extension/privacy'
 const KEPT: { title: string, what: string }[] = [
   {
     title: 'Settings',
-    what: 'Your theme, autoplay, volume and mute, quality, speed, captions and their language, and theater mode, whether to show dislike counts and skip sponsors, whether to hide Shorts, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
+    what: 'Your theme, autoplay, volume and mute, quality, speed, captions and their language, theater mode, ambient mode, whether to show dislike counts and skip sponsors, whether to hide Shorts, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
+  },
+  {
+    title: 'Hidden recommendations',
+    what: 'Up to 500 videos you marked "Not interested" and up to 500 channels you marked "Don\'t recommend channel", stored locally in this browser so they stay hidden across visits. Kept until you undo them or reset them in Settings.',
   },
   {
     title: 'Channel groups',
