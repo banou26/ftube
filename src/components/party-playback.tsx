@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'preact/hooks'
 
 import { party } from '../party'
 import { toLocalTime } from '../party/clock'
-import { expectedTime, playbackCorrection } from '../party/playback'
+import { expectedTime, partyPlaybackMode, playbackCorrection } from '../party/playback'
 import { videoIdOfPath } from '../party/protocol'
 import { useParty, usePartyMessages } from '../party/use-party'
 
@@ -19,12 +19,13 @@ const readVideoState = (video: HTMLVideoElement): PlaybackState => ({
 
 /**
  * Syncs `<video>` play/pause, position, and playback rate with the active Watch Together room.
- * Active only while watching VOD on the watch page (`active = !docked && !isLive`).
+ * Hosts publish only from the undocked watch page; followers stay synced on both the watch page and the docked miniplayer.
  */
-export const PartyPlayback = ({ video, videoId, active }: { video: HTMLVideoElement, videoId: string, active: boolean }) => {
+export const PartyPlayback = ({ video, videoId, isLive, docked }: { video: HTMLVideoElement, videoId: string, isLive: boolean, docked: boolean }) => {
   const state = useParty()
   const role = state.status === 'active' ? state.role : undefined
   const invite = state.status === 'active' ? state.invite : undefined
+  const { publish, follow } = partyPlaybackMode({ role, isLive, docked })
   const following = party.following()
   const wanted = useRef<PlaybackState | undefined>(undefined)
 
@@ -34,31 +35,31 @@ export const PartyPlayback = ({ video, videoId, active }: { video: HTMLVideoElem
 
   // Host publishes playback state on transitions and on a 5 s heartbeat while playing.
   useEffect(() => {
-    if (role !== 'host' || !active) {
+    if (!publish) {
       party.setPlayback(undefined)
       return
     }
-    const publish = () => {
+    const publishState = () => {
       if (video.readyState < 1) return
       const next = readVideoState(video)
       party.setPlayback(next)
       party.send({ t: 'playback', s: next })
     }
-    publish()
+    publishState()
     const events = ['play', 'pause', 'seeked', 'ratechange', 'loadedmetadata'] as const
-    for (const event of events) video.addEventListener(event, publish)
+    for (const event of events) video.addEventListener(event, publishState)
     const timer = setInterval(() => {
-      if (!video.paused) publish()
+      if (!video.paused) publishState()
     }, HOST_HEARTBEAT_MS)
     return () => {
       clearInterval(timer)
-      for (const event of events) video.removeEventListener(event, publish)
+      for (const event of events) video.removeEventListener(event, publishState)
       party.setPlayback(undefined)
     }
-  }, [role, active, video, videoId, invite])
+  }, [publish, video, videoId, invite])
 
   const apply = (target: PlaybackState, force: boolean) => {
-    if (!active || (!force && !party.following())) return
+    if (!follow || (!force && !party.following())) return
     const correction = playbackCorrection(
       { paused: video.paused, time: video.currentTime, rate: video.playbackRate },
       target,
@@ -84,7 +85,7 @@ export const PartyPlayback = ({ video, videoId, active }: { video: HTMLVideoElem
 
   // Re-apply the latest host playback snapshot once metadata/data arrives or Follow is turned back on.
   useEffect(() => {
-    if (role !== 'guest' || !active) return
+    if (!follow) return
     const seed = () => {
       if (wanted.current) return
       const initial = party.hostPlayback()
@@ -107,10 +108,10 @@ export const PartyPlayback = ({ video, videoId, active }: { video: HTMLVideoElem
       video.removeEventListener('loadeddata', reapply)
       video.removeEventListener('canplay', reapply)
     }
-  }, [role, active, video, videoId, following])
+  }, [follow, video, videoId, following])
 
   usePartyMessages((message, { replayed }) => {
-    if (role !== 'guest' || !active) return
+    if (!follow) return
     const next = message.t === 'playback' ? message.s : message.t === 'state' ? message.s : undefined
     if (!next) return
     const sourcePath = message.t === 'state' ? message.path : party.hostPath()

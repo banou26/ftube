@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { advance, expectedTime, MAX_EXTRAPOLATION_MS, playbackCorrection, sameRate, SEEK_TOLERANCE_S } from '../../../src/party/playback'
+import { advance, expectedTime, MAX_EXTRAPOLATION_MS, partyPlaybackMode, playbackCorrection, sameRate, SEEK_TOLERANCE_S } from '../../../src/party/playback'
 
 describe('party playback sync arithmetic', () => {
   it('extrapolates playing timestamps and holds paused ones steady', () => {
@@ -43,5 +43,15 @@ describe('party playback sync arithmetic', () => {
       3_000,
       true,
     )).toStrictEqual({ seekTo: 22.5, paused: false, rate: 1.25 })
+  })
+
+  it('keeps follower sync active while docked into the miniplayer and limits host publish to undocked VOD', () => {
+    expect(partyPlaybackMode({ role: 'guest', isLive: false, docked: false })).toStrictEqual({ publish: false, follow: true })
+    expect(partyPlaybackMode({ role: 'guest', isLive: false, docked: true })).toStrictEqual({ publish: false, follow: true })
+    expect(partyPlaybackMode({ role: 'guest', isLive: true, docked: true })).toStrictEqual({ publish: false, follow: false })
+    expect(partyPlaybackMode({ role: 'host', isLive: false, docked: false })).toStrictEqual({ publish: true, follow: false })
+    expect(partyPlaybackMode({ role: 'host', isLive: false, docked: true })).toStrictEqual({ publish: false, follow: false })
+    expect(partyPlaybackMode({ role: 'host', isLive: true, docked: false })).toStrictEqual({ publish: false, follow: false })
+    expect(partyPlaybackMode({ role: undefined, isLive: false, docked: true })).toStrictEqual({ publish: false, follow: false })
   })
 })

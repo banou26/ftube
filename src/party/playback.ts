@@ -46,3 +46,9 @@ export const playbackCorrection = (
   if (!sameRate(local.rate, host.rate)) correction.rate = host.rate
   return Object.keys(correction).length > 0 ? correction : undefined
 }
+
+/** Determines whether Watch Together publishes host state or follows host updates in the player. */
+export const partyPlaybackMode = ({ role, isLive, docked }: { role?: 'host' | 'guest', isLive: boolean, docked: boolean }) => ({
+  publish: role === 'host' && !isLive && !docked,
+  follow: role === 'guest' && !isLive,
+})

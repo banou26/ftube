@@ -76,6 +76,29 @@ test('syncs navigation, playback, chat, and moderation between host and guest', 
       { timeout: 20_000 },
     ).toBeLessThan(2.5)
 
+    // Guest leaves /watch so the video docks into the miniplayer, and host seeks still follow.
+    await guest.page.evaluate(() => {
+      history.pushState(null, '', '/settings')
+      dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await expect(guest.page.getByRole('complementary', { name: 'Miniplayer' })).toBeVisible({ timeout: 20_000 })
+    await host.page.locator('video').evaluate((video: HTMLVideoElement) => {
+      video.currentTime = 95
+    })
+    await expect.poll(
+      async () => {
+        const [hostState, guestState] = await Promise.all([
+          host.page.locator('video').evaluate((video: HTMLVideoElement) => ({ paused: video.paused, time: video.currentTime })),
+          guest.page.locator('video').evaluate((video: HTMLVideoElement) => ({ paused: video.paused, time: video.currentTime })),
+        ])
+        return {
+          nearTarget: guestState.time >= 92 && Math.abs(guestState.time - hostState.time) < 2.5,
+          pausedMatches: guestState.paused === hostState.paused,
+        }
+      },
+      { timeout: 20_000 },
+    ).toStrictEqual({ nearTarget: true, pausedMatches: true })
+
     // Chat round-trips in both directions and shows unread badge when closed.
     await guest.page.getByRole('button', { name: 'Party chat' }).click()
     await guest.page.getByRole('textbox', { name: 'Party message' }).fill('hello from guest')

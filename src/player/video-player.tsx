@@ -1065,7 +1065,7 @@ const VideoPlayer = (
       {video && !status && !refusal
         ? (
           <>
-            <PartyPlayback video={video} videoId={videoId} active={!docked && !isLive} />
+            <PartyPlayback video={video} videoId={videoId} isLive={isLive} docked={docked} />
             <PlayerControls
             video={video}
             player={player}
