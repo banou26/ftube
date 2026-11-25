@@ -166,7 +166,7 @@ const style = css`
   }
 
   &.theater .stage {
-    background: #000;
+    background: transparent;
   }
 
   &.theater .columns {

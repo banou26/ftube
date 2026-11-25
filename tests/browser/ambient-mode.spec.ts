@@ -1,20 +1,58 @@
+import type { Page } from '@playwright/test'
+
 import { expect, test } from './test'
 
 const VIDEO = '/watch?v=dQw4w9WgXcQ'
 
-test('ambient glow samples video frames, avoids horizontal overflow, and toggles in player settings and /settings', async ({ page }) => {
+type RgbPixel = { r: number, g: number, b: number, a: number }
+
+const sampleScreenshotPixels = async (
+  page: Page,
+  points: readonly { x: number, y: number }[],
+): Promise<RgbPixel[]> => {
+  const png = await page.screenshot()
+  const url = `data:image/png;base64,${png.toString('base64')}`
+  return page.evaluate(async ({ imageUrl, coords }) => {
+    const img = new Image()
+    img.src = imageUrl
+    await img.decode()
+    const dpr = window.devicePixelRatio || 1
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    return coords.map(({ x, y }) => {
+      const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x * dpr)))
+      const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y * dpr)))
+      const [r = 0, g = 0, b = 0, a = 0] = ctx.getImageData(px, py, 1, 1).data
+      return { r, g, b, a }
+    })
+  }, { imageUrl: url, coords: points })
+}
+
+const maxChannel = (pixel: RgbPixel) => Math.max(pixel.r, pixel.g, pixel.b)
+
+test('ambient glow fills video bars in theater mode, glows outside the frame, avoids overflow, and toggles in settings', async ({ page }) => {
   test.setTimeout(180_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(VIDEO)
 
   const glow = page.locator('[data-ambient-glow]')
+  const bars = page.locator('[data-ambient-bars]')
   await expect(glow).toBeAttached({ timeout: 30_000 })
   await expect(glow).toHaveAttribute('data-active', 'true')
+  await expect(bars).toBeAttached({ timeout: 30_000 })
 
   const video = page.locator('video')
   await expect.poll(
     () => video.evaluate(element => (element as HTMLVideoElement).currentTime),
     { timeout: 120_000, message: 'playback did not start' },
-  ).toBeGreaterThan(1)
+  ).toBeGreaterThan(2)
+
+  await expect(bars).toHaveAttribute('data-active', 'true')
+  // Wait a beat for the ambient crossfade to settle on live video colors.
+  await page.waitForTimeout(450)
 
   await expect.poll(async () => {
     const canvas = glow.locator('canvas')
@@ -31,6 +69,16 @@ test('ambient glow samples video frames, avoids horizontal overflow, and toggles
     })
   }, { timeout: 20_000, message: 'ambient canvas did not paint video pixels' }).toBeGreaterThan(0)
 
+  // Outer watch-stage halo tints the dark watch background below the default player frame.
+  const playerBox = (await page.locator('[data-player-root]').boundingBox())!
+  const [belowDefault] = await sampleScreenshotPixels(page, [
+    { x: Math.round(playerBox.x + playerBox.width * 0.85), y: Math.round(playerBox.y + playerBox.height + 6) },
+  ])
+  expect(
+    Math.max(Math.abs(belowDefault!.r - 15), Math.abs(belowDefault!.g - 15), Math.abs(belowDefault!.b - 15)),
+    `expected outer halo above background rgb(15,15,15), got ${JSON.stringify(belowDefault)}`,
+  ).toBeGreaterThan(3)
+
   const heading = page.locator('main h1')
   await expect(heading).toBeVisible()
   const headingHit = await heading.evaluate((element) => {
@@ -43,6 +91,20 @@ test('ambient glow samples video frames, avoids horizontal overflow, and toggles
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
   expect(overflow).toBe(false)
 
+  // In theater mode, left and right bars next to the video display a blurred video-colored gradient.
+  await page.keyboard.press('t')
+  await expect(page.locator('main')).toHaveClass(/\btheater\b/)
+  await page.waitForTimeout(350)
+
+  const theaterBox = (await page.locator('[data-player-root]').boundingBox())!
+  const midY = Math.round(theaterBox.y + theaterBox.height * 0.5)
+  const leftBarPoint = { x: Math.round(theaterBox.x + 24), y: midY }
+  const rightBarPoint = { x: Math.round(theaterBox.x + theaterBox.width - 24), y: midY }
+  await expect.poll(async () => {
+    const [leftBar, rightBar] = await sampleScreenshotPixels(page, [leftBarPoint, rightBarPoint])
+    return Math.min(maxChannel(leftBar!), maxChannel(rightBar!))
+  }, { timeout: 10_000, message: 'left and right bars remained black instead of ambient gradient' }).toBeGreaterThan(15)
+
   await page.locator('[data-player-root]').hover()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const settingsMenu = page.getByRole('menu', { name: 'Player settings' })
@@ -54,6 +116,12 @@ test('ambient glow samples video frames, avoids horizontal overflow, and toggles
   await expect(ambientRow).toHaveAttribute('aria-checked', 'false')
   await expect(ambientRow).toHaveText('Ambient modeOff')
   await expect(glow).toHaveAttribute('data-active', 'false')
+  await expect(bars).toHaveAttribute('data-active', 'false')
+
+  await expect.poll(async () => {
+    const [leftBar, rightBar] = await sampleScreenshotPixels(page, [leftBarPoint, rightBarPoint])
+    return Math.max(maxChannel(leftBar!), maxChannel(rightBar!))
+  }, { timeout: 10_000, message: 'bars did not return to black after disabling ambient mode' }).toBeLessThanOrEqual(4)
 
   await page.goto('/settings')
   const settingsToggle = page.getByRole('checkbox', { name: 'Ambient mode', exact: true })

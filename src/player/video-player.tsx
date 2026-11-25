@@ -31,6 +31,7 @@ import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { PartyPlayback } from '../components/party-playback'
 import { AudioPermissionPrompt } from './audio-prompt'
+import { AmbientBars } from './ambient-glow'
 import { Bezel } from './bezel'
 import { CaptionOverlay } from './caption-overlay'
 import { captionDeclarations, stepCaptionSize } from './caption-style'
@@ -951,6 +952,14 @@ const VideoPlayer = (
       }}
       onContextMenu={onContextMenu}
     >
+      <AmbientBars
+        video={video}
+        enabled={ambientMode !== false}
+        fullscreen={frame?.fullscreen ?? false}
+        docked={docked}
+        hasFrame={hasFrame}
+        blocked={Boolean(status || refusal)}
+      />
       {posterUrl
         ? (
           <img
