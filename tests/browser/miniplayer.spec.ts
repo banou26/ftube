@@ -82,10 +82,21 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
   // the player bar's own clock is still in the page, hidden with the bar
   const clock = mini.getByText(/^\d:\d\d \/ 3:33$/).filter({ visible: true })
   await expect(clock).toBeVisible()
-  expect((await box(clock)).left).toBe(picture.left + 12)
-  for (const control of ['Previous', 'Next', 'Settings', 'Full screen', 'Mute', 'Unmute']) {
+  const clockBox = await box(clock)
+  expect(clockBox.left).toBe(picture.left + 12)
+  for (const control of ['Previous', 'Next', 'Settings', 'Full screen']) {
     await expect(mini.getByRole('button', { name: control, exact: true })).toHaveCount(0)
   }
+  const muteButton = mini.getByRole('button', { name: 'Mute', exact: true })
+  const volumeSlider = mini.getByRole('slider', { name: 'Volume', exact: true })
+  await expect(muteButton).toBeVisible()
+  await expect(volumeSlider).toBeVisible()
+  const muteBox = await box(muteButton)
+  const volumeBox = await box(volumeSlider)
+  expect(muteBox.left).toBeGreaterThan(clockBox.right)
+  expect(muteBox.top).toBeGreaterThanOrEqual(picture.top)
+  expect(volumeBox.right).toBeLessThanOrEqual(picture.right)
+  expect(volumeBox.bottom).toBeLessThanOrEqual(picture.bottom)
 
   // once the pointer leaves, only the seek bar shows, 3 px along the bottom edge of the video
   await page.mouse.move(10, 400)
@@ -105,7 +116,39 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
   await expect(mini.getByRole('button', { name: 'Close miniplayer' })).toBeFocused()
   await expect.poll(() => opacity(controls)).toBe('1')
 
-  // Expand takes the same video element back to its watch page, still playing
+  // Volume slider and mute button control playback volume and persist to settings.
+  await page.mouse.move(picture.left + 100, picture.top + 60)
+  await volumeSlider.fill('0.35')
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.35, muted: false })
+  await expect(volumeSlider).toHaveAttribute('aria-valuetext', '35%')
+  expect(await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('yt-client:settings') || '{}') as { volume?: number, muted?: boolean }
+    return { volume: raw.volume, muted: raw.muted }
+  })).toEqual({ volume: 0.35, muted: false })
+
+  await muteButton.click()
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
+  const unmuteButton = mini.getByRole('button', { name: 'Unmute', exact: true })
+  await expect(unmuteButton).toBeVisible()
+  await unmuteButton.click()
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.35, muted: false })
+
+  await volumeSlider.fill('0')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
+  await expect(unmuteButton).toBeVisible()
+  await unmuteButton.click()
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.5, muted: false })
+
+  // Expand takes the same video element back to its watch page, still playing with adjusted volume.
   await video.evaluate((element) => {
     element.dataset.docked = 'true'
   })
@@ -115,6 +158,10 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
   await expect(dock(page)).toHaveCount(0)
   await expect(page.locator('main video[data-docked="true"]')).toBeVisible()
   await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(before)
+  expect(await video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.5, muted: false })
 })
 
 test('f, t and a double click leave the miniplayer as it is, and Escape closes it', async ({ page }) => {

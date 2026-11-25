@@ -22,6 +22,7 @@ import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
 import { SpeedPicker } from './speed-picker'
+import { applyVideoVolume, effectiveVolumeOf, toggleVideoMute } from './volume'
 
 export const clock = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -760,16 +761,11 @@ export const PlayerControls = (
 
   const onVolume = (event: Event) => {
     const value = Number((event.currentTarget as HTMLInputElement).value)
-    video.volume = value
-    video.muted = value === 0
-    updateSettings({ volume: value, muted: video.muted })
+    updateSettings(applyVideoVolume(video, value))
   }
 
   const toggleMute = () => {
-    const muted = !video.muted
-    video.muted = muted
-    if (!muted && video.volume === 0) video.volume = 0.5
-    updateSettings({ muted, volume: video.volume })
+    updateSettings(toggleVideoMute(video))
   }
 
   /* Shaka holds the video at rate 0 while it buffers, when the speed chosen is the stored one. Read off the video rather
@@ -808,8 +804,8 @@ export const PlayerControls = (
   const board = bestStoryboard(storyboards)
   const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
 
-  const effectiveVolume = state.muted ? 0 : state.volume
-  const VolumeIcon = effectiveVolume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2
+  const effectiveVolume = effectiveVolumeOf(state)
+  const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 0.5 ? Volume1 : Volume2
 
   const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId)
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
@@ -902,7 +898,7 @@ export const PlayerControls = (
           </button>
           {onNext ? <button type='button' className='control group next' aria-label='Next' onClick={onNext}><SkipForward size={22} fill='currentColor' strokeWidth={2} /></button> : undefined}
           <div className='group volume'>
-            <button type='button' className='control' aria-label={state.muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>
+            <button type='button' className='control' aria-label={effectiveVolume === 0 ? 'Unmute' : 'Mute'} onClick={toggleMute}>
               <VolumeIcon size={24} strokeWidth={1.8} />
             </button>
             <div className='volume-slider'>
