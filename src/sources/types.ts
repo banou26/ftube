@@ -564,6 +564,8 @@ export type SourceComment = {
   replyCount?: number
   isPinned?: boolean
   isHearted?: boolean
+  heartAvatar?: string
+  heartTooltip?: string
   isLiked?: boolean
   isDisliked?: boolean
   isCreator?: boolean

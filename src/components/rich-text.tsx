@@ -35,6 +35,17 @@ const style = css`
   }
 `
 
+/** Resolves an InnerTube `browseId` run to its in-app route, or `undefined` for non-routable browse tabs. */
+export const browseHrefFor = (browseId: string, text: string): string | undefined => {
+  if (browseId === 'FEhashtag') {
+    const tag = text.trim()
+    return tag.startsWith('#') && tag.length > 1 ? `/results?${new URLSearchParams({ search_query: tag })}` : undefined
+  }
+  if (browseId.startsWith('FE')) return undefined
+  if (browseId.startsWith('VL')) return browseId.length > 2 ? `/playlist?${new URLSearchParams({ list: browseId.slice(2) })}` : undefined
+  return `/channel/${browseId}`
+}
+
 // a run can point at a DIFFERENT video than `videoId`, which is what decides seek vs navigate; `renderRun` returning undefined defers to the default
 /**
  * A rich text body rendered from its runs.
@@ -86,7 +97,8 @@ export const RichText = <Run extends RichTextRun>(
       }
 
       if (run.browseId) {
-        return <Link key={key} href={`/channel/${run.browseId}`}>{run.text}</Link>
+        const href = browseHrefFor(run.browseId, run.text)
+        return href ? <Link key={key} href={href}>{run.text}</Link> : <span key={key}>{run.text}</span>
       }
 
       if (run.url) {

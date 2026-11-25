@@ -254,6 +254,8 @@ type CommentViewNode = {
   reply_count?: string
   is_pinned?: boolean
   is_hearted?: boolean
+  creator_thumbnail_url?: string
+  heart_active_tooltip?: string
   is_liked?: boolean
   is_disliked?: boolean
   author_is_channel_owner?: boolean
@@ -333,6 +335,8 @@ export const approximateCount = (value: string | undefined) => {
 }
 
 const handleFromUrl = (url: string | undefined) => url?.match(/\/(@[^/?#]+)/)?.[1]
+
+const httpsUrl = (url: string | undefined) => (url?.startsWith('//') ? `https:${url}` : url)
 
 const LIKE_STATUSES: SourceLikeStatus[] = ['LIKE', 'DISLIKE', 'INDIFFERENT']
 
@@ -1059,8 +1063,7 @@ export const normalizeFeaturedVideo = (input: unknown): SourceVideo | undefined 
   const runs = normalizeRuns(node?.description).map((run) => ({
     ...run,
     url: run.url ? outboundUrl(run.url) : undefined,
-    // hashtag runs arrive with browseId 'FEhashtag', which is not a channel route
-    browseId: run.browseId?.startsWith('UC') ? run.browseId : undefined,
+    browseId: run.browseId?.startsWith('UC') || run.browseId === 'FEhashtag' ? run.browseId : undefined,
   }))
   const length = Number.isFinite(node?.duration?.seconds)
     ? node?.duration?.seconds
@@ -1324,8 +1327,7 @@ export const normalizeSearchTopic = (input: unknown): SourceSearchTopic | undefi
   const channelId = card.header?.title_endpoint?.payload?.browseId
   if (!title || !channelId) return undefined
   const subtitle = presentText(card.header?.subtitle)
-  const rawAvatar = thumbnail(card.header?.author?.thumbnails ?? card.header?.avatar, AVATAR_WIDTH)
-  const avatar = rawAvatar?.startsWith('//') ? `https:${rawAvatar}` : rawAvatar
+  const avatar = httpsUrl(thumbnail(card.header?.author?.thumbnails ?? card.header?.avatar, AVATAR_WIDTH))
   // WatchCardRichHeader puts a channel's avatar on the left (with a handle subtitle and Subscribe), and a game or league's on the right
   const isChannel = card.header?.style === 'WATCH_CARD_RICH_HEADER_RENDERER_STYLE_LEFT_AVATAR'
     || subtitle?.startsWith('@') === true
@@ -1870,6 +1872,8 @@ export const normalizeCommentView = (input: unknown): SourceComment | undefined 
     replyCount: approximateCount(comment.reply_count),
     isPinned: comment.is_pinned === true ? true : undefined,
     isHearted: comment.is_hearted === true ? true : undefined,
+    heartAvatar: comment.is_hearted === true && comment.creator_thumbnail_url ? httpsUrl(comment.creator_thumbnail_url) : undefined,
+    heartTooltip: comment.is_hearted === true && comment.heart_active_tooltip ? comment.heart_active_tooltip : undefined,
     isLiked: comment.is_liked === true ? true : undefined,
     isDisliked: comment.is_disliked === true ? true : undefined,
     isCreator: comment.author_is_channel_owner === true ? true : undefined,

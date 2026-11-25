@@ -5,8 +5,8 @@ import type { CommentRepliesQuery, CommentSort, CommentsQuery } from '../generat
 import type { RydComment, RydCommentSort } from '../ryd-comments'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, ListFilter, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { ChevronDown, ChevronUp, Heart, ListFilter, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -15,6 +15,7 @@ import { fetchRydComments, fetchRydReplies } from '../ryd-comments'
 import { useSession } from '../session'
 import { getSettings, subscribeSettings } from '../settings'
 import { DataFailure, lineFor } from './data-failure'
+import { EmojiButton, insertAtCursor } from './emoji-picker'
 import { formatAgo, formatCompact } from './format'
 import { showToast } from './ui/toast'
 import { ReadMore } from './read-more'
@@ -41,6 +42,8 @@ gql(`
       actionsToken
       isPinned
       isHearted
+      heartAvatar
+      heartTooltip
       isCreator
       isMember
       isLiked
@@ -309,9 +312,54 @@ const style = css`
 
   .composer-actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     gap: 0.8rem;
     margin-top: 0.8rem;
+  }
+
+  .composer-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .creator-heart {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+
+  .heart-avatar {
+    display: block;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .heart-mark {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    background: var(--bg-primary);
+  }
+
+  .reply-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 0.4rem;
   }
 
   .composer-cancel,
@@ -392,7 +440,6 @@ const style = css`
   .reply-list {
     display: flex;
     flex-direction: column;
-    gap: 1.6rem;
     margin-top: 0.8rem;
     /* Indented to the depth of the parent's avatar column, so a reply reads as
        hanging off the comment above it rather than as a sibling. */
@@ -400,8 +447,45 @@ const style = css`
   }
 
   .reply-row {
+    position: relative;
     display: flex;
     gap: 1.2rem;
+  }
+
+  .reply-row:has(+ .reply-row) {
+    padding-bottom: 1.6rem;
+  }
+
+  .reply-row + :not(.reply-row) {
+    margin-top: 1.6rem;
+  }
+
+  .reply-row::before {
+    content: '';
+    position: absolute;
+    left: -1.6rem;
+    top: 0;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-left: 1.5px solid var(--border);
+    border-bottom: 1.5px solid var(--border);
+    border-bottom-left-radius: 0.8rem;
+    pointer-events: none;
+  }
+
+  .reply-row:first-of-type::before {
+    top: -0.4rem;
+    height: 1.6rem;
+  }
+
+  .reply-row:has(+ .reply-row)::after {
+    content: '';
+    position: absolute;
+    left: -1.6rem;
+    top: 0.4rem;
+    bottom: 0;
+    border-left: 1.5px solid var(--border);
+    pointer-events: none;
   }
 
   .reply-row .avatar {
@@ -410,11 +494,13 @@ const style = css`
     font-size: 1.1rem;
   }
 
+  .author.creator,
   .name.creator {
     padding: 0.2rem 0.6rem;
     border-radius: 1rem;
     background: var(--bg-inverse);
     color: var(--text-inverse);
+    text-decoration: none;
   }
 
   .disabled-notice {
@@ -423,6 +509,93 @@ const style = css`
     color: var(--text-secondary);
   }
 `
+
+const CreatorHeart = ({ avatar, tooltip }: { avatar?: string | null, tooltip?: string | null }) => {
+  const label = tooltip || 'Loved by creator'
+  return (
+    <span className='creator-heart' role='img' data-creator-heart='true' title={label} aria-label={label}>
+      {avatar
+        ? (
+          <>
+            <img className='heart-avatar' src={avatar} alt='' loading='lazy' />
+            <span className='heart-mark' aria-hidden='true'>
+              <Heart size={10} strokeWidth={2} fill='#ff0000' color='#ff0000' />
+            </span>
+          </>
+        )
+        : <Heart size={14} strokeWidth={1.5} fill='#ff0000' color='#ff0000' />}
+    </span>
+  )
+}
+
+const DraftBox = ({
+  className,
+  draft,
+  placeholder,
+  ariaLabel,
+  submitLabel,
+  cancelDisabled = false,
+  sending,
+  onDraft,
+  onCancel,
+  onSend,
+}: {
+  className: string
+  draft: string
+  placeholder: string
+  ariaLabel: string
+  submitLabel: string
+  cancelDisabled?: boolean
+  sending: boolean
+  onDraft: (value: string) => void
+  onCancel: () => void
+  onSend: () => void
+}) => {
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const onPickEmoji = (emoji: string) => {
+    const input = inputRef.current
+    const start = input?.selectionStart ?? draft.length
+    const end = input?.selectionEnd ?? draft.length
+    const next = insertAtCursor(draft, start, end, emoji)
+    onDraft(next.value)
+    requestAnimationFrame(() => {
+      const current = inputRef.current
+      if (!current) return
+      current.focus()
+      current.setSelectionRange(next.cursor, next.cursor)
+    })
+  }
+
+  return (
+    <div className={className}>
+      <textarea
+        ref={inputRef}
+        className='composer-input'
+        value={draft}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        onInput={(event: TargetedEvent<HTMLTextAreaElement>) => onDraft(event.currentTarget.value)}
+      />
+      <div className='composer-actions'>
+        <EmojiButton onPick={onPickEmoji} disabled={sending} />
+        <div className='composer-buttons'>
+          <button type='button' className='composer-cancel' onClick={onCancel} disabled={cancelDisabled}>
+            Cancel
+          </button>
+          <button
+            type='button'
+            className='composer-send'
+            disabled={draft.trim().length === 0 || sending}
+            onClick={onSend}
+          >
+            {submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /** The top-level comment box. Signed-out readers get a prompt, not a dead form. */
 const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, channelId: string } }) => {
@@ -461,28 +634,18 @@ const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, ch
   }
 
   return (
-    <div className='composer top'>
-      <textarea
-        className='composer-input'
-        value={draft}
-        placeholder='Add a comment…'
-        aria-label='Add a comment'
-        onInput={(event: TargetedEvent<HTMLTextAreaElement>) => setDraft(event.currentTarget.value)}
-      />
-      <div className='composer-actions'>
-        <button type='button' className='composer-cancel' onClick={() => setDraft('')} disabled={draft.length === 0}>
-          Cancel
-        </button>
-        <button
-          type='button'
-          className='composer-send'
-          disabled={draft.trim().length === 0 || sending}
-          onClick={send}
-        >
-          Comment
-        </button>
-      </div>
-    </div>
+    <DraftBox
+      className='composer top'
+      draft={draft}
+      placeholder='Add a comment…'
+      ariaLabel='Add a comment'
+      submitLabel='Comment'
+      cancelDisabled={draft.length === 0 || sending}
+      sending={sending}
+      onDraft={setDraft}
+      onCancel={() => setDraft('')}
+      onSend={send}
+    />
   )
 }
 
@@ -574,34 +737,25 @@ const CommentActions = ({ comment }: { comment: CommentRow }) => {
         >
           <ThumbsDown size={16} strokeWidth={1.5} fill={comment.isDisliked ? 'currentColor' : 'none'} />
         </button>
+        {comment.isHearted ? <CreatorHeart avatar={comment.heartAvatar} tooltip={comment.heartTooltip} /> : undefined}
         <button type='button' className='reply' disabled={!token && signedIn} onClick={reply}>
           Reply
         </button>
       </div>
       {replying
         ? (
-          <div className='composer'>
-            <textarea
-              className='composer-input'
-              value={draft}
-              placeholder='Add a reply…'
-              aria-label='Add a reply'
-              onInput={(event: TargetedEvent<HTMLTextAreaElement>) => setDraft(event.currentTarget.value)}
-            />
-            <div className='composer-actions'>
-              <button type='button' className='composer-cancel' onClick={() => { setReplying(false); setDraft('') }}>
-                Cancel
-              </button>
-              <button
-                type='button'
-                className='composer-send'
-                disabled={draft.trim().length === 0 || sending}
-                onClick={sendReply}
-              >
-                Reply
-              </button>
-            </div>
-          </div>
+          <DraftBox
+            className='composer'
+            draft={draft}
+            placeholder='Add a reply…'
+            ariaLabel='Add a reply'
+            submitLabel='Reply'
+            cancelDisabled={sending}
+            sending={sending}
+            onDraft={setDraft}
+            onCancel={() => { setReplying(false); setDraft('') }}
+            onSend={sendReply}
+          />
         )
         : undefined}
     </>
@@ -618,6 +772,8 @@ const REPLIES_QUERY = gql(`
         publishedText
         likeCountText
         isHearted
+        heartAvatar
+        heartTooltip
         isCreator
         isMember
         author { id name avatar isVerified isVerifiedArtist }
@@ -694,7 +850,14 @@ const Replies = (
                     {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
                   </div>
                   <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
-                  {reply.likeCountText ? <div className='age'>{reply.likeCountText}</div> : undefined}
+                  {reply.likeCountText || reply.isHearted
+                    ? (
+                      <div className='reply-meta'>
+                        {reply.likeCountText ? <span className='age'>{reply.likeCountText}</span> : undefined}
+                        {reply.isHearted ? <CreatorHeart avatar={reply.heartAvatar} tooltip={reply.heartTooltip} /> : undefined}
+                      </div>
+                    )
+                    : undefined}
                 </div>
               </div>
             ))}
@@ -1005,7 +1168,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
               <div className='byline'>
                 {comment.author
                   ? (
-                    <Link href={`/channel/${comment.author.id}`} className='author'>
+                    <Link href={`/channel/${comment.author.id}`} className={comment.isCreator ? 'author creator' : 'author'}>
                       {comment.author.name}
                       <VerifiedBadge channel={comment.author} size={12} />
                     </Link>

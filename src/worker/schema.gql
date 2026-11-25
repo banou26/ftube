@@ -726,6 +726,8 @@ type Comment {
   replyCount: Int
   isPinned: Boolean
   isHearted: Boolean
+  heartAvatar: String
+  heartTooltip: String
   # Present only when the comment has replies. Pass it to `commentReplies`.
   repliesCursor: String
   # Opaque handle for this comment's own like, dislike and reply endpoints.

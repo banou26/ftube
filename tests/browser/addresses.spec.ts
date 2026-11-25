@@ -55,6 +55,22 @@ test('opens /hashtag/<tag> as a search for the tag', async ({ page }) => {
   await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('#nevergonnagiveyouup')
 })
 
+test('links description hashtags to tag search instead of /channel/FEhashtag', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.goto('/watch?v=dQw4w9WgXcQ')
+  const description = page.locator('.about')
+  await expect(description).toBeVisible({ timeout: 120_000 })
+  const expand = description.getByRole('button', { name: '...more' })
+  if (await expand.isVisible().catch(() => false)) await expand.click()
+  const hashtagLink = description.locator('a[href^="/results?search_query=%23"]').first()
+  await expect(hashtagLink).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('a[href="/channel/FEhashtag"]')).toHaveCount(0)
+  const expectedTag = (await hashtagLink.innerText()).trim()
+  await hashtagLink.click()
+  await expect(page).toHaveURL(/\/results\?search_query=%23/)
+  await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue(expectedTag)
+})
+
 test('opens /post/<id> on the post, and says when there is none', async ({ page }) => {
   test.setTimeout(180_000)
   await page.goto('/post/UgkxX6gkDxQ0KRucvyG7NLui0LhjHp0CLlfZ')

@@ -116,7 +116,7 @@ describe('channel Home tab', () => {
         { text: '\n\nMerch: ' },
         { text: 'http://shop.MKBHD.com', url: 'http://shop.mkbhd.com/' },
         { text: ' ' },
-        { text: '#MKBHD', browseId: undefined },
+        { text: '#MKBHD', browseId: 'FEhashtag' },
       ],
     })
   })

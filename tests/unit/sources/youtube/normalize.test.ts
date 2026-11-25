@@ -1063,6 +1063,8 @@ describe('youtube normalization', () => {
         reply_count: '24',
         is_pinned: true,
         is_hearted: true,
+        creator_thumbnail_url: '//yt3.ggpht.com/creator-avatar',
+        heart_active_tooltip: 'Loved by Creator',
         author: {
           id: 'UC123',
           name: '@viewer',
@@ -1079,7 +1081,18 @@ describe('youtube normalization', () => {
       replyCount: 24,
       isPinned: true,
       isHearted: true,
+      heartAvatar: 'https://yt3.ggpht.com/creator-avatar',
+      heartTooltip: 'Loved by Creator',
     })
+    expect(normalizeCommentThread({
+      comment: {
+        comment_id: 'UgxPlain',
+        content: { text: 'Plain' },
+        is_hearted: false,
+        creator_thumbnail_url: 'creator-avatar',
+        heart_active_tooltip: 'Ignored',
+      },
+    })).toMatchObject({ id: 'UgxPlain', heartAvatar: undefined, heartTooltip: undefined })
   })
 
   it("lists every channel of WEB's accounts_list with the page ID only a brand channel's row carries", () => {

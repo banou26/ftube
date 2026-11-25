@@ -72,6 +72,8 @@ export const mountSignedInPostComments = () => {
               actionsToken: null,
               isPinned: false,
               isHearted: false,
+              heartAvatar: null,
+              heartTooltip: null,
               isCreator: false,
               isMember: false,
               isLiked: false,
