@@ -536,8 +536,26 @@ export type SourceTextRun = {
   browseId?: string
 }
 
+export type SourceLiveChatMessageKind =
+  | 'TEXT'
+  | 'PAID'
+  | 'STICKER'
+  | 'MEMBERSHIP'
+  | 'GIFT_MEMBERSHIP'
+  | 'GIFT'
+  | 'SYSTEM'
+
+export type SourceLiveChatBadge = {
+  label: string
+  iconUrl?: string
+  kind?: string
+  backgroundColor?: string
+  textColor?: string
+}
+
 export type SourceLiveChatMessage = {
   id: string
+  kind?: SourceLiveChatMessageKind
   author?: SourceChannel
   text: string
   runs: SourceLiveChatRun[]
@@ -545,11 +563,79 @@ export type SourceLiveChatMessage = {
   isOwner?: boolean
   isModerator?: boolean
   isMember?: boolean
+  badges?: SourceLiveChatBadge[]
   purchaseAmountText?: string
   headerBackgroundColor?: string
   bodyBackgroundColor?: string
+  headerPrimaryText?: string
+  headerSubtext?: string
+  stickerUrl?: string
+  stickerLabel?: string
+  iconType?: string
   /** On a replay only: the point of the video the line was said at, in milliseconds. */
   offsetMs?: number
+}
+
+export type SourceLiveChatInputStatus = 'ENABLED' | 'RESTRICTED' | 'SIGN_IN_REQUIRED'
+
+export type SourceLiveChatInputState = {
+  status: SourceLiveChatInputStatus
+  restrictionMessage?: string
+  restrictionMode?: string
+  placeholder?: string
+  maxLength?: number
+  slowModeSeconds?: number
+}
+
+export type SourceLiveChatLeaderboardEntryPoint = {
+  label: string
+  panelId: string
+  params: string
+}
+
+export type SourceLiveChatLeaderboardItem = {
+  rank: string
+  displayName: string
+  avatar?: string
+  points?: string
+  badgeLabel?: string
+  badgeBackgroundColor?: string
+  badgeTextColor?: string
+}
+
+export type SourceLiveChatLeaderboard = {
+  title: string
+  items: SourceLiveChatLeaderboardItem[]
+}
+
+export type SourceLiveChatPollChoice = {
+  id: string
+  text: string
+  runs: SourceLiveChatRun[]
+  votePercentage?: string
+  voteRatio?: number
+  selected?: boolean
+  voteParams?: string
+}
+
+export type SourceLiveChatPoll = {
+  id: string
+  question: string
+  questionRuns: SourceLiveChatRun[]
+  metadataText?: string
+  choices: SourceLiveChatPollChoice[]
+  finished?: boolean
+}
+
+export type SourceLiveChatTickerItem = {
+  id: string
+  label: string
+  avatar?: string
+  authorName?: string
+  backgroundColor?: string
+  textColor?: string
+  durationSeconds?: number
+  detailText?: string
 }
 
 /** youtube.com's two replays: TOP leaves out what upstream filters as likely spam, ALL keeps everything. */
@@ -577,10 +663,17 @@ export type SourceLiveChatPage = {
   cursor?: string
   // The client holds the transcript, so a removal has to travel as its own instruction
   removedIds?: string[]
+  removedAuthorIds?: string[]
   disabled?: boolean
   pinned?: SourceLiveChatPinnedMessage
   pinnedCleared?: boolean
   customEmojis?: SourceLiveChatEmoji[]
+  inputState?: SourceLiveChatInputState
+  leaderboard?: SourceLiveChatLeaderboardEntryPoint
+  poll?: SourceLiveChatPoll
+  pollCleared?: boolean
+  tickerItems?: SourceLiveChatTickerItem[]
+  reactionBurst?: number
 }
 
 export type SourceComment = {
@@ -697,8 +790,9 @@ export type Source = {
   // `channelId` is the post's author: upstream keys a post's comments by both
   postComments(postId: string, channelId: string, sort?: SourceCommentSort, cursor?: string): Promise<SourceCommentPage>
   commentReplies(cursor: string): Promise<SourceCommentPage>
-  // Polled rather than streamed: the emitter is kept running and each call drains what it buffered since the previous cursor
+  // Polled rather than streamed: the session drains whatever actions arrived since the previous cursor
   liveChat(videoId: string, cursor?: string, view?: SourceChatReplayView): Promise<SourceLiveChatPage>
+  liveChatLeaderboard(panelId: string, params: string): Promise<SourceLiveChatLeaderboard>
   /**
    * A finished stream's or premiere's chat, as pages of lines placed by `offsetMs`. Without a cursor it starts at
    * `offsetMs`, with some lines from before that point; a cursor continues past the previous page and ignores
@@ -720,6 +814,7 @@ export type Source = {
   postComment(videoId: string, text: string): Promise<boolean>
   commentOnPost(postId: string, channelId: string, text: string): Promise<boolean>
   sendLiveChatMessage(videoId: string, text: string): Promise<boolean>
+  voteLiveChatPoll(videoId: string, pollId: string, voteParams: string): Promise<boolean>
   replyToComment(actionsToken: string, text: string): Promise<boolean>
   rateComment(actionsToken: string, status: SourceLikeStatus): Promise<SourceComment>
   setSubscribed(channelId: string, subscribed: boolean): Promise<SourceChannel>
@@ -759,6 +854,7 @@ export const SOURCE_METHODS = [
   'postComments',
   'commentReplies',
   'liveChat',
+  'liveChatLeaderboard',
   'liveChatReplay',
   'relatedVideos',
   'playlists',
@@ -774,6 +870,7 @@ export const SOURCE_METHODS = [
   'postComment',
   'commentOnPost',
   'sendLiveChatMessage',
+  'voteLiveChatPoll',
   'replyToComment',
   'rateComment',
   'setSubscribed',
@@ -838,6 +935,7 @@ export const SOURCE_REPLAY = {
   postComments: 'unless-cursor',
   commentReplies: 'unless-cursor',
   liveChat: 'unless-cursor',
+  liveChatLeaderboard: 'always',
   liveChatReplay: 'unless-cursor',
   relatedVideos: 'unless-cursor',
   playlists: 'unless-cursor',
@@ -853,6 +951,7 @@ export const SOURCE_REPLAY = {
   postComment: 'never',
   commentOnPost: 'never',
   sendLiveChatMessage: 'never',
+  voteLiveChatPoll: 'never',
   replyToComment: 'never',
   rateComment: 'never',
   setSubscribed: 'never',

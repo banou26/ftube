@@ -23,6 +23,51 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
   await expect(chat.locator('.log .mention.self')).toContainText('@viewer')
   await expect(chat.locator('.log .mention:not(.self)')).toContainText('@alice')
 
+  // Distinct live chat card/row kinds & zero empty placeholders
+  await expect(chat.locator("[data-chat-kind='sticker']")).toContainText('$5.00')
+  await expect(chat.locator("[data-chat-kind='membership']")).toContainText('Member for 3 months')
+  await expect(chat.locator("[data-chat-kind='gift']")).toContainText('sent a Treat!')
+  await expect(chat.locator("[data-chat-kind='system']")).toContainText('Slow mode is active')
+
+  // Ticker strip pill opens highlight detail banner and closes
+  const ticker = chat.getByRole('region', { name: 'Chat highlights' })
+  await expect(ticker).toContainText('$10.00')
+  await ticker.getByRole('button', { name: /\$10\.00/ }).click()
+  const tickerDetail = chat.getByRole('region', { name: 'Highlight detail' })
+  await expect(tickerDetail).toContainText('Carol')
+  await expect(tickerDetail).toContainText('Great stream today!')
+  await tickerDetail.getByRole('button', { name: 'Close highlight' }).click()
+  await expect(tickerDetail).toBeHidden()
+
+  // Top Fan inline #1 badge & header button open Top fans leaderboard
+  await chat.getByRole('button', { name: 'Top fan #1' }).click()
+  const leaderboard = chat.getByRole('dialog', { name: 'Top fans' })
+  await expect(leaderboard).toBeVisible()
+  await expect(leaderboard).toContainText('Alice')
+  await expect(leaderboard).toContainText('1,200 points')
+  await expect(leaderboard).toContainText('Bob')
+  await leaderboard.getByRole('button', { name: 'Close leaderboard' }).click()
+  await expect(leaderboard).toBeHidden()
+
+  await chat.getByRole('button', { name: 'Top fans' }).click()
+  await expect(leaderboard).toBeVisible()
+  await chat.getByRole('button', { name: 'Top fans' }).click()
+  await expect(leaderboard).toBeHidden()
+
+  // Live poll displays choices, accepts vote, updates percentages, and collapses/expands
+  const poll = chat.getByRole('region', { name: 'Live poll' })
+  await expect(poll).toContainText('Favorite player layout?')
+  await poll.getByRole('button', { name: /Theater/ }).click()
+  await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.votes ?? [])).toEqual([
+    { videoId: 'live-1', pollId: 'poll-1', voteParams: 'vote-theater' },
+  ])
+  await expect(poll.getByRole('button', { name: /Theater/ })).toHaveAttribute('data-selected', 'true')
+  await expect(poll.getByRole('button', { name: /Theater/ })).toContainText('64%')
+  await poll.getByRole('button', { name: 'Collapse poll' }).click()
+  await expect(poll.getByRole('button', { name: /Theater/ })).toBeHidden()
+  await poll.getByRole('button', { name: 'Expand poll' }).click()
+  await expect(poll.getByRole('button', { name: /Theater/ })).toBeVisible()
+
   await page.setViewportSize({ width: 1280, height: 900 })
   const box = await chat.boundingBox()
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(480)
@@ -51,6 +96,31 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
   await input.press('Enter')
   await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.sent ?? [])).toEqual(['hi @bob_dev'])
 
+  // Author removal drops all messages by the moderated author
+  await expect(chat.locator('.log')).toContainText('Welcome @alice!')
+  await page.evaluate(() => window.__liveChatHarness?.pushPage({ removedAuthorIds: ['UCbob'] }))
+  await expect(chat.locator('.log')).not.toContainText('Welcome @alice!')
+
+  // Subscribers-only restriction hides compose input; Refresh unlocks into slow mode + local echo
+  await page.evaluate(() => window.__liveChatHarness?.setRestricted(true))
+  await expect(input).toBeHidden()
+  const restrictionStatus = chat.getByRole('status')
+  await expect(restrictionStatus).toContainText('Subscribers-only mode')
+  await restrictionStatus.getByRole('button', { name: 'Refresh' }).click()
+  await expect(chat.getByPlaceholder('Chat…')).toBeVisible()
+  await expect(chat).toContainText('Slow mode (2s)')
+
+  const unlockedInput = chat.getByPlaceholder('Chat…')
+  await unlockedInput.fill('after unlock')
+  await unlockedInput.press('Enter')
+  await expect(chat.locator('.log')).toContainText('after unlock')
+  const sendBtn = chat.locator('.compose .send-btn')
+  await expect(sendBtn).toBeDisabled()
+  await expect(sendBtn).toHaveText(/\ds/)
+  await unlockedInput.fill('next')
+  await expect(sendBtn).toHaveText('Send', { timeout: 5_000 })
+  await expect(sendBtn).toBeEnabled()
+
   await chat.getByRole('button', { name: 'Reactions' }).click()
   const tray = chat.getByRole('group', { name: 'Local reactions' })
   await expect(tray).toBeVisible()
@@ -63,7 +133,7 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
   await chat.getByRole('button', { name: /Top chat/ }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Live chat' }).click()
   await expect(chat.getByText('Unfiltered message in Live chat')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.views ?? [])).toEqual(['TOP', 'ALL'])
+  await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.views ?? [])).toEqual(['TOP', 'TOP', 'ALL'])
 
   await chat.getByRole('button', { name: 'Hide chat' }).click()
   await expect(chat).toBeHidden()

@@ -557,7 +557,7 @@ const WatchPage = () => {
   const liveChat = watch?.isLive
     ? chatHidden
       ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
-      : <LiveChat key={`chat:${videoId}`} videoId={videoId} onHide={() => setChatHiddenFor(videoId)} />
+      : <LiveChat key={`chat:${videoId}`} videoId={videoId} subscribed={channel?.isSubscribed ?? undefined} onHide={() => setChatHiddenFor(videoId)} />
     : undefined
 
   const chapters = watch?.chapters ?? []

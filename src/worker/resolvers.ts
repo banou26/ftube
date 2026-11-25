@@ -57,6 +57,7 @@ export const resolvers = {
     postComments: (_, { postId, channelId, sort, cursor }, context) =>
       context.source.postComments(postId, channelId, sort ?? undefined, cursor ?? undefined),
     liveChat: (_, { videoId, view, cursor }, context) => context.source.liveChat(videoId, cursor ?? undefined, view ?? undefined),
+    liveChatLeaderboard: (_, { panelId, params }, context) => context.source.liveChatLeaderboard(panelId, params),
     liveChatReplay: (_, { videoId, offsetMs, view, cursor }, context) =>
       context.source.liveChatReplay(videoId, offsetMs, view ?? undefined, cursor ?? undefined),
     commentReplies: (_, { cursor }, context) => context.source.commentReplies(cursor),
@@ -77,6 +78,7 @@ export const resolvers = {
     commentOnPost: (_, { postId, channelId, text }, context) =>
       context.source.commentOnPost(postId, channelId, text),
     sendLiveChatMessage: (_, { videoId, text }, context) => context.source.sendLiveChatMessage(videoId, text),
+    voteLiveChatPoll: (_, { videoId, pollId, voteParams }, context) => context.source.voteLiveChatPoll(videoId, pollId, voteParams),
     replyToComment: (_, { actionsToken, text }, context) => context.source.replyToComment(actionsToken, text),
     rateComment: (_, { actionsToken, status }, context) => context.source.rateComment(actionsToken, status),
     setSubscribed: (_, { channelId, subscribed }, context) => context.source.setSubscribed(channelId, subscribed),

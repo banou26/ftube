@@ -312,7 +312,7 @@ const presentText = (value: string | Text | undefined) => {
 }
 
 // `minWidth` is the narrowest candidate that covers the slot at 2x; omitting it takes the widest
-const thumbnail = (items: Thumbnail[] | undefined, minWidth?: number) => {
+export const thumbnail = (items: Thumbnail[] | undefined, minWidth?: number) => {
   const sorted = items
     ?.filter((item): item is Thumbnail & { url: string } => Boolean(item.url))
     .sort((a, b) => (a.width ?? 0) - (b.width ?? 0))
@@ -339,7 +339,7 @@ const srcset = (items: Thumbnail[] | undefined) => {
 }
 
 // a channel photo renders at 80px at most, so 160 covers it at 2x
-const AVATAR_WIDTH = 160
+export const AVATAR_WIDTH = 160
 
 // a grid card is roughly 360px wide, so 720 covers it at 2x
 const STILL_WIDTH = 720
@@ -366,9 +366,9 @@ export const approximateCount = (value: string | undefined) => {
   return Math.round(base * scale)
 }
 
-const handleFromUrl = (url: string | undefined) => url?.match(/\/(@[^/?#]+)/)?.[1]
+export const handleFromUrl = (url: string | undefined) => url?.match(/\/(@[^/?#]+)/)?.[1]
 
-const httpsUrl = (url: string | undefined) => (url?.startsWith('//') ? `https:${url}` : url)
+export const httpsUrl = (url: string | undefined) => (url?.startsWith('//') ? `https:${url}` : url)
 
 const LIKE_STATUSES: SourceLikeStatus[] = ['LIKE', 'DISLIKE', 'INDIFFERENT']
 
@@ -1999,7 +1999,7 @@ type LiveChatItemNode = {
 }
 
 // upstream sends colours as signed 32-bit ARGB integers; the alpha byte is dropped rather than converted
-const argbColor = (value: number | undefined) => {
+export const argbColor = (value: number | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
   return `#${(value >>> 0 & 0xffffff).toString(16).padStart(6, '0')}`
 }
@@ -2020,7 +2020,7 @@ const normalizeLiveChatRuns = (value: Text | undefined): SourceLiveChatRun[] => 
 }
 
 // chat emoji render at 24px, so 48 covers them at 2x
-const EMOJI_WIDTH = 48
+export const EMOJI_WIDTH = 48
 
 const AUTHOR_OWNER_BADGES = new Set(['OWNER'])
 const AUTHOR_MODERATOR_BADGES = new Set(['MODERATOR'])

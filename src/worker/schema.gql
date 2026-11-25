@@ -753,10 +753,31 @@ type Comment {
   actionsToken: String
 }
 
+# Distinct message card/row kinds supported in live chat and chat replay.
+enum LiveChatMessageKind {
+  TEXT
+  PAID
+  STICKER
+  MEMBERSHIP
+  GIFT_MEMBERSHIP
+  GIFT
+  SYSTEM
+}
+
+# An inline role, membership, verified, or Top Fan leaderboard badge next to a chat author.
+type LiveChatBadge {
+  label: String!
+  iconUrl: String
+  kind: String
+  backgroundColor: String
+  textColor: String
+}
+
 # One rendered line of live chat. Paid messages (Super Chats) carry an amount
-# and their own colours; everything else leaves those absent.
+# and their own colours; stickers, memberships, gifts, and mode notices use kind-specific fields.
 type LiveChatMessage {
   id: ID!
+  kind: LiveChatMessageKind
   author: Author
   text: String!
   # Segmented, because a chat line is mostly custom emoji: those arrive as runs
@@ -766,12 +787,86 @@ type LiveChatMessage {
   isOwner: Boolean
   isModerator: Boolean
   isMember: Boolean
+  badges: [LiveChatBadge!]
   purchaseAmountText: String
   headerBackgroundColor: String
   bodyBackgroundColor: String
+  headerPrimaryText: String
+  headerSubtext: String
+  stickerUrl: String
+  stickerLabel: String
+  iconType: String
   # On a replay only: the point of the video the line was said at, in
   # milliseconds, which is when the replay shows it.
   offsetMs: Int
+}
+
+enum LiveChatInputStatus {
+  ENABLED
+  RESTRICTED
+  SIGN_IN_REQUIRED
+}
+
+# Current chat compose capability reported by upstream's actionPanel and mode notices.
+type LiveChatInputState {
+  status: LiveChatInputStatus!
+  restrictionMessage: String
+  restrictionMode: String
+  placeholder: String
+  maxLength: Int
+  slowModeSeconds: Int
+}
+
+# Header entry point for opening the Top fans stream leaderboard.
+type LiveChatLeaderboardEntryPoint {
+  label: String!
+  panelId: String!
+  params: String!
+}
+
+type LiveChatLeaderboardItem {
+  rank: String!
+  displayName: String!
+  avatar: String
+  points: String
+  badgeLabel: String
+  badgeBackgroundColor: String
+  badgeTextColor: String
+}
+
+type LiveChatLeaderboard {
+  title: String!
+  items: [LiveChatLeaderboardItem!]!
+}
+
+type LiveChatPollChoice {
+  id: String!
+  text: String!
+  runs: [LiveChatRun!]!
+  votePercentage: String
+  voteRatio: Float
+  selected: Boolean
+  voteParams: String
+}
+
+type LiveChatPoll {
+  id: ID!
+  question: String!
+  questionRuns: [LiveChatRun!]!
+  metadataText: String
+  choices: [LiveChatPollChoice!]!
+  finished: Boolean
+}
+
+type LiveChatTickerItem {
+  id: ID!
+  label: String!
+  avatar: String
+  authorName: String
+  backgroundColor: String
+  textColor: String
+  durationSeconds: Int
+  detailText: String
 }
 
 # youtube.com's two chat replays. TOP is its default and leaves out what
@@ -812,12 +907,20 @@ type LiveChatPage {
   # Ids the server retracted. The client holds the transcript, so a removal has
   # to travel as its own instruction rather than as an absence from a later page.
   removedIds: [ID!]
+  # Authors whose messages moderators removed.
+  removedAuthorIds: [ID!]
   # Chat is off for this video. Distinct from an empty page, which just means
   # nothing was said since the last poll.
   disabled: Boolean
   pinned: LiveChatPinnedMessage
   pinnedCleared: Boolean
   customEmojis: [LiveChatEmoji!]
+  inputState: LiveChatInputState
+  leaderboard: LiveChatLeaderboardEntryPoint
+  poll: LiveChatPoll
+  pollCleared: Boolean
+  tickerItems: [LiveChatTickerItem!]
+  reactionBurst: Int
 }
 
 type CommentPage {
@@ -971,6 +1074,8 @@ type Query {
   # returns. A poll parks on the server until something arrives or it times out,
   # so an empty page is a heartbeat rather than a reason to back off.
   liveChat(videoId: ID!, view: ChatReplayView, cursor: String): LiveChatPage!
+  # Top fans leaderboard for an active live stream, fetched from get_panel on demand.
+  liveChatLeaderboard(panelId: String!, params: String!): LiveChatLeaderboard!
   # The chat of a finished stream or premiere. Without a cursor it starts at
   # `offsetMs`, which is how the panel opens and follows a seek, and the page
   # carries some lines from before that point; a cursor continues past the
@@ -1016,6 +1121,7 @@ type Mutation {
   # Sends through the chat session the panel already has open, so it fails
   # rather than silently opening a second poll of the same stream.
   sendLiveChatMessage(videoId: ID!, text: String!): Boolean!
+  voteLiveChatPoll(videoId: ID!, pollId: ID!, voteParams: String!): Boolean!
   replyToComment(actionsToken: String!, text: String!): Boolean!
   rateComment(actionsToken: String!, status: LikeStatus!): Comment!
   # Resolves to the notification id so the cache can mark just that row read.

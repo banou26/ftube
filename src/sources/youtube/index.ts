@@ -1,12 +1,13 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatInputState, SourceLiveChatLeaderboardEntryPoint, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceLiveChatPoll, SourceLiveChatTickerItem, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { EntityMutation } from './normalize'
 
 import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
 
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
-import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeLiveChatEmojis, normalizeLiveChatMessage, normalizeLiveChatPinned, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
-import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
+import { applyPollPatch, liveChatToken, nextLiveChatDelayMs, parseLiveChatLeaderboard, parseLiveChatResponse, parseSendLiveChatResult } from './live-chat'
+import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
+import { base64Bytes, encodeHashtagParams, encodeLiveMessageParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
 type Feed = {
@@ -204,45 +205,12 @@ type PlaylistsFeed = {
   getContinuation(): Promise<PlaylistsFeed>
 }
 
-type LiveChatStart = {
-  actions?: LiveChatAction[]
-  emojis?: unknown[]
-  header?: { view_selector?: { sub_menu_items?: { continuation?: string, selected?: boolean }[] } }
-}
-
-type LiveChatEmitter = {
-  on(event: 'start', listener: (contents: LiveChatStart) => void): void
-  on(event: 'chat-update', listener: (action: LiveChatAction) => void): void
-  on(event: 'error', listener: (error: Error) => void): void
-  on(event: 'end', listener: () => void): void
-  smoothed_queue?: {
-    enqueueActionGroup(group: LiveChatAction[]): void
-  }
-  applyFilter?(filter: 'TOP_CHAT' | 'LIVE_CHAT'): void
-  start(): void
-  stop(): void
-  sendMessage(text: string): Promise<unknown>
-}
-
-type LiveChatAction = {
-  type?: string
-  item?: unknown
-  target_item_id?: string
-  banner?: unknown
-  target_action_id?: string
-}
-
 type LiveChatReplayResponse = {
   continuation_contents?: {
     actions?: { video_offset_time_msec?: string, actions?: { type?: string, item?: unknown }[] }[]
     header?: { view_selector?: { sub_menu_items?: { continuation?: string }[] } }
     continuation?: { token?: string }
   }
-}
-
-type VideoInfoWithChat = {
-  livechat?: { continuation?: string }
-  getLiveChat(): LiveChatEmitter
 }
 
 type PlaylistFeed = {
@@ -283,7 +251,6 @@ export type YoutubeClient = {
   getShortsVideoInfo(id: string, client?: undefined, sequenceParams?: string): Promise<ShortsSequence>
   getChannel(id: string): Promise<ChannelFeed>
   resolveURL(url: string): Promise<{ payload?: { browseId?: string, params?: string } }>
-  getInfo(id: string): Promise<VideoInfoWithChat>
   getComments(videoId: string, sortBy?: 'TOP_COMMENTS' | 'NEWEST_FIRST'): Promise<CommentsFeed>
   getPostComments(postId: string, channelId: string, sortBy?: 'TOP_COMMENTS' | 'NEWEST_FIRST'): Promise<CommentsFeed>
   getNotifications(): Promise<NotificationsFeed>
@@ -310,10 +277,13 @@ export type YoutubeClient = {
     execute(endpoint: '/reel/reel_item_watch', args: { params: string, inputType: string }): Promise<SeedlessReelResponse>
     execute(endpoint: '/account/accounts_list', args: { client: 'WEB', parse: true }): Promise<{ actions_memo?: { get(type: string): unknown[] | undefined } }>
     execute(endpoint: '/browse', args: { browseId: string, params?: string, parse: true }): Promise<{ header?: { item?: () => unknown }, contents_memo?: Map<string, unknown[]> }>
+    execute(endpoint: 'live_chat/get_live_chat', args: { continuation: string, parse: false }): Promise<{ data: unknown }>
+    execute(endpoint: '/live_chat/send_message', args: { richMessage: { textSegments: { text: string }[] }, clientMessageId: string, client: 'WEB', params: string, parse: false }): Promise<{ data: unknown }>
     execute(endpoint: 'live_chat/get_live_chat_replay', args: { continuation: string, currentPlayerState: { playerOffsetMs: string }, parse: true }): Promise<unknown>
     // unparsed: youtubei.js 18.3.0 has no parser for the view models of youtube.com's transcript panel
-    execute(endpoint: '/get_panel', args: { panelId: string, params: string } | { continuation: string, formData: { searchInputFormData: { query: string } } }): Promise<{ data: unknown }>
+    execute(endpoint: '/get_panel', args: { panelId: string, params: string, parse?: boolean } | { continuation: string, formData: { searchInputFormData: { query: string } } }): Promise<{ data: unknown }>
     execute(endpoint: '/feedback', args: { feedbackTokens: string[], shouldMerge: boolean, isFeedbackTokenUnencrypted: boolean, parse: false }): Promise<unknown>
+    execute(endpoint: string, args: { params: string, parse: false }): Promise<{ data: unknown }>
   }
 }
 
@@ -691,140 +661,291 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
 
   type LiveChatSession = {
     view: SourceChatReplayView
-    chat: LiveChatEmitter
+    stopped: boolean
+    timer?: ReturnType<typeof setTimeout>
+    cancelSleep?: () => void
     buffer: SourceLiveChatMessage[]
     removed: string[]
+    removedAuthors: string[]
     pinned?: SourceLiveChatPinnedMessage
     pinnedDirty: boolean
     pinnedCleared: boolean
     customEmojis?: SourceLiveChatEmoji[]
     emojisDirty: boolean
+    inputState?: SourceLiveChatInputState
+    inputStateDirty: boolean
+    slowModeSeconds?: number
+    sendParams?: string
+    channelId?: string
+    leaderboard?: SourceLiveChatLeaderboardEntryPoint
+    leaderboardDirty: boolean
+    poll?: SourceLiveChatPoll
+    pollDirty: boolean
+    pollCleared: boolean
+    tickerItems: SourceLiveChatTickerItem[]
+    tickerDirty: boolean
+    reactionBurst: number
     ended: boolean
     failure?: Error
     lastReadAt: number
-    wake: () => void
-    arrived: Promise<void>
+    waiters: (() => void)[]
   }
   const liveChatSessions = new Map<string, LiveChatSession>()
   const liveChatViewTokens = new Map<string, { TOP?: string, ALL?: string }>()
+  const liveChatChannels = new Map<string, string>()
 
   // A ceiling so the request never looks hung upstream and the UI gets a heartbeat.
   const LIVE_CHAT_WAIT_MS = 4_000
-  // The FIRST call waits only briefly: the emitter's opening fetch usually carries the backlog, but a quiet chat has nothing to catch and the full wait would hold the panel blank.
-  const LIVE_CHAT_OPEN_GRACE_MS = 400
+  // The FIRST call waits long enough for the first get_live_chat round trip to arrive immediately instead of returning a blank frame at 400 ms.
+  const LIVE_CHAT_OPEN_GRACE_MS = 2_500
   const LIVE_CHAT_IDLE_MS = 60_000
   const LIVE_CHAT_BUFFER_LIMIT = 300
+  const LIVE_CHAT_TICKER_LIMIT = 12
+  const LIVE_CHAT_MAX_RETRIES = 10
+
+  const safeDecodeParam = (value: string) => {
+    try {
+      return decodeURIComponent(value)
+    } catch {
+      return value
+    }
+  }
+
+  const wakeSession = (session: LiveChatSession) => {
+    for (const done of session.waiters.splice(0, session.waiters.length)) done()
+  }
+
+  const waitForLiveChat = (session: LiveChatSession, timeoutMs: number) =>
+    new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        session.waiters = session.waiters.filter((entry) => entry !== done)
+        resolve()
+      }
+      const timer = setTimeout(done, timeoutMs)
+      session.waiters.push(done)
+    })
 
   const closeLiveChat = (videoId: string) => {
     const session = liveChatSessions.get(videoId)
     if (!session) return
     liveChatSessions.delete(videoId)
+    session.stopped = true
     session.ended = true
-    try {
-      session.chat.stop()
-    } catch {}
-    session.wake()
+    session.cancelSleep?.()
+    if (session.timer) clearTimeout(session.timer)
+    wakeSession(session)
   }
 
-  const armLiveChatWake = (session: LiveChatSession) => {
-    session.arrived = new Promise<void>((resolve) => {
-      session.wake = resolve
+  const sleepLiveChat = (session: LiveChatSession, ms: number) =>
+    new Promise<void>((resolve) => {
+      const finish = () => {
+        session.cancelSleep = undefined
+        session.timer = undefined
+        resolve()
+      }
+      session.timer = setTimeout(finish, ms)
+      session.cancelSleep = () => {
+        if (session.timer) clearTimeout(session.timer)
+        finish()
+      }
     })
-  }
 
-  const openLiveChat = async (videoId: string, view: SourceChatReplayView = 'TOP') => {
+  const hasLiveChatPending = (session: LiveChatSession) =>
+    session.buffer.length > 0
+    || session.removed.length > 0
+    || session.removedAuthors.length > 0
+    || session.pinnedDirty
+    || session.pinnedCleared
+    || session.emojisDirty
+    || session.inputStateDirty
+    || session.leaderboardDirty
+    || session.pollDirty
+    || session.pollCleared
+    || session.tickerDirty
+    || session.reactionBurst > 0
+    || session.ended
+
+  const openLiveChat = async (videoId: string, view: SourceChatReplayView = 'TOP', forceReopen = false) => {
     const existing = liveChatSessions.get(videoId)
     if (existing) {
-      if (existing.view === view) return existing
+      if (!forceReopen && existing.view === view) return existing
+      if (forceReopen && existing.inputState?.status === 'RESTRICTED') liveChatViewTokens.delete(videoId)
       closeLiveChat(videoId)
     }
-    // getInfo(), never getBasicInfo(): live chat hangs off the /next half of the response and getBasicInfo only issues /player, so its result carries no `livechat` and getLiveChat() throws on it.
-    const info = await (await client).getInfo(videoId) as unknown as VideoInfoWithChat
-    // getLiveChat() THROWS when the video carries no chat, so absence is checked rather than caught.
-    if (!info.livechat) return undefined
-    const requestedToken = liveChatViewTokens.get(videoId)?.[view]
-    if (requestedToken) info.livechat.continuation = requestedToken
-    const chat = info.getLiveChat()
+    const active = await client
+    let continuation = liveChatViewTokens.get(videoId)?.[view] ?? liveChatViewTokens.get(videoId)?.TOP
+    let channelId = liveChatChannels.get(videoId)
+    if (!continuation) {
+      const next = await active.actions.execute('/next', { videoId, racyCheckOk: true, contentCheckOk: true, parse: true })
+      continuation = liveChatToken(next)
+      const meta = normalizeWatchMeta(next, videoId)
+      if (meta?.channel?.id) {
+        channelId = meta.channel.id
+        liveChatChannels.set(videoId, channelId)
+      }
+      if (continuation) {
+        const previous = liveChatViewTokens.get(videoId)
+        liveChatViewTokens.set(videoId, { TOP: continuation, ALL: previous?.ALL })
+      }
+    }
+    if (!continuation) return undefined
+
     const session: LiveChatSession = {
       view,
-      chat,
+      stopped: false,
       buffer: [],
       removed: [],
+      removedAuthors: [],
       pinnedDirty: false,
       pinnedCleared: false,
       emojisDirty: false,
+      inputStateDirty: false,
+      channelId,
+      leaderboardDirty: false,
+      pollDirty: false,
+      pollCleared: false,
+      tickerItems: [],
+      tickerDirty: false,
+      reactionBurst: 0,
       ended: false,
       lastReadAt: Date.now(),
-      wake: () => {},
-      arrived: Promise.resolve(),
+      waiters: [],
     }
-    armLiveChatWake(session)
-    let filterPending = view === 'ALL' && !requestedToken
-    const push = (action: LiveChatAction) => {
-      if (action.target_item_id) {
-        session.removed.push(action.target_item_id)
-      } else if (action.banner) {
-        const pinned = normalizeLiveChatPinned(action.banner)
-        if (!pinned) return
-        session.pinned = pinned
-        session.pinnedDirty = true
-        session.pinnedCleared = false
-      } else if (action.target_action_id) {
-        if (session.pinned && session.pinned.id === action.target_action_id) {
-          session.pinned = undefined
-          session.pinnedDirty = false
-          session.pinnedCleared = true
-        }
-      } else if (action.item) {
-        const message = normalizeLiveChatMessage(action.item)
-        if (!message) return
-        session.buffer.push(message)
-        if (session.buffer.length > LIVE_CHAT_BUFFER_LIMIT) {
-          session.buffer.splice(0, session.buffer.length - LIVE_CHAT_BUFFER_LIMIT)
-        }
-      } else return
-      session.wake()
-    }
-    // youtubei.js's SmoothedQueue drips small batches out over up to 10 s before polling again; flushing incoming groups directly removes the lag while keeping its empty-batch poll timer alive.
-    if (chat.smoothed_queue?.enqueueActionGroup) {
-      const originalEnqueue = chat.smoothed_queue.enqueueActionGroup.bind(chat.smoothed_queue)
-      chat.smoothed_queue.enqueueActionGroup = (group: LiveChatAction[]) => {
-        for (const action of group) push(action)
-        originalEnqueue([])
-      }
-    }
-    chat.on('start', (contents) => {
-      const menuItems = contents?.header?.view_selector?.sub_menu_items ?? []
-      const [top, all] = menuItems.map((item) => item.continuation)
-      if (top || all) {
-        const previous = liveChatViewTokens.get(videoId)
-        liveChatViewTokens.set(videoId, { TOP: top ?? previous?.TOP, ALL: all ?? previous?.ALL })
-      }
-      const emojis = normalizeLiveChatEmojis(contents?.emojis)
-      if (emojis.length > 0) {
-        session.customEmojis = emojis
-        session.emojisDirty = true
-      }
-      if (filterPending && menuItems[1]?.selected !== true && all && all !== top) {
-        filterPending = false
-        chat.applyFilter?.('LIVE_CHAT')
-        return
-      }
-      filterPending = false
-      for (const action of contents?.actions ?? []) push(action)
-      session.wake()
-    })
-    chat.on('chat-update', push)
-    chat.on('error', (error) => {
-      session.failure = error
-      session.wake()
-    })
-    chat.on('end', () => {
-      session.ended = true
-      session.wake()
-    })
     liveChatSessions.set(videoId, session)
-    chat.start()
+
+    void (async () => {
+      let currentToken = continuation
+      let filterPending = view === 'ALL' && !liveChatViewTokens.get(videoId)?.ALL
+      let retryCount = 0
+      let quietStreak = 0
+
+      while (!session.stopped) {
+        try {
+          const response = await active.actions.execute('live_chat/get_live_chat', {
+            continuation: currentToken,
+            parse: false,
+          })
+          if (session.stopped) break
+          retryCount = 0
+          const parsed = parseLiveChatResponse(response.data)
+
+          if (parsed.viewTokens) {
+            const previous = liveChatViewTokens.get(videoId)
+            liveChatViewTokens.set(videoId, {
+              TOP: parsed.viewTokens.TOP ?? previous?.TOP,
+              ALL: parsed.viewTokens.ALL ?? previous?.ALL,
+            })
+          }
+
+          if (filterPending) {
+            filterPending = false
+            const allToken = parsed.viewTokens?.ALL
+            if (parsed.selectedView !== 'ALL' && allToken && allToken !== currentToken) {
+              currentToken = allToken
+              continue
+            }
+          }
+
+          if (parsed.slowModeUpdate !== undefined) session.slowModeSeconds = parsed.slowModeUpdate
+          if (parsed.sendParams) session.sendParams = parsed.sendParams
+          else if (parsed.clearSendParams) session.sendParams = undefined
+
+          let nextInput = parsed.inputState
+          if (nextInput) {
+            if (nextInput.status === 'ENABLED' && nextInput.slowModeSeconds === undefined && session.slowModeSeconds !== undefined) {
+              nextInput = { ...nextInput, slowModeSeconds: session.slowModeSeconds }
+            }
+          } else if (parsed.slowModeUpdate !== undefined && session.inputState?.status === 'ENABLED') {
+            nextInput = { ...session.inputState, slowModeSeconds: parsed.slowModeUpdate }
+          }
+          if (nextInput && JSON.stringify(nextInput) !== JSON.stringify(session.inputState)) {
+            session.inputState = nextInput
+            session.inputStateDirty = true
+          }
+
+          if (parsed.leaderboard && JSON.stringify(parsed.leaderboard) !== JSON.stringify(session.leaderboard)) {
+            session.leaderboard = parsed.leaderboard
+            session.leaderboardDirty = true
+          }
+
+          if (parsed.customEmojis.length > 0) {
+            session.customEmojis = parsed.customEmojis
+            session.emojisDirty = true
+          }
+
+          if (parsed.pinned) {
+            session.pinned = parsed.pinned
+            session.pinnedDirty = true
+            session.pinnedCleared = false
+          } else if (session.pinned && parsed.removedBannerIds.includes(session.pinned.id)) {
+            session.pinned = undefined
+            session.pinnedDirty = false
+            session.pinnedCleared = true
+          }
+
+          if (parsed.poll) {
+            session.poll = parsed.poll
+            session.pollDirty = true
+            session.pollCleared = false
+          } else if (parsed.pollCleared && session.poll) {
+            session.poll = undefined
+            session.pollDirty = false
+            session.pollCleared = true
+          } else if (parsed.pollPatch && session.poll) {
+            session.poll = applyPollPatch(session.poll, parsed.pollPatch)
+            session.pollDirty = true
+          }
+
+          if (parsed.tickerItems.length > 0) {
+            const seenTicker = new Set(parsed.tickerItems.map((item) => item.id))
+            const kept = session.tickerItems.filter((item) => !seenTicker.has(item.id))
+            session.tickerItems = [...kept, ...parsed.tickerItems].slice(-LIVE_CHAT_TICKER_LIMIT)
+            session.tickerDirty = true
+          }
+
+          if (parsed.removedIds.length > 0) session.removed.push(...parsed.removedIds)
+          if (parsed.removedAuthorIds.length > 0) session.removedAuthors.push(...parsed.removedAuthorIds)
+          if (parsed.reactionBurst > 0) session.reactionBurst = Math.min(6, session.reactionBurst + parsed.reactionBurst)
+          if (parsed.items.length > 0) {
+            session.buffer.push(...parsed.items)
+            if (session.buffer.length > LIVE_CHAT_BUFFER_LIMIT) {
+              session.buffer.splice(0, session.buffer.length - LIVE_CHAT_BUFFER_LIMIT)
+            }
+          }
+
+          if (parsed.ended || !parsed.continuation?.token) {
+            session.ended = true
+            wakeSession(session)
+            break
+          }
+
+          currentToken = parsed.continuation.token
+          quietStreak = parsed.items.length > 0 ? 0 : quietStreak + 1
+          if (hasLiveChatPending(session)) wakeSession(session)
+
+          const delayMs = nextLiveChatDelayMs({
+            continuationType: parsed.continuation.type,
+            timeoutMs: parsed.continuation.timeoutMs,
+            gotItems: parsed.items.length > 0,
+            quietStreak,
+          })
+          await sleepLiveChat(session, delayMs)
+        } catch (error) {
+          if (session.stopped) break
+          session.failure = error instanceof Error ? error : new Error(String(error))
+          wakeSession(session)
+          retryCount += 1
+          if (retryCount >= LIVE_CHAT_MAX_RETRIES) {
+            session.ended = true
+            wakeSession(session)
+            break
+          }
+          await sleepLiveChat(session, Math.min(4_000, 500 * retryCount))
+        }
+      }
+    })()
+
     return session
   }
 
@@ -832,8 +953,10 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     session.lastReadAt = Date.now()
     const items = session.buffer.splice(0, session.buffer.length)
     const removedIds = session.removed.splice(0, session.removed.length)
+    const removedAuthorIds = session.removedAuthors.splice(0, session.removedAuthors.length)
     const page: SourceLiveChatPage = { items }
     if (removedIds.length) page.removedIds = removedIds
+    if (removedAuthorIds.length) page.removedAuthorIds = removedAuthorIds
     if (session.pinnedDirty && session.pinned) {
       page.pinned = session.pinned
       session.pinnedDirty = false
@@ -844,6 +967,29 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     if (session.emojisDirty && session.customEmojis) {
       page.customEmojis = session.customEmojis
       session.emojisDirty = false
+    }
+    if (session.inputStateDirty && session.inputState) {
+      page.inputState = session.inputState
+      session.inputStateDirty = false
+    }
+    if (session.leaderboardDirty && session.leaderboard) {
+      page.leaderboard = session.leaderboard
+      session.leaderboardDirty = false
+    }
+    if (session.pollDirty && session.poll) {
+      page.poll = session.poll
+      session.pollDirty = false
+    } else if (session.pollCleared) {
+      page.pollCleared = true
+      session.pollCleared = false
+    }
+    if (session.tickerDirty) {
+      page.tickerItems = [...session.tickerItems]
+      session.tickerDirty = false
+    }
+    if (session.reactionBurst > 0) {
+      page.reactionBurst = session.reactionBurst
+      session.reactionBurst = 0
     }
     // No cursor once the stream is over: that is what stops the client polling.
     if (session.ended) {
@@ -857,12 +1003,13 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (!current || current.view !== view) {
         const reopened = await openLiveChat(videoId, view)
         if (!reopened) return { items: [], disabled: true }
+        if (!hasLiveChatPending(reopened) && !reopened.failure) {
+          await waitForLiveChat(reopened, LIVE_CHAT_OPEN_GRACE_MS)
+        }
         return drainLiveChat(videoId, reopened)
       }
-      if (!current.buffer.length && !current.removed.length && !current.pinnedDirty && !current.pinnedCleared && !current.emojisDirty && !current.ended) {
-        const waited = current.arrived
-        armLiveChatWake(current)
-        await Promise.race([waited, new Promise((resolve) => setTimeout(resolve, LIVE_CHAT_WAIT_MS))])
+      if (!hasLiveChatPending(current) && !current.failure) {
+        await waitForLiveChat(current, LIVE_CHAT_WAIT_MS)
       }
       if (current.failure) {
         const failure = current.failure
@@ -1582,6 +1729,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       })
       const meta = normalizeWatchMeta(response, id)
       if (!meta) return undefined
+      if (meta.channel?.id) liveChatChannels.set(id, meta.channel.id)
+      const liveToken = liveChatToken(response)
+      if (liveToken && !liveChatViewTokens.get(id)?.TOP) {
+        const prev = liveChatViewTokens.get(id)
+        liveChatViewTokens.set(id, { ...prev, TOP: liveToken })
+      }
       const replay = chatReplayToken(response)
       if (replay && !chatReplayViews.has(id)) chatReplayViews.set(id, { TOP: replay })
       // Read off secondary_results rather than the memo, which also holds the comments entry's ContinuationItem.
@@ -1693,14 +1846,26 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         const current = liveChatSessions.get(videoId)
         if (!current || current.view === view) return liveChatContinuations.resolve(`livechat:${videoId}`, cursor)
       }
-      const session = await openLiveChat(videoId, view)
+      const session = await openLiveChat(videoId, view, !cursor)
       if (!session) return { items: [], disabled: true }
-      if (!session.buffer.length && !session.pinnedDirty && !session.emojisDirty && !session.ended) {
-        const waited = session.arrived
-        armLiveChatWake(session)
-        await Promise.race([waited, new Promise((resolve) => setTimeout(resolve, LIVE_CHAT_OPEN_GRACE_MS))])
+      if (!hasLiveChatPending(session) && !session.failure) {
+        await waitForLiveChat(session, LIVE_CHAT_OPEN_GRACE_MS)
+      }
+      if (session.failure && !hasLiveChatPending(session)) {
+        const failure = session.failure
+        session.failure = undefined
+        throw failure
       }
       return drainLiveChat(videoId, session)
+    },
+
+    liveChatLeaderboard: async (panelId, params) => {
+      const response = await (await client).actions.execute('/get_panel', {
+        panelId,
+        params: safeDecodeParam(params),
+        parse: false,
+      })
+      return parseLiveChatLeaderboard(response.data)
     },
 
     liveChatReplay: async (videoId, offsetMs, view = 'TOP', cursor) => {
@@ -1723,7 +1888,62 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       requireSignIn(active, 'send a live chat message')
       const session = liveChatSessions.get(videoId)
       if (!session) throw new Error('youtube: live chat is not open for this video')
-      await session.chat.sendMessage(textBody)
+      if (session.inputState?.status === 'RESTRICTED') {
+        throw new Error(session.inputState.restrictionMessage || 'youtube: live chat participation is restricted')
+      }
+      const params = session.sendParams
+        ?? (session.channelId || liveChatChannels.get(videoId)
+          ? encodeLiveMessageParams(videoId, session.channelId ?? liveChatChannels.get(videoId))
+          : encodeLiveMessageParams(videoId))
+      const response = await active.actions.execute('/live_chat/send_message', {
+        richMessage: { textSegments: [{ text: textBody }] },
+        clientMessageId: crypto.randomUUID(),
+        client: 'WEB',
+        params,
+        parse: false,
+      })
+      const parsed = parseSendLiveChatResult(response.data)
+      if (parsed.errorMessage) throw new Error(parsed.errorMessage)
+      if (parsed.addedMessages.length > 0) {
+        session.buffer.push(...parsed.addedMessages)
+        if (session.buffer.length > LIVE_CHAT_BUFFER_LIMIT) {
+          session.buffer.splice(0, session.buffer.length - LIVE_CHAT_BUFFER_LIMIT)
+        }
+        wakeSession(session)
+      }
+      return true
+    },
+
+    voteLiveChatPoll: async (videoId, pollId, voteParams) => {
+      const active = await client
+      requireSignIn(active, 'vote in a live poll')
+      let parsed: { endpoint?: string, params?: string }
+      try {
+        parsed = JSON.parse(voteParams) as { endpoint?: string, params?: string }
+      } catch {
+        throw new Error('youtube: invalid live poll vote parameters')
+      }
+      if (
+        typeof parsed.endpoint !== 'string'
+        || !parsed.endpoint.startsWith('/live_chat/')
+        || typeof parsed.params !== 'string'
+        || !parsed.params
+      ) {
+        throw new Error('youtube: invalid live poll vote parameters')
+      }
+      await active.actions.execute(parsed.endpoint, { params: parsed.params, parse: false })
+      const session = liveChatSessions.get(videoId)
+      if (session?.poll && session.poll.id === pollId) {
+        session.poll = {
+          ...session.poll,
+          choices: session.poll.choices.map((choice) => ({
+            ...choice,
+            selected: choice.voteParams === voteParams ? true : undefined,
+          })),
+        }
+        session.pollDirty = true
+        wakeSession(session)
+      }
       return true
     },
 

@@ -5,9 +5,27 @@ import type { CustomEmoji } from './emoji-picker'
 import type { MentionCandidate } from './live-chat-helpers'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, Heart, MessageSquare, Pin, X } from 'lucide-react'
+import {
+  BadgeCheck,
+  BarChart2,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  Gift,
+  Heart,
+  Info,
+  Lock,
+  MessageSquare,
+  Pin,
+  RefreshCw,
+  Trophy,
+  Wrench,
+  X,
+} from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
+import { Link } from 'wouter'
 
 import { gql } from '../generated'
 import { useSession } from '../session'
@@ -29,46 +47,144 @@ type ChatPage = LiveChatQuery['liveChat']
 export type ChatRow = ChatPage['items'][number]
 type ChatRun = ChatRow['runs'][number]
 type ChatPinned = NonNullable<ChatPage['pinned']>
-type ViewerIdentity = { name?: string | null, handle?: string | null }
+type ChatPoll = NonNullable<ChatPage['poll']>
+type ChatTickerItem = NonNullable<ChatPage['tickerItems']>[number]
+type ChatLeaderboardEntryPoint = NonNullable<ChatPage['leaderboard']>
+type ChatInputState = NonNullable<ChatPage['inputState']>
+type ViewerIdentity = { name?: string | null, handle?: string | null, avatar?: string | null }
+
+export type ChatLineMessage = {
+  id: string
+  kind?: ChatRow['kind']
+  author?: ChatRow['author']
+  text: string
+  runs: readonly ChatRun[]
+  timestampText?: string | null
+  isOwner?: boolean | null
+  isModerator?: boolean | null
+  isMember?: boolean | null
+  badges?: ChatRow['badges']
+  purchaseAmountText?: string | null
+  headerBackgroundColor?: string | null
+  bodyBackgroundColor?: string | null
+  headerPrimaryText?: string | null
+  headerSubtext?: string | null
+  stickerUrl?: string | null
+  stickerLabel?: string | null
+  iconType?: string | null
+}
 
 const LIVE_CHAT_QUERY = gql(`
   query LiveChat($videoId: ID!, $view: ChatReplayView, $cursor: String) {
     liveChat(videoId: $videoId, view: $view, cursor: $cursor) {
       items {
         id
+        kind
         text
         runs { text url videoId startSeconds browseId emojiUrl emojiLabel }
         timestampText
         isOwner
         isModerator
         isMember
+        badges { label iconUrl kind backgroundColor textColor }
         purchaseAmountText
         headerBackgroundColor
         bodyBackgroundColor
+        headerPrimaryText
+        headerSubtext
+        stickerUrl
+        stickerLabel
+        iconType
         author { id name avatar handle }
       }
       cursor
       removedIds
+      removedAuthorIds
       disabled
       pinned {
         id
         header
         message {
           id
+          kind
           text
           runs { text url videoId startSeconds browseId emojiUrl emojiLabel }
           timestampText
           isOwner
           isModerator
           isMember
+          badges { label iconUrl kind backgroundColor textColor }
           purchaseAmountText
           headerBackgroundColor
           bodyBackgroundColor
+          headerPrimaryText
+          headerSubtext
+          stickerUrl
+          stickerLabel
+          iconType
           author { id name avatar handle }
         }
       }
       pinnedCleared
       customEmojis { id shortcut url }
+      inputState {
+        status
+        restrictionMessage
+        restrictionMode
+        placeholder
+        maxLength
+        slowModeSeconds
+      }
+      leaderboard {
+        label
+        panelId
+        params
+      }
+      poll {
+        id
+        question
+        questionRuns { text url videoId startSeconds browseId emojiUrl emojiLabel }
+        metadataText
+        choices {
+          id
+          text
+          runs { text url videoId startSeconds browseId emojiUrl emojiLabel }
+          votePercentage
+          voteRatio
+          selected
+          voteParams
+        }
+        finished
+      }
+      pollCleared
+      tickerItems {
+        id
+        label
+        avatar
+        authorName
+        backgroundColor
+        textColor
+        durationSeconds
+        detailText
+      }
+      reactionBurst
+    }
+  }
+`)
+
+const LIVE_CHAT_LEADERBOARD_QUERY = gql(`
+  query LiveChatLeaderboard($panelId: String!, $params: String!) {
+    liveChatLeaderboard(panelId: $panelId, params: $params) {
+      title
+      items {
+        rank
+        displayName
+        avatar
+        points
+        badgeLabel
+        badgeBackgroundColor
+        badgeTextColor
+      }
     }
   }
 `)
@@ -76,6 +192,12 @@ const LIVE_CHAT_QUERY = gql(`
 const SEND_LIVE_CHAT = gql(`
   mutation SendLiveChatMessage($videoId: ID!, $text: String!) {
     sendLiveChatMessage(videoId: $videoId, text: $text)
+  }
+`)
+
+const VOTE_LIVE_CHAT_POLL = gql(`
+  mutation VoteLiveChatPoll($videoId: ID!, $pollId: ID!, $voteParams: String!) {
+    voteLiveChatPoll(videoId: $videoId, pollId: $pollId, voteParams: $voteParams)
   }
 `)
 
@@ -134,9 +256,36 @@ export const chatStyles = css`
     font-weight: 500;
   }
 
+  .head .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+  }
+
+  .head .top-fans-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 1.4rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.2rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .head .top-fans-btn:hover,
+  .head .top-fans-btn[aria-expanded='true'] {
+    background: var(--bg-hover);
+  }
+
   .head .close {
     padding: 0.8rem;
-    margin-left: auto;
   }
 
   .head .view:hover,
@@ -537,6 +686,419 @@ export const chatStyles = css`
     color: var(--text-primary);
   }
 
+  .badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-right: 0.5rem;
+    vertical-align: middle;
+  }
+
+  .badge-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.55rem;
+    border: none;
+    border-radius: 999px;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.5;
+    vertical-align: middle;
+  }
+
+  button.badge-chip {
+    cursor: pointer;
+  }
+
+  button.badge-chip:hover {
+    filter: brightness(1.08);
+  }
+
+  .badge-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+    object-fit: contain;
+    vertical-align: -0.25rem;
+  }
+
+  .role-icon {
+    flex: none;
+    vertical-align: -0.15rem;
+  }
+
+  .role-icon.owner { color: #ffd600; }
+  .role-icon.moderator { color: #5e84f1; }
+  .role-icon.verified { color: var(--text-secondary); }
+
+  .row.system {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    margin: 0.3rem 1.2rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.8rem;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+    line-height: 1.8rem;
+  }
+
+  .row.system svg {
+    flex: none;
+    margin-top: 0.2rem;
+  }
+
+  .row.gift {
+    margin: 0.3rem 1.2rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.8rem;
+    background: var(--bg-elevated);
+  }
+
+  .row.gift .gift-body {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .row.gift .gift-icon {
+    color: var(--text-secondary);
+    vertical-align: -0.2rem;
+  }
+
+  .row.paid .paid-head-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.1rem;
+  }
+
+  .row.paid .paid-sub {
+    font-size: 1.2rem;
+    font-weight: 400;
+    opacity: 0.9;
+  }
+
+  .row.paid.sticker .sticker-body {
+    display: flex;
+    justify-content: center;
+    padding: 0.8rem 1rem 1rem;
+  }
+
+  .sticker-img {
+    width: 6.4rem;
+    height: 6.4rem;
+    object-fit: contain;
+  }
+
+  .ticker-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 1.2rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: none;
+  }
+
+  .ticker-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ticker-pill {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.9rem 0.3rem 0.4rem;
+    border: none;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 1.2rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+  }
+
+  .ticker-pill:hover {
+    opacity: 0.92;
+  }
+
+  .ticker-pill img {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .ticker-detail {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.7rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+    font-size: 1.25rem;
+  }
+
+  .ticker-detail-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .ticker-detail-text strong {
+    font-weight: 600;
+  }
+
+  .ticker-detail-text span {
+    color: var(--text-secondary);
+  }
+
+  .poll-card {
+    margin: 0.6rem 1rem 0;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--bg-elevated);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .poll-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1.8rem;
+  }
+
+  .poll-head > svg {
+    flex: none;
+    margin-top: 0.2rem;
+    color: var(--text-secondary);
+  }
+
+  .poll-title {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .poll-meta {
+    color: var(--text-secondary);
+    font-size: 1.15rem;
+  }
+
+  .poll-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .poll-choice {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.25rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .poll-choice:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .poll-choice[data-selected='true'] {
+    border-color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .poll-choice:disabled {
+    cursor: default;
+  }
+
+  .poll-choice-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--bg-hover-strong);
+    opacity: 0.65;
+    pointer-events: none;
+    transition: width 0.2s ease;
+  }
+
+  .poll-choice-label,
+  .poll-choice-pct {
+    position: relative;
+    z-index: 1;
+  }
+
+  .poll-choice-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .poll-choice-pct {
+    flex: none;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .leaderboard-panel {
+    position: absolute;
+    inset: 4.5rem 0 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-subtle);
+  }
+
+  .leaderboard-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.8rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 1.4rem;
+    font-weight: 600;
+  }
+
+  .leaderboard-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-left: auto;
+  }
+
+  .leaderboard-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.6rem 0;
+  }
+
+  .leaderboard-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.7rem 1.4rem;
+    font-size: 1.3rem;
+  }
+
+  .leaderboard-rank {
+    min-width: 2.4rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .leaderboard-avatar {
+    width: 2.8rem;
+    height: 2.8rem;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: none;
+  }
+
+  .leaderboard-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    overflow: hidden;
+  }
+
+  .leaderboard-name > span:first-of-type {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .leaderboard-points {
+    flex: none;
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+  }
+
+  .slow-mode-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 1.2rem 0;
+    color: var(--text-secondary);
+    font-size: 1.15rem;
+  }
+
+  .restricted-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.8rem 1rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+  }
+
+  .restricted-bar > svg {
+    flex: none;
+  }
+
+  .restricted-text {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.7rem;
+  }
+
+  .refresh-chat-btn,
+  .signin-link {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 1.6rem;
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.2rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .refresh-chat-btn:hover:not(:disabled),
+  .signin-link:hover {
+    background: var(--bg-hover);
+  }
+
+  .refresh-chat-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
   .notice {
     padding: 1.6rem 1.2rem;
     color: var(--text-secondary);
@@ -610,11 +1172,11 @@ const ChatLineBody = (
     runs={runs}
     renderRun={(run: ChatRun, key: string) => {
       if (run.emojiUrl) {
-        return <img key={key} className='emoji' src={run.emojiUrl} alt={run.emojiLabel ?? ''} loading='lazy' />
+        return <img key={key} className='emoji' src={run.emojiUrl} alt={run.emojiLabel ?? ''} loading='lazy' referrerpolicy='no-referrer' />
       }
       if (!run.url && !run.videoId && !run.browseId) {
         const parts = splitMentionRuns(run.text)
-        if (parts.some(part => Boolean(part.mention))) {
+        if (parts.some((part) => Boolean(part.mention))) {
           return (
             <span key={key}>
               {parts.map((part, index) =>
@@ -637,14 +1199,81 @@ const ChatLineBody = (
   />
 )
 
-export const ChatLine = (
-  { message, self, onAuthorClick }: {
-    message: ChatRow
-    self?: ViewerIdentity
-    onAuthorClick?: (author: NonNullable<ChatRow['author']>) => void
+const ChatBadges = (
+  { badges, onTopFanClick }: {
+    badges?: ChatRow['badges']
+    onTopFanClick?: () => void
   },
 ) => {
-  const badge = message.isOwner
+  if (!badges?.length) return null
+  return (
+    <span className='badges'>
+      {badges.map((badge, index) => {
+        if (badge.kind === 'top-fan') {
+          const style = {
+            ...(badge.backgroundColor ? { background: badge.backgroundColor } : {}),
+            ...(badge.textColor ? { color: badge.textColor } : {}),
+          }
+          if (onTopFanClick) {
+            return (
+              <button
+                key={`top-fan-${index}`}
+                type='button'
+                className='badge-chip top-fan'
+                style={style}
+                title={`Top fan ${badge.label}`}
+                aria-label={`Top fan ${badge.label}`}
+                onClick={onTopFanClick}
+              >
+                <Crown size={11} strokeWidth={2} aria-hidden='true' />
+                <span>{badge.label}</span>
+              </button>
+            )
+          }
+          return (
+            <span key={`top-fan-${index}`} className='badge-chip top-fan' style={style}>
+              <Crown size={11} strokeWidth={2} aria-hidden='true' />
+              <span>{badge.label}</span>
+            </span>
+          )
+        }
+        if (badge.iconUrl) {
+          return (
+            <img
+              key={`icon-${index}`}
+              className='badge-icon'
+              src={badge.iconUrl}
+              alt={badge.label}
+              title={badge.label}
+              loading='lazy'
+              referrerpolicy='no-referrer'
+            />
+          )
+        }
+        if (badge.kind === 'owner') {
+          return <Crown key={`owner-${index}`} size={12} strokeWidth={2} className='role-icon owner' aria-label={badge.label} />
+        }
+        if (badge.kind === 'moderator') {
+          return <Wrench key={`mod-${index}`} size={12} strokeWidth={2} className='role-icon moderator' aria-label={badge.label} />
+        }
+        if (badge.kind === 'verified') {
+          return <BadgeCheck key={`verified-${index}`} size={12} strokeWidth={2} className='role-icon verified' aria-label={badge.label} />
+        }
+        return undefined
+      })}
+    </span>
+  )
+}
+
+export const ChatLine = (
+  { message, self, onAuthorClick, onTopFanClick }: {
+    message: ChatLineMessage
+    self?: ViewerIdentity
+    onAuthorClick?: (author: NonNullable<ChatRow['author']>) => void
+    onTopFanClick?: () => void
+  },
+) => {
+  const roleClass = message.isOwner
     ? 'owner'
     : message.isModerator
       ? 'moderator'
@@ -652,12 +1281,13 @@ export const ChatLine = (
         ? 'member'
         : ''
   const body = <ChatLineBody runs={message.runs} self={self} />
+  const badges = <ChatBadges badges={message.badges} onTopFanClick={onTopFanClick} />
   const authorNode = message.author
     ? onAuthorClick
       ? (
         <button
           type='button'
-          className={`who who-btn ${badge}`}
+          className={`who who-btn ${roleClass}`}
           title={message.timestampText ?? undefined}
           aria-label={`Mention ${message.author.name}`}
           onClick={() => onAuthorClick(message.author!)}
@@ -665,19 +1295,76 @@ export const ChatLine = (
           {message.author.name}
         </button>
       )
-      : <span className={`who ${badge}`} title={message.timestampText ?? undefined}>{message.author.name}</span>
+      : <span className={`who ${roleClass}`} title={message.timestampText ?? undefined}>{message.author.name}</span>
     : undefined
 
-  if (message.purchaseAmountText) {
+  if (message.kind === 'SYSTEM') {
+    const restrictedIcon = Boolean(message.iconType && /LOCK|SLOW|SUBSCRIBER|MEMBER/i.test(message.iconType))
     return (
-      <div className='row paid'>
+      <div className='row system' data-chat-kind='system'>
+        {restrictedIcon ? <Lock size={14} strokeWidth={1.75} aria-hidden='true' /> : <Info size={14} strokeWidth={1.75} aria-hidden='true' />}
+        <div>{body}</div>
+      </div>
+    )
+  }
+
+  if (message.kind === 'STICKER' || message.stickerUrl) {
+    return (
+      <div className='row paid sticker' data-chat-kind='sticker'>
         <div
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
         >
-          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' /> : undefined}
+          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          {badges}
           {authorNode}
-          <span style={{ marginLeft: 'auto' }}>{message.purchaseAmountText}</span>
+          {message.purchaseAmountText ? <span style={{ marginLeft: 'auto' }}>{message.purchaseAmountText}</span> : undefined}
+        </div>
+        <div className='paid-body sticker-body' style={{ background: message.bodyBackgroundColor ?? '#1976d2', color: '#fff' }}>
+          {message.stickerUrl
+            ? <img className='sticker-img' src={message.stickerUrl} alt={message.stickerLabel ?? message.text} loading='lazy' referrerpolicy='no-referrer' />
+            : body}
+        </div>
+      </div>
+    )
+  }
+
+  if (message.kind === 'MEMBERSHIP' || message.kind === 'GIFT_MEMBERSHIP') {
+    const subtitle = message.headerPrimaryText || message.headerSubtext
+    const showSub = Boolean(subtitle && subtitle !== message.text)
+    return (
+      <div className='row paid membership' data-chat-kind={message.kind === 'GIFT_MEMBERSHIP' ? 'gift-membership' : 'membership'}>
+        <div
+          className='paid-head'
+          style={{ background: message.headerBackgroundColor ?? '#0f7b3e', color: '#fff' }}
+        >
+          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          <div className='paid-head-meta'>
+            <div>
+              {badges}
+              {authorNode}
+            </div>
+            {showSub ? <span className='paid-sub'>{subtitle}</span> : undefined}
+          </div>
+        </div>
+        <div className='paid-body' style={{ background: message.bodyBackgroundColor ?? '#139b4f', color: '#fff' }}>
+          {body}
+        </div>
+      </div>
+    )
+  }
+
+  if (message.purchaseAmountText || message.kind === 'PAID') {
+    return (
+      <div className='row paid' data-chat-kind='paid'>
+        <div
+          className='paid-head'
+          style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
+        >
+          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          {badges}
+          {authorNode}
+          {message.purchaseAmountText ? <span style={{ marginLeft: 'auto' }}>{message.purchaseAmountText}</span> : undefined}
         </div>
         <div className='paid-body' style={{ background: message.bodyBackgroundColor ?? '#1976d2', color: '#fff' }}>
           {body}
@@ -685,12 +1372,30 @@ export const ChatLine = (
       </div>
     )
   }
+
+  if (message.kind === 'GIFT') {
+    return (
+      <div className='row gift' data-chat-kind='gift'>
+        {message.author?.avatar
+          ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
+          : <span className='avatar' />}
+        <div className='gift-body'>
+          <Gift size={14} strokeWidth={1.75} className='gift-icon' aria-hidden='true' />
+          {badges}
+          {authorNode}
+          {body}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className='row'>
       {message.author?.avatar
-        ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' />
+        ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
         : <span className='avatar' />}
       <div>
+        {badges}
         {authorNode}
         {body}
       </div>
@@ -718,12 +1423,80 @@ export const usePinnedLog = (lines: unknown) => {
   return { logRef, onScroll, pinned, setPinned }
 }
 
-/** Live stream chat panel with Top/Live filter switch, pinned banner, emoji picker, reactions, `@` mentions, and hide toggle. */
-export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => void }) => {
-  const { ready, signedIn, name, handle } = useSession()
+const sameAuthor = (author: ChatRow['author'] | undefined, self: ViewerIdentity | undefined) => {
+  if (!author || !self) return false
+  if (self.handle && author.handle && self.handle.toLowerCase() === author.handle.toLowerCase()) return true
+  if (self.name && author.name.toLowerCase() === self.name.toLowerCase()) return true
+  return false
+}
+
+const LiveChatPollCard = (
+  { poll, self, collapsed, onToggleCollapse, disabled, voting, onVote }: {
+    poll: ChatPoll
+    self?: ViewerIdentity
+    collapsed: boolean
+    onToggleCollapse: () => void
+    disabled: boolean
+    voting: boolean
+    onVote: (choice: ChatPoll['choices'][number]) => void
+  },
+) => (
+  <div className='poll-card' role='region' aria-label='Live poll'>
+    <div className='poll-head'>
+      <BarChart2 size={15} strokeWidth={1.75} aria-hidden='true' />
+      <div className='poll-title'>
+        {poll.questionRuns.length > 0 ? <ChatLineBody runs={poll.questionRuns} self={self} /> : poll.question}
+      </div>
+      <button
+        type='button'
+        className='pin-icon-btn'
+        aria-label={collapsed ? 'Expand poll' : 'Collapse poll'}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? <ChevronDown size={14} strokeWidth={1.75} /> : <ChevronUp size={14} strokeWidth={1.75} />}
+      </button>
+    </div>
+    {!collapsed
+      ? (
+        <>
+          {poll.metadataText ? <div className='poll-meta'>{poll.metadataText}</div> : undefined}
+          <div className='poll-choices'>
+            {poll.choices.map((choice) => {
+              const pct = Math.max(0, Math.min(100, Math.round((choice.voteRatio ?? 0) * 100)))
+              const canVote = !disabled && !voting && !poll.finished && Boolean(choice.voteParams)
+              return (
+                <button
+                  key={choice.id}
+                  type='button'
+                  className='poll-choice'
+                  data-selected={choice.selected ? 'true' : undefined}
+                  disabled={!canVote}
+                  onClick={() => onVote(choice)}
+                >
+                  {choice.voteRatio !== null && choice.voteRatio !== undefined
+                    ? <span className='poll-choice-bar' style={{ width: `${pct}%` }} aria-hidden='true' />
+                    : undefined}
+                  <span className='poll-choice-label'>
+                    {choice.selected ? <Check size={13} strokeWidth={2.2} aria-hidden='true' /> : undefined}
+                    {choice.runs.length > 0 ? <ChatLineBody runs={choice.runs} self={self} /> : choice.text}
+                  </span>
+                  {choice.votePercentage ? <span className='poll-choice-pct'>{choice.votePercentage}</span> : undefined}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )
+      : undefined}
+  </div>
+)
+
+/** Live stream chat panel with Top/Live filter switch, pinned banner, polls, Top fans leaderboard, restrictions, emoji picker, reactions, `@` mentions, and hide toggle. */
+export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, subscribed?: boolean, onHide?: () => void }) => {
+  const { ready, signedIn, name, avatar, handle } = useSession()
   const self = useMemo<ViewerIdentity | undefined>(
-    () => (signedIn ? { name, handle } : undefined),
-    [signedIn, name, handle],
+    () => (signedIn ? { name, avatar, handle } : undefined),
+    [signedIn, name, avatar, handle],
   )
   const [view, setView] = useState<ChatReplayView>('TOP')
   const [cursor, setCursor] = useState<string | undefined>(undefined)
@@ -732,6 +1505,17 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
   const [dismissedPinId, setDismissedPinId] = useState<string | undefined>(undefined)
   const [pinExpanded, setPinExpanded] = useState(false)
   const [customEmojis, setCustomEmojis] = useState<CustomEmoji[]>([])
+  const [inputState, setInputState] = useState<ChatInputState | undefined>(undefined)
+  const [leaderboardEntry, setLeaderboardEntry] = useState<ChatLeaderboardEntryPoint | undefined>(undefined)
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false)
+  const [poll, setPoll] = useState<ChatPoll | undefined>(undefined)
+  const [pollCollapsed, setPollCollapsed] = useState(false)
+  const [votingPoll, setVotingPoll] = useState(false)
+  const [tickerItems, setTickerItems] = useState<ChatTickerItem[]>([])
+  const [selectedTickerId, setSelectedTickerId] = useState<string | undefined>(undefined)
+  const [refreshing, setRefreshing] = useState(false)
+  const [slowModeUntil, setSlowModeUntil] = useState(0)
+  const [slowModeLeft, setSlowModeLeft] = useState(0)
   const [ended, setEnded] = useState(false)
   const [sending, setSending] = useState(false)
   const [draft, setDraft] = useState('')
@@ -742,12 +1526,19 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
   const [reactions, setReactions] = useState<{ id: number, emoji: string, leftPx: number }[]>([])
   const { logRef, onScroll, pinned, setPinned } = usePinnedLog(messages)
   const [, send] = useMutation(SEND_LIVE_CHAT)
+  const [, votePoll] = useMutation(VOTE_LIVE_CHAT_POLL)
   const inputRef = useRef<HTMLInputElement>(null)
   const mentionListId = useId()
   const reactionSeq = useRef(0)
   const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const caretFrame = useRef<number | undefined>(undefined)
   const pinnedIdRef = useRef<string | undefined>(undefined)
+  const pendingEchoes = useRef<{ id: string, text: string, at: number }[]>([])
+  const prevSubscribed = useRef(subscribed)
+  const cursorRef = useRef(cursor)
+  cursorRef.current = cursor
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   /* the server parks each request until something arrives, so the cursor chain IS the poll: no interval belongs here */
   const [{ data, error }, reexecute] = useQuery({
@@ -757,7 +1548,26 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
     pause: ended,
   })
 
+  const [{ data: leaderboardQueryData, fetching: leaderboardLoading, error: leaderboardError }, reexecuteLeaderboard] = useQuery({
+    query: LIVE_CHAT_LEADERBOARD_QUERY,
+    variables: {
+      panelId: leaderboardEntry?.panelId ?? '',
+      params: leaderboardEntry?.params ?? '',
+    },
+    requestPolicy: 'network-only',
+    pause: !leaderboardOpen || !leaderboardEntry,
+  })
+
   const page = data?.liveChat
+
+  const scheduleTimer = (fn: () => void, ms: number) => {
+    const timer = setTimeout(() => {
+      timers.current.delete(timer)
+      fn()
+    }, ms)
+    timers.current.add(timer)
+    return timer
+  }
 
   useEffect(() => () => {
     for (const timer of timers.current) clearTimeout(timer)
@@ -765,31 +1575,96 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
     if (caretFrame.current !== undefined) cancelAnimationFrame(caretFrame.current)
   }, [])
 
+  useEffect(() => {
+    if (!slowModeUntil) {
+      setSlowModeLeft(0)
+      return
+    }
+    const update = () => {
+      const remaining = Math.ceil((slowModeUntil - Date.now()) / 1_000)
+      if (remaining <= 0) {
+        setSlowModeLeft(0)
+        setSlowModeUntil(0)
+        return false
+      }
+      setSlowModeLeft(remaining)
+      return true
+    }
+    if (!update()) return
+    const interval = setInterval(() => {
+      if (!update()) clearInterval(interval)
+    }, 250)
+    return () => clearInterval(interval)
+  }, [slowModeUntil])
+
   const attemptRef = useRef(0)
   useEffect(() => {
     if (!error || ended) {
       if (!error) attemptRef.current = 0
       return
     }
+    setRefreshing(false)
     const delay = Math.min(8_000, 500 * 2 ** attemptRef.current)
     attemptRef.current += 1
-    const timer = setTimeout(() => reexecute({ requestPolicy: 'network-only' }), delay)
-    return () => clearTimeout(timer)
+    const timer = scheduleTimer(() => reexecute({ requestPolicy: 'network-only' }), delay)
+    return () => {
+      clearTimeout(timer)
+      timers.current.delete(timer)
+    }
   }, [error, ended, reexecute])
+
+  const triggerReaction = (emoji: string) => {
+    const id = ++reactionSeq.current
+    const leftPx = (id * 13) % 36
+    setReactions((current) => [...current.slice(-(MAX_ACTIVE_REACTIONS - 1)), { id, emoji, leftPx }])
+    scheduleTimer(() => {
+      setReactions((current) => current.filter((item) => item.id !== id))
+    }, REACTION_LIFETIME_MS)
+  }
 
   useEffect(() => {
     if (!page) return
+    setRefreshing(false)
     const removed = new Set(page.removedIds ?? [])
-    if (page.items.length || removed.size) {
+    const removedAuthors = new Set(page.removedAuthorIds ?? [])
+    if (page.items.length || removed.size || removedAuthors.size) {
+      const now = Date.now()
+      pendingEchoes.current = pendingEchoes.current.filter((entry) => now - entry.at < 15_000)
       setMessages((current) => {
-        const next = removed.size
-          ? current.filter((message) => !removed.has(message.id))
-          : current
-        // ids repeat when urql replays a cursor on remount
-        const seen = new Set(next.map((message) => message.id))
-        const added = page.items.filter((message) => !seen.has(message.id) && !removed.has(message.id))
-        const grown = added.length ? [...next, ...added] : next
-        return grown.length > TRANSCRIPT_LIMIT ? grown.slice(grown.length - TRANSCRIPT_LIMIT) : grown
+        let next = current.filter((message) => {
+          if (removed.has(message.id)) return false
+          if (message.author?.id && removedAuthors.has(message.author.id)) return false
+          return true
+        })
+
+        for (const item of page.items) {
+          if (removed.has(item.id)) continue
+          if (item.author?.id && removedAuthors.has(item.author.id)) continue
+
+          const existingIndex = next.findIndex((existing) => existing.id === item.id)
+          if (existingIndex >= 0) {
+            next = next.map((existing, idx) => (idx === existingIndex ? item : existing))
+            continue
+          }
+
+          if (pendingEchoes.current.length > 0 && sameAuthor(item.author, self)) {
+            const matchIdx = pendingEchoes.current.findIndex((pending) => pending.text === item.text.trim())
+            if (matchIdx >= 0) {
+              const matched = pendingEchoes.current.splice(matchIdx, 1)[0]
+              if (matched) {
+                const localIndex = next.findIndex((existing) => existing.id === matched.id)
+                if (localIndex >= 0) {
+                  next = next.map((existing, idx) => (idx === localIndex ? item : existing))
+                  continue
+                }
+              }
+            }
+          }
+
+          next = [...next, item]
+        }
+
+        return next.length > TRANSCRIPT_LIMIT ? next.slice(next.length - TRANSCRIPT_LIMIT) : next
       })
     }
     if (page.pinned) {
@@ -802,24 +1677,79 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
       pinnedIdRef.current = undefined
       setPinnedMessage(undefined)
     }
-    if (page.customEmojis?.length) {
-      setCustomEmojis(page.customEmojis)
+    if (page.customEmojis?.length) setCustomEmojis(page.customEmojis)
+    if (page.inputState) {
+      setInputState(page.inputState)
+      if (page.inputState.slowModeSeconds === 0) setSlowModeUntil(0)
+    }
+    if (page.leaderboard) setLeaderboardEntry(page.leaderboard)
+    if (page.poll) setPoll(page.poll)
+    else if (page.pollCleared) setPoll(undefined)
+    if (page.tickerItems) setTickerItems(page.tickerItems)
+    if ((page.reactionBurst ?? 0) > 0) {
+      const count = Math.min(6, page.reactionBurst ?? 0)
+      for (let idx = 0; idx < count; idx += 1) {
+        const emoji = LIVE_REACTIONS[(reactionSeq.current + idx) % LIVE_REACTIONS.length]!
+        if (idx === 0) triggerReaction(emoji)
+        else scheduleTimer(() => triggerReaction(emoji), idx * 180)
+      }
     }
     if (!page.cursor) setEnded(true)
     else if (page.cursor !== cursor) setCursor(page.cursor)
   }, [page])
 
+  const refreshSession = () => {
+    setRefreshing(true)
+    setEnded(false)
+    if (cursorRef.current !== undefined) {
+      setCursor(undefined)
+    } else {
+      reexecute({ requestPolicy: 'network-only' })
+    }
+  }
+
+  useEffect(() => {
+    const wasFalse = prevSubscribed.current === false
+    prevSubscribed.current = subscribed
+    if (wasFalse && subscribed === true && inputState?.status === 'RESTRICTED') {
+      const timer = scheduleTimer(() => refreshSession(), 250)
+      return () => {
+        clearTimeout(timer)
+        timers.current.delete(timer)
+      }
+    }
+    return undefined
+  }, [subscribed, inputState?.status])
+
   const switchView = (nextView: ChatReplayView) => {
     if (nextView === view) return
     pinnedIdRef.current = undefined
+    pendingEchoes.current = []
     setView(nextView)
     setCursor(undefined)
     setMessages([])
     setPinnedMessage(undefined)
     setDismissedPinId(undefined)
     setPinExpanded(false)
+    setInputState(undefined)
+    setLeaderboardEntry(undefined)
+    setLeaderboardOpen(false)
+    setPoll(undefined)
+    setPollCollapsed(false)
+    setTickerItems([])
+    setSelectedTickerId(undefined)
+    setSlowModeUntil(0)
+    setSlowModeLeft(0)
+    setRefreshing(false)
     setEnded(false)
     setPinned(true)
+  }
+
+  const openLeaderboard = () => {
+    if (!leaderboardEntry) return
+    const alreadyOpen = leaderboardOpen
+    setLeaderboardOpen(true)
+    if (alreadyOpen) reexecuteLeaderboard({ requestPolicy: 'network-only' })
   }
 
   const updateDraftWithCaret = (nextValue: string, nextCaret: number) => {
@@ -854,7 +1784,8 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
     updateDraftWithCaret(next.value, next.cursor)
   }
 
-  const mentionMatch = ready && signedIn && !ended ? activeMentionQuery(draft, caret) : undefined
+  const canCompose = ready && signedIn && !ended && inputState?.status !== 'RESTRICTED' && inputState?.status !== 'SIGN_IN_REQUIRED'
+  const mentionMatch = canCompose ? activeMentionQuery(draft, caret) : undefined
   const candidates = useMemo<MentionCandidate[]>(() => {
     const authors: MentionCandidate[] = []
     if (pinnedMessage?.message.author) authors.push(pinnedMessage.message.author)
@@ -899,40 +1830,109 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
     }
   }
 
-  const triggerReaction = (emoji: string) => {
-    const id = ++reactionSeq.current
-    const leftPx = (id * 13) % 36
-    setReactions((current) => [...current.slice(-(MAX_ACTIVE_REACTIONS - 1)), { id, emoji, leftPx }])
-    const timer = setTimeout(() => {
-      timers.current.delete(timer)
-      setReactions((current) => current.filter((item) => item.id !== id))
-    }, REACTION_LIFETIME_MS)
-    timers.current.add(timer)
-  }
-
   const submit = async (event: TargetedEvent<HTMLFormElement, Event>) => {
     event.preventDefault()
-    if (sending) return
+    if (sending || slowModeLeft > 0) return
     const text = draft.trim()
     if (!text) return
     setSending(true)
     setDraft('')
     setCaret(0)
+    const seenBeforeSend = new Set(messagesRef.current.map((item) => item.id))
     try {
       const result = await send({ videoId, text })
       if (result.error) {
         showToast(lineFor(result.error))
         setDraft(text)
         setCaret(text.length)
+        return
+      }
+      if (self) {
+        const localId = `local:${crypto.randomUUID()}`
+        pendingEchoes.current.push({ id: localId, text, at: Date.now() })
+        setMessages((current) => {
+          const alreadyArrived = current.some((item) =>
+            !seenBeforeSend.has(item.id)
+            && !item.id.startsWith('local:')
+            && item.text.trim() === text
+            && sameAuthor(item.author, self),
+          )
+          if (alreadyArrived) {
+            pendingEchoes.current = pendingEchoes.current.filter((entry) => entry.id !== localId)
+            return current
+          }
+          const optimisticRow: ChatRow = {
+            __typename: 'LiveChatMessage',
+            id: localId,
+            kind: 'TEXT',
+            text,
+            runs: [{ __typename: 'LiveChatRun', text, url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
+            timestampText: null,
+            isOwner: false,
+            isModerator: false,
+            isMember: false,
+            badges: null,
+            purchaseAmountText: null,
+            headerBackgroundColor: null,
+            bodyBackgroundColor: null,
+            headerPrimaryText: null,
+            headerSubtext: null,
+            stickerUrl: null,
+            stickerLabel: null,
+            iconType: null,
+            author: {
+              __typename: 'Author',
+              id: 'self',
+              name: self.name || self.handle || 'You',
+              avatar: self.avatar ?? null,
+              handle: self.handle ?? null,
+            },
+          }
+          const grown = [...current, optimisticRow]
+          return grown.length > TRANSCRIPT_LIMIT ? grown.slice(grown.length - TRANSCRIPT_LIMIT) : grown
+        })
+      }
+      if ((inputState?.slowModeSeconds ?? 0) > 0) {
+        setSlowModeUntil(Date.now() + inputState!.slowModeSeconds! * 1_000)
       }
     } finally {
       setSending(false)
     }
   }
 
+  const handleVotePoll = async (choice: ChatPoll['choices'][number]) => {
+    if (!poll || !choice.voteParams || votingPoll || ended || poll.finished) return
+    if (!signedIn) {
+      showToast('Sign in to vote in live polls')
+      return
+    }
+    setVotingPoll(true)
+    try {
+      const result = await votePoll({ videoId, pollId: poll.id, voteParams: choice.voteParams })
+      if (result.error) {
+        showToast(lineFor(result.error))
+        return
+      }
+      setPoll((current) => {
+        if (!current || current.id !== poll.id) return current
+        return {
+          ...current,
+          choices: current.choices.map((item) => ({
+            ...item,
+            selected: item.id === choice.id,
+          })),
+        }
+      })
+    } finally {
+      setVotingPoll(false)
+    }
+  }
+
   const activeMentionIdx = mentionSuggestions.length > 0 ? Math.min(mentionIndex, mentionSuggestions.length - 1) : -1
   const activeMentionOptionId = activeMentionIdx >= 0 ? `${mentionListId}-${activeMentionIdx}` : undefined
   const activePinned = pinnedMessage && dismissedPinId !== pinnedMessage.id ? pinnedMessage : undefined
+  const activeTicker = tickerItems.find((item) => item.id === selectedTickerId)
+  const leaderboardResult = leaderboardQueryData?.liveChatLeaderboard
   const currentView = VIEWS.find((option) => option.value === view)!
   const reactionButton = !ended
     ? (
@@ -972,19 +1972,76 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
           ))}
         </Menu>
         {ended ? <span className='ended-badge'>Ended</span> : undefined}
-        {onHide
-          ? (
-            <button type='button' className='close' aria-label='Hide chat' onClick={onHide}>
-              <X size={20} strokeWidth={1.5} />
-            </button>
-          )
-          : undefined}
+        <div className='head-actions'>
+          {leaderboardEntry && !page?.disabled
+            ? (
+              <button
+                type='button'
+                className='top-fans-btn'
+                aria-expanded={leaderboardOpen}
+                onClick={() => (leaderboardOpen ? setLeaderboardOpen(false) : openLeaderboard())}
+              >
+                <Trophy size={13} strokeWidth={1.9} aria-hidden='true' />
+                <span>{leaderboardEntry.label}</span>
+              </button>
+            )
+            : undefined}
+          {onHide
+            ? (
+              <button type='button' className='close' aria-label='Hide chat' onClick={onHide}>
+                <X size={20} strokeWidth={1.5} />
+              </button>
+            )
+            : undefined}
+        </div>
       </div>
 
       {page?.disabled
         ? <div className='notice'>Live chat is turned off for this stream.</div>
         : (
           <>
+            {tickerItems.length > 0
+              ? (
+                <div className='ticker-strip' role='region' aria-label='Chat highlights'>
+                  {tickerItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type='button'
+                      className='ticker-pill'
+                      style={{
+                        background: item.backgroundColor ?? '#1565c0',
+                        color: item.textColor ?? '#fff',
+                      }}
+                      aria-expanded={selectedTickerId === item.id}
+                      onClick={() => setSelectedTickerId((cur) => (cur === item.id ? undefined : item.id))}
+                    >
+                      {item.avatar ? <img src={item.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )
+              : undefined}
+
+            {activeTicker
+              ? (
+                <div className='ticker-detail' role='region' aria-label='Highlight detail'>
+                  <div className='ticker-detail-text'>
+                    <strong>{[activeTicker.authorName, activeTicker.label].filter(Boolean).join(' ')}</strong>
+                    {activeTicker.detailText ? <span>{activeTicker.detailText}</span> : undefined}
+                  </div>
+                  <button
+                    type='button'
+                    className='pin-icon-btn ticker-detail-close'
+                    aria-label='Close highlight'
+                    onClick={() => setSelectedTickerId(undefined)}
+                  >
+                    <X size={14} strokeWidth={1.75} />
+                  </button>
+                </div>
+              )
+              : undefined}
+
             {activePinned
               ? (
                 <div className='pinned-banner' role='region' aria-label='Pinned message'>
@@ -1012,7 +2069,7 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
                   </div>
                   <div className='pinned-body'>
                     {activePinned.message.author?.avatar
-                      ? <img className='avatar' src={activePinned.message.author.avatar} alt='' loading='lazy' />
+                      ? <img className='avatar' src={activePinned.message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
                       : <span className='avatar' />}
                     <div className={pinExpanded ? 'pinned-content' : 'pinned-content clamped'}>
                       {activePinned.message.author
@@ -1022,6 +2079,20 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
                     </div>
                   </div>
                 </div>
+              )
+              : undefined}
+
+            {poll
+              ? (
+                <LiveChatPollCard
+                  poll={poll}
+                  self={self}
+                  collapsed={pollCollapsed}
+                  onToggleCollapse={() => setPollCollapsed((value) => !value)}
+                  disabled={ended}
+                  voting={votingPoll}
+                  onVote={handleVotePoll}
+                />
               )
               : undefined}
 
@@ -1038,7 +2109,8 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
                       key={message.id}
                       message={message}
                       self={self}
-                      onAuthorClick={ready && signedIn && !ended ? onAuthorClick : undefined}
+                      onAuthorClick={canCompose ? onAuthorClick : undefined}
+                      onTopFanClick={leaderboardEntry ? openLeaderboard : undefined}
                     />
                   ))}
               </div>
@@ -1081,67 +2153,170 @@ export const LiveChat = ({ videoId, onHide }: { videoId: string, onHide?: () => 
               )
               : undefined}
 
-            {ready && signedIn && !ended
+            {!ended && ready
+              ? canCompose
+                ? (
+                  <div className='compose-shell'>
+                    {mentionSuggestions.length > 0
+                      ? (
+                        <div id={mentionListId} className='mention-menu' role='listbox' aria-label='Mention suggestions'>
+                          {mentionSuggestions.map((candidate, index) => (
+                            <button
+                              key={candidate.id}
+                              id={`${mentionListId}-${index}`}
+                              type='button'
+                              role='option'
+                              aria-selected={index === activeMentionIdx}
+                              className='mention-option'
+                              onMouseDown={(event: MouseEvent) => {
+                                event.preventDefault()
+                                chooseMention(candidate)
+                              }}
+                            >
+                              {candidate.avatar ? <img src={candidate.avatar} alt='' referrerpolicy='no-referrer' /> : undefined}
+                              <span className='name'>{candidate.name}</span>
+                              {candidate.handle ? <span className='handle'>{candidate.handle}</span> : undefined}
+                            </button>
+                          ))}
+                        </div>
+                      )
+                      : undefined}
+                    {(inputState?.slowModeSeconds ?? 0) > 0 || slowModeLeft > 0
+                      ? (
+                        <div className='slow-mode-bar'>
+                          <span>{(inputState?.slowModeSeconds ?? 0) > 0 ? `Slow mode (${inputState!.slowModeSeconds}s)` : 'Slow mode'}</span>
+                          {slowModeLeft > 0 ? <span>Wait {slowModeLeft}s</span> : undefined}
+                        </div>
+                      )
+                      : undefined}
+                    <form className='compose' onSubmit={submit}>
+                      <EmojiButton customEmojis={customEmojis} disabled={sending} onPick={pickEmoji} />
+                      <input
+                        ref={inputRef}
+                        value={draft}
+                        maxLength={inputState?.maxLength ?? 200}
+                        placeholder={slowModeLeft > 0 ? `Slow mode: wait ${slowModeLeft}s…` : inputState?.placeholder || 'Chat…'}
+                        aria-autocomplete='list'
+                        aria-expanded={mentionSuggestions.length > 0}
+                        aria-controls={mentionSuggestions.length > 0 ? mentionListId : undefined}
+                        aria-activedescendant={activeMentionOptionId}
+                        onKeyDown={onInputKeyDown}
+                        onInput={(event: TargetedEvent<HTMLInputElement, Event>) => {
+                          const input = event.currentTarget
+                          setDraft(input.value)
+                          setCaret(input.selectionStart ?? input.value.length)
+                          setDismissedMentionAt(undefined)
+                          setMentionIndex(0)
+                        }}
+                        onClick={(event: TargetedEvent<HTMLInputElement, MouseEvent>) => {
+                          setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+                        }}
+                        onKeyUp={(event: TargetedEvent<HTMLInputElement, KeyboardEvent>) => {
+                          if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Escape') return
+                          setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+                        }}
+                      />
+                      <button type='submit' className='send-btn' disabled={sending || slowModeLeft > 0 || !draft.trim()}>
+                        {slowModeLeft > 0 ? `${slowModeLeft}s` : 'Send'}
+                      </button>
+                      {reactionButton}
+                    </form>
+                  </div>
+                )
+                : !signedIn || inputState?.status === 'SIGN_IN_REQUIRED'
+                  ? (
+                    <div className='restricted-bar'>
+                      <Lock size={14} strokeWidth={1.75} aria-hidden='true' />
+                      <span className='restricted-text'>{inputState?.restrictionMessage || 'Sign in to chat'}</span>
+                      <Link href='/signin' className='signin-link'>Sign in</Link>
+                      {reactionButton}
+                    </div>
+                  )
+                  : (
+                    <div className='restricted-bar' role='status'>
+                      <Lock size={14} strokeWidth={1.75} aria-hidden='true' />
+                      <span className='restricted-text'>{inputState?.restrictionMessage || 'Chat participation is restricted.'}</span>
+                      <button
+                        type='button'
+                        className='refresh-chat-btn'
+                        onClick={refreshSession}
+                        disabled={refreshing}
+                      >
+                        <RefreshCw size={13} strokeWidth={1.75} aria-hidden='true' />
+                        {refreshing ? 'Checking…' : 'Refresh'}
+                      </button>
+                      {reactionButton}
+                    </div>
+                  )
+              : reactionButton
+                ? <div className='reaction-bar'>{reactionButton}</div>
+                : undefined}
+
+            {leaderboardOpen && leaderboardEntry
               ? (
-                <div className='compose-shell'>
-                  {mentionSuggestions.length > 0
-                    ? (
-                      <div id={mentionListId} className='mention-menu' role='listbox' aria-label='Mention suggestions'>
-                        {mentionSuggestions.map((candidate, index) => (
-                          <button
-                            key={candidate.id}
-                            id={`${mentionListId}-${index}`}
-                            type='button'
-                            role='option'
-                            aria-selected={index === activeMentionIdx}
-                            className='mention-option'
-                            onMouseDown={(event: MouseEvent) => {
-                              event.preventDefault()
-                              chooseMention(candidate)
-                            }}
-                          >
-                            {candidate.avatar ? <img src={candidate.avatar} alt='' /> : undefined}
-                            <span className='name'>{candidate.name}</span>
-                            {candidate.handle ? <span className='handle'>{candidate.handle}</span> : undefined}
-                          </button>
-                        ))}
-                      </div>
-                    )
-                    : undefined}
-                  <form className='compose' onSubmit={submit}>
-                    <EmojiButton customEmojis={customEmojis} disabled={sending} onPick={pickEmoji} />
-                    <input
-                      ref={inputRef}
-                      value={draft}
-                      maxLength={200}
-                      placeholder='Chat…'
-                      aria-autocomplete='list'
-                      aria-expanded={mentionSuggestions.length > 0}
-                      aria-controls={mentionSuggestions.length > 0 ? mentionListId : undefined}
-                      aria-activedescendant={activeMentionOptionId}
-                      onKeyDown={onInputKeyDown}
-                      onInput={(event: TargetedEvent<HTMLInputElement, Event>) => {
-                        const input = event.currentTarget
-                        setDraft(input.value)
-                        setCaret(input.selectionStart ?? input.value.length)
-                        setDismissedMentionAt(undefined)
-                        setMentionIndex(0)
-                      }}
-                      onClick={(event: TargetedEvent<HTMLInputElement, MouseEvent>) => {
-                        setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
-                      }}
-                      onKeyUp={(event: TargetedEvent<HTMLInputElement, KeyboardEvent>) => {
-                        if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Escape') return
-                        setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
-                      }}
-                    />
-                    <button type='submit' className='send-btn' disabled={sending || !draft.trim()}>Send</button>
-                    {reactionButton}
-                  </form>
+                <div
+                  className='leaderboard-panel'
+                  role='dialog'
+                  aria-label={leaderboardResult?.title ?? leaderboardEntry.label}
+                >
+                  <div className='leaderboard-head'>
+                    <Trophy size={15} strokeWidth={1.9} aria-hidden='true' />
+                    <span>{leaderboardResult?.title ?? leaderboardEntry.label}</span>
+                    <div className='leaderboard-actions'>
+                      <button
+                        type='button'
+                        className='pin-icon-btn'
+                        aria-label='Refresh leaderboard'
+                        onClick={() => reexecuteLeaderboard({ requestPolicy: 'network-only' })}
+                      >
+                        <RefreshCw size={14} strokeWidth={1.75} />
+                      </button>
+                      <button
+                        type='button'
+                        className='pin-icon-btn'
+                        aria-label='Close leaderboard'
+                        onClick={() => setLeaderboardOpen(false)}
+                      >
+                        <X size={15} strokeWidth={1.75} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className='leaderboard-list'>
+                    {leaderboardLoading && !leaderboardResult
+                      ? <div className='notice'>Loading top fans…</div>
+                      : leaderboardError
+                        ? <div className='notice'>{lineFor(leaderboardError)}</div>
+                        : leaderboardResult?.items.length
+                          ? leaderboardResult.items.map((item) => (
+                            <div key={`${item.rank}-${item.displayName}`} className='leaderboard-row'>
+                              <span className='leaderboard-rank'>{item.rank}</span>
+                              {item.avatar
+                                ? <img className='leaderboard-avatar' src={item.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
+                                : <span className='leaderboard-avatar' />}
+                              <div className='leaderboard-name'>
+                                <span>{item.displayName}</span>
+                                {item.badgeLabel
+                                  ? (
+                                    <span
+                                      className='badge-chip'
+                                      style={{
+                                        ...(item.badgeBackgroundColor ? { background: item.badgeBackgroundColor } : {}),
+                                        ...(item.badgeTextColor ? { color: item.badgeTextColor } : {}),
+                                      }}
+                                    >
+                                      <Crown size={11} strokeWidth={2} aria-hidden='true' />
+                                      <span>{item.badgeLabel}</span>
+                                    </span>
+                                  )
+                                  : undefined}
+                              </div>
+                              {item.points ? <span className='leaderboard-points'>{item.points}</span> : undefined}
+                            </div>
+                          ))
+                          : <div className='notice'>No top fans ranked yet.</div>}
+                  </div>
                 </div>
               )
-              : reactionButton
-              ? <div className='reaction-bar'>{reactionButton}</div>
               : undefined}
           </>
         )}

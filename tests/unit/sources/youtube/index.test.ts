@@ -153,45 +153,57 @@ type FakeCall = { endpoint: string, args?: Record<string, unknown> }
 
 const createFakeClient = () => {
   const calls: string[] = []
-  type ChatListener = (action: { item?: unknown, target_item_id?: string }) => void
-  const chatListeners: ChatListener[] = []
-  const chatStartListeners: ((contents: unknown) => void)[] = []
-  const chatEnders: (() => void)[] = []
-  const smoothedGroups: unknown[][] = []
-  let activeContinuation: string | undefined
-  const liveChat = {
-    on: (event: string, listener: (value: never) => void) => {
-      if (event === 'start') chatStartListeners.push(listener as (contents: unknown) => void)
-      if (event === 'chat-update') chatListeners.push(listener as ChatListener)
-      if (event === 'end') chatEnders.push(listener as () => void)
-    },
-    smoothed_queue: {
-      enqueueActionGroup: (group: unknown[]) => {
-        smoothedGroups.push(group)
-      },
-    },
-    applyFilter: (filter: string) => void calls.push(`livechat:filter:${filter}`),
-    start: () => void calls.push(`livechat:start:${activeContinuation ?? 'default'}`),
-    stop: () => void calls.push('livechat:stop'),
-    sendMessage: async (body: string) => void calls.push(`livechat:send:${body}`),
+  const nextChatTokens = new Map<string, string | null>([['nochat', null]])
+  const chatQueues = new Map<string, (() => unknown)[]>()
+  const parkedChatPolls = new Map<string, { resolve: (raw: unknown) => void, reject: (err: unknown) => void }>()
+  const pollWaiters: ((continuation: string) => void)[] = []
+  let panelHandler: ((args?: Record<string, unknown>) => unknown) | undefined
+  let sendChatHandler: ((args?: Record<string, unknown>) => unknown) | undefined
+  let pollActionHandler: ((endpoint: string, args?: Record<string, unknown>) => unknown) | undefined
+
+  const setNextChatToken = (videoId: string, token: string | null) => {
+    nextChatTokens.set(videoId, token)
   }
-  const emitChatStart = (contents: unknown) => {
-    for (const listener of chatStartListeners) listener(contents)
+
+  const enqueueChatResponse = (token: string, raw: unknown) => {
+    const responder = typeof raw === 'function' ? raw as () => unknown : () => raw
+    const parked = parkedChatPolls.get(token)
+    if (parked) {
+      parkedChatPolls.delete(token)
+      Promise.resolve().then(responder).then(parked.resolve, parked.reject)
+      return
+    }
+    const queue = chatQueues.get(token) ?? []
+    queue.push(responder)
+    chatQueues.set(token, queue)
   }
-  const emitChat = (action: { item?: unknown, target_item_id?: string, banner?: unknown, target_action_id?: string }) => {
-    for (const listener of chatListeners) listener(action)
+
+  const parkChatToken = (token: string) => {
+    enqueueChatResponse(token, () => new Promise((resolve, reject) => {
+      parkedChatPolls.set(token, { resolve, reject })
+    }))
   }
-  const endChat = () => {
-    for (const ender of chatEnders) ender()
+
+  const waitForChatPoll = async (token?: string) => {
+    if (token && parkedChatPolls.has(token)) return
+    await new Promise<void>((resolve) => {
+      pollWaiters.push((hit) => {
+        if (!token || hit === token) resolve()
+      })
+    })
   }
+
   const payloads: FakeCall[] = []
   const searchFilters: unknown[] = []
   return {
     calls,
-    emitChatStart,
-    emitChat,
-    endChat,
-    smoothedGroups,
+    setNextChatToken,
+    enqueueChatResponse,
+    parkChatToken,
+    waitForChatPoll,
+    setPanelHandler: (fn: typeof panelHandler) => { panelHandler = fn },
+    setSendChatHandler: (fn: typeof sendChatHandler) => { sendChatHandler = fn },
+    setPollActionHandler: (fn: typeof pollActionHandler) => { pollActionHandler = fn },
     payloads,
     searchFilters,
     getHomeFeed: async () => feed('first', async () => feed('second')),
@@ -266,18 +278,6 @@ const createFakeClient = () => {
       calls.push(`resolveURL:${url}`)
       return { payload: { browseId: 'UCresolved' } }
     },
-    getInfo: async (id: string) => {
-      calls.push(`getInfo:${id}`)
-      if (id === 'nochat') return { livechat: undefined, getLiveChat: () => { throw new Error('Live Chat is not available') } }
-      const chatRef: { continuation?: string } = { continuation: 'top-tok' }
-      return {
-        livechat: chatRef,
-        getLiveChat: () => {
-          activeContinuation = chatRef.continuation
-          return liveChat
-        },
-      }
-    },
     getPlaylists: async () => playlists('PLone', async () => playlists('PLtwo')),
     getNotifications: async () => notifications('n1', async () => notifications('n2')),
     getUnseenNotificationsCount: async () => 3,
@@ -306,6 +306,27 @@ const createFakeClient = () => {
       execute: async (endpoint: string, args?: Record<string, unknown>) => {
         calls.push(endpoint)
         payloads.push({ endpoint, args })
+        if (endpoint === 'live_chat/get_live_chat') {
+          const token = typeof args?.continuation === 'string' ? args.continuation : ''
+          const responder = chatQueues.get(token)?.shift()
+          const resultPromise = responder ? Promise.resolve(responder()) : undefined
+          for (let i = pollWaiters.length - 1; i >= 0; i -= 1) {
+            pollWaiters[i]?.(token)
+          }
+          return {
+            success: true,
+            data: (resultPromise ? await resultPromise : {}) as never,
+          }
+        }
+        if (endpoint === '/get_panel' && panelHandler) {
+          return { success: true, data: (await panelHandler(args)) as never }
+        }
+        if (endpoint === '/live_chat/send_message' && sendChatHandler) {
+          return { success: true, data: (await sendChatHandler(args)) as never }
+        }
+        if (endpoint.startsWith('/live_chat/') && pollActionHandler) {
+          return { success: true, data: (await pollActionHandler(endpoint, args)) as never }
+        }
         const relatedNext = {
           call: async () => ({
             on_response_received_endpoints_memo: new Map<string, unknown[]>([
@@ -313,6 +334,9 @@ const createFakeClient = () => {
             ]),
           }),
         }
+        const chatToken = endpoint === '/next' && typeof args?.videoId === 'string'
+          ? nextChatTokens.get(args.videoId)
+          : undefined
         const memo: [string, unknown[]][] = [
           ['VideoPrimaryInfo', [{ view_count: { view_count: { text: '42 views' } } }]],
           // A Map keeps the last value for a duplicate key, so a second TwoColumnWatchNextResults would silently hide this one
@@ -324,6 +348,9 @@ const createFakeClient = () => {
                 { endpoint: relatedNext },
               ] },
             ],
+            ...(chatToken
+              ? { conversation_bar: { is_replay: false, continuation: chatToken } }
+              : {}),
             ...(args?.playlistId
               ? {
                   playlist: {
@@ -681,173 +708,379 @@ describe('youtube channel tabs', () => {
 })
 
 describe('youtube source', () => {
-  // start() runs immediately after the listeners are attached, so its call is the signal that emitting is safe
-  const chatStarted = async (client: { calls: string[] }) => {
-    for (let attempt = 0; attempt < 100 && !client.calls.includes('livechat:start'); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-  }
-
-  const chatItem = (id: string, message: string) => ({
-    id,
-    message: { runs: [{ text: message }] },
-    author: { id: 'UCchat', name: 'Viewer', thumbnails: [{ url: 'avatar', width: 32 }] },
-    timestamp_text: '1:02',
+  const rawTextMessage = (id: string, text: string, authorId = 'UCchat', authorName = 'Viewer') => ({
+    liveChatTextMessageRenderer: {
+      id,
+      message: { runs: [{ text }] },
+      authorName: { simpleText: authorName },
+      authorExternalChannelId: authorId,
+      authorPhoto: { thumbnails: [{ url: 'https://img/avatar.jpg', width: 32 }] },
+      timestampText: { simpleText: '1:02' },
+    },
   })
 
-  it('buffers live chat between polls and keeps the session running', async () => {
+  const rawChatResponse = ({
+    cont,
+    timeoutMs = 250,
+    contType = 'invalidation' as 'invalidation' | 'timed',
+    actions = [] as unknown[],
+    emojis = [] as unknown[],
+    topToken,
+    allToken,
+    selectedView,
+    restrictionText,
+    sendParams,
+  }: {
+    cont?: string
+    timeoutMs?: number
+    contType?: 'invalidation' | 'timed'
+    actions?: unknown[]
+    emojis?: unknown[]
+    topToken?: string
+    allToken?: string
+    selectedView?: 'TOP' | 'ALL'
+    restrictionText?: string
+    sendParams?: string
+  } = {}) => ({
+    continuationContents: {
+      liveChatContinuation: {
+        ...(cont
+          ? {
+              continuations: [
+                contType === 'timed'
+                  ? { timedContinuationData: { continuation: cont, timeoutMs } }
+                  : { invalidationContinuationData: { continuation: cont, timeoutMs } },
+              ],
+            }
+          : {}),
+        ...(topToken || allToken
+          ? {
+              header: {
+                liveChatHeaderRenderer: {
+                  viewSelector: {
+                    sortFilterSubMenuRenderer: {
+                      subMenuItems: [
+                        ...(topToken ? [{ selected: selectedView === 'TOP', continuation: topToken }] : []),
+                        ...(allToken ? [{ selected: selectedView === 'ALL', continuation: allToken }] : []),
+                      ],
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
+        ...(emojis.length ? { emojis } : {}),
+        ...(restrictionText
+          ? {
+              actionPanel: {
+                liveChatRestrictedParticipationRenderer: {
+                  message: { runs: [{ text: restrictionText }] },
+                },
+              },
+            }
+          : sendParams
+            ? {
+                actionPanel: {
+                  liveChatMessageInputRenderer: {
+                    sendButton: { buttonRenderer: { serviceEndpoint: { sendLiveChatMessageEndpoint: { params: sendParams } } } },
+                  },
+                },
+              }
+            : {}),
+        actions,
+      },
+    },
+  })
+
+  it('reuses watch /next chat token, polls directly without queue lag, and stops when stream ends', async () => {
     const client = createFakeClient()
+    client.setNextChatToken('abc', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-2',
+      actions: [{ addChatItemAction: { item: rawTextMessage('c1', 'hello') } }],
+    }))
+    client.parkChatToken('tok-2')
+
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const opened = source.liveChat('abc')
-    await chatStarted(client)
-    client.emitChat({ item: chatItem('c1', 'hello') })
-    const first = await opened
-    expect(client.calls).toContain('livechat:start:top-tok')
+    await source.watch('abc')
+    const first = await source.liveChat('abc')
+    expect(client.calls.filter((c) => c === '/next')).toHaveLength(1)
     expect(first.items.map((item) => item.id)).toEqual(['c1'])
     expect(first.cursor).toBeTruthy()
 
-    client.emitChat({ item: chatItem('c2', 'still here') })
-    const second = await source.liveChat('abc', first.cursor)
+    const poll = source.liveChat('abc', first.cursor)
+    await client.waitForChatPoll('tok-2')
+    client.enqueueChatResponse('tok-2', rawChatResponse({
+      actions: [{ addChatItemAction: { item: rawTextMessage('c2', 'still here') } }],
+    }))
+    const second = await poll
     expect(second.items.map((item) => item.id)).toEqual(['c2'])
-    expect(client.calls.filter((call) => call.startsWith('livechat:start'))).toHaveLength(1)
+    expect(second.cursor).toBeUndefined()
   })
 
-  it('captures start backlog, pinned banners, custom emojis, unsmoothed groups, and Top/Live view switching', async () => {
+  it('captures backlog, pinned banners, emojis, removals, and Top/Live view switching', async () => {
     const client = createFakeClient()
-    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const chatStarted = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-    const opened = source.liveChat('v-stream', undefined, 'TOP')
-    await chatStarted()
-    client.emitChatStart({
-      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok' }, { continuation: 'all-tok' }] } },
-      emojis: [{ emoji_id: 'e1', shortcuts: [':wave:'], image: [{ url: 'https://img/wave.png', width: 48 }], is_custom_emoji: true }],
+    client.setNextChatToken('v-stream', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-2',
+      topToken: 'top-tok',
+      allToken: 'all-tok',
+      selectedView: 'TOP',
+      emojis: [{ emojiId: 'e1', shortcuts: [':wave:'], image: { thumbnails: [{ url: 'https://img/wave.png', width: 48 }] }, isCustomEmoji: true }],
       actions: [
-        { item: chatItem('init-1', 'initial backlog') },
+        { addChatItemAction: { item: rawTextMessage('init-1', 'initial backlog') } },
         {
-          banner: {
-            action_id: 'pin-1',
-            header: { text: { text: 'Pinned message' } },
-            contents: chatItem('pin-msg', 'Read FAQ'),
+          addBannerToLiveChatCommand: {
+            bannerRenderer: {
+              liveChatBannerRenderer: {
+                actionId: 'pin-1',
+                header: { liveChatBannerHeaderRenderer: { text: { simpleText: 'Pinned message' } } },
+                contents: rawTextMessage('pin-msg', 'Read FAQ'),
+              },
+            },
           },
         },
       ],
-    })
-    const first = await opened
+    }))
+    client.parkChatToken('tok-2')
+    client.enqueueChatResponse('all-tok', rawChatResponse({
+      actions: [{ addChatItemAction: { item: rawTextMessage('all-1', 'unfiltered') } }],
+    }))
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const first = await source.liveChat('v-stream', undefined, 'TOP')
     expect(first.items.map((item) => item.id)).toEqual(['init-1'])
     expect(first.pinned).toMatchObject({ id: 'pin-1', header: 'Pinned message' })
     expect(first.customEmojis).toEqual([{ id: 'e1', shortcut: ':wave:', url: 'https://img/wave.png' }])
 
-    client.emitChat({ target_action_id: 'other-banner' })
-    const afterOtherRemoval = await source.liveChat('v-stream', first.cursor, 'TOP')
-    expect(afterOtherRemoval.pinnedCleared).toBeUndefined()
+    const secondPromise = source.liveChat('v-stream', first.cursor, 'TOP')
+    await client.waitForChatPoll('tok-2')
+    client.enqueueChatResponse('tok-2', rawChatResponse({
+      cont: 'tok-3',
+      actions: [
+        { removeBannerForLiveChatCommand: { targetActionId: 'other-banner' } },
+        { removeChatItemAction: { targetItemId: 'init-1' } },
+      ],
+    }))
+    const second = await secondPromise
+    expect(second.pinnedCleared).toBeUndefined()
+    expect(second.removedIds).toEqual(['init-1'])
 
-    const nextPoll = source.liveChat('v-stream', afterOtherRemoval.cursor, 'TOP')
-    const info = await client.getInfo('v-stream')
-    const liveChatObj = info.getLiveChat()
-    liveChatObj.smoothed_queue.enqueueActionGroup([
-      { item: chatItem('fast-1', 'instant delivery') },
-      { target_action_id: 'pin-1' },
-    ] as never)
-    const second = await nextPoll
-    expect(second.items.map((item) => item.id)).toEqual(['fast-1'])
-    expect(second.pinnedCleared).toBe(true)
-    expect(client.smoothedGroups.at(-1)).toEqual([])
+    client.parkChatToken('tok-3')
+    const thirdPromise = source.liveChat('v-stream', second.cursor, 'TOP')
+    await client.waitForChatPoll('tok-3')
+    client.enqueueChatResponse('tok-3', rawChatResponse({
+      actions: [
+        { removeBannerForLiveChatCommand: { targetActionId: 'pin-1' } },
+        { removeChatItemByAuthorAction: { externalChannelId: 'UCbad' } },
+      ],
+    }))
+    const third = await thirdPromise
+    expect(third.pinnedCleared).toBe(true)
+    expect(third.removedAuthorIds).toEqual(['UCbad'])
 
-    const switched = source.liveChat('v-stream', undefined, 'ALL')
-    await chatStarted()
-    client.emitChat({ item: chatItem('all-1', 'unfiltered') })
-    const allPage = await switched
-    expect(client.calls).toContain('livechat:start:all-tok')
+    const allPage = await source.liveChat('v-stream', undefined, 'ALL')
     expect(allPage.items.map((item) => item.id)).toEqual(['all-1'])
   })
 
-  it('switches a cold liveChat(ALL) opening via applyFilter without pushing stale TOP actions or calling getInfo twice', async () => {
+  it('switches a cold liveChat(ALL) opening without leaking TOP messages or calling /next twice', async () => {
     const client = createFakeClient()
+    client.setNextChatToken('v-cold', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'top-next',
+      topToken: 'top-tok',
+      allToken: 'all-tok',
+      selectedView: 'TOP',
+      actions: [{ addChatItemAction: { item: rawTextMessage('top-stale', 'should not leak') } }],
+    }))
+    client.enqueueChatResponse('all-tok', rawChatResponse({
+      topToken: 'top-tok',
+      allToken: 'all-tok',
+      selectedView: 'ALL',
+      actions: [{ addChatItemAction: { item: rawTextMessage('all-real', 'live chat unfiltered') } }],
+    }))
+
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const opened = source.liveChat('v-cold', undefined, 'ALL')
-    await chatStarted(client)
-    client.emitChatStart({
-      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok', selected: true }, { continuation: 'all-tok', selected: false }] } },
-      actions: [{ item: chatItem('top-stale', 'top message should not leak into ALL') }],
-    })
-    client.emitChatStart({
-      header: { view_selector: { sub_menu_items: [{ continuation: 'top-tok', selected: false }, { continuation: 'all-tok', selected: true }] } },
-      actions: [{ item: chatItem('all-real', 'live chat unfiltered') }],
-    })
-    const first = await opened
-    expect(client.calls.filter((call) => call === 'getInfo:v-cold')).toHaveLength(1)
-    expect(client.calls).toContain('livechat:filter:LIVE_CHAT')
+    const first = await source.liveChat('v-cold', undefined, 'ALL')
+    expect(client.calls.filter((call) => call === '/next')).toHaveLength(1)
     expect(first.items.map((item) => item.id)).toEqual(['all-real'])
   })
 
-  it('carries a removal as its own instruction', async () => {
+  it('reopens a restricted liveChat session when cursor is omitted to refresh permissions', async () => {
     const client = createFakeClient()
+    client.setNextChatToken('v-res', 'tok-res')
+    client.enqueueChatResponse('tok-res', rawChatResponse({
+      cont: 'tok-res-2',
+      restrictionText: 'Subscribers-only mode',
+    }))
+    client.parkChatToken('tok-res-2')
+
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const opened = source.liveChat('abc')
-    await chatStarted(client)
-    client.emitChat({ item: chatItem('c1', 'oops') })
-    const first = await opened
-    client.emitChat({ target_item_id: 'c1' })
-    const second = await source.liveChat('abc', first.cursor)
-    expect(second.removedIds).toEqual(['c1'])
-    expect(second.items).toEqual([])
+    const restrictedPage = await source.liveChat('v-res', undefined, 'TOP')
+    expect(restrictedPage.inputState).toMatchObject({ status: 'RESTRICTED', restrictionMode: 'SUBSCRIBERS_ONLY' })
+    await expect(source.sendLiveChatMessage('v-res', 'hello')).rejects.toThrow('Subscribers-only mode')
+
+    client.setNextChatToken('v-res', 'tok-unlocked')
+    client.enqueueChatResponse('tok-unlocked', rawChatResponse({ sendParams: 'unlocked-secret' }))
+    const unlockedPage = await source.liveChat('v-res', undefined, 'TOP')
+    expect(client.calls.filter((c) => c === '/next')).toHaveLength(2)
+    expect(unlockedPage.inputState?.status).toBe('ENABLED')
   })
 
-  it('stops polling once the stream ends', async () => {
+  it('opens the chat again on a cursor it never issued and never returns a replaced cursor', async () => {
     const client = createFakeClient()
-    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const opened = source.liveChat('abc')
-    await chatStarted(client)
-    client.emitChat({ item: chatItem('c1', 'bye') })
-    const first = await opened
-    client.endChat()
-    const second = await source.liveChat('abc', first.cursor)
-    expect(second.cursor).toBeUndefined()
-    expect(client.calls).toContain('livechat:stop')
-  })
-
-  it('opens the chat again on a cursor it never issued, as after an engine reset', async () => {
-    const client = createFakeClient()
-    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const reopened = source.liveChat('abc', 'youtube:livechat:abc:7')
-    await chatStarted(client)
-    client.emitChat({ item: chatItem('c1', 'back') })
-    const page = await reopened
-    expect(page.items.map((item) => item.id)).toEqual(['c1'])
-    expect(page.cursor).toBeTruthy()
-    expect(await source.liveChat('abc', page.cursor)).toMatchObject({ items: [] })
-  })
-
-  it('never answers a replaced engine\'s cursor with that same cursor', async () => {
-    const before = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => createFakeClient() })
+    client.setNextChatToken('abc', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-2',
+      actions: [{ addChatItemAction: { item: rawTextMessage('c0', 'initial') } }],
+    }))
+    const before = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
     const old = (await before.liveChat('abc')).cursor!
-    const client = createFakeClient()
-    const after = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
-    const reopened = after.liveChat('abc', old)
-    await chatStarted(client)
-    client.emitChat({ item: chatItem('c1', 'back') })
-    const page = await reopened
-    expect(page.items.map((item) => item.id)).toEqual(['c1'])
+    expect(old).toBeTruthy()
+
+    const afterClient = createFakeClient()
+    afterClient.setNextChatToken('abc', 'top-tok')
+    afterClient.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-3',
+      actions: [{ addChatItemAction: { item: rawTextMessage('c2', 'back') } }],
+    }))
+    const after = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => afterClient })
+    const page = await after.liveChat('abc', old)
+    expect(page.items.map((item) => item.id)).toEqual(['c2'])
     expect(page.cursor).toBeTruthy()
     expect(page.cursor).not.toBe(old)
+
+    const resetClient = createFakeClient()
+    resetClient.setNextChatToken('abc', 'top-tok')
+    resetClient.enqueueChatResponse('top-tok', rawChatResponse({
+      actions: [{ addChatItemAction: { item: rawTextMessage('c3', 'reopened') } }],
+    }))
+    const resetSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => resetClient })
+    const unknownPage = await resetSource.liveChat('abc', 'youtube:livechat:abc:7')
+    expect(unknownPage.items.map((item) => item.id)).toEqual(['c3'])
   })
 
   it('reports chat being unavailable rather than throwing', async () => {
-    // getLiveChat() THROWS when a video carries no chat, so absence is checked before calling it
     const client = createFakeClient()
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
     const page = await source.liveChat('nochat')
     expect(page).toEqual({ items: [], disabled: true })
-    expect(client.calls).not.toContain('livechat:start')
+    expect(client.calls).not.toContain('live_chat/get_live_chat')
   })
 
-  it('sends through the session the panel already has open', async () => {
+  it('sends through open session with sendParams, pushes instant echo, and surfaces tooltip errors', async () => {
     const client = createFakeClient()
+    client.setNextChatToken('abc', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-2',
+      sendParams: 'panel-send-params',
+    }))
+    client.parkChatToken('tok-2')
+    client.setSendChatHandler(async (args) => {
+      const segments = (args?.richMessage as { textSegments?: { text?: string }[] })?.textSegments
+      const msg = segments?.[0]?.text ?? ''
+      if (msg === 'too-fast') {
+        return {
+          actions: [{ showLiveChatTooltipCommand: { tooltip: { tooltipRenderer: { text: { simpleText: 'Slow mode enabled' } } } } }],
+        }
+      }
+      return {
+        actions: [{ addChatItemAction: { item: rawTextMessage('echo-1', msg) } }],
+      }
+    })
+
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
     await expect(source.sendLiveChatMessage('abc', 'hi')).rejects.toThrow('live chat is not open')
-    await source.liveChat('abc')
-    await source.sendLiveChatMessage('abc', 'hi')
-    expect(client.calls).toContain('livechat:send:hi')
+
+    const opened = await source.liveChat('abc')
+    const waitingPoll = source.liveChat('abc', opened.cursor)
+    await expect(source.sendLiveChatMessage('abc', 'hi')).resolves.toBe(true)
+    const sendCall = client.payloads.find((p) => p.endpoint === '/live_chat/send_message')
+    expect(sendCall?.args).toMatchObject({ params: 'panel-send-params', richMessage: { textSegments: [{ text: 'hi' }] } })
+    const woken = await waitingPoll
+    expect(woken.items.map((item) => item.id)).toEqual(['echo-1'])
+
+    await expect(source.sendLiveChatMessage('abc', 'too-fast')).rejects.toThrow('Slow mode enabled')
+  })
+
+  it('fetches and parses liveChatLeaderboard via /get_panel', async () => {
+    const client = createFakeClient()
+    client.setPanelHandler(async () => ({
+      content: {
+        engagementPanelSectionListRenderer: {
+          header: { engagementPanelTitleHeaderRenderer: { title: { runs: [{ text: 'Top fans' }] } } },
+          content: {
+            sectionListRenderer: {
+              contents: [{
+                itemSectionRenderer: {
+                  contents: [{
+                    liveLeaderboardItemViewModel: {
+                      rank: { content: '#1' },
+                      points: { content: '500 points' },
+                      content: {
+                        liveLeaderboardItemChannelContentViewModel: {
+                          displayName: { content: 'Alice' },
+                          badge: { buttonViewModel: { title: '#1', customBackgroundColor: 0xffffd600, customFontColor: 0xff0f0f0f } },
+                        },
+                      },
+                    },
+                  }],
+                },
+              }],
+            },
+          },
+        },
+      },
+    }))
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const board = await source.liveChatLeaderboard('PAlive_viewer_leaderboard', encodeURIComponent('raw-params'))
+    expect(board.title).toBe('Top fans')
+    expect(board.items[0]).toMatchObject({ rank: '#1', displayName: 'Alice', points: '500 points', badgeLabel: '#1' })
+    const panelCall = client.payloads.find((p) => p.endpoint === '/get_panel')
+    expect(panelCall?.args).toMatchObject({ panelId: 'PAlive_viewer_leaderboard', params: 'raw-params', parse: false })
+  })
+
+  it('validates and submits voteLiveChatPoll with optimistic poll update', async () => {
+    const client = createFakeClient()
+    client.setNextChatToken('abc', 'top-tok')
+    client.enqueueChatResponse('top-tok', rawChatResponse({
+      cont: 'tok-2',
+      actions: [{
+        showLiveChatActionPanelAction: {
+          panelToShow: {
+            liveChatActionPanelRenderer: {
+              contents: {
+                pollRenderer: {
+                  liveChatPollId: 'poll-1',
+                  header: { pollHeaderRenderer: { pollQuestion: { simpleText: 'Pick one?' } } },
+                  choices: [
+                    {
+                      text: { simpleText: 'Yes' },
+                      serviceEndpoint: {
+                        commandMetadata: { webCommandMetadata: { apiUrl: '/youtubei/v1/live_chat/live_chat_action' } },
+                        sendLiveChatVoteEndpoint: { params: 'vote-yes-params' },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      }],
+    }))
+    client.parkChatToken('tok-2')
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    await expect(source.voteLiveChatPoll('abc', 'poll-1', 'bad-json')).rejects.toThrow('invalid live poll vote')
+    await expect(source.voteLiveChatPoll('abc', 'poll-1', JSON.stringify({ endpoint: '/browse', params: 'x' }))).rejects.toThrow('invalid live poll vote')
+
+    const opened = await source.liveChat('abc')
+    const pollPoll = source.liveChat('abc', opened.cursor)
+    const votePayload = opened.poll!.choices[0]!.voteParams!
+    await expect(source.voteLiveChatPoll('abc', 'poll-1', votePayload)).resolves.toBe(true)
+    expect(client.payloads.find((p) => p.endpoint === '/live_chat/live_chat_action')?.args).toMatchObject({ params: 'vote-yes-params', parse: false })
+    const updated = await pollPoll
+    expect(updated.poll?.choices[0]?.selected).toBe(true)
   })
 
   it('resolves an @handle into a browse id before browsing a channel', async () => {

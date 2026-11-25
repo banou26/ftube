@@ -65,3 +65,26 @@ export const encodeHashtagParams = (tag: string, tab: 'ALL' | 'SHORTS' = 'ALL') 
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return encodeURIComponent(btoa(binary))
 }
+
+/** Encodes fallback InnerTube `send_message` params when `actionPanel` did not supply them. */
+export const encodeLiveMessageParams = (videoId: string, channelId = '') => {
+  const bytes = new BinaryWriter()
+    .tag(1, WireType.LengthDelimited)
+    .fork()
+    .tag(5, WireType.LengthDelimited)
+    .fork()
+    .tag(1, WireType.LengthDelimited)
+    .string(channelId)
+    .tag(2, WireType.LengthDelimited)
+    .string(videoId)
+    .join()
+    .join()
+    .tag(2, WireType.Varint)
+    .int32(1)
+    .tag(3, WireType.Varint)
+    .int32(4)
+    .finish()
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(encodeURIComponent(btoa(binary)))
+}

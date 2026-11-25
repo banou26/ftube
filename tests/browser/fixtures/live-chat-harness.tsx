@@ -15,7 +15,11 @@ declare global {
     __liveChatHarness?: {
       views: (string | undefined)[]
       sent: string[]
+      votes: { videoId: string, pollId: string, voteParams: string }[]
+      leaderboardRequests: { panelId: string, params: string }[]
       clearPin: () => void
+      pushPage: (extra: Record<string, unknown>) => void
+      setRestricted: (restricted: boolean) => void
     }
   }
 }
@@ -38,17 +42,55 @@ export const mountLiveChatHarness = () => {
   const state = {
     views: [] as (string | undefined)[],
     sent: [] as string[],
+    votes: [] as { videoId: string, pollId: string, voteParams: string }[],
+    leaderboardRequests: [] as { panelId: string, params: string }[],
     clearPin: () => {},
+    pushPage: (_extra: Record<string, unknown>) => {},
+    setRestricted: (_restricted: boolean) => {},
   }
   window.__liveChatHarness = state
 
   let pinPending = true
-  let clearPinNext = false
-  let pendingPush: ((page: { pinnedCleared?: boolean }) => void) | undefined
+  let restricted = false
+  let unlockedOnce = false
+  let pendingPush: ((page: Record<string, unknown>) => void) | undefined
+  const pushQueue: Record<string, unknown>[] = []
+
+  const enqueuePush = (extra: Record<string, unknown>) => {
+    if (pendingPush) {
+      pendingPush(extra)
+      return
+    }
+    pushQueue.push(extra)
+  }
+
+  state.pushPage = (extra) => {
+    enqueuePush(extra)
+  }
   state.clearPin = () => {
     pinPending = false
-    clearPinNext = true
-    pendingPush?.({ pinnedCleared: true })
+    enqueuePush({ pinnedCleared: true })
+  }
+  state.setRestricted = (next) => {
+    restricted = next
+    if (next) {
+      enqueuePush({
+        inputState: {
+          status: 'RESTRICTED',
+          restrictionMode: 'SUBSCRIBERS_ONLY',
+          restrictionMessage: 'Subscribers-only mode',
+        },
+      })
+    } else {
+      unlockedOnce = true
+      enqueuePush({
+        inputState: {
+          status: 'ENABLED',
+          slowModeSeconds: 2,
+          placeholder: 'Chat…',
+        },
+      })
+    }
   }
 
   let seq = 0
@@ -57,6 +99,8 @@ export const mountLiveChatHarness = () => {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
     liveChat: async (_videoId: string, cursor?: string, view?: string) => {
       if (!cursor) {
+        pendingPush = undefined
+        pushQueue.length = 0
         state.views.push(view)
         if (view === 'ALL') {
           return {
@@ -68,26 +112,78 @@ export const mountLiveChatHarness = () => {
                 author: { id: 'UCcarol', name: 'Carol', handle: '@carol' },
               },
             ],
-            cursor: 'cursor-all-1',
+            cursor: `cursor-all-${++seq}`,
             customEmojis: [{ id: 'ce-1', shortcut: ':party:', url: CUSTOM_EMOJI_IMG }],
           }
+        }
+        const refreshedAfterSubscribe = restricted
+        if (refreshedAfterSubscribe) {
+          restricted = false
+          unlockedOnce = true
         }
         return {
           items: [
             {
               id: 'top-msg-1',
+              kind: 'TEXT',
               text: 'Hello @viewer from chat',
               runs: [{ text: 'Hello @viewer from chat' }],
+              badges: [
+                { label: '#1', kind: 'top-fan', backgroundColor: '#ffd600', textColor: '#0f0f0f' },
+                { label: 'Member', iconUrl: CUSTOM_EMOJI_IMG, kind: 'member' },
+              ],
+              isMember: true,
               author: { id: 'UCalice', name: 'Alice', handle: '@alice' },
             },
             {
               id: 'top-msg-2',
+              kind: 'TEXT',
               text: 'Welcome @alice!',
               runs: [{ text: 'Welcome @alice!' }],
+              badges: [{ label: 'Moderator', kind: 'moderator' }],
+              isModerator: true,
               author: { id: 'UCbob', name: 'Bob', handle: '@bob_dev' },
             },
+            {
+              id: 'top-msg-3',
+              kind: 'STICKER',
+              text: 'Party Sticker',
+              runs: [],
+              purchaseAmountText: '$5.00',
+              headerBackgroundColor: '#e65100',
+              bodyBackgroundColor: '#ef6c00',
+              stickerUrl: CUSTOM_EMOJI_IMG,
+              stickerLabel: 'Party Sticker',
+              author: { id: 'UCsupporter', name: 'Supporter', handle: '@supporter' },
+            },
+            {
+              id: 'top-msg-4',
+              kind: 'MEMBERSHIP',
+              text: 'Glad to be here!',
+              runs: [{ text: 'Glad to be here!' }],
+              headerBackgroundColor: '#0f7b3e',
+              bodyBackgroundColor: '#139b4f',
+              headerPrimaryText: 'Member for 3 months',
+              headerSubtext: 'Green Tier',
+              isMember: true,
+              author: { id: 'UCmember', name: 'Mina', handle: '@mina' },
+            },
+            {
+              id: 'top-msg-5',
+              kind: 'GIFT',
+              text: 'sent a Treat!',
+              runs: [{ text: 'sent a Treat!' }],
+              author: { id: 'UCdonor', name: 'Donor', handle: '@donor' },
+            },
+            {
+              id: 'top-msg-6',
+              kind: 'SYSTEM',
+              text: 'Slow mode is active',
+              runs: [{ text: 'Slow mode is active' }],
+              iconType: 'SLOW_MODE',
+            },
           ],
-          cursor: 'cursor-top-1',
+          cursor: `cursor-top-${++seq}`,
           pinned: pinPending
             ? {
                 id: 'pin-banner-1',
@@ -100,16 +196,60 @@ export const mountLiveChatHarness = () => {
                 },
               }
             : undefined,
+          leaderboard: {
+            label: 'Top fans',
+            panelId: 'PAlive_viewer_leaderboard',
+            params: 'top-fans-params',
+          },
+          poll: {
+            id: 'poll-1',
+            question: 'Favorite player layout?',
+            questionRuns: [{ text: 'Favorite player layout?' }],
+            metadataText: 'Poll - 10 votes',
+            choices: [
+              {
+                id: '0',
+                text: 'Theater',
+                runs: [{ text: 'Theater' }],
+                votePercentage: '60%',
+                voteRatio: 0.6,
+                voteParams: 'vote-theater',
+              },
+              {
+                id: '1',
+                text: 'Default',
+                runs: [{ text: 'Default' }],
+                votePercentage: '40%',
+                voteRatio: 0.4,
+                voteParams: 'vote-default',
+              },
+            ],
+            finished: false,
+          },
+          tickerItems: [
+            {
+              id: 'ticker-1',
+              label: '$10.00',
+              authorName: 'Carol',
+              backgroundColor: '#1565c0',
+              textColor: '#ffffff',
+              durationSeconds: 120,
+              detailText: 'Great stream today!',
+            },
+          ],
+          inputState: unlockedOnce
+            ? { status: 'ENABLED', slowModeSeconds: 2, placeholder: 'Chat…' }
+            : { status: 'ENABLED', placeholder: 'Chat…' },
           customEmojis: [{ id: 'ce-1', shortcut: ':party:', url: CUSTOM_EMOJI_IMG }],
         }
       }
 
-      if (clearPinNext) {
-        clearPinNext = false
+      const queued = pushQueue.shift()
+      if (queued) {
         return {
           items: [],
           cursor: `cursor-${++seq}`,
-          pinnedCleared: true,
+          ...queued,
         }
       }
 
@@ -123,6 +263,61 @@ export const mountLiveChatHarness = () => {
           })
         }
       })
+    },
+    liveChatLeaderboard: async (panelId: string, params: string) => {
+      state.leaderboardRequests.push({ panelId, params })
+      return {
+        title: 'Top fans',
+        items: [
+          {
+            rank: '#1',
+            displayName: 'Alice',
+            points: '1,200 points',
+            badgeLabel: '#1',
+            badgeBackgroundColor: '#ffd600',
+            badgeTextColor: '#0f0f0f',
+          },
+          {
+            rank: '#2',
+            displayName: 'Bob',
+            points: '900 points',
+            badgeLabel: '#2',
+          },
+        ],
+      }
+    },
+    voteLiveChatPoll: async (videoId: string, pollId: string, voteParams: string) => {
+      state.votes.push({ videoId, pollId, voteParams })
+      enqueuePush({
+        poll: {
+          id: pollId,
+          question: 'Favorite player layout?',
+          questionRuns: [{ text: 'Favorite player layout?' }],
+          metadataText: 'Poll - 11 votes',
+          choices: [
+            {
+              id: '0',
+              text: 'Theater',
+              runs: [{ text: 'Theater' }],
+              votePercentage: '64%',
+              voteRatio: 0.64,
+              selected: voteParams === 'vote-theater',
+              voteParams: 'vote-theater',
+            },
+            {
+              id: '1',
+              text: 'Default',
+              runs: [{ text: 'Default' }],
+              votePercentage: '36%',
+              voteRatio: 0.36,
+              selected: voteParams === 'vote-default',
+              voteParams: 'vote-default',
+            },
+          ],
+          finished: false,
+        },
+      })
+      return true
     },
     sendLiveChatMessage: async (_videoId: string, text: string) => {
       state.sent.push(text)

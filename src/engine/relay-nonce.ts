@@ -19,6 +19,7 @@ const FRESH_PATHS = new Set([
   '/youtubei/v1/config',
   '/youtubei/v1/player',
   '/watch',
+  '/youtubei/v1/get_panel',
   '/youtubei/v1/live_chat/get_live_chat',
   '/youtubei/v1/live_chat/get_live_chat_replay',
 ])
