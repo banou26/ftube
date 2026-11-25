@@ -19,6 +19,9 @@ const u32 = (value: number): Uint8Array => {
   return buf
 }
 
+const fourcc = (tag: string): Uint8Array =>
+  Uint8Array.from([tag.charCodeAt(0), tag.charCodeAt(1), tag.charCodeAt(2), tag.charCodeAt(3)])
+
 const box = (type: string, ...payloads: Uint8Array[]): Uint8Array => {
   const body = concat(payloads)
   const header = new Uint8Array(8)
@@ -29,6 +32,12 @@ const box = (type: string, ...payloads: Uint8Array[]): Uint8Array => {
 
 const readUint32 = (bytes: Uint8Array, offset: number) =>
   new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0)
+
+const readInt32 = (bytes: Uint8Array, offset: number) =>
+  new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getInt32(0)
+
+const readUint16 = (bytes: Uint8Array, offset: number) =>
+  new DataView(bytes.buffer, bytes.byteOffset + offset, 2).getUint16(0)
 
 const listBoxes = (bytes: Uint8Array, start = 0, end = bytes.byteLength) => {
   const found: { type: string, start: number, size: number, data: Uint8Array }[] = []
@@ -51,147 +60,532 @@ const makeMvhd = (timescale = 1000, duration = 2000, nextTrackId = 2) => {
   return box('mvhd', payload)
 }
 
-const makeTkhd = (trackId: number) => {
+const makeTkhd = (trackId: number, duration = 2000, volume = 0) => {
   const payload = new Uint8Array(84)
-  new DataView(payload.buffer).setUint32(12, trackId)
+  const view = new DataView(payload.buffer)
+  payload[3] = 3
+  view.setUint32(12, trackId)
+  view.setUint32(20, duration)
+  view.setUint16(36, volume)
   return box('tkhd', payload)
 }
 
-const makeMdhd = (timescale: number) => {
+const makeElst = (entries: { segmentDuration: number, mediaTime: number, rateInt?: number, rateFrac?: number }[]) => {
+  const payload = new Uint8Array(8 + entries.length * 12)
+  const view = new DataView(payload.buffer)
+  view.setUint32(4, entries.length)
+  entries.forEach((entry, index) => {
+    const base = 8 + index * 12
+    view.setUint32(base, entry.segmentDuration)
+    view.setInt32(base + 4, entry.mediaTime)
+    view.setInt16(base + 8, entry.rateInt ?? 1)
+    view.setInt16(base + 10, entry.rateFrac ?? 0)
+  })
+  return box('edts', box('elst', payload))
+}
+
+const makeMdhd = (timescale: number, duration = 0) => {
   const payload = new Uint8Array(24)
-  new DataView(payload.buffer).setUint32(12, timescale)
+  const view = new DataView(payload.buffer)
+  view.setUint32(12, timescale)
+  view.setUint32(16, duration)
   return box('mdhd', payload)
 }
 
-const makeTrex = (trackId: number) => {
+const makeHdlr = (handlerType: 'vide' | 'soun') => {
+  const payload = new Uint8Array(24)
+  payload.set(fourcc(handlerType), 8)
+  return box('hdlr', payload)
+}
+
+const makeStsd = (codecFourcc: string) => {
+  const entry = new Uint8Array(24)
+  const view = new DataView(entry.buffer)
+  view.setUint32(0, entry.byteLength)
+  entry.set(fourcc(codecFourcc), 4)
+  const payload = new Uint8Array(8)
+  new DataView(payload.buffer).setUint32(4, 1)
+  return box('stsd', payload, entry)
+}
+
+const makeMinf = (handlerType: 'vide' | 'soun', codecFourcc: string) =>
+  box(
+    'minf',
+    box(handlerType === 'vide' ? 'vmhd' : 'smhd', new Uint8Array(handlerType === 'vide' ? 12 : 8)),
+    box('dinf', box('dref', new Uint8Array(8))),
+    box('stbl', makeStsd(codecFourcc)),
+  )
+
+const makeTrex = (trackId: number, defaultDuration = 1, defaultFlags = 0) => {
   const payload = new Uint8Array(24)
   const view = new DataView(payload.buffer)
   view.setUint32(4, trackId)
   view.setUint32(8, 1)
+  view.setUint32(12, defaultDuration)
+  view.setUint32(20, defaultFlags)
   return box('trex', payload)
 }
 
-const makeMoov = (trackId: number, timescale: number) =>
-  box(
-    'moov',
-    makeMvhd(1000, 2000, trackId + 1),
-    box('trak', makeTkhd(trackId), box('mdia', makeMdhd(timescale))),
-    box('mvex', makeTrex(trackId)),
-  )
+const makeMoov = (opts: {
+  trackId: number
+  mvhdTimescale?: number
+  mvhdDuration?: number
+  mdhdTimescale: number
+  mdhdDuration?: number
+  handlerType?: 'vide' | 'soun'
+  codecFourcc?: string
+  volume?: number
+  elst?: { segmentDuration: number, mediaTime: number }[]
+  trex?: { defaultDuration?: number, defaultFlags?: number }
+}) => {
+  const handler = opts.handlerType ?? 'vide'
+  const codec = opts.codecFourcc ?? (handler === 'vide' ? 'avc1' : 'mp4a')
+  const trakChildren: Uint8Array[] = [
+    makeTkhd(opts.trackId, opts.mdhdDuration ?? 2000, opts.volume ?? (handler === 'soun' ? 0x0100 : 0)),
+  ]
+  if (opts.elst) trakChildren.push(makeElst(opts.elst))
+  trakChildren.push(box('mdia', makeMdhd(opts.mdhdTimescale, opts.mdhdDuration ?? 0), makeHdlr(handler), makeMinf(handler, codec)))
 
-const makeFragment = (trackId: number, seq: number, decodeTime: number, sampleBytes: number[]) => {
+  const children: Uint8Array[] = [
+    makeMvhd(opts.mvhdTimescale ?? opts.mdhdTimescale, opts.mvhdDuration ?? opts.mdhdDuration ?? 2000, opts.trackId + 1),
+    box('trak', ...trakChildren),
+  ]
+  if (opts.trex !== undefined) {
+    children.push(box('mvex', makeTrex(opts.trackId, opts.trex.defaultDuration ?? 1, opts.trex.defaultFlags ?? 0)))
+  }
+  return box('moov', ...children)
+}
+
+type SampleSpec = {
+  payload: Uint8Array
+  duration?: number
+  flags?: number
+  cto?: number
+}
+
+const makeDashFragment = (opts: {
+  trackId: number
+  seq: number
+  decodeTime: number
+  tfhdDefaultDuration?: number
+  tfhdDefaultFlags?: number
+  trunVersion?: number
+  includeDuration?: boolean
+  includeSize?: boolean
+  includeFlags?: boolean
+  includeCto?: boolean
+  samples: readonly SampleSpec[]
+}) => {
   const mfhdPayload = new Uint8Array(8)
-  new DataView(mfhdPayload.buffer).setUint32(4, seq)
+  new DataView(mfhdPayload.buffer).setUint32(4, opts.seq)
 
-  const tfhdPayload = new Uint8Array(8)
-  new DataView(tfhdPayload.buffer).setUint32(4, trackId)
+  let tfFlags = 0x020002 // default-base-is-moof | sample-description-index-present
+  if (opts.tfhdDefaultDuration !== undefined) tfFlags |= 0x000008
+  if (opts.tfhdDefaultFlags !== undefined) tfFlags |= 0x000020
+  const tfhdWords = [1 + 1 + (opts.tfhdDefaultDuration !== undefined ? 1 : 0) + (opts.tfhdDefaultFlags !== undefined ? 1 : 0)]
+  const tfhdPayload = new Uint8Array(4 * (tfhdWords[0]! + 1))
+  const tfhdView = new DataView(tfhdPayload.buffer)
+  tfhdView.setUint32(0, tfFlags)
+  tfhdView.setUint32(4, opts.trackId)
+  tfhdView.setUint32(8, 1)
+  let tfPos = 12
+  if (opts.tfhdDefaultDuration !== undefined) {
+    tfhdView.setUint32(tfPos, opts.tfhdDefaultDuration)
+    tfPos += 4
+  }
+  if (opts.tfhdDefaultFlags !== undefined) {
+    tfhdView.setUint32(tfPos, opts.tfhdDefaultFlags)
+  }
 
   const tfdtPayload = new Uint8Array(8)
-  new DataView(tfdtPayload.buffer).setUint32(4, decodeTime)
+  new DataView(tfdtPayload.buffer).setUint32(4, opts.decodeTime)
 
-  const trunPayload = new Uint8Array(12)
-  new DataView(trunPayload.buffer).setUint32(0, 0x000001)
-  new DataView(trunPayload.buffer).setUint32(4, 1)
-  new DataView(trunPayload.buffer).setUint32(8, 88)
+  const includeDur = opts.includeDuration ?? false
+  const includeSz = opts.includeSize ?? true
+  const includeFlg = opts.includeFlags ?? false
+  const includeCto = opts.includeCto ?? false
+  let trFlags = 0x000001 // data_offset present
+  if (includeDur) trFlags |= 0x000100
+  if (includeSz) trFlags |= 0x000200
+  if (includeFlg) trFlags |= 0x000400
+  if (includeCto) trFlags |= 0x000800
 
-  const moof = box(
-    'moof',
-    box('mfhd', mfhdPayload),
-    box('traf', box('tfhd', tfhdPayload), box('tfdt', tfdtPayload), box('trun', trunPayload)),
-  )
-  const mdat = box('mdat', new Uint8Array(sampleBytes))
+  const fieldsPerSample = (includeDur ? 1 : 0) + (includeSz ? 1 : 0) + (includeFlg ? 1 : 0) + (includeCto ? 1 : 0)
+  const trunPayload = new Uint8Array(12 + opts.samples.length * fieldsPerSample * 4)
+  const trunView = new DataView(trunPayload.buffer)
+  trunView.setUint32(0, ((opts.trunVersion ?? 0) << 24) | trFlags)
+  trunView.setUint32(4, opts.samples.length)
+  // data_offset written once moof size is known
+  let trPos = 12
+  for (const sample of opts.samples) {
+    if (includeDur) { trunView.setUint32(trPos, sample.duration ?? 0); trPos += 4 }
+    if (includeSz) { trunView.setUint32(trPos, sample.payload.byteLength); trPos += 4 }
+    if (includeFlg) { trunView.setUint32(trPos, sample.flags ?? 0); trPos += 4 }
+    if (includeCto) {
+      if ((opts.trunVersion ?? 0) === 1) trunView.setInt32(trPos, sample.cto ?? 0)
+      else trunView.setUint32(trPos, sample.cto ?? 0)
+      trPos += 4
+    }
+  }
+
+  const traf = box('traf', box('tfhd', tfhdPayload), box('tfdt', tfdtPayload), box('trun', trunPayload))
+  const mfhd = box('mfhd', mfhdPayload)
+  const moofSize = 8 + mfhd.byteLength + traf.byteLength
+  // data_offset relative to moof start = moofSize + 8 (mdat header)
+  const trunInTrafOffset = 8 + (8 + tfhdPayload.byteLength) + (8 + tfdtPayload.byteLength) + 8
+  new DataView(traf.buffer).setInt32(trunInTrafOffset + 8, moofSize + 8)
+
+  const moof = box('moof', mfhd, traf)
+  const mdat = box('mdat', ...opts.samples.map((s) => s.payload))
   return concat([moof, mdat])
 }
 
-describe('muxMp4', () => {
-  it('merges video and audio init atoms, interleaves fragments chronologically, and renumbers tracks and sequences', () => {
-    const ftyp = box('ftyp', u32(0x69736f36))
-    const styp = box('styp', u32(0x6d736468))
-    const sidx = box('sidx', new Uint8Array(16))
+const makePattern = (seed: number, len: number): Uint8Array => {
+  const out = new Uint8Array(len)
+  for (let i = 0; i < len; i += 1) out[i] = (seed + i * 17) & 0xff
+  return out
+}
 
+const parseStts = (sttsData: Uint8Array) => {
+  const count = readUint32(sttsData, 12)
+  const entries: { sampleCount: number, sampleDelta: number }[] = []
+  for (let i = 0; i < count; i += 1) {
+    entries.push({
+      sampleCount: readUint32(sttsData, 16 + i * 8),
+      sampleDelta: readUint32(sttsData, 20 + i * 8),
+    })
+  }
+  return entries
+}
+
+const parseStsc = (stscData: Uint8Array) => {
+  const count = readUint32(stscData, 12)
+  const entries: { firstChunk: number, samplesPerChunk: number, sdi: number }[] = []
+  for (let i = 0; i < count; i += 1) {
+    entries.push({
+      firstChunk: readUint32(stscData, 16 + i * 12),
+      samplesPerChunk: readUint32(stscData, 20 + i * 12),
+      sdi: readUint32(stscData, 24 + i * 12),
+    })
+  }
+  return entries
+}
+
+const parseStsz = (stszData: Uint8Array) => {
+  const sampleSize = readUint32(stszData, 12)
+  const sampleCount = readUint32(stszData, 16)
+  const sizes: number[] = []
+  for (let i = 0; i < sampleCount; i += 1) {
+    sizes.push(sampleSize || readUint32(stszData, 20 + i * 4))
+  }
+  return sizes
+}
+
+const parseStco = (stcoData: Uint8Array) => {
+  const count = readUint32(stcoData, 12)
+  const offsets: number[] = []
+  for (let i = 0; i < count; i += 1) offsets.push(readUint32(stcoData, 16 + i * 4))
+  return offsets
+}
+
+const parseStss = (stssData: Uint8Array) => {
+  const count = readUint32(stssData, 12)
+  const nums: number[] = []
+  for (let i = 0; i < count; i += 1) nums.push(readUint32(stssData, 16 + i * 4))
+  return nums
+}
+
+const parseCtts = (cttsData: Uint8Array) => {
+  const version = cttsData[8]!
+  const count = readUint32(cttsData, 12)
+  const entries: { sampleCount: number, sampleOffset: number }[] = []
+  for (let i = 0; i < count; i += 1) {
+    entries.push({
+      sampleCount: readUint32(cttsData, 16 + i * 8),
+      sampleOffset: version === 1 ? readInt32(cttsData, 20 + i * 8) : readUint32(cttsData, 20 + i * 8),
+    })
+  }
+  return { version, entries }
+}
+
+const extractTrackPayloadsFromStbl = (fileBytes: Uint8Array, stblChildren: { type: string, data: Uint8Array }[]) => {
+  const stsc = parseStsc(stblChildren.find((b) => b.type === 'stsc')!.data)
+  const stsz = parseStsz(stblChildren.find((b) => b.type === 'stsz')!.data)
+  const stco = parseStco(stblChildren.find((b) => b.type === 'stco')!.data)
+  const out: Uint8Array[] = []
+  let sampleIdx = 0
+  for (let chunkIndex = 0; chunkIndex < stco.length; chunkIndex += 1) {
+    const chunkNumber = chunkIndex + 1
+    let spc = 1
+    for (const entry of stsc) {
+      if (chunkNumber >= entry.firstChunk) spc = entry.samplesPerChunk
+    }
+    let pos = stco[chunkIndex]!
+    for (let s = 0; s < spc; s += 1) {
+      const sz = stsz[sampleIdx]!
+      out.push(fileBytes.subarray(pos, pos + sz))
+      pos += sz
+      sampleIdx += 1
+    }
+  }
+  return { samples: out, chunks: stco, stsc, stsz }
+}
+
+describe('muxMp4', () => {
+  it('remuxes fragmented H.264 and AAC DASH tracks into standard fast-start interleaved MP4', () => {
+    // Realistic H.264 parameters matching YouTube 15 fps VOD (`avc1`, timescale 15360, sample delta 1024, elst media_time 1024)
+    const videoSamplesFrag1: SampleSpec[] = Array.from({ length: 30 }, (_, i) => ({
+      payload: makePattern(10 + i, 80 + (i % 7)),
+      flags: i === 0 || i === 15 ? 0x0 : 0x10000,
+      cto: i % 2 === 0 ? 1024 : 2048,
+    }))
+    const videoSamplesFrag2: SampleSpec[] = Array.from({ length: 15 }, (_, i) => ({
+      payload: makePattern(50 + i, 90 + (i % 5)),
+      flags: i === 0 ? 0x0 : 0x10000,
+      cto: 0,
+    }))
+    // 45 video frames * 1024 / 15360 = 3.0s = 46080 ticks
     const videoTrack = concat([
-      ftyp,
-      makeMoov(1, 90_000),
-      styp,
-      sidx,
-      makeFragment(1, 1, 0, [1, 2, 3]),
-      makeFragment(1, 2, 180_000, [4, 5, 6]),
+      box('ftyp', fourcc('dash'), u32(0), fourcc('iso6'), fourcc('avc1'), fourcc('mp41')),
+      makeMoov({
+        trackId: 1,
+        mvhdTimescale: 15_360,
+        mvhdDuration: 46_080,
+        mdhdTimescale: 15_360,
+        mdhdDuration: 46_080,
+        handlerType: 'vide',
+        codecFourcc: 'avc1',
+        elst: [{ segmentDuration: 46_080, mediaTime: 1024 }],
+        trex: { defaultDuration: 1024, defaultFlags: 0x10000 },
+      }),
+      box('styp', fourcc('msdh')),
+      box('sidx', new Uint8Array(16)),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1024,
+        includeFlags: true,
+        includeCto: true,
+        samples: videoSamplesFrag1,
+      }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 2,
+        decodeTime: 30_720,
+        tfhdDefaultDuration: 1024,
+        includeFlags: true,
+        includeCto: true,
+        samples: videoSamplesFrag2,
+      }),
     ])
 
-    // Both streams start as track 1 in SABR single-track elementary outputs; muxMp4 must rewrite audio to track 2.
+    // Realistic AAC parameters (timescale 44100, sample delta 1024, default_sample_flags 0x0 sync)
+    // 130 audio frames * 1024 / 44100 = ~3.0186s = 133120 ticks
+    const audioSamplesFrag1: SampleSpec[] = Array.from({ length: 86 }, (_, i) => ({
+      payload: makePattern(100 + i, 40 + (i % 4)),
+    }))
+    const audioSamplesFrag2: SampleSpec[] = Array.from({ length: 44 }, (_, i) => ({
+      payload: makePattern(200 + i, 44 + (i % 3)),
+    }))
     const audioTrack = concat([
-      box('ftyp', u32(0x69736f36)),
-      makeMoov(1, 48_000),
-      makeFragment(1, 1, 48_000, [10, 11]),
-      makeFragment(1, 2, 144_000, [12, 13]),
+      box('ftyp', fourcc('dash'), u32(0), fourcc('iso6'), fourcc('mp41')),
+      makeMoov({
+        trackId: 1,
+        mvhdTimescale: 44_100,
+        mvhdDuration: 133_120,
+        mdhdTimescale: 44_100,
+        mdhdDuration: 133_120,
+        handlerType: 'soun',
+        codecFourcc: 'mp4a',
+        volume: 0x0100,
+        trex: { defaultDuration: 1024, defaultFlags: 0x0 },
+      }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1024,
+        tfhdDefaultFlags: 0x0,
+        samples: audioSamplesFrag1,
+      }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 2,
+        decodeTime: 88_064,
+        tfhdDefaultDuration: 1024,
+        tfhdDefaultFlags: 0x0,
+        samples: audioSamplesFrag2,
+      }),
     ])
 
     const split = (buf: Uint8Array) => [buf.subarray(0, 17), buf.subarray(17, 131), buf.subarray(131)]
-
     const muxed = concat(muxMp4(split(videoTrack), split(audioTrack)))
     const top = listBoxes(muxed)
-    expect(top.map((item) => item.type)).toEqual([
-      'ftyp',
-      'moov',
-      'moof', 'mdat',
-      'moof', 'mdat',
-      'moof', 'mdat',
-      'moof', 'mdat',
-    ])
+
+    // Standard non-fragmented progressive MP4 top-level layout
+    expect(top.map((item) => item.type)).toEqual(['ftyp', 'moov', 'mdat'])
+
+    // ftyp carries isom major brand and compatible avc1 + mp41 brands
+    const ftypData = top[0]!.data
+    expect(String.fromCharCode(...ftypData.subarray(8, 12))).toBe('isom')
+    const compatBrands: string[] = []
+    for (let pos = 16; pos < ftypData.byteLength; pos += 4) {
+      compatBrands.push(String.fromCharCode(...ftypData.subarray(pos, pos + 4)))
+    }
+    expect(compatBrands).toEqual(['isom', 'iso2', 'avc1', 'mp41'])
 
     const moovChildren = listBoxes(top[1]!.data, 8)
-    expect(moovChildren.map((child) => child.type)).toEqual(['mvhd', 'trak', 'trak', 'mvex'])
+    expect(moovChildren.map((child) => child.type)).toEqual(['mvhd', 'trak', 'trak'])
 
-    expect(readUint32(moovChildren[0]!.data, moovChildren[0]!.size - 4)).toBe(3)
+    // mvhd normalized to timescale 1000 with max(3000, 3019) duration and next_track_id = 3
+    const mvhd = moovChildren[0]!.data
+    expect(readUint32(mvhd, 20)).toBe(1000)
+    expect(readUint32(mvhd, 24)).toBe(Math.round((133_120 * 1000) / 44_100))
+    expect(readUint32(mvhd, mvhd.byteLength - 4)).toBe(3)
 
-    const tkhdIds = [moovChildren[1]!, moovChildren[2]!].map((trak) => {
-      const tkhd = listBoxes(trak.data, 8).find((b) => b.type === 'tkhd')!
-      return readUint32(tkhd.data, 20)
+    // Video trak (track 1): tkhd duration scaled to movie timescale (3000 ms), elst preserved & rescaled
+    const videoTrak = listBoxes(moovChildren[1]!.data, 8)
+    const videoTkhd = videoTrak.find((b) => b.type === 'tkhd')!.data
+    expect(readUint32(videoTkhd, 20)).toBe(1)
+    expect(readUint32(videoTkhd, 28)).toBe(3000)
+    const videoEdts = videoTrak.find((b) => b.type === 'edts')!
+    const elstData = listBoxes(videoEdts.data, 8).find((b) => b.type === 'elst')!.data
+    expect(readUint32(elstData, 16)).toBe(3000)
+    expect(readInt32(elstData, 20)).toBe(1024)
+
+    // Audio trak (track 2): tkhd duration must be ~3019 ms in movie timescale (NOT 133120 or unscaled)
+    const audioTrak = listBoxes(moovChildren[2]!.data, 8)
+    const audioTkhd = audioTrak.find((b) => b.type === 'tkhd')!.data
+    expect(readUint32(audioTkhd, 20)).toBe(2)
+    expect(readUint32(audioTkhd, 28)).toBe(Math.round((133_120 * 1000) / 44_100))
+    expect(readUint16(audioTkhd, 44)).toBe(0x0100)
+
+    const videoStbl = listBoxes(
+      listBoxes(videoTrak.find((b) => b.type === 'mdia')!.data, 8).find((b) => b.type === 'minf')!.data,
+      8,
+    ).find((b) => b.type === 'stbl')!
+    const videoStblChildren = listBoxes(videoStbl.data, 8)
+    expect(videoStblChildren.map((b) => b.type)).toEqual(
+      expect.arrayContaining(['stsd', 'stts', 'ctts', 'stss', 'stsc', 'stsz', 'stco']),
+    )
+    expect(parseStts(videoStblChildren.find((b) => b.type === 'stts')!.data)).toEqual([
+      { sampleCount: 45, sampleDelta: 1024 },
+    ])
+    expect(parseStss(videoStblChildren.find((b) => b.type === 'stss')!.data)).toEqual([1, 16, 31])
+    expect(parseCtts(videoStblChildren.find((b) => b.type === 'ctts')!.data)).toMatchObject({
+      version: 0,
+      entries: expect.arrayContaining([{ sampleCount: 15, sampleOffset: 0 }]),
     })
-    expect(tkhdIds).toEqual([1, 2])
 
-    const mvexChildren = listBoxes(moovChildren[3]!.data, 8)
-    expect(mvexChildren.map((b) => b.type)).toEqual(['trex', 'trex'])
-    expect(mvexChildren.map((trex) => readUint32(trex.data, 12))).toEqual([1, 2])
+    const audioStbl = listBoxes(
+      listBoxes(audioTrak.find((b) => b.type === 'mdia')!.data, 8).find((b) => b.type === 'minf')!.data,
+      8,
+    ).find((b) => b.type === 'stbl')!
+    const audioStblChildren = listBoxes(audioStbl.data, 8)
+    expect(audioStblChildren.some((b) => b.type === 'ctts')).toBe(false)
+    expect(audioStblChildren.some((b) => b.type === 'stss')).toBe(false)
+    expect(parseStts(audioStblChildren.find((b) => b.type === 'stts')!.data)).toEqual([
+      { sampleCount: 130, sampleDelta: 1024 },
+    ])
 
-    const fragmentMeta = [2, 4, 6, 8].map((moofIdx) => {
-      const moofChildren = listBoxes(top[moofIdx]!.data, 8)
-      const mfhd = moofChildren.find((b) => b.type === 'mfhd')!
-      const traf = moofChildren.find((b) => b.type === 'traf')!
-      const tfhd = listBoxes(traf.data, 8).find((b) => b.type === 'tfhd')!
-      const mdat = top[moofIdx + 1]!.data.subarray(8)
-      return {
-        seq: readUint32(mfhd.data, 12),
-        trackId: readUint32(tfhd.data, 12),
-        payload: [...mdat],
-      }
+    // Exact sample bytes extracted via stco/stsc/stsz must match the original video and audio inputs byte-for-byte
+    const extractedVideo = extractTrackPayloadsFromStbl(muxed, videoStblChildren)
+    const extractedAudio = extractTrackPayloadsFromStbl(muxed, audioStblChildren)
+    expect(extractedVideo.samples.map((s) => [...s])).toEqual(
+      [...videoSamplesFrag1, ...videoSamplesFrag2].map((s) => [...s.payload]),
+    )
+    expect(extractedAudio.samples.map((s) => [...s])).toEqual(
+      [...audioSamplesFrag1, ...audioSamplesFrag2].map((s) => [...s.payload]),
+    )
+
+    // 2s first fragment was sub-chunked into ~1s chunks (> 2 input fragments), and audio/video chunks interleave in mdat
+    expect(extractedVideo.chunks.length).toBeGreaterThanOrEqual(3)
+    expect(extractedAudio.chunks.length).toBeGreaterThanOrEqual(3)
+    expect(extractedVideo.chunks[0]!).toBeLessThan(extractedAudio.chunks[0]!)
+    expect(extractedAudio.chunks[0]!).toBeLessThan(extractedVideo.chunks[1]!)
+  })
+
+  it('handles tracks without mvex, single-sample trun without sample_size, and signed v1 ctts', () => {
+    const videoSample = makePattern(7, 25)
+    const audioSample = makePattern(9, 19)
+
+    const videoTrack = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 3000,
+        tfhdDefaultFlags: 0x0,
+        trunVersion: 1,
+        includeSize: false,
+        includeCto: true,
+        samples: [{ payload: videoSample, cto: -1500 }],
+      }),
+    ])
+    const audioTrack = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 48_000, handlerType: 'soun', codecFourcc: 'mp4a' }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1600,
+        tfhdDefaultFlags: 0x0,
+        includeSize: false,
+        samples: [{ payload: audioSample }],
+      }),
+    ])
+
+    const muxed = concat(muxMp4([videoTrack], [audioTrack]))
+    const moovChildren = listBoxes(listBoxes(muxed).find((b) => b.type === 'moov')!.data, 8)
+    expect(moovChildren.some((b) => b.type === 'mvex')).toBe(false)
+
+    const videoStbl = listBoxes(
+      listBoxes(listBoxes(moovChildren[1]!.data, 8).find((b) => b.type === 'mdia')!.data, 8).find((b) => b.type === 'minf')!.data,
+      8,
+    ).find((b) => b.type === 'stbl')!
+    const videoStblChildren = listBoxes(videoStbl.data, 8)
+    expect(parseCtts(videoStblChildren.find((b) => b.type === 'ctts')!.data)).toEqual({
+      version: 1,
+      entries: [{ sampleCount: 1, sampleOffset: -1500 }],
     })
-    expect(fragmentMeta).toEqual([
-      { seq: 1, trackId: 1, payload: [1, 2, 3] },
-      { seq: 2, trackId: 2, payload: [10, 11] },
-      { seq: 3, trackId: 1, payload: [4, 5, 6] },
-      { seq: 4, trackId: 2, payload: [12, 13] },
+    expect(extractTrackPayloadsFromStbl(muxed, videoStblChildren).samples.map((s) => [...s])).toEqual([
+      [...videoSample],
     ])
   })
 
-  it('synthesizes valid trex atoms when tracks omit mvex', () => {
-    const bareMoov = (trackId: number, timescale: number) =>
-      box('moov', makeMvhd(1000, 2000, trackId + 1), box('trak', makeTkhd(trackId), box('mdia', makeMdhd(timescale))))
-
-    const videoTrack = concat([box('ftyp', u32(0x69736f36)), bareMoov(1, 90_000), makeFragment(1, 1, 0, [1, 2])])
-    const audioTrack = concat([box('ftyp', u32(0x69736f36)), bareMoov(1, 48_000), makeFragment(1, 1, 0, [3, 4])])
-
-    const muxed = concat(muxMp4([videoTrack], [audioTrack]))
-    const moov = listBoxes(muxed).find((item) => item.type === 'moov')!
-    const mvex = listBoxes(moov.data, 8).find((item) => item.type === 'mvex')!
-    const mvexChildren = listBoxes(mvex.data, 8)
-    expect(mvexChildren.map((child) => child.type)).toEqual(['trex', 'trex'])
-    expect(mvexChildren.map((trex) => readUint32(trex.data, 12))).toEqual([1, 2])
-    expect(mvexChildren.map((trex) => readUint32(trex.data, 16))).toEqual([1, 1])
-  })
-
-  it('throws a clear error when either stream lacks a moov atom', () => {
-    expect(() => muxMp4([box('ftyp', u32(0))], [makeMoov(1, 48_000)])).toThrow('missing moov box')
-    expect(() => muxMp4([makeMoov(1, 90_000)], [box('ftyp', u32(0))])).toThrow('missing moov box')
+  it('throws a clear error when either stream lacks a moov atom or media samples', () => {
+    const emptyVideo = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+    ])
+    const videoWithSample = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 90_000, handlerType: 'vide', codecFourcc: 'avc1' }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1024,
+        samples: [{ payload: makePattern(1, 8) }],
+      }),
+    ])
+    const audio = concat([
+      box('ftyp', fourcc('iso6')),
+      makeMoov({ trackId: 1, mdhdTimescale: 48_000, handlerType: 'soun', codecFourcc: 'mp4a' }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 0,
+        tfhdDefaultDuration: 1024,
+        samples: [{ payload: makePattern(1, 8) }],
+      }),
+    ])
+    expect(() => muxMp4([box('ftyp', u32(0))], [audio])).toThrow('missing moov box')
+    expect(() => muxMp4([videoWithSample], [box('ftyp', u32(0))])).toThrow('missing moov box')
+    expect(() => muxMp4([emptyVideo], [audio])).toThrow('no media samples')
   })
 })

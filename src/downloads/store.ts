@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 
-import type { FrameApi } from '../frame/protocol'
+import type { DownloadFormatOption, FrameApi } from '../frame/protocol'
 
 import { startEngine } from '../engine/client'
 import { showToast } from '../components/ui/toast'
@@ -281,6 +281,19 @@ export const clearCompletedDownloads = () => {
     else kept.push(item)
   }
   publishItems(kept, true)
+}
+
+/** Picks the default MP4 audio format (preferring AAC over multichannel codecs) for muxed video downloads. */
+export const pickDefaultAudioForVideo = (
+  audioFormats: readonly DownloadFormatOption[],
+  trackId: string | undefined,
+): DownloadFormatOption | undefined => {
+  const trackPool = trackId ? audioFormats.filter((item) => item.audioTrackId === trackId) : []
+  const scope = trackPool.length > 0 ? trackPool : audioFormats
+  const aac = scope.filter((item) => item.container === 'm4a' && item.codec === 'AAC')
+  const mp4 = aac.length > 0 ? aac : scope.filter((item) => item.container === 'm4a')
+  const pool = mp4.length > 0 ? mp4 : scope
+  return pool.find((item) => item.isOriginal) ?? pool[0]
 }
 
 /** Runs a video or audio download through the engine frame and saves the finished file in the browser. */

@@ -34,6 +34,49 @@ describe('download formatting and filename helpers', () => {
     expect(codecLabel('audio/mp4; codecs="mp4a.40.2"')).toBe('AAC')
     expect(codecLabel('audio/webm; codecs="opus"')).toBe('Opus')
   })
+
+  it('prefers AAC over multichannel Dolby MP4 tracks for default video audio', async () => {
+    const { pickDefaultAudioForVideo } = await loadStore()
+    const picked = pickDefaultAudioForVideo([
+      {
+        key: '328:',
+        itag: 328,
+        kind: 'audio',
+        container: 'm4a',
+        mimeType: 'audio/mp4; codecs="ec-3"',
+        codec: 'ec-3',
+        qualityLabel: '384 kbps',
+        bitrate: 384_000,
+        audioTrackId: 'en.4',
+        isOriginal: true,
+      },
+      {
+        key: '140:',
+        itag: 140,
+        kind: 'audio',
+        container: 'm4a',
+        mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+        codec: 'AAC',
+        qualityLabel: '128 kbps',
+        bitrate: 128_000,
+        audioTrackId: 'en.4',
+        isOriginal: true,
+      },
+      {
+        key: '251:',
+        itag: 251,
+        kind: 'audio',
+        container: 'webm',
+        mimeType: 'audio/webm; codecs="opus"',
+        codec: 'Opus',
+        qualityLabel: '130 kbps',
+        bitrate: 130_000,
+        audioTrackId: 'en.4',
+        isOriginal: true,
+      },
+    ], 'en.4')
+    expect(picked?.key).toBe('140:')
+  })
 })
 
 describe('download store history and flow', () => {

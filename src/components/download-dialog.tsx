@@ -6,7 +6,7 @@ import { Download, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
-import { closeDownloadDialog, formatBytes, startVideoDownload, useDownloadDialogTarget } from '../downloads/store'
+import { closeDownloadDialog, formatBytes, pickDefaultAudioForVideo, startVideoDownload, useDownloadDialogTarget } from '../downloads/store'
 import { startEngine } from '../engine/client'
 import { audioTracksOf } from '../frame/formats'
 import { Dialog } from './ui/dialog'
@@ -244,19 +244,6 @@ const style = css`
     cursor: default;
   }
 `
-
-const pickDefaultAudioForVideo = (
-  audioFormats: readonly DownloadFormatOption[],
-  trackId: string | undefined,
-): DownloadFormatOption | undefined => {
-  const mp4 = audioFormats.filter((item) => item.container === 'm4a')
-  const pool = mp4.length > 0 ? mp4 : audioFormats
-  if (trackId) {
-    const byTrack = pool.find((item) => item.audioTrackId === trackId)
-    if (byTrack) return byTrack
-  }
-  return pool.find((item) => item.isOriginal) ?? pool[0]
-}
 
 /** Modal dialog for choosing Video (MP4) or Audio (M4A/WebM) download options and starting a download. */
 export const DownloadDialog = (
