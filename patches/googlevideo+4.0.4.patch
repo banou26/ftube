@@ -1,0 +1,46 @@
+diff --git a/node_modules/googlevideo/dist/src/core/SabrStream.js b/node_modules/googlevideo/dist/src/core/SabrStream.js
+index 95400db..27e12c8 100644
+--- a/node_modules/googlevideo/dist/src/core/SabrStream.js
++++ b/node_modules/googlevideo/dist/src/core/SabrStream.js
+@@ -212,7 +212,31 @@ export class SabrStream extends EventEmitterLike {
+                     FormatKeyUtils.fromFormat(videoFormat) :
+                     FormatKeyUtils.fromFormat(audioFormat);
+             }
+-            while (parseInt(abrState.playerTimeMs) < this.durationMs) {
++            const activeFormats = abrState.enabledTrackTypesBitfield === EnabledTrackTypes.AUDIO_ONLY
++                ? [audioFormat]
++                : abrState.enabledTrackTypesBitfield === EnabledTrackTypes.VIDEO_ONLY
++                    ? [videoFormat]
++                    : [videoFormat, audioFormat];
++            const allFormatsComplete = () => {
++                for (const format of activeFormats) {
++                    const key = FormatKeyUtils.fromFormat(format) || '';
++                    const initialized = this.initializedFormatsMap.get(key);
++                    if (!initialized)
++                        return false;
++                    const endSegment = parseInt(initialized.formatInitializationMetadata?.endSegmentNumber || '0');
++                    if (endSegment > 0) {
++                        for (let i = 0; i <= endSegment; i++) {
++                            if (!initialized.downloadedSegments.has(i))
++                                return false;
++                        }
++                    }
++                    else if (initialized.downloadedSegments.size === 0 || getTotalDownloadedDuration(initialized) < this.durationMs * 0.99) {
++                        return false;
++                    }
++                }
++                return true;
++            };
++            while (parseInt(abrState.playerTimeMs) < this.durationMs || !allFormatsComplete()) {
+                 if (this._aborted) {
+                     this.logger.debug(TAG, 'Download process aborted, exiting streaming loop.');
+                     break;
+@@ -224,6 +248,8 @@ export class SabrStream extends EventEmitterLike {
+                 if (this.mainFormat)
+                     this.validateAndCorrectDuration(this.mainFormat.formatInitializationMetadata);
+                 abrState.playerTimeMs = this.mainFormat ? getTotalDownloadedDuration(this.mainFormat) : 0;
++                if (allFormatsComplete())
++                    break;
+                 const { shouldStop } = this.checkForStall({
+                     playerTimeMs: abrState.playerTimeMs,
+                     stallDetectionMs: options.stallDetectionMs

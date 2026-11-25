@@ -237,10 +237,9 @@ const linkSignals = (first: AbortSignal | null | undefined, second: AbortSignal)
 }
 
 const createDownloadFetch = (
-  source: SabrSource,
   audioFormat: SabrFormat,
   sessionController: AbortController,
-  onPoToken: (token: string) => void,
+  recoverPoToken: () => Promise<string | undefined>,
 ) => {
   const perform = async (
     input: RequestInfo | URL,
@@ -269,10 +268,8 @@ const createDownloadFetch = (
       }, signal)
       if (response.status === 403 && attempt === 0) {
         await response.body?.cancel().catch(() => {})
-        await source.recoverMint()
-        const refreshed = await source.mint()
-        onPoToken(refreshed)
-        return perform(input, init, attempt + 1, base64ToU8(refreshed))
+        const refreshed = await recoverPoToken()
+        return perform(input, init, attempt + 1, refreshed ? base64ToU8(refreshed) : undefined)
       }
       return response
     } finally {
@@ -329,9 +326,23 @@ export const startDownloadSession = async (options: StartDownloadOptions): Promi
   const controller = new AbortController()
   const poToken = await source.mint()
   const holder: { stream?: SabrStream } = {}
-  const fetch = createDownloadFetch(source, audioFormat, controller, (nextToken) => {
-    holder.stream?.setPoToken(nextToken)
-  })
+  let replacedOnStatus2 = false
+  let pendingRefresh: Promise<string> | undefined
+  const refreshPoToken = (status2Only: boolean): Promise<string | undefined> => {
+    if (status2Only && replacedOnStatus2) return Promise.resolve(undefined)
+    if (status2Only) replacedOnStatus2 = true
+    if (!pendingRefresh) {
+      pendingRefresh = source.recoverMint()
+        .then(() => source.mint())
+        .then((token) => {
+          holder.stream?.setPoToken(token)
+          return token
+        })
+        .finally(() => { pendingRefresh = undefined })
+    }
+    return pendingRefresh
+  }
+  const fetch = createDownloadFetch(audioFormat, controller, () => refreshPoToken(false))
   const stream = new SabrStream({
     fetch,
     serverAbrStreamingUrl: source.streamingUrl,
@@ -358,9 +369,8 @@ export const startDownloadSession = async (options: StartDownloadOptions): Promi
   sessions.set(id, session)
 
   stream.on('streamProtectionStatusUpdate', (protection) => {
-    if (protection.status === 2) {
-      void source.recoverMint().then(() => source.mint()).then((token) => stream.setPoToken(token)).catch(() => {})
-    }
+    if (protection.status === 3) void refreshPoToken(false).catch(() => {})
+    else if (protection.status === 2) void refreshPoToken(true).catch(() => {})
   })
 
   const started = await stream.start({
