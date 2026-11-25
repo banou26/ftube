@@ -6,7 +6,10 @@ import { useDocumentTitle } from '../app'
 import {
   cancelDownload,
   clearCompletedDownloads,
+  downloadPercent,
+  downloadStatusLabel,
   formatBytes,
+  isDownloadActive,
   openDownloadDialog,
   removeDownload,
   saveCompletedAgain,
@@ -206,21 +209,12 @@ const style = css`
   }
 `
 
-const statusLabel = (status: string) => {
-  if (status === 'starting') return 'Preparing…'
-  if (status === 'downloading') return 'Downloading…'
-  if (status === 'muxing') return 'Muxing MP4…'
-  if (status === 'cancelled') return 'Cancelled'
-  if (status === 'failed') return 'Failed'
-  return 'Completed'
-}
-
 /** Page displaying active downloads and completed download history. */
 export const DownloadsPage = () => {
   useDocumentTitle('Downloads')
   const items = useDownloads()
-  const active = items.filter((item) => item.status === 'starting' || item.status === 'downloading' || item.status === 'muxing')
-  const finished = items.filter((item) => !active.includes(item))
+  const active = items.filter(isDownloadActive)
+  const finished = items.filter((item) => !isDownloadActive(item))
 
   return (
     <main css={style}>
@@ -250,9 +244,7 @@ export const DownloadsPage = () => {
             <h2 className='section-title'>Active ({active.length})</h2>
             <div className='list'>
               {active.map((item) => {
-                const percent = item.totalBytes && item.totalBytes > 0
-                  ? Math.min(100, Math.round((item.loadedBytes / item.totalBytes) * 100))
-                  : undefined
+                const percent = downloadPercent(item)
                 return (
                   <article key={item.id} className='row'>
                     {item.thumbnail ? <img className='thumb' src={item.thumbnail} alt='' /> : undefined}
@@ -260,7 +252,7 @@ export const DownloadsPage = () => {
                       <Link href={watchHrefFor(item.videoId)} className='title'>{item.title}</Link>
                       <div className='details'>
                         <span>{item.qualityLabel}</span>
-                        <span>{statusLabel(item.status)}</span>
+                        <span>{downloadStatusLabel(item.status)}</span>
                         <span>
                           {formatBytes(item.loadedBytes)}
                           {item.totalBytes ? ` / ~${formatBytes(item.totalBytes)}` : ''}
@@ -308,7 +300,7 @@ export const DownloadsPage = () => {
                     <Link href={watchHrefFor(item.videoId)} className='title'>{item.title}</Link>
                     <div className='details'>
                       <span>{item.qualityLabel}</span>
-                      <span>{item.status === 'completed' && item.sizeBytes ? formatBytes(item.sizeBytes) : statusLabel(item.status)}</span>
+                      <span>{item.status === 'completed' && item.sizeBytes ? formatBytes(item.sizeBytes) : downloadStatusLabel(item.status)}</span>
                       {item.channelName ? <span>{item.channelName}</span> : undefined}
                     </div>
                     {item.error ? <div className='error-text'>{item.error}</div> : undefined}

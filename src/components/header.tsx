@@ -8,6 +8,7 @@ import { Link, useLocation, useSearch } from 'wouter'
 
 import { gql } from '../generated'
 import { AccountMenu } from './account-menu'
+import { DownloadsMenu } from './downloads-menu'
 import { ExtensionNotice } from './extension-notice'
 import { HeaderMenu } from './header-menu'
 import { NotificationsMenu } from './notifications-menu'
@@ -613,6 +614,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
       <div className='end'>
         {/* renders nothing at all with the extension installed, or once declined */}
         <ExtensionNotice />
+        <DownloadsMenu />
         <PartyWidget />
         <HeaderMenu />
         <HeaderAccount />

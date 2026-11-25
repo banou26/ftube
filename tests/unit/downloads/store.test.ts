@@ -329,4 +329,113 @@ describe('download store history and flow', () => {
     expect(fresh.getDownloads()).toHaveLength(100)
     expect(revoked).toContain('blob:hist-1')
   })
+
+  it('exposes shared progress helpers and session-scoped floating tray state', async () => {
+    const map = new Map<string, string>()
+    const persisted = [
+      {
+        id: 'dl-old',
+        videoId: 'v-old',
+        title: 'Persisted Item',
+        mode: 'audio' as const,
+        container: 'm4a' as const,
+        qualityLabel: 'M4A 128 kbps',
+        filename: 'Persisted Item.m4a',
+        status: 'completed' as const,
+        loadedBytes: 500,
+        sizeBytes: 500,
+        createdAt: 1,
+      },
+    ]
+    map.set('yt-client:downloads', JSON.stringify(persisted))
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => { map.set(key, value) },
+    })
+
+    const {
+      dismissDownloadFromTray,
+      dismissFinishedFromTray,
+      downloadPercent,
+      downloadStatusLabel,
+      getDownloadTray,
+      getDownloads,
+      isDownloadActive,
+      startVideoDownload,
+    } = await loadStore()
+
+    expect(isDownloadActive({ status: 'starting' })).toBe(true)
+    expect(isDownloadActive({ status: 'downloading' })).toBe(true)
+    expect(isDownloadActive({ status: 'muxing' })).toBe(true)
+    expect(isDownloadActive({ status: 'completed' })).toBe(false)
+    expect(downloadPercent({ loadedBytes: 50, totalBytes: 200 })).toBe(25)
+    expect(downloadPercent({ loadedBytes: 300, totalBytes: 200 })).toBe(100)
+    expect(downloadPercent({ loadedBytes: 50, totalBytes: undefined })).toBeUndefined()
+    expect(downloadStatusLabel('muxing')).toBe('Muxing MP4…')
+
+    // Cold persisted history stays on /downloads without showing in the floating header tray.
+    expect(getDownloads()).toHaveLength(1)
+    expect(getDownloadTray()).toEqual({ items: [], active: [], startedSeq: 0 })
+
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:tray-item')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const result = await startVideoDownload({
+      target: { videoId: 'vid-tray', title: 'Tray Video' },
+      mode: 'audio',
+      audioKey: '140',
+      qualityLabel: 'M4A 128 kbps',
+      container: 'm4a',
+      estimatedBytes: 4,
+    }, {
+      engine: async () => ({
+        startDownload: async () => ({ downloadId: 'sess-tray', container: 'm4a', mimeType: 'audio/mp4' }),
+        pollDownload: async () => ({
+          videoChunks: [],
+          audioChunks: [Uint8Array.from([1, 2, 3, 4]).buffer],
+          loadedBytes: 4,
+          totalBytes: 4,
+          done: true,
+        }),
+        cancelDownload: async () => {},
+      }),
+      notify: () => {},
+      saveFile: () => {},
+    })
+
+    expect(getDownloadTray()).toMatchObject({
+      startedSeq: 1,
+      active: [],
+      items: [{ id: result.id, status: 'completed' }],
+    })
+
+    // Dismissing from the floating tray hides it there while keeping /downloads history intact.
+    dismissDownloadFromTray(result.id)
+    expect(getDownloadTray().items).toHaveLength(0)
+    expect(getDownloads().some((entry) => entry.id === result.id)).toBe(true)
+
+    const second = await startVideoDownload({
+      target: { videoId: 'vid-tray-2', title: 'Tray Video Two' },
+      mode: 'audio',
+      audioKey: '140',
+      qualityLabel: 'M4A 128 kbps',
+      container: 'm4a',
+    }, {
+      engine: async () => ({
+        startDownload: async () => ({ downloadId: 'sess-tray-2', container: 'm4a', mimeType: 'audio/mp4' }),
+        pollDownload: async () => ({
+          videoChunks: [],
+          audioChunks: [Uint8Array.from([1, 2]).buffer],
+          loadedBytes: 2,
+          done: true,
+        }),
+        cancelDownload: async () => {},
+      }),
+      notify: () => {},
+      saveFile: () => {},
+    })
+    expect(getDownloadTray()).toMatchObject({ startedSeq: 2, items: [{ id: second.id }] })
+    dismissFinishedFromTray()
+    expect(getDownloadTray().items).toHaveLength(0)
+    expect(getDownloads().some((entry) => entry.id === second.id)).toBe(true)
+  })
 })

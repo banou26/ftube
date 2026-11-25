@@ -5,10 +5,12 @@ import { expect, plainTest as test } from './test'
 // "Me at the zoo" (jNQXAC9IVRw, 19s): small enough to complete real SABR audio + muxed MP4 downloads in seconds.
 const SHORT_VOD = 'jNQXAC9IVRw'
 
-test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them on /downloads', async ({ page }) => {
+test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via the floating menu and /downloads', async ({ page }) => {
   test.setTimeout(240_000)
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/watch?v=${SHORT_VOD}`)
+
+  await expect(page.getByRole('button', { name: /^Downloads:/ })).toHaveCount(0)
 
   const downloadBtn = page.getByRole('button', { name: 'Download', exact: true })
   await expect(downloadBtn).toBeVisible({ timeout: 120_000 })
@@ -23,6 +25,12 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them on 
 
   const audioDownloadPromise = page.waitForEvent('download')
   await dialog.getByRole('button', { name: 'Download', exact: true }).click()
+
+  // Floating download progress menu opens right in the header without navigating to /downloads.
+  const floatingMenu = page.getByRole('menu', { name: 'Downloads' })
+  await expect(floatingMenu).toBeVisible()
+  await expect(floatingMenu.getByText(/M4A/)).toBeVisible()
+
   const audioDownload = await audioDownloadPromise
   expect(audioDownload.suggestedFilename()).toMatch(/\.m4a$/i)
   const audioPath = await audioDownload.path()
@@ -48,14 +56,21 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them on 
   expect(audioMeta.duration).toBeGreaterThan(10)
   expect(audioMeta.readyState).toBeGreaterThanOrEqual(1)
 
+  // Closing the popup leaves the header trigger visible across route changes.
+  await page.keyboard.press('Escape')
+  await expect(floatingMenu).toBeHidden()
+  const trayTrigger = page.getByRole('button', { name: /^Downloads:/ })
+  await expect(trayTrigger).toBeVisible()
+
   await downloadBtn.click()
   await expect(dialog).toBeVisible()
-  const videoRadios = dialog.getByRole('radio')
-  await expect(videoRadios.first()).toBeVisible({ timeout: 60_000 })
-  await videoRadios.last().click()
+  const h264Radios = dialog.getByRole('radio', { name: /H\.264/ })
+  await expect(h264Radios.first()).toBeVisible({ timeout: 60_000 })
+  await h264Radios.last().click()
 
   const videoDownloadPromise = page.waitForEvent('download')
   await dialog.getByRole('button', { name: 'Download', exact: true }).click()
+  await expect(floatingMenu).toBeVisible()
   const videoDownload = await videoDownloadPromise
   expect(videoDownload.suggestedFilename()).toMatch(/\.mp4$/i)
   const videoPath = await videoDownload.path()
@@ -63,25 +78,63 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them on 
   const videoBytes = readFileSync(videoPath!)
   expect(videoBytes.byteLength).toBeGreaterThan(20_000)
 
+  // Muxed MP4 must use standard non-fragmented ISO-BMFF layout (`isom` with `moov` + `mdat` and zero `moof`)
+  // and decode both video and AAC audio in Chromium.
+  const boxTypes: string[] = []
+  let offset = 0
+  while (offset + 8 <= videoBytes.byteLength) {
+    const size = videoBytes.readUInt32BE(offset)
+    const type = videoBytes.subarray(offset + 4, offset + 8).toString('latin1')
+    boxTypes.push(type)
+    offset += size > 0 ? size : videoBytes.byteLength - offset
+  }
+  expect(boxTypes).toEqual(['ftyp', 'moov', 'mdat'])
+  expect(videoBytes.subarray(8, 12).toString('latin1')).toBe('isom')
+
   const videoMeta = await page.evaluate(async (bytesBase64) => {
     const raw = Uint8Array.from(atob(bytesBase64), c => c.charCodeAt(0))
     const url = URL.createObjectURL(new Blob([raw], { type: 'video/mp4' }))
     try {
       const el = document.createElement('video')
       el.muted = true
+      el.playsInline = true
       el.src = url
+      document.body.appendChild(el)
       await new Promise<void>((resolve, reject) => {
-        el.onloadedmetadata = () => resolve()
-        el.onerror = () => reject(new Error('muxed mp4 failed to load metadata'))
+        el.onloadeddata = () => resolve()
+        el.onerror = () => reject(new Error('muxed mp4 failed to load video data'))
       })
-      return { duration: el.duration, videoWidth: el.videoWidth, videoHeight: el.videoHeight, readyState: el.readyState }
+      await el.play()
+      await new Promise(resolve => setTimeout(resolve, 600))
+      const decodedAudio = (el as HTMLVideoElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0
+      const out = {
+        duration: el.duration,
+        videoWidth: el.videoWidth,
+        videoHeight: el.videoHeight,
+        readyState: el.readyState,
+        decodedAudio,
+      }
+      el.remove()
+      return out
     } finally {
       URL.revokeObjectURL(url)
     }
   }, videoBytes.toString('base64'))
   expect(videoMeta.duration).toBeGreaterThan(10)
   expect(videoMeta.videoWidth).toBeGreaterThan(0)
-  expect(videoMeta.readyState).toBeGreaterThanOrEqual(1)
+  expect(videoMeta.readyState).toBeGreaterThanOrEqual(2)
+  expect(videoMeta.decodedAudio).toBeGreaterThan(0)
+
+  // Navigate to Home and reopen the floating downloads popup before clearing it.
+  await page.keyboard.press('Escape')
+  await page.getByRole('link', { name: 'FTube home' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(trayTrigger).toBeVisible()
+  await trayTrigger.click()
+  await expect(floatingMenu).toBeVisible()
+  await expect(floatingMenu.getByRole('button', { name: 'Save file' }).first()).toBeVisible()
+  await floatingMenu.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(trayTrigger).toHaveCount(0)
 
   const guide = page.getByRole('navigation', { name: 'Guide' })
   if (await guide.count() === 0) {

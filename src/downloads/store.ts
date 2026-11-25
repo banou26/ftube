@@ -135,17 +135,61 @@ export const writeDownloadHistory = (
   } catch {}
 }
 
+/** Returns whether a download item is currently in flight (`starting`, `downloading`, or `muxing`). */
+export const isDownloadActive = (item: Pick<DownloadItem, 'status'>): boolean =>
+  item.status === 'starting' || item.status === 'downloading' || item.status === 'muxing'
+
+/** Returns a whole percentage (0 to 100) for a download item when `totalBytes` is known. */
+export const downloadPercent = (item: Pick<DownloadItem, 'loadedBytes' | 'totalBytes'>): number | undefined =>
+  item.totalBytes && item.totalBytes > 0
+    ? Math.min(100, Math.round((item.loadedBytes / item.totalBytes) * 100))
+    : undefined
+
+/** Human-readable status label shared by the Downloads page and floating progress menu. */
+export const downloadStatusLabel = (status: DownloadItem['status']): string => {
+  if (status === 'starting') return 'Preparing…'
+  if (status === 'downloading') return 'Downloading…'
+  if (status === 'muxing') return 'Muxing MP4…'
+  if (status === 'cancelled') return 'Cancelled'
+  if (status === 'failed') return 'Failed'
+  return 'Completed'
+}
+
+/** Floating header tray snapshot containing active downloads and current-session finished items not yet dismissed. */
+export type DownloadTraySnapshot = {
+  items: DownloadItem[]
+  active: DownloadItem[]
+  startedSeq: number
+}
+
 let items: DownloadItem[] = readDownloadHistory()
 let dialogTarget: DownloadTarget | undefined
 let nextSeq = 0
+let startedSeq = 0
 
 const itemListeners = new Set<(value: DownloadItem[]) => void>()
+const trayListeners = new Set<(snapshot: DownloadTraySnapshot) => void>()
 const dialogListeners = new Set<(target: DownloadTarget | undefined) => void>()
+const trayIds = new Set<string>()
 const remoteIds = new Map<string, string>()
 const cancelledIds = new Set<string>()
 const blobUrls = new Map<string, string>()
 const blobSizes = new Map<string, number>()
 const blobRevokeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export const getDownloadTray = (): DownloadTraySnapshot => {
+  const trayItems = items.filter((item) => isDownloadActive(item) || trayIds.has(item.id))
+  return {
+    items: trayItems,
+    active: trayItems.filter(isDownloadActive),
+    startedSeq,
+  }
+}
+
+const publishTray = () => {
+  const snapshot = getDownloadTray()
+  for (const listener of trayListeners) listener(snapshot)
+}
 
 const revokeBlob = (id: string) => {
   const timer = blobRevokeTimers.get(id)
@@ -181,10 +225,14 @@ const evictOldBlobs = (keepId: string) => {
 }
 
 const publishItems = (next: DownloadItem[], persist = false) => {
-  for (const dropped of next.slice(MAX_HISTORY)) revokeBlob(dropped.id)
+  for (const dropped of next.slice(MAX_HISTORY)) {
+    trayIds.delete(dropped.id)
+    revokeBlob(dropped.id)
+  }
   items = next.slice(0, MAX_HISTORY)
   if (persist) writeDownloadHistory(items)
   for (const listener of itemListeners) listener(items)
+  publishTray()
 }
 
 const updateItem = (id: string, patch: Partial<DownloadItem>, persist = false) => {
@@ -241,6 +289,40 @@ export const useDownloads = (): readonly DownloadItem[] => {
   return current
 }
 
+/** Subscribes to active and un-dismissed session downloads for the floating header menu. */
+export const useDownloadTray = (): DownloadTraySnapshot => {
+  const [snapshot, setSnapshot] = useState(getDownloadTray)
+  useEffect(() => {
+    trayListeners.add(setSnapshot)
+    setSnapshot(getDownloadTray())
+    return () => {
+      trayListeners.delete(setSnapshot)
+    }
+  }, [])
+  return snapshot
+}
+
+/** Hides a finished download row from the floating header menu while keeping it on `/downloads`. */
+export const dismissDownloadFromTray = (id: string) => {
+  const target = items.find((entry) => entry.id === id)
+  if (target && isDownloadActive(target)) return
+  if (!trayIds.delete(id)) return
+  publishTray()
+}
+
+/** Clears all finished rows from the floating header menu while preserving active downloads and `/downloads` history. */
+export const dismissFinishedFromTray = () => {
+  let changed = false
+  for (const id of Array.from(trayIds)) {
+    const target = items.find((entry) => entry.id === id)
+    if (!target || !isDownloadActive(target)) {
+      trayIds.delete(id)
+      changed = true
+    }
+  }
+  if (changed) publishTray()
+}
+
 /** Triggers a browser file save for a session-cached completed download by `id`. */
 export const saveCompletedAgain = (id: string): boolean => {
   const item = items.find((entry) => entry.id === id)
@@ -269,6 +351,7 @@ export const removeDownload = (id: string) => {
   if (!FINAL_STATUSES.has(target.status)) {
     void cancelDownload(id)
   }
+  trayIds.delete(id)
   revokeBlob(id)
   publishItems(items.filter((entry) => entry.id !== id), true)
 }
@@ -277,8 +360,10 @@ export const removeDownload = (id: string) => {
 export const clearCompletedDownloads = () => {
   const kept: DownloadItem[] = []
   for (const item of items) {
-    if (FINAL_STATUSES.has(item.status)) revokeBlob(item.id)
-    else kept.push(item)
+    if (FINAL_STATUSES.has(item.status)) {
+      trayIds.delete(item.id)
+      revokeBlob(item.id)
+    } else kept.push(item)
   }
   publishItems(kept, true)
 }
@@ -322,6 +407,8 @@ export const startVideoDownload = async (
     totalBytes: input.estimatedBytes,
     createdAt: Date.now(),
   }
+  trayIds.add(id)
+  startedSeq += 1
   publishItems([initial, ...items])
 
   const getApi = deps.engine ?? startEngine
