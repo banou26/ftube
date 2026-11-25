@@ -69,7 +69,6 @@ describe('player fullscreen helpers', () => {
       querySelectorAll: () => [video],
       ...makeTarget(),
     }
-    // Even if a wrapper div had a stubbed requestFullscreen that fails, ponyfill rejects when calling div directly on iOS.
     const container = { ownerDocument: doc } as unknown as Element
     const setMode = vi.fn((next: 'inline' | 'fullscreen' | 'picture-in-picture') => {
       mode = next
@@ -83,10 +82,8 @@ describe('player fullscreen helpers', () => {
       webkitSetPresentationMode: setMode,
     } as unknown as HTMLVideoElement
 
-    // Calling requestFullscreen directly on the container fails when element fullscreen is unavailable.
     await expect(requestFullscreen(container)).rejects.toMatchObject({ name: 'NotSupportedError' })
 
-    // Calling togglePlayerFullscreen invokes video webkitSetPresentationMode synchronously in the same tick.
     const pending = togglePlayerFullscreen(container, video, doc as unknown as Document)
     expect(setMode).toHaveBeenCalledWith('fullscreen')
     await pending

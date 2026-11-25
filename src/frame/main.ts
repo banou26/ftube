@@ -63,7 +63,7 @@ const boot = async () => {
   connectAgent(agent)
   const onPageHide = (event: PageTransitionEvent) => {
     if (event.persisted) return
-    window.removeEventListener?.('pagehide', onPageHide)
+    window.removeEventListener('pagehide', onPageHide)
     for (const port of [egress, extFetchPort, media.port1, media.port2, agent]) port.close()
   }
   window.addEventListener('pagehide', onPageHide)

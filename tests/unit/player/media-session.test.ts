@@ -50,6 +50,10 @@ describe('media session integration helpers', () => {
     expect(session.playbackState).toBe('paused')
     expect(setPositionState).not.toHaveBeenCalled()
 
+    syncMediaSessionState({ paused: false, currentTime: 25, duration: 3600, playbackRate: 1, isLive: true }, session)
+    expect(session.playbackState).toBe('playing')
+    expect(setPositionState).not.toHaveBeenCalled()
+
     syncMediaSessionState({ paused: false, currentTime: 150, duration: 120, playbackRate: 1.5 }, session)
     expect(session.playbackState).toBe('playing')
     expect(setPositionState).toHaveBeenCalledWith({ duration: 120, position: 120, playbackRate: 1.5 })
@@ -59,7 +63,7 @@ describe('media session integration helpers', () => {
     const handlers = new Map<string, ((details: MediaSessionActionDetails) => void) | null>()
     const setPositionState = vi.fn()
     const session: MediaSessionLike = {
-      metadata: null,
+      metadata: { title: 'Video Title' },
       playbackState: 'none',
       setActionHandler (action, handler) {
         handlers.set(action, handler)
@@ -101,6 +105,7 @@ describe('media session integration helpers', () => {
     expect(handlers.get('previoustrack')).toBeNull()
 
     cleanup()
+    expect(session.metadata).toBeNull()
     expect(session.playbackState).toBe('none')
     expect(handlers.get('play')).toBeNull()
     expect(handlers.get('pause')).toBeNull()

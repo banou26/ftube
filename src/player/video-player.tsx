@@ -766,8 +766,8 @@ const VideoPlayer = (
   }
 
   // read at key time, so the listener is bound once rather than on every rendered frame
-  const latest = useRef({ docked, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
-  latest.current = { docked, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
+  const latest = useRef({ docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
+  latest.current = { docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
 
   useEffect(() => {
     updateMediaSessionMetadata({ videoId, title, artist: channelName })
@@ -792,6 +792,9 @@ const VideoPlayer = (
       },
       get playbackRate () {
         return videoElement.playbackRate
+      },
+      get isLive () {
+        return latest.current.isLive
       },
       play: () => videoElement.play(),
       pause: () => videoElement.pause(),

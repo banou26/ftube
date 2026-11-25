@@ -719,7 +719,7 @@ export const PlayerControls = (
   }
 
   const togglePip = () => {
-    void toggleVideoPip(video).catch(() => {})
+    void toggleVideoPip(video)
   }
 
   const board = bestStoryboard(storyboards)

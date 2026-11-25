@@ -14,6 +14,7 @@ export type MediaSessionTarget = {
   currentTime: number
   duration: number
   playbackRate: number
+  isLive?: boolean
   play: () => Promise<void>
   pause: () => void
   fastSeek?: (time: number) => void
@@ -80,12 +81,12 @@ export const updateMediaSessionMetadata = (
 
 /** Syncs `MediaSession.playbackState` and clamped position state for active playback. */
 export const syncMediaSessionState = (
-  target: Pick<MediaSessionTarget, 'paused' | 'currentTime' | 'duration' | 'playbackRate'>,
+  target: Pick<MediaSessionTarget, 'paused' | 'currentTime' | 'duration' | 'playbackRate' | 'isLive'>,
   session: MediaSessionLike | undefined = defaultMediaSession(),
 ): void => {
   if (!session) return
   session.playbackState = target.paused ? 'paused' : 'playing'
-  if (typeof session.setPositionState !== 'function') return
+  if (typeof session.setPositionState !== 'function' || target.isLive) return
   const duration = target.duration
   if (!Number.isFinite(duration) || duration <= 0) return
   const position = Number.isFinite(target.currentTime)
@@ -152,6 +153,7 @@ export const bindMediaSession = (
 
   return () => {
     for (const action of TRACKED_ACTIONS) setHandler(session, action, null)
+    session.metadata = null
     session.playbackState = 'none'
   }
 }

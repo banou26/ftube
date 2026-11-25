@@ -137,7 +137,7 @@ const create = async () => {
   const relayAbort = new AbortController()
   const onPageHide = (event: PageTransitionEvent) => {
     if (event.persisted) return
-    window.removeEventListener?.('pagehide', onPageHide)
+    window.removeEventListener('pagehide', onPageHide)
     relayAbort.abort()
     worker.terminate()
   }

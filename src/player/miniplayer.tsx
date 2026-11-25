@@ -126,7 +126,7 @@ export const MiniplayerControls = (
   onVolumeRef.current = onVolumeChange
 
   useEffect(() => {
-    const target = video?.closest('aside[aria-label="Miniplayer"]') ?? video?.closest('[data-player-root]')
+    const target = video?.closest('aside[aria-label="Miniplayer"]')
     if (!video || !target) return
     const onWheel = (event: Event) => {
       const wheel = event as WheelEvent
