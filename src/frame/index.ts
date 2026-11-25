@@ -6,9 +6,9 @@ import type { CaptionSource } from './captions'
 import type { PlaybackEntry } from './playback'
 
 import { createYoutubeSource } from '../sources/youtube'
-import { json3ToWebVtt, parseCaptionTracks, timedTextUrl, translatedTextUrl } from './captions'
+import { json3ToWebVtt, parseCaptionTracks, signedTextUrl, timedTextUrl } from './captions'
 import { parseEndScreen } from './end-screen'
-import { catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
+import { anonymousCueTracks, catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
 import { buildLiveManifest, liveAnchor, timelineEndMs } from './live-manifest'
 import { openLiveManifest } from './live-open'
 import { closePlaybackEntry, isCancellation, openPlaybackEntry, requestPlaybackSegment } from './playback'
@@ -30,14 +30,8 @@ let sessionId = 0
 const LIVE_REFRESH_WAIT_MS = 2_000
 
 // watch-page caption addresses are marked `exp=xpe` and answer 200 with an empty body; ANDROID_VR's serve real json3
-const CUE_CLIENT = 'ANDROID_VR'
-
 const cueSourcesFor = async (entry: PlaybackEntry) => {
-  entry.cueSources ??= (async () => {
-    const client = await catalogInnertube()
-    const info = await client.getBasicInfo(entry.videoId, { client: CUE_CLIENT })
-    return parseCaptionTracks(info.captions)
-  })().catch((error) => {
+  entry.cueSources ??= anonymousCueTracks(entry.videoId).catch((error) => {
     entry.cueSources = undefined
     throw error
   })
@@ -148,19 +142,26 @@ const api = {
     if (translateTo && (!track.translatable || !entry.translations.some((language) => language.languageCode === translateTo))) {
       throw new Error(`youtube: no Auto-translate into ${translateTo}`)
     }
-    const source = await cueSourceFor(entry, track)
-    const response = await youtubeFetch(timedTextUrl(source.url, translateTo))
-    if (!response.ok) throw new Error(`youtube: ${translateTo ? 'Auto-translate' : `caption track ${trackId}`} answered ${response.status}`)
-    const body = await response.text()
-    if (body) return json3ToWebVtt(body)
-    if (translateTo) {
-      // fallback if ANDROID_VR ever gates translation behind `exp=xpe` as watch-page addresses do
-      const fallback = await globalThis.fetch(translatedTextUrl(track.url, translateTo, await entry.mint()), { credentials: 'omit', mode: 'cors' })
-      if (!fallback.ok) throw new Error(`youtube: Auto-translate answered ${fallback.status}`)
-      const translated = await fallback.text()
-      if (translated) return json3ToWebVtt(translated)
+    const subject = translateTo ? 'Auto-translate' : `caption track ${trackId}`
+    let primaryFailure: unknown
+    try {
+      const source = await cueSourceFor(entry, track)
+      const response = await youtubeFetch(timedTextUrl(source.url, translateTo))
+      if (response.ok) {
+        const body = await response.text()
+        if (body) return json3ToWebVtt(body)
+      } else {
+        primaryFailure = new Error(`youtube: ${subject} answered ${response.status}`)
+      }
+    } catch (error) {
+      primaryFailure = error
     }
-    throw new Error(`youtube: ${translateTo ? 'Auto-translate' : `caption track ${trackId}`} was answered with no cues`)
+    const fallback = await youtubeFetch(signedTextUrl(track.url, await entry.mint(), translateTo))
+    if (!fallback.ok) throw new Error(`youtube: ${subject} answered ${fallback.status}`)
+    const body = await fallback.text()
+    if (body) return json3ToWebVtt(body)
+    if (primaryFailure instanceof Error) throw primaryFailure
+    throw new Error(`youtube: ${subject} was answered with no cues`)
   },
   cancelSegment: async (id, requestId) => {
     sessions.get(id)?.requests.get(requestId)?.abort()

@@ -701,7 +701,7 @@ export const startShakaPlayback = async ({
         const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
         captionUrls.push(url)
         const label = captionLabel(session.captionTracks, session.translationLanguages, { trackId, translateTo }) ?? track.label
-        const added = await activePlayer.addTextTrackAsync(url, translateTo ?? track.languageCode, 'subtitle', 'text/vtt', undefined, label)
+        const added = await activePlayer.addTextTrackAsync(url, translateTo ?? track.languageCode, 'subtitles', 'text/vtt', undefined, label)
         if (destroyed) return
         captionIds.set(key, added.id)
       }

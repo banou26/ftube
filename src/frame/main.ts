@@ -1,4 +1,5 @@
 import type { EgressApi, EngineReady, HostBootstrap, HostHello, HostRestart } from '../engine/protocol'
+import type { Lane } from './lanes'
 
 import { expose } from 'osra'
 
@@ -68,16 +69,29 @@ const boot = async () => {
   const session = signedIn ? await readSession(() => pageCookie(SESSION_READ_MS)) : { signedOut: false }
   if (session.signedOut) clearSignedIn()
   realm.cookie = session.cookie
+  const directFetch = direct ? (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init) : undefined
+  const catalogLane = createCatalogLane({ extFetch, relayFetch: async (url, options) => (await remote).fknFetch(url, options) })
+  const mediaLane: Lane = (url, { method, headers, body }, signal) =>
+    egressFetch(url, { method, headers, body: body ?? null, redirect: 'follow' }, signal)
   realm.fetch = createYoutubeFetch({
     signedIn: session.cookie !== undefined,
-    direct: direct ? (input, init) => fetch(input, init) : undefined,
-    catalog: createCatalogLane({ extFetch, relayFetch: async (url, options) => (await remote).fknFetch(url, options) }),
+    direct: directFetch,
+    catalog: catalogLane,
     session: createSessionLane(pageFetch, () => {
       realm.signedOut = true
       clearSignedIn()
     }, session.cookie === undefined ? undefined : readChannel()),
-    media: (url, { method, headers, body }, signal) => egressFetch(url, { method, headers, body: body ?? null, redirect: 'follow' }, signal),
+    media: mediaLane,
     report: (value) => reportEngine({ direct: value }),
+  })
+  // ANDROID_VR caption requests cannot use Web cookies or SAPISIDHASH, so keep a separate unauthenticated fetcher
+  realm.anonymousFetch = createYoutubeFetch({
+    signedIn: false,
+    direct: directFetch,
+    catalog: catalogLane,
+    session: catalogLane,
+    media: mediaLane,
+    report: () => {},
   })
 
   stage('engine')

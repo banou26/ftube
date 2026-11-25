@@ -1,7 +1,7 @@
 import { YTNodes } from 'youtubei.js'
 import { describe, expect, it } from 'vite-plus/test'
 
-import { captionLabel, defaultTrack, json3ToWebVtt, parseCaptionTracks, parseJson3, parseTranslationLanguages, preferredCaption, preferredTrack, startingCaption, startingTrack, timedTextUrl, translatedTextUrl } from '../../../src/frame/captions'
+import { captionLabel, defaultTrack, json3ToWebVtt, parseCaptionTracks, parseJson3, parseTranslationLanguages, preferredCaption, preferredTrack, signedTextUrl, startingCaption, startingTrack, timedTextUrl } from '../../../src/frame/captions'
 import answers from '../fixtures/caption-advice.json'
 
 // youtubei.js parses `name` into a Text node, so the label arrives as an object
@@ -216,9 +216,21 @@ describe('Auto-translate helpers', () => {
     expect(captionLabel(tracks, translations, { trackId: '.en', translateTo: 'ja' })).toBe('English >> Japanese')
   })
 
-  it('adds tlang, potc, pot and c=WEB to the signed caption address', () => {
-    const url = new URL(translatedTextUrl(TRACKLIST.caption_tracks[0]!.base_url, 'de', 'TOKEN'))
-    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+  it('adds potc, pot and c=WEB to the signed caption address, with optional tlang', () => {
+    const plainUrl = new URL(signedTextUrl(TRACKLIST.caption_tracks[0]!.base_url, 'TOKEN'))
+    expect(Object.fromEntries(plainUrl.searchParams)).toMatchObject({
+      v: 'abc',
+      lang: 'en',
+      signature: 'sig',
+      fmt: 'json3',
+      potc: '1',
+      pot: 'TOKEN',
+      c: 'WEB',
+    })
+    expect(plainUrl.searchParams.has('tlang')).toBe(false)
+
+    const translated = new URL(signedTextUrl(TRACKLIST.caption_tracks[0]!.base_url, 'TOKEN', 'de'))
+    expect(Object.fromEntries(translated.searchParams)).toMatchObject({
       v: 'abc',
       lang: 'en',
       signature: 'sig',

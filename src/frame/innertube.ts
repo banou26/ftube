@@ -122,6 +122,21 @@ export const catalogInnertube = keepOnSuccess(() => Innertube.create({
   return client
 }))
 
+const anonymousInnertube = keepOnSuccess(() => Innertube.create({
+  fetch: (input, init) => realm.anonymousFetch(input, init),
+  generate_session_locally: true,
+  retrieve_innertube_config: false,
+  retrieve_player: false,
+  visitor_data: readVisitorData(),
+}))
+
+/** Fetches unauthenticated `ANDROID_VR` caption tracks without attaching signed-in Web cookies or SAPISIDHASH. */
+export const anonymousCueTracks = async (videoId: string): Promise<CaptionSource[]> => {
+  const client = await anonymousInnertube()
+  const info = await client.getBasicInfo(videoId, { client: 'ANDROID_VR' })
+  return parseCaptionTracks(info.captions)
+}
+
 const playerCache = new UniversalCache(true)
 
 // Fallback only: used when a watch page names no PLAYER_JS_URL or its page player fails to build.

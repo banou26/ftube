@@ -630,8 +630,10 @@ const VideoPlayer = (
       hasDrcRef.current = undefined
       setHasDrc(false)
       selectAudioRef.current = undefined
+      setCaption(undefined)
       setCaptionTracks([])
       setTranslationLanguages([])
+      selectCaptionRef.current = undefined
       setAutoMuted(false)
       if (ownedSession) {
         const { api, promise } = ownedSession

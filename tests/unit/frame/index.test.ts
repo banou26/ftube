@@ -5,13 +5,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { SabrSource } from '../../../src/frame/innertube'
 import type { FrameRequest, FrameResponse, PlaybackSession, SegmentRequest } from '../../../src/frame/protocol'
 import { parseEndScreen } from '../../../src/frame/end-screen'
-import { catalogInnertube, getSabrSource, prefetchInitialPlayerResponse, youtubeFetch } from '../../../src/frame/innertube'
+import { anonymousCueTracks, catalogInnertube, getSabrSource, prefetchInitialPlayerResponse, youtubeFetch } from '../../../src/frame/innertube'
 import { STREAM_REFUSED } from '../../../src/frame/protocol'
 import { createSabrSession } from '../../../src/frame/sabr'
 import endScreens from '../fixtures/end-screens.json'
 
 vi.mock('../../../src/frame/innertube', () => ({
   GVS_ORIGIN_KEY: 'gvs-origin',
+  anonymousCueTracks: vi.fn(),
   catalogInnertube: vi.fn(),
   getSabrSource: vi.fn(),
   hasSessionCookie: () => false,
@@ -225,20 +226,24 @@ it('ends a connection with its port and every playback open in the engine', asyn
 describe('an Auto-translate of a caption track', () => {
   let errors: MockInstance<typeof console.error>
   let fetchMock: MockInstance<typeof globalThis.fetch>
+  let mint: ReturnType<typeof vi.fn<() => Promise<string>>>
 
   beforeEach(() => {
     errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     fetchMock = vi.spyOn(globalThis, 'fetch')
     vi.mocked(youtubeFetch).mockReset()
-    vi.mocked(catalogInnertube).mockResolvedValue({
-      getBasicInfo: async () => ({
-        captions: {
-          caption_tracks: [
-            { base_url: 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&signature=vr', name: { text: 'English' }, vss_id: '.en', language_code: 'en', is_translatable: true },
-          ],
-        },
-      }),
-    } as never)
+    vi.mocked(catalogInnertube).mockReset().mockRejectedValue(new Error('signed-in catalogInnertube must not be used for ANDROID_VR captions'))
+    vi.mocked(anonymousCueTracks).mockReset().mockResolvedValue([
+      {
+        id: '.en',
+        languageCode: 'en',
+        label: 'English',
+        auto: false,
+        translatable: true,
+        url: 'https://www.youtube.com/api/timedtext?v=video-1&lang=en&signature=vr',
+      },
+    ])
+    mint = vi.fn(async () => 'TOKEN')
     vi.mocked(getSabrSource).mockResolvedValue({
       isLive: false,
       storyboards: [],
@@ -248,7 +253,7 @@ describe('an Auto-translate of a caption track', () => {
       ],
       translations: [{ languageCode: 'fr', label: 'French' }],
       endScreen: [],
-      mint: async () => 'TOKEN',
+      mint,
     } as unknown as SabrSource)
   })
 
@@ -264,7 +269,7 @@ describe('an Auto-translate of a caption track', () => {
     expect(session.captionTracks[0]).toMatchObject({ id: '.en', translatable: true })
   })
 
-  it('translates through the ANDROID_VR caption address with tlang, and returns WebVTT', async () => {
+  it('loads native and translated tracks via anonymousCueTracks without calling catalogInnertube', async () => {
     vi.mocked(youtubeFetch).mockResolvedValue(new Response(JSON.stringify({
       events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: 'Bonjour' }] }],
     })))
@@ -272,30 +277,60 @@ describe('an Auto-translate of a caption track', () => {
     const result = await call('captionCues', id, '.en', 'fr')
     expect(result.result).toContain('WEBVTT')
     expect(result.result).toContain('Bonjour')
+    expect(vi.mocked(catalogInnertube)).not.toHaveBeenCalled()
+    expect(vi.mocked(anonymousCueTracks)).toHaveBeenCalledWith('video-1')
     expect(vi.mocked(youtubeFetch)).toHaveBeenCalledTimes(1)
     const url = new URL(String(vi.mocked(youtubeFetch).mock.calls[0]![0]))
     expect(url.searchParams.get('signature')).toBe('vr')
     expect(url.searchParams.get('fmt')).toBe('json3')
     expect(url.searchParams.get('tlang')).toBe('fr')
+    expect(mint).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('falls back to the watch page address with a minted PO token when ANDROID_VR answers empty', async () => {
-    vi.mocked(youtubeFetch).mockResolvedValue(new Response(''))
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: 'Salut' }] }],
-    })))
+  it('falls back through youtubeFetch with a minted PO token when ANDROID_VR answers empty or rejects', async () => {
+    vi.mocked(youtubeFetch)
+      .mockResolvedValueOnce(new Response(''))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: 'Salut' }] }],
+      })))
     const id = await open(untilCancelled)
-    const result = await call('captionCues', id, '.en', 'fr')
-    expect(result.result).toContain('Salut')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const url = new URL(String(fetchMock.mock.calls[0]![0]))
-    expect(url.searchParams.get('signature')).toBe('web')
-    expect(url.searchParams.get('tlang')).toBe('fr')
-    expect(url.searchParams.get('potc')).toBe('1')
-    expect(url.searchParams.get('pot')).toBe('TOKEN')
-    expect(url.searchParams.get('c')).toBe('WEB')
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ credentials: 'omit', mode: 'cors' })
+    const translated = await call('captionCues', id, '.en', 'fr')
+    expect(translated.result).toContain('Salut')
+    expect(vi.mocked(youtubeFetch)).toHaveBeenCalledTimes(2)
+    const fallbackUrl = new URL(String(vi.mocked(youtubeFetch).mock.calls[1]![0]))
+    expect(fallbackUrl.searchParams.get('signature')).toBe('web')
+    expect(fallbackUrl.searchParams.get('tlang')).toBe('fr')
+    expect(fallbackUrl.searchParams.get('potc')).toBe('1')
+    expect(fallbackUrl.searchParams.get('pot')).toBe('TOKEN')
+    expect(fallbackUrl.searchParams.get('c')).toBe('WEB')
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    vi.mocked(youtubeFetch).mockReset().mockResolvedValueOnce(new Response(JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: 'Hello plain' }] }],
+    })))
+    const freshId = await open(untilCancelled)
+    vi.mocked(anonymousCueTracks).mockRejectedValueOnce(new Error('ANDROID_VR unavailable'))
+    const plain = await call('captionCues', freshId, '.en')
+    expect(plain.result).toContain('Hello plain')
+    const plainUrl = new URL(String(vi.mocked(youtubeFetch).mock.calls[0]![0]))
+    expect(plainUrl.searchParams.get('signature')).toBe('web')
+    expect(plainUrl.searchParams.get('potc')).toBe('1')
+    expect(plainUrl.searchParams.get('pot')).toBe('TOKEN')
+    expect(plainUrl.searchParams.get('c')).toBe('WEB')
+    expect(plainUrl.searchParams.has('tlang')).toBe(false)
+  })
+
+  it('falls back for native tracks when ANDROID_VR timedtext returns an HTTP error', async () => {
+    vi.mocked(youtubeFetch)
+      .mockResolvedValueOnce(new Response('', { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        events: [{ tStartMs: 0, dDurationMs: 1_500, segs: [{ utf8: 'Recovered' }] }],
+      })))
+    const id = await open(untilCancelled)
+    const result = await call('captionCues', id, '.en')
+    expect(result.result).toContain('Recovered')
+    expect(vi.mocked(youtubeFetch)).toHaveBeenCalledTimes(2)
   })
 
   it('refuses a language the video does not offer or a non-translatable track', async () => {

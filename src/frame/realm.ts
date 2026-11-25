@@ -1,11 +1,13 @@
 /**
  * What the engine reads YouTube with, set by main.ts before it imports `./index`, whose modules read it at import.
- * `fetch` is the engine's lanes (lanes.ts); `cookie` the FKN page's `document.cookie` when its jar holds a session,
- * from which youtubei.js signs its requests (SAPISIDHASH); `signedOut` turns true when an answer says that session
- * has ended. The defaults read nothing signed in, and fetch with the frame's own fetch.
+ * `fetch` is the engine's lanes (lanes.ts); `anonymousFetch` uses only unauthenticated catalog/direct lanes (never the
+ * signed-in session lane); `cookie` the FKN page's `document.cookie` when its jar holds a session, from which
+ * youtubei.js signs its requests (SAPISIDHASH); `signedOut` turns true when an answer says that session has ended.
+ * The defaults read nothing signed in, and fetch with the frame's own fetch.
  */
-export const realm: { fetch: typeof fetch, cookie?: string, signedOut: boolean } = {
+export const realm: { fetch: typeof fetch, anonymousFetch: typeof fetch, cookie?: string, signedOut: boolean } = {
   fetch: (input, init) => globalThis.fetch(input, init),
+  anonymousFetch: (input, init) => globalThis.fetch(input, init),
   cookie: undefined,
   signedOut: false,
 }

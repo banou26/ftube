@@ -228,12 +228,11 @@ export const timedTextUrl = (baseUrl: string, translateTo?: string) => {
 }
 
 /**
- * youtube.com's request for an Auto-translate: the watch page's own signed caption address with `tlang`, the
- * video-bound PO token, and `c=WEB`. Without a valid token that address answers 200 with an empty body.
+ * youtube.com's watch-page signed caption address with `potc=1`, the video-bound PO token, `c=WEB`, and optional
+ * `tlang`. Without a valid token that address answers 200 with an empty body.
  */
-export const translatedTextUrl = (baseUrl: string, translateTo: string, poToken: string) => {
-  const url = new URL(timedTextUrl(baseUrl))
-  url.searchParams.set('tlang', translateTo)
+export const signedTextUrl = (baseUrl: string, poToken: string, translateTo?: string) => {
+  const url = new URL(timedTextUrl(baseUrl, translateTo))
   url.searchParams.set('potc', '1')
   url.searchParams.set('pot', poToken)
   url.searchParams.set('c', 'WEB')
