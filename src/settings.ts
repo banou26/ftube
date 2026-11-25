@@ -32,6 +32,7 @@ export type Settings = {
   captionEdge: string
   captionOpacity: number
   theater: boolean
+  ambientMode: boolean
   showDislikes: boolean
   skipSponsors: boolean
   guideCollapsed: boolean
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionEdge: 'None',
   captionOpacity: 1,
   theater: false,
+  ambientMode: true,
   showDislikes: true,
   skipSponsors: true,
   guideCollapsed: false,
@@ -98,6 +100,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
       choices.some(choice => choice.value === stored[key]) ? stored[key] : DEFAULT_SETTINGS[key],
     ])) as CaptionLook,
     theater: typeof stored.theater === 'boolean' ? stored.theater : DEFAULT_SETTINGS.theater,
+    ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,
     guideCollapsed: typeof stored.guideCollapsed === 'boolean' ? stored.guideCollapsed : DEFAULT_SETTINGS.guideCollapsed,

@@ -256,7 +256,7 @@ const captionBase = (video: HTMLVideoElement) => {
 const VideoPlayer = (
   {
     videoId, playerParams, list, title, startAt, docked = false, theater = false, onTheater, onMiniplayer, upNext,
-    chapters, segments = [], teasers = [], cardsAvatar,
+    chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
@@ -272,6 +272,9 @@ const VideoPlayer = (
     segments?: readonly SkipSegment[]
     teasers?: readonly CardTeaser[]
     cardsAvatar?: string | null
+    ambientMode?: boolean
+    onAmbientMode?: () => void
+    onVideoElement?: (video: HTMLVideoElement | null) => void
   },
 ) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -279,7 +282,8 @@ const VideoPlayer = (
   const bindVideo = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node
     setVideoElement(node)
-  }, [])
+    onVideoElement?.(node)
+  }, [onVideoElement])
   const resumeAt = useRef(startAt ?? 0)
   const [attempt, setAttempt] = useState(0)
   const restarts = useMemo(() => createRestartBudget(), [videoId])
@@ -1029,6 +1033,8 @@ const VideoPlayer = (
             hasDrc={hasDrc}
             stableVolume={stableVolume}
             onStableVolume={applyStableVolume}
+            ambientMode={ambientMode}
+            onAmbientMode={onAmbientMode}
             captionTracks={captionTracks}
             translationLanguages={translationLanguages}
             caption={caption}

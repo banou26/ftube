@@ -624,6 +624,8 @@ type ControlsProps = {
   hasDrc?: boolean
   stableVolume?: boolean
   onStableVolume?: (value: boolean) => void
+  ambientMode?: boolean
+  onAmbientMode?: () => void
   captionTracks: CaptionTrack[]
   translationLanguages?: TranslationLanguage[]
   caption: CaptionPick | undefined
@@ -651,6 +653,7 @@ type ControlsProps = {
 export const PlayerControls = (
   {
     video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
+    ambientMode = true, onAmbientMode,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false,
@@ -989,6 +992,18 @@ export const PlayerControls = (
             {menu === 'root'
               ? (
                 <Popup label='Player settings' class='settings-menu'>
+                  {onAmbientMode
+                    ? (
+                      <MenuItem
+                        role='menuitemcheckbox'
+                        selected={ambientMode}
+                        detail={ambientMode ? 'On' : 'Off'}
+                        onSelect={onAmbientMode}
+                      >
+                        Ambient mode
+                      </MenuItem>
+                    )
+                    : undefined}
                   {hasDrc && onStableVolume
                     ? (
                       <MenuItem

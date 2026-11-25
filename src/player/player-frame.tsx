@@ -65,6 +65,7 @@ const frameStyle = css`
   border-radius: 12px;
   background: #000;
   position: relative;
+  z-index: 1;
 
   /* Fullscreen has to beat BOTH the 16/9 aspect-ratio box and the max-height
      that theater mode puts on this element, or the video is letterboxed inside
@@ -112,7 +113,13 @@ const frameStyle = css`
  * session's open list (the chapters or the transcript), the comments or the description. Opening one closes the
  * others, and all of them close when the video changes or full screen starts or ends.
  */
-export const PlayerFrame = ({ details, children }: { details: FrameDetails, children: ComponentChildren }) => {
+export const PlayerFrame = (
+  { details, onFullscreenChange, children }: {
+    details: FrameDetails
+    onFullscreenChange?: (fullscreen: boolean) => void
+    children: ComponentChildren
+  },
+) => {
   const ref = useRef<HTMLDivElement>(null)
   const [fullscreen, setFullscreen] = useState(false)
   const [grid, setGrid] = useState(false)
@@ -122,14 +129,19 @@ export const PlayerFrame = ({ details, children }: { details: FrameDetails, chil
   // youtube.com closes the open list on every switch in or out, including one open beside the player on the watch page
   useEffect(() => {
     const sync = () => {
-      setFullscreen(document.fullscreenElement !== null && document.fullscreenElement === ref.current)
+      const next = document.fullscreenElement !== null && document.fullscreenElement === ref.current
+      setFullscreen(next)
+      onFullscreenChange?.(next)
       setGrid(false)
       setAside(undefined)
       setPanel(undefined)
     }
     document.addEventListener('fullscreenchange', sync)
-    return () => document.removeEventListener('fullscreenchange', sync)
-  }, [])
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      onFullscreenChange?.(false)
+    }
+  }, [onFullscreenChange])
 
   useEffect(() => {
     setGrid(false)

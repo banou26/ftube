@@ -82,6 +82,18 @@ describe('the Skip sponsors setting', () => {
   })
 })
 
+describe('the Ambient mode setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is on until turned off', async () => {
+    expect((await load()).getSettings().ambientMode).toBe(true)
+    expect((await load({ ambientMode: 'no' })).getSettings().ambientMode).toBe(true)
+    expect((await load({ ambientMode: false })).getSettings().ambientMode).toBe(false)
+  })
+})
+
 describe('the caption size setting', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
