@@ -13,7 +13,7 @@ test('searches from the header\'s search icon at a phone\'s width', async ({ pag
   await expect(input).toBeVisible()
   await expect(home).toHaveText('FTube')
   await expect(page).toHaveTitle('FTube')
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg')
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', '/favicon.svg')
   await expect(searchButton).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Back' })).toHaveCount(0)
 

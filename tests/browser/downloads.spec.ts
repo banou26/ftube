@@ -61,7 +61,7 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   await expect(trayTrigger).toBeVisible()
 
   await page.setViewportSize({ width: 360, height: 860 })
-  const signInButton = page.getByRole('button', { name: 'Sign in' })
+  const signInButton = page.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible({ timeout: 30_000 })
   const trayBox = (await trayTrigger.boundingBox())!
   const signInBox = (await signInButton.boundingBox())!
@@ -141,11 +141,11 @@ test('downloads audio (M4A) and muxed video (MP4) over SABR and manages them via
   await floatingMenu.getByRole('button', { name: 'Clear', exact: true }).click()
   await expect(trayTrigger).toHaveCount(0)
 
-  const guide = page.getByRole('navigation', { name: 'Guide' })
-  if (await guide.count() === 0) {
+  const downloadsLink = page.getByRole('link', { name: 'Downloads', exact: true })
+  if (await downloadsLink.count() === 0) {
     await page.getByRole('button', { name: 'Guide', exact: true }).click()
   }
-  await page.getByRole('link', { name: 'Downloads', exact: true }).click()
+  await downloadsLink.click()
   await expect(page).toHaveURL(/\/downloads$/)
   await expect(page.getByRole('heading', { name: 'Downloads' })).toBeVisible()
   await expect(page.locator('.row')).toHaveCount(2)
