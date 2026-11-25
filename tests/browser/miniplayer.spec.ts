@@ -147,7 +147,6 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     muted: (element as HTMLVideoElement).muted,
   }))).toEqual({ volume: 0.5, muted: false })
 
-  // Pressing m at volume 0 restores 0.5 volume to match aria-keyshortcuts="m" on the mute button.
   await volumeSlider.fill('0')
   await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
   await page.getByRole('heading', { name: 'Settings' }).click()
@@ -157,7 +156,6 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     muted: (element as HTMLVideoElement).muted,
   }))).toEqual({ volume: 0.5, muted: false })
 
-  // Pointer drag out keeps controls visible until release, then lets them fade without sticking.
   await page.mouse.move(picture.left + 100, picture.top + 60)
   await expect.poll(() => opacity(controls)).toBe('1')
   const sliderBox = await box(volumeSlider)
