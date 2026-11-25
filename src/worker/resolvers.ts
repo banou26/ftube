@@ -32,7 +32,7 @@ export const resolvers = {
     shorts: (_, { seed, cursor, sequence }, context) =>
       context.source.shorts(seed ?? undefined, cursor ?? undefined, sequence ?? undefined),
     subscriptions: (_, { cursor }, context) => context.source.subscriptions(cursor ?? undefined),
-    history: (_, { cursor }, context) => context.source.history(cursor ?? undefined),
+    history: (_, { query, cursor }, context) => context.source.history(cursor ?? undefined, query ?? undefined),
     subscribedChannels: (_, { all }, context) => context.source.subscribedChannels(all ?? undefined),
     channelUploads: (_, { channelId }, context) => context.source.channelUploads(channelId),
     search: (_, { query, filters, cursor }, context) =>
@@ -68,6 +68,8 @@ export const resolvers = {
   Mutation: {
     rateVideo: (_, { id, status }, context) => context.source.rateVideo(id, status),
     removeFromHistory: (_, { videoId }, context) => context.source.removeFromHistory(videoId),
+    clearHistory: (_, _args, context) => context.source.clearHistory(),
+    submitFeedback: (_, { token }, context) => context.source.submitFeedback(token),
     markNotificationRead: (_, { id }, context) => context.source.markNotificationRead(id),
     postComment: (_, { videoId, text }, context) => context.source.postComment(videoId, text),
     commentOnPost: (_, { postId, channelId, text }, context) =>

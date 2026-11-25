@@ -114,6 +114,8 @@ type Video {
   # A collaboration's channels, as the choice youtube.com opens from its
   # avatars lists them. A channel's Videos tab names them without these.
   collaborators: [Channel!]
+  notInterestedToken: String
+  dontRecommendToken: String
 }
 
 type BylinePart {
@@ -885,7 +887,7 @@ type Query {
   # signed out, so callers gate on `session.signedIn` rather than firing a
   # request that cannot succeed.
   subscriptions(cursor: String): VideoPage!
-  history(cursor: String): SectionedVideoPage!
+  history(query: String, cursor: String): SectionedVideoPage!
   # Only the first page of the list unless `all` is set, which follows it to
   # the end at one request per page (capped at 20 pages).
   subscribedChannels(all: Boolean): [Channel!]!
@@ -973,6 +975,8 @@ type Mutation {
   rateVideo(id: ID!, status: LikeStatus!): WatchMeta!
   # Resolves to the removed video id so the cache can drop it from the feed.
   removeFromHistory(videoId: ID!): ID!
+  clearHistory: Boolean!
+  submitFeedback(token: String!): Boolean!
   # Resolves to a Boolean, not a Comment: upstream answers a create with an
   # opaque response carrying no parseable comment, and a fabricated id would
   # poison the normalized cache. The composer prepends its own row instead.

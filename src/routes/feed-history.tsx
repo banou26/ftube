@@ -1,29 +1,34 @@
 import type { WatchHistoryQuery } from '../generated/graphql'
 import type { HistoryEntry, ImportedHistory } from '../history/browser-history'
+import type { HistoryTypeFilter } from './history-filter'
 
 import { css } from '@emotion/react'
-import { Download, History, Trash2, X } from 'lucide-react'
+import { Download, History, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
+import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure, lineFor } from '../components/data-failure'
 import { useExtensionExposed } from '../components/extension-notice'
 import { SignedOutPrompt } from '../components/signed-out-prompt'
+import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
 import { gql } from '../generated'
+import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { canImportBrowserHistory, dayHeading, importBrowserHistory, importFailure, keptBrowserHistory, SignedOutError } from '../history/browser-history'
 import { deleteImportedHistory, readImportedHistory } from '../history/store'
 import { startPlatform } from '../engine/platform'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
+import { EMPTY_HISTORY_PAGES_LIMIT, emptyHistoryPagesInARow, matchesHistoryFilter } from './history-filter'
 
 const WATCH_HISTORY_QUERY = gql(`
-  query WatchHistory($cursor: String) {
-    history(cursor: $cursor) {
+  query WatchHistory($query: String, $cursor: String) {
+    history(query: $query, cursor: $cursor) {
       sections {
         title
         items {
@@ -53,6 +58,12 @@ const REMOVE_FROM_HISTORY = gql(`
   }
 `)
 
+const CLEAR_HISTORY = gql(`
+  mutation ClearHistory {
+    clearHistory
+  }
+`)
+
 type HistoryPage = WatchHistoryQuery['history']
 type HistoryVideo = HistoryPage['sections'][number]['items'][number] & { sectionTitle: string }
 type HistorySection = { title: string, items: HistoryVideo[] }
@@ -67,12 +78,144 @@ const style = css`
     max-width: none;
   }
 
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.2rem 1.6rem;
+    margin-bottom: 2rem;
+  }
+
   .heading {
-    margin: 0 0 2.4rem;
+    margin: 0;
     font-size: 2rem;
     font-weight: 700;
     line-height: 2.8rem;
     color: var(--text-primary);
+  }
+
+  .clear-history {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.8rem;
+    height: 3.6rem;
+    padding: 0 1.4rem;
+    border: none;
+    border-radius: 1.8rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .clear-history:hover:not(:disabled) {
+    background: var(--bg-chip-hover);
+  }
+
+  .clear-history:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    margin-bottom: 2.4rem;
+  }
+
+  .search-form {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    max-width: 40rem;
+    height: 3.6rem;
+    padding: 0 0.8rem 0 1.2rem;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+  }
+
+  .search-form:focus-within {
+    border-bottom-color: var(--text-primary);
+  }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    outline: none;
+  }
+
+  .search-clear {
+    flex: none;
+    width: 2.8rem;
+    height: 2.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .search-clear:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.2rem 2.4rem;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .chip {
+    height: 3.2rem;
+    padding: 0 1.2rem;
+    border: none;
+    border-radius: 0.8rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .chip:hover {
+    background: var(--bg-chip-hover);
+  }
+
+  .chip[aria-pressed='true'] {
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+  }
+
+  .chip .emoji {
+    margin-right: 0.6rem;
+  }
+
+  .manage {
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--accent);
   }
 
   .section + .section {
@@ -133,6 +276,25 @@ const style = css`
     cursor: default;
   }
 
+  .more {
+    display: block;
+    height: 3.6rem;
+    margin: 2.4rem auto 0;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .more:hover {
+    background: var(--accent-hover);
+    border-color: transparent;
+  }
+
   .notice {
     padding: 2.4rem 0;
     font-size: 1.4rem;
@@ -161,7 +323,7 @@ const style = css`
     flex-wrap: wrap;
     justify-content: flex-start;
     gap: 0.8rem;
-    margin: -0.8rem 0 2.4rem;
+    margin: 0 0 2.4rem;
   }
 
   > .actions .sign-in {
@@ -197,9 +359,145 @@ const style = css`
   }
 `
 
+const confirmStyle = css`
+  .confirm-note {
+    margin: 0 0 2rem;
+    font-size: 1.4rem;
+    line-height: 2rem;
+    color: var(--text-secondary);
+  }
+
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.8rem;
+  }
+
+  .cancel,
+  .confirm {
+    height: 3.6rem;
+    padding: 0 1.6rem;
+    border: none;
+    border-radius: 1.8rem;
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .cancel {
+    background: transparent;
+    color: var(--text-primary);
+  }
+
+  .cancel:hover {
+    background: var(--bg-hover);
+  }
+
+  .confirm {
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+  }
+
+  .confirm:hover:not(:disabled) {
+    background: var(--bg-inverse-hover);
+  }
+
+  .confirm:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+`
+
+const HistoryControls = (
+  {
+    draftQuery, onQueryInput, onSubmit, onClearSearch, showClear,
+    type, onType, hideShorts, group, orderedGroups, onGroup,
+  }: {
+    draftQuery: string
+    onQueryInput: (value: string) => void
+    onSubmit: (event: Event) => void
+    onClearSearch: () => void
+    showClear: boolean
+    type: HistoryTypeFilter
+    onType: (next: HistoryTypeFilter) => void
+    hideShorts: boolean
+    group: ReturnType<typeof useGroups>[number] | undefined
+    orderedGroups: ReturnType<typeof groupTreeOrder>
+    onGroup: (groupId: string | undefined) => void
+  },
+) => (
+  <div className='controls'>
+    <form className='search-form' role='search' onSubmit={onSubmit}>
+      <Search size={18} strokeWidth={1.5} aria-hidden='true' />
+      <input
+        type='search'
+        className='search-input'
+        aria-label='Search watch history'
+        placeholder='Search watch history'
+        value={draftQuery}
+        onInput={(event: Event) => onQueryInput((event.currentTarget as HTMLInputElement).value)}
+      />
+      {showClear
+        ? (
+          <button type='button' className='search-clear' aria-label='Clear search' onClick={onClearSearch}>
+            <X size={16} strokeWidth={1.5} />
+          </button>
+        )
+        : undefined}
+    </form>
+    <div className='filters'>
+      <div className='chips' role='group' aria-label='Filter by type'>
+        <button type='button' className='chip' aria-pressed={type === 'all'} onClick={() => onType('all')}>All</button>
+        <button type='button' className='chip' aria-pressed={type === 'videos'} onClick={() => onType('videos')}>Videos</button>
+        {hideShorts
+          ? undefined
+          : <button type='button' className='chip' aria-pressed={type === 'shorts'} onClick={() => onType('shorts')}>Shorts</button>}
+      </div>
+      {orderedGroups.length > 0
+        ? (
+          <div className='chips' role='group' aria-label='Groups'>
+            <button type='button' className='chip' aria-pressed={!group} onClick={() => onGroup(undefined)}>All channels</button>
+            {orderedGroups.map(({ group: candidate }) => (
+              <button
+                key={candidate.id}
+                type='button'
+                className='chip'
+                aria-pressed={candidate.id === group?.id}
+                onClick={() => onGroup(candidate.id)}
+              >
+                <span className='emoji' aria-hidden='true'>{candidate.emoji}</span>
+                {candidate.name}
+              </button>
+            ))}
+            <Link href='/feed/groups' className='manage'>Manage</Link>
+          </div>
+        )
+        : undefined}
+    </div>
+  </div>
+)
+
+const useHistoryFilter = (query?: string) => {
+  const hideShorts = useSetting('hideShorts')
+  const groups = useGroups()
+  const orderedGroups = groupTreeOrder(groups)
+  const [type, setType] = useState<HistoryTypeFilter>('all')
+  const [groupId, setGroupId] = useState<string | undefined>(undefined)
+
+  const effectiveType: HistoryTypeFilter = hideShorts && type === 'shorts' ? 'all' : type
+  const group = groups.find(candidate => candidate.id === groupId)
+  const channelIds = group ? new Set(groupChannelsWithDescendants(groups, group.id).map(channel => channel.id)) : undefined
+  const filter = { type: effectiveType, channelIds, query, hideShorts }
+  const hasFilter = effectiveType !== 'all' || group !== undefined || (query?.trim() ?? '') !== ''
+
+  return { hideShorts, orderedGroups, group, setGroupId, type: effectiveType, setType, filter, hasFilter }
+}
+
 const HistorySkeleton = () => (
   <main css={style}>
-    <h1 className='heading'>Watch history</h1>
+    <div className='head'>
+      <h1 className='heading'>Watch history</h1>
+    </div>
     <div className='entries'>
       {Array.from({ length: SKELETON_ROWS }, (_, index) => <VideoCardCompactSkeleton key={index} />)}
     </div>
@@ -209,32 +507,45 @@ const HistorySkeleton = () => (
 const HistoryFeedPage = () => {
   useDocumentTitle('History')
   const { ready, signedIn } = useSession()
+  const [draftQuery, setDraftQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+  const [clearOpen, setClearOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [loaded, setLoaded] = useState<HistoryPage[]>([])
-  const [{ data, error, fetching }, reexecute] = useQuery({
+  const { hideShorts, orderedGroups, group, setGroupId, type, setType, filter, hasFilter } = useHistoryFilter(submittedQuery)
+
+  const expectedQuery = submittedQuery || undefined
+  const [{ data, error, fetching, operation }, reexecute] = useQuery({
     query: WATCH_HISTORY_QUERY,
-    variables: { cursor: loaded[loaded.length - 1]?.cursor },
+    variables: { query: expectedQuery, cursor: loaded[loaded.length - 1]?.cursor },
     // the source refuses this feed when signed out and errors are unmasked, so the refusal would land in the UI verbatim
-    pause: !ready || !signedIn
+    pause: !ready || !signedIn,
   })
   const [, removeFromHistory] = useMutation(REMOVE_FROM_HISTORY)
+  const [, clearHistory] = useMutation(CLEAR_HISTORY)
   const [removed, setRemoved] = useState<Set<string>>(() => new Set())
   const [removing, setRemoving] = useState<string[]>([])
 
-  const page = data?.history
-  const hideShorts = useSetting('hideShorts')
+  const matchedOperation = operation?.variables.query === expectedQuery
+  const page = matchedOperation ? data?.history : undefined
+  // urql keeps the previous result while the next page is in flight, so the live page can repeat one already consumed
+  const pages = page && loaded[loaded.length - 1] !== page ? [...loaded, page] : loaded
   const { items, cursor } = useInfiniteFeed({
-    pages: (page ? [...loaded, page] : loaded).map(entry => ({
+    pages: pages.map(entry => ({
       items: entry.sections.flatMap(section =>
         section.items.map(video => ({ ...video, sectionTitle: section.title ?? '' }))),
-      cursor: entry.cursor
+      cursor: entry.cursor,
     })),
-    key: video => video.id
+    key: video => video.id,
   })
+
+  const stalled = emptyHistoryPagesInARow(pages, filter) >= EMPTY_HISTORY_PAGES_LIMIT
 
   const sections: HistorySection[] = []
   const byTitle = new Map<string, HistorySection>()
+  const clientFilter = { type: filter.type, channelIds: filter.channelIds, hideShorts }
   for (const video of items) {
-    if (removed.has(video.id) || (hideShorts && video.isShort === true)) continue
+    if (removed.has(video.id) || !matchesHistoryFilter(video, clientFilter)) continue
     let section = byTitle.get(video.sectionTitle)
     if (!section) {
       section = { title: video.sectionTitle, items: [] }
@@ -263,13 +574,71 @@ const HistoryFeedPage = () => {
     })
   }
 
+  const onSearchSubmit = (event: Event) => {
+    event.preventDefault()
+    const nextQuery = draftQuery.trim()
+    if (nextQuery === submittedQuery) return
+    setLoaded([])
+    setSubmittedQuery(nextQuery)
+  }
+
+  const onSearchClear = () => {
+    setDraftQuery('')
+    if (submittedQuery === '') return
+    setLoaded([])
+    setSubmittedQuery('')
+  }
+
+  const onClearAll = () => {
+    if (clearing) return
+    setClearing(true)
+    void clearHistory({}).then((result) => {
+      setClearing(false)
+      if (result.error) {
+        showToast(lineFor(result.error))
+        return
+      }
+      setClearOpen(false)
+      setLoaded([])
+      setRemoved(new Set())
+      setDraftQuery('')
+      setSubmittedQuery('')
+      reexecute({ requestPolicy: 'network-only' })
+      showToast('Watch history cleared')
+    })
+  }
+
   if (!ready) return <HistorySkeleton />
 
   if (!signedIn) return <SignedOutHistory onSignIn={signIn} />
 
   return (
     <main css={style}>
-      <h1 className='heading'>Watch history</h1>
+      <div className='head'>
+        <h1 className='heading'>Watch history</h1>
+        <button
+          type='button'
+          className='clear-history'
+          disabled={clearing}
+          onClick={() => setClearOpen(true)}
+        >
+          <Trash2 size={18} strokeWidth={1.5} />
+          Clear all watch history
+        </button>
+      </div>
+      <HistoryControls
+        draftQuery={draftQuery}
+        onQueryInput={setDraftQuery}
+        onSubmit={onSearchSubmit}
+        onClearSearch={onSearchClear}
+        showClear={Boolean(draftQuery || submittedQuery)}
+        type={type}
+        onType={setType}
+        hideShorts={hideShorts}
+        group={group}
+        orderedGroups={orderedGroups}
+        onGroup={setGroupId}
+      />
       {fetching && items.length === 0
         ? (
           <div className='entries'>
@@ -300,16 +669,34 @@ const HistoryFeedPage = () => {
           </div>
         </section>
       ))}
-      {data && !fetching && !error && sections.length === 0
+      {page && !fetching && !error && sections.length === 0 && (!hasFilter || stalled || !cursor)
         ? (
           <div className='prompt'>
-            <h2>Nothing watched yet</h2>
+            <h2>{hasFilter ? 'No matching videos' : 'Nothing watched yet'}</h2>
           </div>
         )
         : undefined}
       {fetching && items.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
+      {stalled && cursor && !fetching && !error
+        ? <button type='button' className='more' onClick={onMore}>Load more</button>
+        : undefined}
+      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
+      {clearOpen
+        ? (
+          <Dialog title='Clear watch history?' onClose={() => { if (!clearing) setClearOpen(false) }}>
+            <div css={confirmStyle}>
+              <p className='confirm-note'>Your YouTube watch history will be cleared from all devices.</p>
+              <div className='confirm-actions'>
+                <button type='button' className='cancel' disabled={clearing} onClick={() => setClearOpen(false)}>Cancel</button>
+                <button type='button' className='confirm' disabled={clearing} onClick={onClearAll}>
+                  {clearing ? 'Clearing…' : 'Clear watch history'}
+                </button>
+              </div>
+            </div>
+          </Dialog>
+        )
+        : undefined}
     </main>
   )
 }
@@ -329,7 +716,8 @@ const importedSections = (entries: HistoryEntry[], now: Date) => {
 
 const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
   const exposed = useExtensionExposed()
-  const hideShorts = useSetting('hideShorts')
+  const [draftQuery, setDraftQuery] = useState('')
+  const { hideShorts, orderedGroups, group, setGroupId, type, setType, filter, hasFilter } = useHistoryFilter(draftQuery)
   const offered = exposed === true && canImportBrowserHistory()
   const [imported, setImported] = useState<ImportedHistory | undefined>()
   // a kept copy this page cannot match to the browser's YouTube session: never listed, still deletable
@@ -416,7 +804,7 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
     )
   }
 
-  const visibleEntries = hideShorts ? imported.entries.filter(entry => entry.isShort !== true) : imported.entries
+  const visibleEntries = imported.entries.filter(entry => matchesHistoryFilter(entry, filter))
 
   return (
     <main css={style}>
@@ -425,6 +813,19 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
         {offered ? importButton('Import again') : undefined}
         {deleteButton}
       </div>
+      <HistoryControls
+        draftQuery={draftQuery}
+        onQueryInput={setDraftQuery}
+        onSubmit={(event: Event) => event.preventDefault()}
+        onClearSearch={() => setDraftQuery('')}
+        showClear={Boolean(draftQuery)}
+        type={type}
+        onType={setType}
+        hideShorts={hideShorts}
+        group={group}
+        orderedGroups={orderedGroups}
+        onGroup={setGroupId}
+      />
       {failure ? <p className='notice'>{failure}</p> : undefined}
       {importedSections(visibleEntries, new Date()).map(section => (
         <section className='section' key={section.key}>
@@ -437,7 +838,7 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
       {visibleEntries.length === 0
         ? (
           <div className='prompt'>
-            <h2>Nothing watched yet</h2>
+            <h2>{hasFilter ? 'No matching videos' : 'Nothing watched yet'}</h2>
           </div>
         )
         : undefined}

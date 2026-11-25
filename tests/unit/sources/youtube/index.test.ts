@@ -1604,4 +1604,56 @@ describe('youtube source', () => {
     })
     await expect(source.session()).resolves.toEqual({ signedIn: true, accounts: [] })
   })
+
+  it('searches and clears watch history cleanly', async () => {
+    const client = createFakeClient()
+    let cleared = false
+    client.getHistory = async () => ({
+      ...feed('watched'),
+      sections: [{ header: { title: 'Today' }, contents: [{ video_id: 'v1', title: { text: 'Default' } }] }],
+      search: async (query: string) => ({
+        ...feed('searched'),
+        sections: [{ header: { title: 'Results' }, contents: [{ video_id: 'v2', title: { text: `Match ${query}` } }] }],
+      }),
+      clearWatchHistory: async () => {
+        cleared = true
+        return true
+      },
+    }) as never
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
+    const searched = await source.history(undefined, 'rust')
+    expect(searched.sections[0]?.items[0]?.title).toBe('Match rust')
+    await expect(source.clearHistory()).resolves.toBe(true)
+    expect(cleared).toBe(true)
+
+    client.getHistory = async () => ({
+      ...feed('watched'),
+      sections: [],
+      clearWatchHistory: async () => false,
+    }) as never
+    await expect(source.clearHistory()).rejects.toThrow('watch history was not cleared')
+  })
+
+  it('submits recommendation feedback tokens through /feedback', async () => {
+    const client = createFakeClient()
+    client.actions.execute = async (endpoint: string, args: unknown) => {
+      client.calls.push(endpoint)
+      client.payloads.push({ endpoint, args: (args ?? {}) as Record<string, unknown> })
+      return { data: { feedbackResponses: [{ isProcessed: true }] } } as never
+    }
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
+    await expect(source.submitFeedback('fb-token-1')).resolves.toBe(true)
+    expect(client.payloads.at(-1)).toEqual({
+      endpoint: '/feedback',
+      args: {
+        feedbackTokens: ['fb-token-1'],
+        shouldMerge: false,
+        isFeedbackTokenUnencrypted: false,
+        parse: false,
+      },
+    })
+
+    client.actions.execute = async () => ({ data: { feedbackResponses: [{ isProcessed: false }] } }) as never
+    await expect(source.submitFeedback('fb-token-2')).rejects.toThrow('could not update your recommendations')
+  })
 })

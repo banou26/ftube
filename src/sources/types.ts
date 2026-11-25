@@ -73,6 +73,8 @@ export type SourceVideo = {
   byline?: SourceBylinePart[]
   // a collaboration's channels, as the choice youtube.com opens from its avatars lists them; a channel's Videos tab has none
   collaborators?: SourceChannel[]
+  notInterestedToken?: string
+  dontRecommendToken?: string
 }
 
 export type SourceBylinePart = {
@@ -643,7 +645,7 @@ export type Source = {
   // `sequence` is a Shorts tile's own, which keeps the feed in that tile's channel or search
   shorts(seed?: string, cursor?: string, sequence?: string): Promise<SourceShortsPage>
   subscriptions(cursor?: string): Promise<SourceVideoPage>
-  history(cursor?: string): Promise<SourceSectionedVideoPage>
+  history(cursor?: string, query?: string): Promise<SourceSectionedVideoPage>
   // `all` follows the list past its first page, at a cost of one request per page
   subscribedChannels(all?: boolean): Promise<SourceChannel[]>
   // A channel's newest long uploads, read off its public feed, or its Videos tab when the feed fails; a channel id that is not of the `UC` form is refused
@@ -684,6 +686,8 @@ export type Source = {
   // Writes resolve to the affected entity: only identity and the changed fields are meaningful, the rest is placeholders
   rateVideo(id: string, status: SourceLikeStatus): Promise<SourceWatchMeta>
   removeFromHistory(videoId: string): Promise<string>
+  clearHistory(): Promise<boolean>
+  submitFeedback(token: string): Promise<boolean>
   markNotificationRead(id: string): Promise<string>
   postComment(videoId: string, text: string): Promise<boolean>
   commentOnPost(postId: string, channelId: string, text: string): Promise<boolean>
@@ -735,6 +739,8 @@ export const SOURCE_METHODS = [
   'session',
   'rateVideo',
   'removeFromHistory',
+  'clearHistory',
+  'submitFeedback',
   'markNotificationRead',
   'postComment',
   'commentOnPost',
@@ -810,6 +816,8 @@ export const SOURCE_REPLAY = {
   session: 'always',
   rateVideo: 'never',
   removeFromHistory: 'never',
+  clearHistory: 'never',
+  submitFeedback: 'never',
   markNotificationRead: 'never',
   postComment: 'never',
   commentOnPost: 'never',

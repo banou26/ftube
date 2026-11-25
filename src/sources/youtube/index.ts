@@ -35,6 +35,8 @@ type HomeFeedResponse = Feed & {
 
 type SectionedFeed = Feed & {
   sections?: { header?: { title?: unknown }, contents?: Iterable<unknown> }[]
+  search?: (query: string) => Promise<SectionedFeed>
+  clearWatchHistory?: () => Promise<boolean>
   removeVideo?: (videoId: string, pagesToLoad?: number) => Promise<unknown>
 }
 
@@ -297,6 +299,7 @@ export type YoutubeClient = {
     execute(endpoint: 'live_chat/get_live_chat_replay', args: { continuation: string, currentPlayerState: { playerOffsetMs: string }, parse: true }): Promise<unknown>
     // unparsed: youtubei.js 18.3.0 has no parser for the view models of youtube.com's transcript panel
     execute(endpoint: '/get_panel', args: { panelId: string, params: string } | { continuation: string, formData: { searchInputFormData: { query: string } } }): Promise<{ data: unknown }>
+    execute(endpoint: '/feedback', args: { feedbackTokens: string[], shouldMerge: boolean, isFeedbackTokenUnencrypted: boolean, parse: false }): Promise<unknown>
   }
 }
 
@@ -1272,11 +1275,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       requireSignIn(active, 'see your subscriptions')
       return page('subscriptions', await active.getSubscriptionsFeed())
     },
-    history: async (cursor) => {
-      if (cursor) return sectionContinuations.resolve('history', cursor)
+    history: async (cursor, query) => {
+      const term = query?.trim() || undefined
+      const kind = term ? `history:${term}` : 'history'
+      if (cursor) return sectionContinuations.resolve(kind, cursor)
       const active = await client
       requireSignIn(active, 'see your history')
-      return sectionedPage('history', await active.getHistory())
+      const feed = await active.getHistory()
+      if (term && !feed.search) throw new Error('youtube: this history feed cannot be searched')
+      return sectionedPage(kind, term ? await feed.search!(term) : feed)
     },
     subscribedChannels: async (all) => {
       const active = await client
@@ -1496,6 +1503,28 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       // youtubei.js 18 answers a removal YouTube did not process with false rather than a throw
       if (await history.removeVideo(videoId, HISTORY_REMOVAL_PAGES) === false) throw new Error('youtube: the video was not removed from your history')
       return videoId
+    },
+    clearHistory: async () => {
+      const active = await client
+      requireSignIn(active, 'change your history')
+      const history = await active.getHistory()
+      if (!history.clearWatchHistory) throw new Error('youtube: this history feed cannot be cleared')
+      if (await history.clearWatchHistory() === false) throw new Error('youtube: watch history was not cleared')
+      return true
+    },
+    submitFeedback: async (token) => {
+      const active = await client
+      requireSignIn(active, 'update your recommendations')
+      const response = await active.actions.execute('/feedback', {
+        feedbackTokens: [token],
+        shouldMerge: false,
+        isFeedbackTokenUnencrypted: false,
+        parse: false,
+      }) as { data?: { feedbackResponses?: { isProcessed?: boolean }[] } }
+      if (response.data?.feedbackResponses?.[0]?.isProcessed === false) {
+        throw new Error('youtube: could not update your recommendations')
+      }
+      return true
     },
     liveChat: async (videoId, cursor) => {
       reapIdleLiveChats(videoId)

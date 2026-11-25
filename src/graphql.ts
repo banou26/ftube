@@ -94,6 +94,7 @@ export const createCache = () => cacheExchange({
         cache.invalidate({ __typename: 'Playlist', id: args.id as string })
         invalidatePlaylistList(cache)
       },
+      clearHistory: (_result, _args, cache) => invalidateQueryField(cache, 'history', () => true),
     },
   },
 })
