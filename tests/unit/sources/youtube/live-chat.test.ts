@@ -384,9 +384,9 @@ describe('applyPollPatch, parseLiveChatLeaderboard, and parseSendLiveChatResult'
                     message: {
                       runs: [
                         { text: 'hi ' },
-                        { emoji: { emojiId: ':wave:', shortcuts: [':wave:'], image: { thumbnails: [{ url: 'https://img/w.png', width: 24 }] } } },
+                        { emoji: { emojiId: ':wave:', shortcuts: [':wave:'], isCustomEmoji: true, image: { thumbnails: [{ url: 'https://img/w.png', width: 24 }] } } },
                         { text: ' ' },
-                        { emoji: { emojiId: '😀', image: { thumbnails: [{ url: 'https://img/smile.png', width: 24 }] } } },
+                        { emoji: { emojiId: '😀', shortcuts: [':grinning_face:', ':grinning:'], isCustomEmoji: false, image: { thumbnails: [{ url: 'https://img/smile.png', width: 24 }] } } },
                       ],
                     },
                   },
@@ -426,6 +426,7 @@ describe('applyPollPatch, parseLiveChatLeaderboard, and parseSendLiveChatResult'
       },
     })
     expect(parsed.items[0]?.text).toBe('hi :wave: 😀')
+    expect(parsed.items[0]?.runs[3]?.emojiLabel).toBe('😀')
     expect(parsed.poll?.finished).toBe(true)
     expect(parsed.poll?.choices[0]?.voteParams).toBeUndefined()
   })

@@ -1579,7 +1579,7 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
     leaderboardPanelRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      event.stopPropagation()
+      event.stopImmediatePropagation()
       setLeaderboardOpen(false)
     }
     document.addEventListener('keydown', onKeyDown)

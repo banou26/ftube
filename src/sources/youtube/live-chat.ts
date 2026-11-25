@@ -111,6 +111,13 @@ const rawThumb = (list: RawThumbList | undefined, minWidth?: number) => {
   return url ? httpsUrl(url) : undefined
 }
 
+const emojiText = (emoji: NonNullable<RawTextRun['emoji']>): string => {
+  const custom = emoji.isCustomEmoji === true || emoji.is_custom_emoji === true
+  return custom
+    ? emoji.shortcuts?.[0] ?? emoji.emojiId ?? ''
+    : emoji.emojiId ?? emoji.shortcuts?.[0] ?? ''
+}
+
 const rawText = (value: RawText | undefined): string => {
   if (!value) return ''
   if (typeof value === 'string') return value
@@ -120,7 +127,7 @@ const rawText = (value: RawText | undefined): string => {
   if (Array.isArray(value.runs)) {
     return value.runs.map((run) => {
       if (typeof run.text === 'string') return run.text
-      if (run.emoji) return run.emoji.shortcuts?.[0] ?? run.emoji.emojiId ?? ''
+      if (run.emoji) return emojiText(run.emoji)
       return ''
     }).join('')
   }
@@ -143,7 +150,7 @@ const rawRuns = (value: RawText | undefined): SourceLiveChatRun[] => {
       return [{
         text: run.text ?? '',
         emojiUrl: url,
-        emojiLabel: run.emoji.shortcuts?.[0] ?? run.emoji.emojiId ?? run.text ?? '',
+        emojiLabel: emojiText(run.emoji) || run.text || '',
       }]
     }
     const text = run.text
