@@ -791,6 +791,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     }
     if (!continuation) return undefined
 
+    const concurrent = liveChatSessions.get(videoId)
+    if (concurrent) {
+      if (!forceReopen && concurrent.view === view) return concurrent
+      closeLiveChat(videoId)
+    }
+
     const session: LiveChatSession = {
       view,
       stopped: false,
@@ -993,7 +999,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     }
     // No cursor once the stream is over: that is what stops the client polling.
     if (session.ended) {
-      closeLiveChat(videoId)
+      if (liveChatSessions.get(videoId) === session) closeLiveChat(videoId)
       return page
     }
     const kind = `livechat:${videoId}`
@@ -1925,7 +1931,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
       if (
         typeof parsed.endpoint !== 'string'
-        || !parsed.endpoint.startsWith('/live_chat/')
+        || !/^\/live_chat\/[a-z_]+$/.test(parsed.endpoint)
         || typeof parsed.params !== 'string'
         || !parsed.params
       ) {

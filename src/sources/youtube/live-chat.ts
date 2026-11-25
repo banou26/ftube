@@ -117,7 +117,13 @@ const rawText = (value: RawText | undefined): string => {
   if (typeof value.simpleText === 'string') return value.simpleText
   if (typeof value.text === 'string') return value.text
   if (typeof value.content === 'string') return value.content
-  if (Array.isArray(value.runs)) return value.runs.map((run) => run.text ?? '').join('')
+  if (Array.isArray(value.runs)) {
+    return value.runs.map((run) => {
+      if (typeof run.text === 'string') return run.text
+      if (run.emoji) return run.emoji.shortcuts?.[0] ?? run.emoji.emojiId ?? ''
+      return ''
+    }).join('')
+  }
   const str = value.toString?.()
   return str && str !== '[object Object]' && str !== 'N/A' ? str : ''
 }
@@ -544,6 +550,7 @@ type RawPollRenderer = {
     pollHeaderRenderer?: {
       pollQuestion?: RawText
       metadataText?: RawText
+      liveChatPollType?: string
     }
   }
   choices?: {
@@ -571,7 +578,7 @@ const parseVoteParams = (choice: NonNullable<RawPollRenderer['choices']>[number]
   if (!params) return undefined
   const rawUrl = endpoint.commandMetadata?.webCommandMetadata?.apiUrl ?? '/youtubei/v1/live_chat/live_chat_action'
   const path = rawUrl.replace(/^\/youtubei\/v1/, '')
-  if (!path.startsWith('/live_chat/')) return undefined
+  if (!/^\/live_chat\/[a-z_]+$/.test(path)) return undefined
   return JSON.stringify({ endpoint: path, params })
 }
 
@@ -600,6 +607,7 @@ const parseRawPoll = (poll: RawPollRenderer | undefined): SourceLiveChatPoll | u
     questionRuns: rawRuns(poll.header?.pollHeaderRenderer?.pollQuestion),
     metadataText: rawText(poll.header?.pollHeaderRenderer?.metadataText) || undefined,
     choices,
+    ...(poll.header?.pollHeaderRenderer?.liveChatPollType === 'LIVE_CHAT_POLL_TYPE_CLOSED' ? { finished: true } : {}),
   }
 }
 

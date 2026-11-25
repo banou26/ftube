@@ -367,4 +367,66 @@ describe('applyPollPatch, parseLiveChatLeaderboard, and parseSendLiveChatResult'
     )
     expect(patched?.choices[0]?.votePercentage).toBe('100%')
   })
+
+  it('preserves emoji shortcuts and unicode emojis in text, parses closed polls, and rejects traversal vote endpoints', () => {
+    const parsed = parseLiveChatResponse({
+      continuationContents: {
+        liveChatContinuation: {
+          continuations: [{ timedContinuationData: { continuation: 'tok-next', timeoutMs: 3000 } }],
+          actions: [
+            {
+              addChatItemAction: {
+                item: {
+                  liveChatTextMessageRenderer: {
+                    id: 'emoji-msg',
+                    authorName: { simpleText: '@sender' },
+                    authorExternalChannelId: 'UCsend',
+                    message: {
+                      runs: [
+                        { text: 'hi ' },
+                        { emoji: { emojiId: ':wave:', shortcuts: [':wave:'], image: { thumbnails: [{ url: 'https://img/w.png', width: 24 }] } } },
+                        { text: ' ' },
+                        { emoji: { emojiId: '😀', image: { thumbnails: [{ url: 'https://img/smile.png', width: 24 }] } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+            {
+              showLiveChatActionPanelAction: {
+                panelToShow: {
+                  liveChatActionPanelRenderer: {
+                    contents: {
+                      pollRenderer: {
+                        liveChatPollId: 'poll-closed',
+                        header: {
+                          pollHeaderRenderer: {
+                            pollQuestion: { simpleText: 'Done?' },
+                            liveChatPollType: 'LIVE_CHAT_POLL_TYPE_CLOSED',
+                          },
+                        },
+                        choices: [
+                          {
+                            text: { simpleText: 'Yes' },
+                            serviceEndpoint: {
+                              commandMetadata: { webCommandMetadata: { apiUrl: '/youtubei/v1/live_chat/../browse' } },
+                              sendLiveChatVoteEndpoint: { params: 'evil' },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    })
+    expect(parsed.items[0]?.text).toBe('hi :wave: 😀')
+    expect(parsed.poll?.finished).toBe(true)
+    expect(parsed.poll?.choices[0]?.voteParams).toBeUndefined()
+  })
 })

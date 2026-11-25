@@ -96,7 +96,7 @@ export const mountLiveChatHarness = () => {
   let seq = 0
 
   const source = {
-    session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
+    session: async () => ({ signedIn: true, name: 'Viewer', handle: 'viewer', accounts: [] }),
     liveChat: async (_videoId: string, cursor?: string, view?: string) => {
       if (!cursor) {
         pendingPush = undefined
@@ -321,6 +321,17 @@ export const mountLiveChatHarness = () => {
     },
     sendLiveChatMessage: async (_videoId: string, text: string) => {
       state.sent.push(text)
+      if (text.includes('after unlock')) {
+        enqueuePush({
+          items: [{
+            id: `echo-${++seq}`,
+            kind: 'TEXT',
+            text,
+            runs: [{ text: 'after unlock ' }, { text: '', emojiUrl: CUSTOM_EMOJI_IMG, emojiLabel: ':party:' }, { text: ' 😀' }],
+            author: { id: 'UCself', name: '@viewer', handle: '@viewer' },
+          }],
+        })
+      }
       return true
     },
   } as unknown as SourceApi

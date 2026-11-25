@@ -23,7 +23,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -1423,11 +1423,14 @@ export const usePinnedLog = (lines: unknown) => {
   return { logRef, onScroll, pinned, setPinned }
 }
 
+const normIdent = (value?: string | null) => value?.trim().replace(/^@/, '').toLowerCase() || undefined
+const normEchoText = (value: string) => value.replace(/\s+/g, ' ').trim()
+
 const sameAuthor = (author: ChatRow['author'] | undefined, self: ViewerIdentity | undefined) => {
   if (!author || !self) return false
-  if (self.handle && author.handle && self.handle.toLowerCase() === author.handle.toLowerCase()) return true
-  if (self.name && author.name.toLowerCase() === self.name.toLowerCase()) return true
-  return false
+  const selfKeys = [normIdent(self.handle), normIdent(self.name)].filter((v): v is string => Boolean(v))
+  const authorKeys = [normIdent(author.handle), normIdent(author.name)].filter((v): v is string => Boolean(v))
+  return selfKeys.some((key) => authorKeys.includes(key))
 }
 
 const LiveChatPollCard = (
@@ -1539,6 +1542,7 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
   cursorRef.current = cursor
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const leaderboardPanelRef = useRef<HTMLDivElement>(null)
 
   /* the server parks each request until something arrives, so the cursor chain IS the poll: no interval belongs here */
   const [{ data, error }, reexecute] = useQuery({
@@ -1568,6 +1572,22 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
     timers.current.add(timer)
     return timer
   }
+
+  useLayoutEffect(() => {
+    if (!leaderboardOpen) return
+    const previous = document.activeElement as HTMLElement | null
+    leaderboardPanelRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setLeaderboardOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      previous?.focus()
+    }
+  }, [leaderboardOpen])
 
   useEffect(() => () => {
     for (const timer of timers.current) clearTimeout(timer)
@@ -1648,7 +1668,8 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
           }
 
           if (pendingEchoes.current.length > 0 && sameAuthor(item.author, self)) {
-            const matchIdx = pendingEchoes.current.findIndex((pending) => pending.text === item.text.trim())
+            const incomingText = normEchoText(item.text)
+            const matchIdx = pendingEchoes.current.findIndex((pending) => normEchoText(pending.text) === incomingText)
             if (matchIdx >= 0) {
               const matched = pendingEchoes.current.splice(matchIdx, 1)[0]
               if (matched) {
@@ -1851,10 +1872,11 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
         const localId = `local:${crypto.randomUUID()}`
         pendingEchoes.current.push({ id: localId, text, at: Date.now() })
         setMessages((current) => {
+          const targetText = normEchoText(text)
           const alreadyArrived = current.some((item) =>
             !seenBeforeSend.has(item.id)
             && !item.id.startsWith('local:')
-            && item.text.trim() === text
+            && normEchoText(item.text) === targetText
             && sameAuthor(item.author, self),
           )
           if (alreadyArrived) {
@@ -2255,6 +2277,8 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
             {leaderboardOpen && leaderboardEntry
               ? (
                 <div
+                  ref={leaderboardPanelRef}
+                  tabIndex={-1}
                   className='leaderboard-panel'
                   role='dialog'
                   aria-label={leaderboardResult?.title ?? leaderboardEntry.label}
@@ -2284,35 +2308,35 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
                   <div className='leaderboard-list'>
                     {leaderboardLoading && !leaderboardResult
                       ? <div className='notice'>Loading top fans…</div>
-                      : leaderboardError
-                        ? <div className='notice'>{lineFor(leaderboardError)}</div>
-                        : leaderboardResult?.items.length
-                          ? leaderboardResult.items.map((item) => (
-                            <div key={`${item.rank}-${item.displayName}`} className='leaderboard-row'>
-                              <span className='leaderboard-rank'>{item.rank}</span>
-                              {item.avatar
-                                ? <img className='leaderboard-avatar' src={item.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
-                                : <span className='leaderboard-avatar' />}
-                              <div className='leaderboard-name'>
-                                <span>{item.displayName}</span>
-                                {item.badgeLabel
-                                  ? (
-                                    <span
-                                      className='badge-chip'
-                                      style={{
-                                        ...(item.badgeBackgroundColor ? { background: item.badgeBackgroundColor } : {}),
-                                        ...(item.badgeTextColor ? { color: item.badgeTextColor } : {}),
-                                      }}
-                                    >
-                                      <Crown size={11} strokeWidth={2} aria-hidden='true' />
-                                      <span>{item.badgeLabel}</span>
-                                    </span>
-                                  )
-                                  : undefined}
-                              </div>
-                              {item.points ? <span className='leaderboard-points'>{item.points}</span> : undefined}
+                      : leaderboardResult?.items.length
+                        ? leaderboardResult.items.map((item) => (
+                          <div key={`${item.rank}-${item.displayName}`} className='leaderboard-row'>
+                            <span className='leaderboard-rank'>{item.rank}</span>
+                            {item.avatar
+                              ? <img className='leaderboard-avatar' src={item.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
+                              : <span className='leaderboard-avatar' />}
+                            <div className='leaderboard-name'>
+                              <span>{item.displayName}</span>
+                              {item.badgeLabel
+                                ? (
+                                  <span
+                                    className='badge-chip'
+                                    style={{
+                                      ...(item.badgeBackgroundColor ? { background: item.badgeBackgroundColor } : {}),
+                                      ...(item.badgeTextColor ? { color: item.badgeTextColor } : {}),
+                                    }}
+                                  >
+                                    <Crown size={11} strokeWidth={2} aria-hidden='true' />
+                                    <span>{item.badgeLabel}</span>
+                                  </span>
+                                )
+                                : undefined}
                             </div>
-                          ))
+                            {item.points ? <span className='leaderboard-points'>{item.points}</span> : undefined}
+                          </div>
+                        ))
+                        : leaderboardError
+                          ? <div className='notice'>{lineFor(leaderboardError)}</div>
                           : <div className='notice'>No top fans ranked yet.</div>}
                   </div>
                 </div>

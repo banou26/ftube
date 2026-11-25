@@ -51,6 +51,10 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
 
   await chat.getByRole('button', { name: 'Top fans' }).click()
   await expect(leaderboard).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(leaderboard).toBeHidden()
+  await chat.getByRole('button', { name: 'Top fans' }).click()
+  await expect(leaderboard).toBeVisible()
   await chat.getByRole('button', { name: 'Top fans' }).click()
   await expect(leaderboard).toBeHidden()
 
@@ -111,14 +115,16 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
   await expect(chat).toContainText('Slow mode (2s)')
 
   const unlockedInput = chat.getByPlaceholder('Chat…')
-  await unlockedInput.fill('after unlock')
+  await unlockedInput.fill('after unlock :party: 😀')
   await unlockedInput.press('Enter')
   await expect(chat.locator('.log')).toContainText('after unlock')
+  await expect(chat.locator('.log .row', { hasText: 'after unlock' })).toHaveCount(1)
   const sendBtn = chat.locator('.compose .send-btn')
   await expect(sendBtn).toBeDisabled()
   await expect(sendBtn).toHaveText(/\ds/)
   await unlockedInput.fill('next')
   await expect(sendBtn).toHaveText('Send', { timeout: 5_000 })
+  await expect(chat.locator('.log .row', { hasText: 'after unlock' })).toHaveCount(1)
   await expect(sendBtn).toBeEnabled()
 
   await chat.getByRole('button', { name: 'Reactions' }).click()

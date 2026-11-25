@@ -1073,6 +1073,7 @@ describe('youtube source', () => {
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
     await expect(source.voteLiveChatPoll('abc', 'poll-1', 'bad-json')).rejects.toThrow('invalid live poll vote')
     await expect(source.voteLiveChatPoll('abc', 'poll-1', JSON.stringify({ endpoint: '/browse', params: 'x' }))).rejects.toThrow('invalid live poll vote')
+    await expect(source.voteLiveChatPoll('abc', 'poll-1', JSON.stringify({ endpoint: '/live_chat/../browse', params: 'x' }))).rejects.toThrow('invalid live poll vote')
 
     const opened = await source.liveChat('abc')
     const pollPoll = source.liveChat('abc', opened.cursor)
@@ -1081,6 +1082,60 @@ describe('youtube source', () => {
     expect(client.payloads.find((p) => p.endpoint === '/live_chat/live_chat_action')?.args).toMatchObject({ params: 'vote-yes-params', parse: false })
     const updated = await pollPoll
     expect(updated.poll?.choices[0]?.selected).toBe(true)
+  })
+
+  it('stops any earlier session when concurrent cursorless opens overlap on the same video', async () => {
+    const baseClient = createFakeClient()
+    baseClient.setNextChatToken('v-race', 'tok-race')
+    let releaseFirstNext: ((value: unknown) => void) | undefined
+    let releaseSecondNext: ((value: unknown) => void) | undefined
+    let nextCallCount = 0
+    const recordedEndpoints: string[] = []
+    const raceClient = {
+      ...baseClient,
+      actions: {
+        execute: async (endpoint: string, args?: Record<string, unknown>) => {
+          recordedEndpoints.push(endpoint)
+          if (endpoint === '/next') {
+            nextCallCount += 1
+            if (nextCallCount === 1) {
+              return new Promise((resolve) => { releaseFirstNext = resolve })
+            }
+            return new Promise((resolve) => { releaseSecondNext = resolve })
+          }
+          return baseClient.actions.execute(endpoint as never, args as never)
+        },
+      },
+    }
+    baseClient.enqueueChatResponse('tok-race', rawChatResponse({ cont: 'tok-poll-1', actions: [{ addChatItemAction: { item: rawTextMessage('r1', 'first') } }] }))
+    baseClient.enqueueChatResponse('tok-race', rawChatResponse({ cont: 'tok-poll-2', actions: [{ addChatItemAction: { item: rawTextMessage('r2', 'second') } }] }))
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => raceClient as never })
+    const p1 = source.liveChat('v-race', undefined, 'TOP')
+    const p2 = source.liveChat('v-race', undefined, 'TOP')
+    for (let i = 0; i < 50 && nextCallCount < 2; i += 1) {
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    expect(nextCallCount).toBe(2)
+
+    const nextPayload = {
+      contents_memo: new Map([
+        ['VideoPrimaryInfo', [{}]],
+        ['TwoColumnWatchNextResults', [{ secondary_results: [], conversation_bar: { is_replay: false, continuation: 'tok-race' } }]],
+      ]),
+    }
+    releaseFirstNext!(nextPayload)
+    await new Promise((r) => setTimeout(r, 20))
+    releaseSecondNext!(nextPayload)
+    const [firstRes, secondRes] = await Promise.all([p1, p2])
+    expect(firstRes.cursor).toBeTruthy()
+    expect(secondRes.cursor).toBeTruthy()
+
+    const callsBeforeWait = recordedEndpoints.filter((ep) => ep === 'live_chat/get_live_chat').length
+    await new Promise((r) => setTimeout(r, 1_150))
+    const callsAfterWait = recordedEndpoints.filter((ep) => ep === 'live_chat/get_live_chat').length
+    // Only the winning second session continues polling (+1 poll), never two concurrent loops (+2).
+    expect(callsAfterWait - callsBeforeWait).toBeLessThanOrEqual(1)
   })
 
   it('resolves an @handle into a browse id before browsing a channel', async () => {
