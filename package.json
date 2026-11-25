@@ -1,6 +1,6 @@
 {
   "name": "@banou/ftube",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Fast, private YouTube client running in your browser over FKN.",
   "license": "MIT",
   "homepage": "https://youtube.fkn.app",
