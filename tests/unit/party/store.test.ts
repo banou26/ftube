@@ -456,7 +456,7 @@ describe('createPartyStore', () => {
     expect(slow.calls.detached()).toBe(1)
   })
 
-  it('forwards social.hello over room send and updates signed-in and signed-out peers via onParticipants', async () => {
+  it('integrates with @banou/social createSocial to forward social.hello and update signed-in and signed-out peers via onParticipants', async () => {
     const hub = createFakeHub()
     const makeSocialHub = (
       availability: 'ready' | 'signed-out',
@@ -568,17 +568,16 @@ describe('createPartyStore', () => {
     await host.leave()
   })
 
-  it('keeps synchronous on() replay frames, buffers early join/leave, detaches on member-load switch, and sends whois for existing peers', async () => {
+  it('keeps synchronous on() replay frames, buffers early join/leave, sends whois for existing peers, and detaches on leave', async () => {
     const membersGate = Promise.withResolvers<rooms.RoomMember[]>()
     const detachFirst = vi.fn(async () => {})
-    const detachSecond = vi.fn(async () => {})
     const ingestFirst = vi.fn((_from: string, _frame: string, _at: number, _seq: number) => true)
     const joinedFirst = vi.fn((_memberId: string) => {})
     const leftFirst = vi.fn((_memberId: string) => {})
     const sentFrames: string[] = []
     let emitEvent: Listener | undefined
 
-    const customRoom = (roomId: string, selfId: string, withExistingPeer: boolean): rooms.Room => {
+    const customRoom = (roomId: string, selfId: string, pendingMembers: boolean): rooms.Room => {
       const closed = Promise.withResolvers<rooms.RoomEnd>()
       return {
         id: roomId,
@@ -589,7 +588,7 @@ describe('createPartyStore', () => {
         owner: 'host-1',
         claimed: false,
         mailbox: null,
-        members: async () => (withExistingPeer ? membersGate.promise : [{ id: selfId }, { id: 'host-1' }] as rooms.RoomMember[]),
+        members: async () => (pendingMembers ? membersGate.promise : [{ id: selfId }, { id: 'host-1' }] as rooms.RoomMember[]),
         send: async (text: string) => {
           sentFrames.push(text)
           const parsed = JSON.parse(text) as { t?: string, p?: string }
@@ -605,7 +604,7 @@ describe('createPartyStore', () => {
         block: async () => {},
         on: async (listener: Listener) => {
           emitEvent = listener
-          if (withExistingPeer) {
+          if (pendingMembers) {
             listener({
               type: 'message',
               replayed: true,
@@ -627,42 +626,22 @@ describe('createPartyStore', () => {
       } as unknown as rooms.Room
     }
 
-    let attachCall = 0
     const fakeSocial: SocialPresenceApi = {
-      attach: async () => {
-        attachCall += 1
-        if (attachCall === 1) {
-          return {
-            participants: () => [],
-            of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
-            on: () => () => {},
-            ingest: ingestFirst,
-            memberJoined: joinedFirst,
-            memberLeft: leftFirst,
-            announce: async () => {},
-            detach: detachFirst,
-          }
-        }
-        return {
-          participants: () => [],
-          of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
-          on: () => () => {},
-          ingest: vi.fn(() => true),
-          memberJoined: vi.fn(),
-          memberLeft: vi.fn(),
-          announce: async () => {},
-          detach: detachSecond,
-        }
-      },
+      attach: async () => ({
+        participants: () => [],
+        of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
+        on: () => () => {},
+        ingest: ingestFirst,
+        memberJoined: joinedFirst,
+        memberLeft: leftFirst,
+        announce: async () => {},
+        detach: detachFirst,
+      }),
     }
 
-    let joinCall = 0
     const store = createPartyStore(async () => ({
-      create: async () => customRoom('https://youtube.fkn.app/room-a', 'self-1', true),
-      join: async () => {
-        joinCall += 1
-        return customRoom(`https://youtube.fkn.app/room-${joinCall}`, `self-${joinCall}`, joinCall === 1)
-      },
+      create: async () => customRoom('https://youtube.fkn.app/room-a', 'self-a', false),
+      join: async () => customRoom('https://youtube.fkn.app/room-1', 'self-1', true),
     }), memoryStorage(), fakeSocial)
 
     await store.join('invite-a')
@@ -676,23 +655,52 @@ describe('createPartyStore', () => {
     expect(ingestFirst).toHaveBeenCalledWith('host-1', '{"t":"social.hello","v":1}', 500, 1)
     expect(joinedFirst).toHaveBeenCalledWith('early-peer')
     expect(leftFirst).toHaveBeenCalledWith('vanished-peer')
-    // Whois was sent because host-1 was already present, and its self-echo was not fed into ingest.
     expect(sentFrames.some((raw) => (JSON.parse(raw) as { p?: string }).p?.includes('"social.whois"'))).toBe(true)
     expect(ingestFirst.mock.calls.some((call) => String(call[1]).includes('social.whois'))).toBe(false)
 
-    // Verify stale attach is detached cleanly if the store switches rooms before members() resolves.
-    const gate2 = Promise.withResolvers<rooms.RoomMember[]>()
+    await store.leave()
+    expect(detachFirst).toHaveBeenCalledTimes(1)
+  })
+
+  it('detaches a social presence that finishes loading members after switching rooms', async () => {
+    const membersCalled = Promise.withResolvers<void>()
+    const membersGate = Promise.withResolvers<rooms.RoomMember[]>()
     const attachGate = Promise.withResolvers<void>()
     const detachRace = vi.fn(async () => {})
+    let socialAttached = false
+
+    const makeRoom = (roomId: string, selfId: string, blockSecondMembers: boolean): rooms.Room => {
+      const closed = Promise.withResolvers<rooms.RoomEnd>()
+      return {
+        id: roomId,
+        name: 'custom',
+        key: 'A'.repeat(43),
+        invite: `${'A'.repeat(43)}.${roomId}`,
+        self: { id: selfId } as rooms.RoomMember,
+        owner: 'host-1',
+        claimed: false,
+        mailbox: null,
+        members: async () => {
+          if (!blockSecondMembers || !socialAttached) return [{ id: selfId }] as rooms.RoomMember[]
+          membersCalled.resolve()
+          return membersGate.promise
+        },
+        send: async () => {},
+        remove: async () => {},
+        block: async () => {},
+        on: async () => () => {},
+        leave: async () => { closed.resolve({ reason: 'left' }) },
+        closed: closed.promise,
+      } as unknown as rooms.Room
+    }
+
     const raceStore = createPartyStore(async () => ({
-      create: async () => customRoom('https://youtube.fkn.app/race-2', 'self-r2', false),
-      join: async () => ({
-        ...customRoom('https://youtube.fkn.app/race-1', 'self-r1', false),
-        members: async () => gate2.promise,
-      }) as unknown as rooms.Room,
+      create: async () => makeRoom('https://youtube.fkn.app/race-2', 'self-r2', false),
+      join: async () => makeRoom('https://youtube.fkn.app/race-1', 'self-r1', true),
     }), memoryStorage(), {
       attach: async () => {
         await attachGate.promise
+        socialAttached = true
         return {
           participants: () => [],
           of: (memberId) => ({ memberId, status: 'silent', identity: null, self: false }),
@@ -705,15 +713,57 @@ describe('createPartyStore', () => {
         }
       },
     })
+
     await raceStore.join('race-1')
     attachGate.resolve()
-    await Promise.resolve()
+    await membersCalled.promise
     await raceStore.create()
-    gate2.resolve([{ id: 'self-r1' }] as rooms.RoomMember[])
+    expect(detachRace).toHaveBeenCalledTimes(0)
+    membersGate.resolve([{ id: 'self-r1' }] as rooms.RoomMember[])
     await vi.advanceTimersByTimeAsync(20)
     expect(detachRace).toHaveBeenCalledTimes(1)
 
-    await store.leave()
     await raceStore.leave()
+  })
+
+  it('skips social attach and whois when social reports unavailable', async () => {
+    const attach = vi.fn(async () => {
+      throw new Error('attach should not run')
+    })
+    const sentFrames: string[] = []
+    const closed = Promise.withResolvers<rooms.RoomEnd>()
+    const roomStub = {
+      id: 'https://youtube.fkn.app/unavail-1',
+      name: 'custom',
+      key: 'A'.repeat(43),
+      invite: `${'A'.repeat(43)}.unavail-1`,
+      self: { id: 'guest-1' } as rooms.RoomMember,
+      owner: 'host-1',
+      claimed: false,
+      mailbox: null,
+      members: async () => [{ id: 'guest-1' }, { id: 'host-1' }] as rooms.RoomMember[],
+      send: async (text: string) => { sentFrames.push(text) },
+      remove: async () => {},
+      block: async () => {},
+      on: async () => () => {},
+      leave: async () => { closed.resolve({ reason: 'left' }) },
+      closed: closed.promise,
+    } as unknown as rooms.Room
+
+    const store = createPartyStore(async () => ({
+      create: async () => roomStub,
+      join: async () => roomStub,
+    }), memoryStorage(), {
+      available: async () => 'unavailable',
+      attach,
+    })
+
+    await store.join('invite-u1')
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(attach).not.toHaveBeenCalled()
+    expect(sentFrames.some((raw) => (JSON.parse(raw) as { t?: string }).t === 'social')).toBe(false)
+
+    await store.leave()
   })
 })

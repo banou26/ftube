@@ -3,6 +3,8 @@ import type { Participant } from '../social'
 import { css } from '@emotion/react'
 import { useEffect, useState } from 'preact/hooks'
 
+import { avatarInitialOf, safeAvatarSrc } from '../social/avatar'
+
 const avatarStyle = css`
   display: inline-flex;
   align-items: center;
@@ -32,29 +34,6 @@ const avatarStyle = css`
     display: block;
   }
 `
-
-const graphemeSegmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl
-  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-  : undefined
-
-const safeAvatarSrc = (value: string | null | undefined): string | null => {
-  const trimmed = value?.trim()
-  if (!trimmed) return null
-  return trimmed.startsWith('data:image/') || trimmed.startsWith('https://') ? trimmed : null
-}
-
-const initialOf = (participant: Participant) => {
-  const identity = participant.identity!
-  const source = (
-    (participant.status === 'friend' ? identity.nickname?.trim() : undefined)
-    || identity.displayName.trim()
-    || identity.name
-  ).normalize('NFC')
-  const first = graphemeSegmenter
-    ? graphemeSegmenter.segment(source)[Symbol.iterator]().next().value?.segment
-    : source.slice(0, 1)
-  return (first || '?').toUpperCase()
-}
 
 /**
  * Verified FKN Social avatar (uploaded image or deterministic identicon, with initial fallback).
@@ -99,7 +78,7 @@ export const PartyAvatar = ({ participant, size = 24 }: { participant?: Particip
             }}
           />
         )
-        : <span>{initialOf(participant)}</span>}
+        : <span>{avatarInitialOf(identity, participant.status)}</span>}
     </span>
   )
 }

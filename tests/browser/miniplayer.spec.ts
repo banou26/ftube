@@ -116,7 +116,6 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
   await expect(mini.getByRole('button', { name: 'Close miniplayer' })).toBeFocused()
   await expect.poll(() => opacity(controls)).toBe('1')
 
-  // Volume slider and mute button control playback volume and persist to settings.
   await page.mouse.move(picture.left + 100, picture.top + 60)
   await volumeSlider.fill('0.35')
   await expect.poll(() => video.evaluate(element => ({
@@ -147,6 +146,45 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
     muted: (element as HTMLVideoElement).muted,
   }))).toEqual({ volume: 0.5, muted: false })
+
+  // Pressing m at volume 0 restores 0.5 volume to match aria-keyshortcuts="m" on the mute button.
+  await volumeSlider.fill('0')
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).muted)).toBe(true)
+  await page.getByRole('heading', { name: 'Settings' }).click()
+  await page.keyboard.press('m')
+  await expect.poll(() => video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.5, muted: false })
+
+  // Pointer drag out keeps controls visible until release, then lets them fade without sticking.
+  await page.mouse.move(picture.left + 100, picture.top + 60)
+  await expect.poll(() => opacity(controls)).toBe('1')
+  const sliderBox = await box(volumeSlider)
+  await page.mouse.move(sliderBox.left + sliderBox.width / 2, sliderBox.top + sliderBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(sliderBox.left + sliderBox.width / 2, 10)
+  await expect(controls).toHaveClass(/adjusting/)
+  await expect.poll(() => opacity(controls)).toBe('1')
+  await page.mouse.up()
+  await expect(controls).not.toHaveClass(/adjusting/)
+  await expect.poll(() => opacity(controls)).toBe('0')
+  await volumeSlider.fill('0.5')
+
+  await page.setViewportSize({ width: 360, height: 740 })
+  const picture360 = await box(video)
+  await page.mouse.move(picture360.left + 80, picture360.top + 40)
+  await expect.poll(() => opacity(controls)).toBe('1')
+  const clockBox360 = await box(clock)
+  const muteBox360 = await box(mini.getByRole('button', { name: 'Mute', exact: true }))
+  const volumeBox360 = await box(volumeSlider)
+  expect(muteBox360.left).toBeGreaterThan(clockBox360.right)
+  expect(volumeBox360.right).toBeLessThanOrEqual(picture360.right)
+  expect(volumeBox360.bottom).toBeLessThanOrEqual(picture360.bottom)
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const restoredPicture = await box(video)
+  await page.mouse.move(restoredPicture.left + 100, restoredPicture.top + 60)
 
   // Expand takes the same video element back to its watch page, still playing with adjusted volume.
   await video.evaluate((element) => {

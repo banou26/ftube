@@ -51,6 +51,7 @@ import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
+import { applyVideoVolume, toggleVideoMute } from './volume'
 
 // the player's box is its frame's, which stays as the video changes; this fills it, less the panel beside it in full screen
 const playerStyle = css`
@@ -802,9 +803,9 @@ const VideoPlayer = (
         flash(delta < 0 ? 'back' : 'forward', String(Math.abs(delta)))
       }
       const setVolume = (volume: number) => {
-        video.volume = volume
-        updateSettings({ volume: video.volume })
-        flash(video.volume === 0 ? 'mute' : 'volume', `${Math.round(video.volume * 100)}%`)
+        const next = applyVideoVolume(video, volume)
+        updateSettings(next)
+        flash(next.muted ? 'mute' : 'volume', `${Math.round(next.volume * 100)}%`)
       }
       const stepFrame = (direction: 1 | -1) => {
         const fps = actions.player?.getVariantTracks().find(track => track.active)?.frameRate || FALLBACK_FPS
@@ -826,14 +827,15 @@ const VideoPlayer = (
         case 'ArrowRight': handled(); seekBy(SEEK_STEP); return
         case 'j': handled(); seekBy(-JUMP_STEP); return
         case 'l': handled(); seekBy(JUMP_STEP); return
-        case 'ArrowUp': handled(); setVolume(Math.min(1, video.volume + 0.05)); return
-        case 'ArrowDown': handled(); setVolume(Math.max(0, video.volume - 0.05)); return
-        case 'm':
+        case 'ArrowUp': handled(); setVolume(Math.round((video.volume + 0.05) * 100) / 100); return
+        case 'ArrowDown': handled(); setVolume(Math.round((video.volume - 0.05) * 100) / 100); return
+        case 'm': {
           handled()
-          video.muted = !video.muted
-          updateSettings({ muted: video.muted })
-          flash(video.muted ? 'mute' : 'volume')
+          const next = toggleVideoMute(video)
+          updateSettings(next)
+          flash(next.muted ? 'mute' : 'volume')
           return
+        }
         case 'c':
           handled()
           actions.toggleCaption()

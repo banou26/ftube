@@ -1,17 +1,16 @@
 import type { PlayerState } from './use-player-state'
 
 import { css } from '@emotion/react'
-import { Pause, Play, Volume1, Volume2, VolumeX, X } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { Pause, Play, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import { updateSettings } from '../settings'
 import { clock } from './controls'
 import { closePlayer } from './session'
-import { applyVideoVolume, effectiveVolumeOf, toggleVideoMute } from './volume'
+import { VolumeControl } from './volume-control'
 
 /* youtube.com's miniplayer, measured signed out 2026-11-10 at 1280 and 1920 px: while the pointer is on the video, a
    50% black wash with Expand and Close in the top corners, a 42 px play button in the middle and the clock at the bottom
-   left, plus volume control at the bottom right. It draws no Previous or Next at its 400 px, and no control groups. */
+   left, with no Previous or Next at 400 px and no control groups. FTube adds a compact volume control at the bottom right. */
 const style = css`
   position: absolute;
   inset: 0;
@@ -104,66 +103,6 @@ const style = css`
     color: inherit;
     cursor: pointer;
   }
-
-  .mini-volume input {
-    flex: none;
-    width: 6.4rem;
-    height: 3.2rem;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    appearance: none;
-    cursor: pointer;
-  }
-
-  .mini-volume input::-webkit-slider-runnable-track {
-    height: 0.2rem;
-    border-radius: 0.1rem;
-    background: linear-gradient(to right, #ffffff var(--fill), rgba(255, 255, 255, 0.25) var(--fill));
-  }
-
-  .mini-volume input::-webkit-slider-thumb {
-    width: 1rem;
-    height: 1rem;
-    margin-top: -0.4rem;
-    border: none;
-    border-radius: 50%;
-    background: #ffffff;
-    appearance: none;
-  }
-
-  .mini-volume input::-moz-range-track {
-    height: 0.2rem;
-    border: none;
-    border-radius: 0.1rem;
-    background: rgba(255, 255, 255, 0.25);
-  }
-
-  .mini-volume input::-moz-range-progress {
-    height: 0.2rem;
-    border-radius: 0.1rem;
-    background: #ffffff;
-  }
-
-  .mini-volume input::-moz-range-thumb {
-    width: 1rem;
-    height: 1rem;
-    border: none;
-    border-radius: 50%;
-    background: #ffffff;
-  }
-
-  .mini-volume input:focus-visible {
-    outline: none;
-  }
-
-  .mini-volume input:focus-visible::-webkit-slider-thumb {
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
-  }
-
-  .mini-volume input:focus-visible::-moz-range-thumb {
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
-  }
 `
 
 /**
@@ -179,20 +118,36 @@ export const MiniplayerControls = (
   },
 ) => {
   const [adjusting, setAdjusting] = useState(false)
-  useEffect(() => {
-    if (!adjusting) return
-    const stop = () => setAdjusting(false)
+  const stopDragRef = useRef<(() => void) | undefined>(undefined)
+
+  const setAdjustingState = useCallback((next: boolean) => {
+    if (!next) {
+      stopDragRef.current?.()
+      stopDragRef.current = undefined
+      setAdjusting(false)
+      return
+    }
+    setAdjusting(true)
+    if (stopDragRef.current) return
+    const stop = () => {
+      stopDragRef.current?.()
+      stopDragRef.current = undefined
+      setAdjusting(false)
+    }
     window.addEventListener('pointerup', stop)
     window.addEventListener('pointercancel', stop)
-    return () => {
+    stopDragRef.current = () => {
       window.removeEventListener('pointerup', stop)
       window.removeEventListener('pointercancel', stop)
     }
-  }, [adjusting])
+  }, [])
+
+  useEffect(() => () => {
+    stopDragRef.current?.()
+    stopDragRef.current = undefined
+  }, [])
 
   const playing = video !== undefined && !state.ended
-  const effectiveVolume = effectiveVolumeOf(state)
-  const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 0.5 ? Volume1 : Volume2
   const classes = [playing ? 'washed' : undefined, adjusting ? 'adjusting' : undefined].filter(Boolean).join(' ') || undefined
 
   return (
@@ -222,32 +177,7 @@ export const MiniplayerControls = (
             </button>
             {/* a live presentation timeline is the stream's own clock, with no duration to show */}
             {isLive ? undefined : <span className='time'>{clock(state.currentTime)} / {clock(state.duration)}</span>}
-            <div className='mini-volume'>
-              <button
-                type='button'
-                className='mute'
-                aria-label={effectiveVolume === 0 ? 'Unmute' : 'Mute'}
-                aria-keyshortcuts='m'
-                onClick={() => updateSettings(toggleVideoMute(video))}
-              >
-                <VolumeIcon size={18} strokeWidth={2} />
-              </button>
-              <input
-                type='range'
-                min={0}
-                max={1}
-                step={0.01}
-                value={effectiveVolume}
-                aria-label='Volume'
-                aria-valuetext={`${Math.round(effectiveVolume * 100)}%`}
-                style={{ '--fill': `calc(0.5rem + ${effectiveVolume} * (100% - 1rem))` }}
-                onPointerDown={() => setAdjusting(true)}
-                onInput={(event: Event) => {
-                  const value = Number((event.currentTarget as HTMLInputElement).value)
-                  updateSettings(applyVideoVolume(video, value))
-                }}
-              />
-            </div>
+            <VolumeControl video={video} state={state} variant='mini' onAdjustingChange={setAdjustingState} />
           </>
         )
         : undefined}

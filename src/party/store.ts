@@ -2,7 +2,7 @@
 
 import type * as rooms from '@fkn/lib/rooms'
 
-import type { Participant, Presence, RoomBinding } from '../social'
+import type { Availability, Participant, Presence, RoomBinding } from '../social'
 import type { ClockSample } from './clock'
 import type { PartyMessage, PlaybackState } from './protocol'
 
@@ -12,7 +12,10 @@ import { decodePartyMessage, displayName, encodePartyMessage, isHostOnly } from 
 
 export type RoomsApi = Pick<typeof rooms, 'create' | 'join'>
 /** The slice of `@banou/social` room presence the party store uses, injectable for tests. */
-export type SocialPresenceApi = { attach: (binding: RoomBinding) => Promise<Presence> }
+export type SocialPresenceApi = {
+  attach: (binding: RoomBinding) => Promise<Presence>
+  available?: () => Promise<Availability>
+}
 export type PartyRole = 'host' | 'guest'
 export type PartyEndReason = 'left' | 'host-left' | 'removed' | 'blocked' | 'closed'
 
@@ -89,6 +92,7 @@ export const CLOCK_SAMPLES = 5
 export const CLOCK_SPACING_MS = 400
 export const CLOCK_INTERVAL_MS = 60_000
 const MAX_PENDING_SOCIAL = 64
+// @banou/social answers incoming social.whois frames but never sends one on attach; asking once avoids waiting up to 60s for existing peers to re-announce.
 const SOCIAL_WHOIS_FRAME = '{"t":"social.whois","v":1}'
 
 const isSocialWhois = (frame: string): boolean => {
@@ -428,11 +432,17 @@ export const createPartyStore = (
 
     if (social) {
       const currentRoom = joined
-      void social.attach({
-        roomId: joined.id,
-        selfMemberId: joined.self.id,
-        send: (frame) => { if (room === currentRoom) send({ t: 'social', p: frame }) },
-      }).then(async (attached) => {
+      void (async () => {
+        if (social.available) {
+          const availability = await social.available().catch(() => 'unavailable' as const)
+          if (room !== currentRoom) return
+          if (availability === 'unavailable' || availability === 'outdated' || availability === 'app-not-connected') return
+        }
+        const attached = await social.attach({
+          roomId: joined.id,
+          selfMemberId: joined.self.id,
+          send: (frame) => { if (room === currentRoom) send({ t: 'social', p: frame }) },
+        })
         if (room !== currentRoom) {
           await attached.detach().catch(() => {})
           return
@@ -467,7 +477,7 @@ export const createPartyStore = (
         }
         notifyPresence()
         if (seenMembers.size > 0) send({ t: 'social', p: SOCIAL_WHOIS_FRAME })
-      }, () => {})
+      })().catch(() => {})
     }
   }
 

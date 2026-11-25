@@ -1,7 +1,7 @@
 import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
-import { Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
@@ -22,7 +22,7 @@ import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
 import { SpeedPicker } from './speed-picker'
-import { applyVideoVolume, effectiveVolumeOf, toggleVideoMute } from './volume'
+import { VolumeControl } from './volume-control'
 
 export const clock = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -285,67 +285,6 @@ const style = css`
     width: 5.2rem;
     margin-right: 1.6rem;
     opacity: 1;
-  }
-
-  /* youtube.com's volume bar (measured 2026-11-23): 52 x 40 px hit target, 2 px track, 12 px white handle */
-  .volume-slider input {
-    flex: none;
-    width: 5.2rem;
-    height: 4rem;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    appearance: none;
-    cursor: pointer;
-  }
-
-  .volume-slider input::-webkit-slider-runnable-track {
-    height: 0.2rem;
-    border-radius: 0.1rem;
-    background: linear-gradient(to right, #ffffff var(--fill), rgba(255, 255, 255, 0.2) var(--fill));
-  }
-
-  .volume-slider input::-webkit-slider-thumb {
-    width: 1.2rem;
-    height: 1.2rem;
-    margin-top: -0.5rem;
-    border: none;
-    border-radius: 50%;
-    background: #ffffff;
-    appearance: none;
-  }
-
-  .volume-slider input::-moz-range-track {
-    height: 0.2rem;
-    border: none;
-    border-radius: 0.1rem;
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .volume-slider input::-moz-range-progress {
-    height: 0.2rem;
-    border-radius: 0.1rem;
-    background: #ffffff;
-  }
-
-  .volume-slider input::-moz-range-thumb {
-    width: 1.2rem;
-    height: 1.2rem;
-    border: none;
-    border-radius: 50%;
-    background: #ffffff;
-  }
-
-  .volume-slider input:focus-visible {
-    outline: none;
-  }
-
-  .volume-slider input:focus-visible::-webkit-slider-thumb {
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
-  }
-
-  .volume-slider input:focus-visible::-moz-range-thumb {
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.45);
   }
 
   /* the groups that give way, so a long chapter title and then an hour-long clock clip rather than pushing a button out of the player */
@@ -759,15 +698,6 @@ export const PlayerControls = (
     setPreview(undefined)
   }
 
-  const onVolume = (event: Event) => {
-    const value = Number((event.currentTarget as HTMLInputElement).value)
-    updateSettings(applyVideoVolume(video, value))
-  }
-
-  const toggleMute = () => {
-    updateSettings(toggleVideoMute(video))
-  }
-
   /* Shaka holds the video at rate 0 while it buffers, when the speed chosen is the stored one. Read off the video rather
      than the state, which learns of a new speed only at the next frame or ratechange: saving the speed renders before
      that, and a render with the old speed puts it back in the slider for the next key press to step from. */
@@ -803,9 +733,6 @@ export const PlayerControls = (
 
   const board = bestStoryboard(storyboards)
   const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
-
-  const effectiveVolume = effectiveVolumeOf(state)
-  const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 0.5 ? Volume1 : Volume2
 
   const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId)
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
@@ -897,24 +824,7 @@ export const PlayerControls = (
               : state.paused ? <Play size={22} fill='currentColor' strokeWidth={0} /> : <Pause size={22} fill='currentColor' strokeWidth={0} />}
           </button>
           {onNext ? <button type='button' className='control group next' aria-label='Next' onClick={onNext}><SkipForward size={22} fill='currentColor' strokeWidth={2} /></button> : undefined}
-          <div className='group volume'>
-            <button type='button' className='control' aria-label={effectiveVolume === 0 ? 'Unmute' : 'Mute'} onClick={toggleMute}>
-              <VolumeIcon size={24} strokeWidth={1.8} />
-            </button>
-            <div className='volume-slider'>
-              <input
-                type='range'
-                min={0}
-                max={1}
-                step={0.01}
-                value={effectiveVolume}
-                aria-label='Volume'
-                aria-valuetext={`${Math.round(effectiveVolume * 100)}%`}
-                style={{ '--fill': `calc(0.6rem + ${effectiveVolume} * (100% - 1.2rem))` }}
-                onInput={onVolume}
-              />
-            </div>
-          </div>
+          <VolumeControl video={video} state={state} variant='bar' />
           {/* a live presentation timeline is the stream's own clock: the position reads like 3348:05:43 and the duration is 0 */}
           {isLive
             ? (
