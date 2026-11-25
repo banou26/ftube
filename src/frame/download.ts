@@ -1,5 +1,4 @@
 import type { SabrFormat } from 'googlevideo/shared-types'
-import type { SabrSource } from './innertube'
 import type {
   DownloadFormatOption,
   DownloadFormatsResult,

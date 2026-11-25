@@ -398,7 +398,7 @@ export const createSabrSession = (
   adapter.setStreamingURL(source.streamingUrl)
   adapter.setUstreamerConfig(source.ustreamerConfig)
   adapter.setServerAbrFormats(source.formats)
-  adapter.onMintPoToken(source.mint)
+  adapter.onMintPoToken(() => source.mint())
   adapter.attach(null)
 
   /* Status 3 asks for a new BotGuard session. About 1 session in 10 (9 of 95, 2026-11-05) is answered status 2 on an
@@ -987,7 +987,7 @@ export const createSabrSession = (
 
   const prewarmStart = () => {
     if (source.isLive || !videoFormat.initRange || initFetches.has(videoFormat.key) || dualInit) return
-    startInitFetch('video', videoFormat, 0, seekGeneration, () => {}, true)
+    void startInitFetch('video', videoFormat, 0, seekGeneration, () => {}, true).catch(() => {})
   }
 
   const requestSegment = (

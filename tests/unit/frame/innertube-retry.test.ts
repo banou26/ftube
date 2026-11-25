@@ -324,7 +324,7 @@ describe('the frame Innertube sessions', () => {
     })]))
     const { Innertube } = await import('youtubei.js/web')
     let releaseCatalog: () => void = () => {}
-    const origCreate = Innertube.create
+    const origCreate = Innertube.create.bind(Innertube)
     vi.spyOn(Innertube, 'create').mockImplementationOnce(async (options) => {
       await new Promise<void>((resolve) => { releaseCatalog = resolve })
       return origCreate(options)

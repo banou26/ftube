@@ -513,7 +513,7 @@ const style = css`
   }
 
   /* below these player widths the clock would clip, so the chapter goes first, then the volume slider and 8 px of each
-     right-hand button (yt-client draws Next and PiP, which youtube.com's bar does not) */
+     right-hand button (FTube draws Next and PiP, which youtube.com's bar does not) */
   @container player (max-width: 760px) {
     .chapter {
       display: none;

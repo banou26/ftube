@@ -602,10 +602,10 @@ describe('youtube channel tabs', () => {
     const inner = client.getChannel
     client.getChannel = async () => {
       const channel = await inner()
-      const orig = channel.getCommunity
+      const orig = channel.getCommunity.bind(channel)
       channel.getCommunity = async function (this: unknown) {
         communityCalls += 1
-        return orig.call(this)
+        return orig()
       }
       return channel
     }

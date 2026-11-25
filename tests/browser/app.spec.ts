@@ -137,6 +137,7 @@ test('starts promptly and sustains fast playback after rapid seeks', async ({ pa
 test('rebuilds the engine after a lost segment request', async ({ page }) => {
   test.setTimeout(180_000)
   await page.addInitScript(() => {
+    // oxlint-disable-next-line typescript/unbound-method
     const send = MessagePort.prototype.postMessage as (...args: unknown[]) => void
     let dropped = false
     Object.defineProperty(MessagePort.prototype, 'postMessage', {

@@ -71,4 +71,20 @@ describe('starting the platform', () => {
     await browserSession.fetch('https://www.youtube.com/youtubei/v1/browse', init)
     expect(extensionFetch).toHaveBeenCalledWith('https://www.youtube.com/youtubei/v1/browse', init)
   })
+
+  it('skips mounting a duplicate broker iframe when running framed inside a sandbox shell', async () => {
+    relayWorker.mockResolvedValue(undefined)
+    const createElement = vi.fn()
+    const appendChild = vi.fn()
+    const selfWindow: Record<string, unknown> = { addEventListener: () => {} }
+    selfWindow.parent = { framed: true }
+    vi.stubGlobal('window', selfWindow)
+    vi.stubGlobal('document', { createElement, body: { appendChild } })
+
+    const { startPlatform } = await import('../../../src/engine/platform')
+    await startPlatform()
+    expect(createElement).not.toHaveBeenCalled()
+    expect(appendChild).not.toHaveBeenCalled()
+    expect(relayWorker).toHaveBeenCalledTimes(1)
+  })
 })

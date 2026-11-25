@@ -28,7 +28,7 @@ let session: PlayerSession = { theater: false, claimed: false, chapter: -1 }
 const listeners = new Set<() => void>()
 
 const emit = () => {
-  for (const listener of [...listeners]) listener()
+  for (const listener of Array.from(listeners)) listener()
 }
 
 export const getPlayerSession = () => session

@@ -313,7 +313,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
         <button type='button' className='fs-action' aria-label='Share' onClick={() => setSharing(true)}>
           <Forward size={20} strokeWidth={1.5} />
         </button>
-        {/* youtube.com keeps Save in a More actions menu beside Report, which yt-client does not have */}
+        {/* youtube.com keeps Save in a More actions menu beside Report, which FTube does not have */}
         <SaveMenu
           videoId={details.videoId}
           trigger={

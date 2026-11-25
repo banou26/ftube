@@ -287,7 +287,7 @@ describe('handleEmbedRequest and onRequest', () => {
 
   it('falls back to YouTube oEmbed when HTML fetch fails or returns consent page', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const targetUrl = String(input)
+      const targetUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (targetUrl.startsWith('https://www.youtube.com/oembed')) {
         return new Response(
           JSON.stringify({

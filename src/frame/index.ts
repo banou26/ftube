@@ -6,7 +6,7 @@ import type { CaptionSource } from './captions'
 import type { PlaybackEntry } from './playback'
 
 import { createYoutubeSource } from '../sources/youtube'
-import { json3ToWebVtt, parseCaptionTracks, signedTextUrl, timedTextUrl } from './captions'
+import { json3ToWebVtt, signedTextUrl, timedTextUrl } from './captions'
 import { cancelAllDownloadSessions, cancelDownloadSession, getDownloadFormats, pollDownloadSession, startDownloadSession } from './download'
 import { parseEndScreen } from './end-screen'
 import { anonymousCueTracks, catalogInnertube, hasSessionCookie, prefetchInitialPlayerResponse, warmPlaybackResources, youtubeFetch } from './innertube'
@@ -74,7 +74,7 @@ const api = {
   ...sourceApi,
   resetIdentity,
   prefetchPlayback: async (videoId, playerParams) => {
-    prefetchInitialPlayerResponse(videoId, playerParams)
+    void prefetchInitialPlayerResponse(videoId, playerParams).catch(() => {})
   },
   warmPlayback: async () => {
     warmPlaybackResources()

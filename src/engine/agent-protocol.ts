@@ -35,6 +35,8 @@ export type AgentApi = {
   minter(session: number, token: IntegrityTokenData): Promise<void>
   mint(session: number, identifier: string): Promise<string>
   shutdown(session: number): Promise<void>
+  /** Evaluates a youtubei.js decipher snippet in the attached page and returns its result. */
+  decipher(script: string): Promise<unknown>
   /**
    * The page's own fetch, with its jar's cookies (`credentials: 'include'`) and a `cookie` header dropped, answered
    * whole. A `cancel` for the call's id aborts it in flight.
@@ -48,7 +50,7 @@ export type PageRequest = { method?: string, headers?: Record<string, string>, b
 
 export type PageResponse = { status: number, statusText: string, headers: [string, string][], body: ArrayBuffer }
 
-export const AGENT_METHODS = ['create', 'snapshot', 'minter', 'mint', 'shutdown', 'fetch', 'cookie'] as const satisfies readonly (keyof AgentApi)[]
+export const AGENT_METHODS = ['create', 'snapshot', 'minter', 'mint', 'shutdown', 'decipher', 'fetch', 'cookie'] as const satisfies readonly (keyof AgentApi)[]
 
 export type AgentMethod = (typeof AGENT_METHODS)[number]
 

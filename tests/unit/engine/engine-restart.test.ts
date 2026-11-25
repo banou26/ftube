@@ -95,7 +95,7 @@ const installAppRealm = () => {
     }
   }
   const fireOnline = () => {
-    for (const listener of [...onlineListeners]) listener({ type: 'online' } as Event)
+    for (const listener of Array.from(onlineListeners)) listener({ type: 'online' } as Event)
   }
   const ready = (frame: FakeFrame, attempt?: number) => {
     const api = channel()

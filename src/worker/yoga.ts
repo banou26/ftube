@@ -31,7 +31,7 @@ const api = {
 
 export type WorkerApi = typeof api
 
-expose(api, {
+void expose(api, {
   key: 'graphql',
   transport: globalThis,
 })

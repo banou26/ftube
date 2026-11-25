@@ -167,4 +167,35 @@ describe('the BotGuard agent', () => {
     await turn()
     expect(aborted?.aborted).toBe(true)
   })
+
+  it('decipher runs the script, returns its result, propagates errors, and cleans up temporary slots and tags', async () => {
+    const isolated = fakeAgentPage('decipher')
+    installAgent({
+      scope: isolated.scope,
+      appOrigin: APP_ORIGIN,
+      fetch: isolated.fetch,
+      readCookie: isolated.readCookie,
+      runScript: (source) => {
+        try {
+          // oxlint-disable-next-line typescript/no-implied-eval
+          new Function(source)()
+        } catch {}
+        return isolated.runScript(source)
+      },
+    })
+    const ch = new MessageChannel()
+    open.push(ch.port1)
+    const agent = agentClient(ch.port1)
+    isolated.deliver({ origin: APP_ORIGIN, data: { type: AGENT_INSTALL }, ports: [ch.port2] })
+    await turn()
+
+    const result = await agent.call('decipher', 'return { sig: "ok", n: "abc" }')
+    expect(result).toEqual({ sig: 'ok', n: 'abc' })
+    expect(isolated.removed()).toBe(1)
+    expect(Object.keys(globalThis).filter((key) => key.startsWith('__ftubeDecipher_'))).toEqual([])
+
+    await expect(agent.call('decipher', 'throw new Error("bad decipher")')).rejects.toThrow('bad decipher')
+    expect(isolated.removed()).toBe(2)
+    expect(Object.keys(globalThis).filter((key) => key.startsWith('__ftubeDecipher_'))).toEqual([])
+  })
 })

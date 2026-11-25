@@ -13,6 +13,11 @@ const BROKER_TIMEOUT_MS = 15_000
 // appended before `@fkn/lib` is imported, which adopts an existing `iframe[src=...]` at module-evaluation time; owning the element is also what makes this realm the overlay host, since the lib binds hit-test retargeting to whoever mounted the iframe
 // deliberately UNSTYLED: the lib stamps the whole overlay baseline on it (fixed, full viewport, `clip-path: inset(100%)` when idle, z-index max, all `!important`), and setting `hidden` here is what broke it before
 const mountBroker = () => {
+  // Inside a framed sandbox shell, @fkn/lib reaches the parent shell via fkn-api-port rather than adopting a local
+  // iframe, so mounting one here would render an extra unstyled frame over the page.
+  if ((window.parent && window.parent !== window) || document.querySelector?.(`iframe[src^="${BROKER_URL}"]`)) {
+    return Promise.resolve()
+  }
   const element = document.createElement('iframe')
   element.src = BROKER_URL
   const loaded = new Promise<void>((resolve, reject) => {

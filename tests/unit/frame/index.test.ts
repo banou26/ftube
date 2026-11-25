@@ -5,6 +5,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { SabrSource } from '../../../src/frame/innertube'
 import type { FrameRequest, FrameResponse, PlaybackSession, SegmentRequest } from '../../../src/frame/protocol'
 import { parseEndScreen } from '../../../src/frame/end-screen'
+
+const urlOf = (input: RequestInfo | URL): string =>
+  typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
 import { anonymousCueTracks, catalogInnertube, getSabrSource, prefetchInitialPlayerResponse, youtubeFetch } from '../../../src/frame/innertube'
 import { STREAM_REFUSED } from '../../../src/frame/protocol'
 import { createSabrSession } from '../../../src/frame/sabr'
@@ -280,7 +283,7 @@ describe('an Auto-translate of a caption track', () => {
     expect(vi.mocked(catalogInnertube)).not.toHaveBeenCalled()
     expect(vi.mocked(anonymousCueTracks)).toHaveBeenCalledWith('video-1')
     expect(vi.mocked(youtubeFetch)).toHaveBeenCalledTimes(1)
-    const url = new URL(String(vi.mocked(youtubeFetch).mock.calls[0]![0]))
+    const url = new URL(urlOf(vi.mocked(youtubeFetch).mock.calls[0]![0]))
     expect(url.searchParams.get('signature')).toBe('vr')
     expect(url.searchParams.get('fmt')).toBe('json3')
     expect(url.searchParams.get('tlang')).toBe('fr')
@@ -298,7 +301,7 @@ describe('an Auto-translate of a caption track', () => {
     const translated = await call('captionCues', id, '.en', 'fr')
     expect(translated.result).toContain('Salut')
     expect(vi.mocked(youtubeFetch)).toHaveBeenCalledTimes(2)
-    const fallbackUrl = new URL(String(vi.mocked(youtubeFetch).mock.calls[1]![0]))
+    const fallbackUrl = new URL(urlOf(vi.mocked(youtubeFetch).mock.calls[1]![0]))
     expect(fallbackUrl.searchParams.get('signature')).toBe('web')
     expect(fallbackUrl.searchParams.get('tlang')).toBe('fr')
     expect(fallbackUrl.searchParams.get('potc')).toBe('1')
@@ -313,7 +316,7 @@ describe('an Auto-translate of a caption track', () => {
     vi.mocked(anonymousCueTracks).mockRejectedValueOnce(new Error('ANDROID_VR unavailable'))
     const plain = await call('captionCues', freshId, '.en')
     expect(plain.result).toContain('Hello plain')
-    const plainUrl = new URL(String(vi.mocked(youtubeFetch).mock.calls[0]![0]))
+    const plainUrl = new URL(urlOf(vi.mocked(youtubeFetch).mock.calls[0]![0]))
     expect(plainUrl.searchParams.get('signature')).toBe('web')
     expect(plainUrl.searchParams.get('potc')).toBe('1')
     expect(plainUrl.searchParams.get('pot')).toBe('TOKEN')

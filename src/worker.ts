@@ -7,7 +7,7 @@ import { sourceApi } from './sources/runtime'
 
 const worker = new Worker()
 
-expose(sourceApi, {
+void expose(sourceApi, {
   key: 'source',
   transport: worker,
 })

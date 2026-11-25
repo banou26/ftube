@@ -67,9 +67,9 @@ const defaultStorage = (): StorageLike | undefined => {
 
 /** Sanitizes a video title into a filesystem-safe download filename with extension `ext`. */
 export const sanitizeFilename = (title: string, ext: string): string => {
-  const withoutControls = [...title]
-    .map((char) => (char.charCodeAt(0) < 32 ? ' ' : char))
-    .join('')
+  // Replace C0 control characters without splitting UTF-16 surrogate pairs.
+  // oxlint-disable-next-line no-control-regex
+  const withoutControls = title.replace(/[\u0000-\u001f]/g, ' ')
   const cleaned = withoutControls
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')

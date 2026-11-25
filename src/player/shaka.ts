@@ -24,7 +24,7 @@ const SAFE_MARGIN_SECONDS = 1
 
 const waitForPendingInits = async (bridge: Bridge, isStopped: () => boolean) => {
   while (!isStopped() && bridge.pendingInits.size > 0) {
-    await Promise.allSettled([...bridge.pendingInits])
+    await Promise.allSettled(Array.from(bridge.pendingInits))
     // yield a macrotask so Shaka's createSegmentIndex() -> onUpdate_() settles before switchInternal_() clears buffers
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
@@ -145,7 +145,6 @@ const installScheme = () => {
       const kind = url.searchParams.get('kind') === 'media' ? 'media' : 'init'
       isInit = kind === 'init'
       segmentRequestId = `${url.searchParams.get('session')}:${++bridge.requestNumber}`
-      const started = performance.now()
       const segment = await bridge.api.requestSegment({
         requestId: segmentRequestId,
         sessionId: bridge.session.id,
@@ -309,7 +308,7 @@ export const startShakaPlayback = async ({
   openOptions?: OpenPlaybackOptions
   sessionPromise?: Promise<PlaybackSession>
   signal: AbortSignal
-  onError(error: unknown): void
+  onError: (error: unknown) => void
   // the video's end screen; for a page read with a card's params, whose answer carries none, the plain page's
   onEndScreen?: (elements: EndScreenElement[]) => void
   // called when the browser blocks unmuted autoplay and playback falls back to muted

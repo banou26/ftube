@@ -97,6 +97,29 @@ export const installAgent = ({ scope, appOrigin, runScript, fetch, readCookie }:
       session.removeScript()
       await session.client.shutdown().catch(() => {})
     },
+    decipher: async (script) => {
+      const slot = `__ftubeDecipher_${++lastSession}_${crypto.randomUUID().replace(/-/g, '')}`
+      const wrapped = `(() => {
+  try {
+    const value = (function () {\n${script}\n})();
+    globalThis[${JSON.stringify(slot)}] = { ok: true, value };
+  } catch (error) {
+    globalThis[${JSON.stringify(slot)}] = { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+})();`
+      const removeScript = runScript(wrapped)
+      const shared = globalThis as Record<string, unknown>
+      try {
+        const result = (global[slot] ?? shared[slot]) as { ok: true, value: unknown } | { ok: false, error: string } | undefined
+        if (!result) throw new Error('yt-client agent: decipher script did not run')
+        if (!result.ok) throw new Error(result.error)
+        return result.value
+      } finally {
+        delete global[slot]
+        delete shared[slot]
+        removeScript()
+      }
+    },
     fetch: (url, request) => pageFetch(url, request),
     cookie: async () => readCookie(),
   }

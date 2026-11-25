@@ -189,7 +189,8 @@ const globalStyles = css`
   }
 `
 
-// Before the first render so the page never paints the wrong theme and flashes.
+// Before the first render so the page never paints the wrong theme and flashes, and replaces FKN Sandbox title.
+if (!document.title || document.title === 'FKN Sandbox') document.title = 'FTube'
 applyTheme()
 watchDeviceTheme()
 

@@ -227,7 +227,7 @@ self.addEventListener('message', (event) => {
   livePort?.close()
   livePort = port
   port.start()
-  expose(api, {
+  void expose(api, {
     key: EGRESS_KEY,
     transport: { receive: port, emit: port },
   })

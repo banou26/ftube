@@ -9,6 +9,7 @@ import type { PlaybackFormat } from './protocol'
 
 import { readChannel } from '../engine/signed-in'
 import { WEB_CLIENT_VERSION } from '../sources/youtube/client-version'
+import { engineAgent } from './agent'
 import { mintPoToken, recoverPoTokenSession, warmPoTokenSession } from './botguard'
 import type { CaptionSource, TranslationLanguage } from './captions'
 import type { EndScreenElement } from './end-screen'
@@ -65,11 +66,41 @@ type InnertubeContext = {
 
 ;(Constants as unknown as { CLIENTS: { WEB: { VERSION: string } } }).CLIENTS.WEB.VERSION = WEB_CLIENT_VERSION
 
+const isSandboxOrigin = () => {
+  try {
+    const host = location.hostname
+    return host === 'sdbx.app' || host.endsWith('.sdbx.app') || host.endsWith('.sdbx.localhost')
+  } catch {
+    return false
+  }
+}
+
+let evalBlocked = false
+
+const isEvalCspError = (error: unknown) =>
+  error instanceof EvalError
+  || /content security policy|unsafe-eval|blocked by csp/i.test(error instanceof Error ? error.message : String(error))
+
 /* Evaluates only what youtubei.js already built: Player.decipher appends its own processor ending in
    `return process(n, sp, s)`, so `env` is deliberately unused. Do not re-add a second `return` reading
-   `exportedVars.nFunction`/`sigFunction`: neither name exists in youtubei.js 18.3.0, whose only export is `nsigFunction`. */
-Platform.shim.eval = async (data: Types.BuildScriptResult, _env: Record<string, Types.VMPrimative>) =>
-  new Function(data.output)()
+   `exportedVars.nFunction`/`sigFunction`: neither name exists in youtubei.js 18.3.0, whose only export is `nsigFunction`.
+   Inside FKN sandbox realms whose CSP omits `unsafe-eval`, delegate to the attached YouTube page agent instead. */
+Platform.shim.eval = async (data: Types.BuildScriptResult, _env: Record<string, Types.VMPrimative>) => {
+  if (evalBlocked || isSandboxOrigin()) {
+    const agent = engineAgent()
+    if (agent) return agent.decipher(data.output)
+  }
+  try {
+    // oxlint-disable-next-line typescript/no-implied-eval
+    return new Function(data.output)()
+  } catch (error) {
+    if (!isEvalCspError(error)) throw error
+    evalBlocked = true
+    const agent = engineAgent()
+    if (!agent) throw error
+    return agent.decipher(data.output)
+  }
+}
 
 const readVisitorData = () => {
   try {
