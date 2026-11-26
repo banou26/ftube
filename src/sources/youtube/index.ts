@@ -1,4 +1,4 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceComment, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceFeedChip, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceComment, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceFeedChip, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { ParsedCommunityPost, PostActionTokens } from './community'
 import type { EntityMutation } from './normalize'
 
@@ -9,7 +9,7 @@ import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo
 import { collectMembersOnlyPosts, extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
-import { approximateCount, chatReplayToken, extractRelatedChips, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions } from './normalize'
+import { approximateCount, chatReplayToken, EMOJI_WIDTH, extractRelatedChips, httpsUrl, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions, thumbnail } from './normalize'
 import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -194,11 +194,18 @@ type NotificationsFeed = {
   getContinuation(): Promise<NotificationsFeed>
 }
 
+type CommentHeaderEmoji = {
+  emoji_id?: string
+  shortcuts?: readonly string[]
+  image?: { url?: string, width?: number }[] | { thumbnails?: { url?: string, width?: number }[] }
+}
+
 type CommentsFeed = {
   contents: Iterable<unknown>
   header?: {
     comments_count?: unknown
     count?: unknown
+    custom_emojis?: readonly CommentHeaderEmoji[]
     create_renderer?: {
       submit_button?: { endpoint?: EndpointNode, on_tap?: EndpointNode } | null
     } | null
@@ -1218,7 +1225,30 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     return result
   }
 
+  const extractCommentCustomEmojis = (header: CommentsFeed['header']): SourceLiveChatEmoji[] => {
+    const entries = header?.custom_emojis ?? []
+    const out: SourceLiveChatEmoji[] = []
+    const seen = new Set<string>()
+    for (const entry of entries) {
+      const shortcut = entry.shortcuts?.find(item => item.length > 0)
+      if (!shortcut) continue
+      const thumbs = Array.isArray(entry.image)
+        ? entry.image
+        : (entry.image as { thumbnails?: { url?: string, width?: number }[] } | undefined)?.thumbnails
+      const rawUrl = thumbnail(thumbs, EMOJI_WIDTH)
+      const url = httpsUrl(rawUrl)
+      if (!url) continue
+      const id = entry.emoji_id ?? shortcut
+      if (seen.has(id) || seen.has(shortcut)) continue
+      seen.add(id)
+      seen.add(shortcut)
+      out.push({ id, shortcut, url })
+    }
+    return out
+  }
+
   const commentPage = (kind: string, comments: CommentsFeed): SourceCommentPage => {
+    const customEmojis = extractCommentCustomEmojis(comments.header)
     const result: SourceCommentPage = {
       items: [...comments.contents].flatMap((node) => {
         const item = extractCommentNode(node)
@@ -1226,6 +1256,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }),
       // `count` is the full '2,461,151 Comments' youtube.com heads the list with, `comments_count` only the rounded '2.4M'
       countText: text(comments.header?.count) ?? text(comments.header?.comments_count),
+      ...(customEmojis.length > 0 ? { customEmojis } : {}),
     }
     if (comments.has_continuation) {
       result.cursor = commentContinuations.register(

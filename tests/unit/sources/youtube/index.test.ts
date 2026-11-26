@@ -493,6 +493,62 @@ describe('youtube comment writes', () => {
     })
   })
 
+  it('extracts custom channel emojis from CommentsHeader into CommentPage.customEmojis', async () => {
+    const fakeActions = {
+      execute: async () => ({ success: true, status_code: 200, data: {} }),
+    }
+    const rawComments = {
+      onResponseReceivedEndpoints: [
+        {
+          reloadContinuationItemsCommand: {
+            continuationItems: [{
+              commentsHeaderRenderer: {
+                countText: { runs: [{ text: '5 Comments' }] },
+                customEmojis: [
+                  {
+                    emojiId: 'UC1/e1',
+                    shortcuts: [':fanwave:', ':wave:'],
+                    searchTerms: ['wave'],
+                    image: { thumbnails: [{ url: '//yt3.ggpht.com/e1=w48', width: 48, height: 48 }] },
+                    isCustomEmoji: true,
+                  },
+                  {
+                    emojiId: 'UC1/e1',
+                    shortcuts: [':fanwave:'],
+                    image: { thumbnails: [{ url: '//yt3.ggpht.com/dup=w48', width: 48, height: 48 }] },
+                    isCustomEmoji: true,
+                  },
+                  {
+                    emojiId: 'UC1/empty',
+                    shortcuts: [],
+                    image: { thumbnails: [{ url: '//yt3.ggpht.com/e2=w48', width: 48, height: 48 }] },
+                    isCustomEmoji: true,
+                  },
+                ],
+              },
+            }],
+          },
+        },
+        { reloadContinuationItemsCommand: { continuationItems: [] } },
+      ],
+    }
+    const base = createFakeClient()
+    const client = {
+      ...base,
+      actions: fakeActions,
+      getComments: async () => new YT.Comments(fakeActions as never, rawComments as never),
+    }
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => client as unknown as YoutubeClient,
+    })
+
+    const page = await source.comments('vid1')
+    expect(page.customEmojis).toEqual([
+      { id: 'UC1/e1', shortcut: ':fanwave:', url: 'https://yt3.ggpht.com/e1=w48' },
+    ])
+  })
+
   it('refuses to comment on a channel post when signed out or when the header has no submit endpoint', async () => {
     const signedOutClient = createFakeClient()
     signedOutClient.session.logged_in = false

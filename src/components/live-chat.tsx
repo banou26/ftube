@@ -27,11 +27,11 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { lineFor } from './data-failure'
-import { EmojiButton } from './emoji-picker'
+import { EmojiButton, type CustomEmoji } from './emoji-picker'
 import { isSelfMention, splitMentionRuns } from './live-chat-helpers'
 import { RichText } from './rich-text'
 import { Menu, MenuItem } from './ui/menu'
@@ -1375,7 +1375,17 @@ const LiveChatPollCard = (
 )
 
 /** Live stream chat panel with Top/Live filter switch, pinned banner, polls, Top fans leaderboard, restrictions, emoji picker, reactions, `@` mentions, and hide toggle. */
-export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, subscribed?: boolean, onHide?: () => void }) => {
+export const LiveChat = ({
+  videoId,
+  subscribed,
+  onHide,
+  onCustomEmojis,
+}: {
+  videoId: string
+  subscribed?: boolean
+  onHide?: () => void
+  onCustomEmojis?: (emojis: readonly CustomEmoji[]) => void
+}) => {
   const {
     ready,
     signedIn,
@@ -1442,6 +1452,13 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
     hideChat,
   } = useLiveChatSession({ videoId, subscribed, onHide })
   const [reactionsHovered, setReactionsHovered] = useState(false)
+  const onCustomEmojisRef = useRef(onCustomEmojis)
+  onCustomEmojisRef.current = onCustomEmojis
+
+  useEffect(() => {
+    onCustomEmojisRef.current?.(customEmojis)
+  }, [customEmojis])
+
   const reactionsVisible = !ended && (reactionsOpen || reactionsHovered)
 
   const reactionControl = !ended

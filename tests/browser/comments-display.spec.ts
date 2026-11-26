@@ -267,3 +267,66 @@ test('renders nested comment replies with curved connectors, per-reply actions, 
   await lvl2Reopen.click()
   await expect(lvl2Row).toBeVisible()
 })
+
+test('reveals comment composer actions and animated underline on focus, and inserts channel emojis', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+
+  const root = page.locator('[data-comments-harness="true"]')
+  await expect(async () => {
+    if (await root.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/comments-harness')
+        const state = harness.mountCommentsHarness()
+        ;(window as unknown as { __commentsHarness?: typeof state }).__commentsHarness = state
+      }, HARNESS)
+    }
+    await expect(root.locator('.comment')).toHaveCount(2, { timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const topComposer = root.locator('.composer.top')
+  const avatarImg = topComposer.locator('.composer-avatar img')
+  await expect(avatarImg).toBeVisible()
+  await expect(avatarImg).toHaveJSProperty('complete', true)
+  expect(await avatarImg.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+
+  await expect(topComposer.locator('.composer-actions')).toHaveCount(0)
+  await expect(topComposer.getByRole('button', { name: 'Comment', exact: true })).toHaveCount(0)
+  const initialAvatarWidth = await topComposer.locator('.composer-avatar').evaluate(
+    el => el.getBoundingClientRect().width,
+  )
+  const initialScale = await topComposer.locator('.composer-field').evaluate(
+    el => getComputedStyle(el, '::after').transform,
+  )
+  expect(initialScale).toBe('matrix(0, 0, 0, 1, 0, 0)')
+
+  const topInput = topComposer.getByRole('textbox', { name: 'Add a comment', exact: true })
+  await topInput.click()
+  await expect(topComposer).toHaveClass(/active/)
+  await expect(topComposer.locator('.composer-actions')).toBeVisible()
+  await expect(topComposer.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled()
+  await expect(topComposer.getByRole('button', { name: 'Comment', exact: true })).toBeDisabled()
+
+  await expect.poll(async () =>
+    topComposer.locator('.composer-field').evaluate(el => getComputedStyle(el, '::after').transform),
+  ).toBe('matrix(1, 0, 0, 1, 0, 0)')
+  await expect.poll(async () =>
+    topComposer.locator('.composer-avatar').evaluate(el => el.getBoundingClientRect().width),
+  ).toBeGreaterThan(initialAvatarWidth)
+
+  await topComposer.getByRole('button', { name: 'Insert emoji', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: 'Emoji picker', exact: true })
+  await expect(picker).toBeVisible()
+  await expect(picker.getByRole('tab', { name: 'Channel', exact: true })).toBeVisible()
+  await picker.getByRole('button', { name: ':fanwave:', exact: true }).click()
+  await expect(topInput).toHaveValue(':fanwave: ')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+
+  await topComposer.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(topInput).toHaveValue('')
+  await expect(topComposer).not.toHaveClass(/active/)
+  await expect(topComposer.locator('.composer-actions')).toHaveCount(0)
+})

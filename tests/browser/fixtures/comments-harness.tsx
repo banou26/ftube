@@ -27,7 +27,7 @@ export const mountCommentsHarness = (options?: { nested?: boolean }) => {
     }
     if (operationName === 'Session') {
       return new Response(JSON.stringify({
-        data: { session: { signedIn: true, name: 'Viewer', avatar: null, handle: '@viewer', accounts: [] } },
+        data: { session: { signedIn: true, name: 'Viewer', avatar: AVATAR_SVG, handle: '@viewer', accounts: [] } },
       }), { headers: { 'content-type': 'application/json' } })
     }
     if (operationName === 'Comments') {
@@ -81,6 +81,7 @@ export const mountCommentsHarness = (options?: { nested?: boolean }) => {
             cursor: null,
             disabled: false,
             countText: '2 Comments',
+            customEmojis: [{ id: 'ce-1', shortcut: ':fanwave:', url: AVATAR_SVG }],
           },
         },
       }), { headers: { 'content-type': 'application/json' } })

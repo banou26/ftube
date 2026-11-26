@@ -6,7 +6,7 @@ import type { RydComment, RydCommentSort } from '../ryd-comments'
 
 import { css } from '@emotion/react'
 import { ChevronDown, ChevronUp, Heart, ListFilter, Pin, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -17,7 +17,7 @@ import { getSettings, subscribeSettings } from '../settings'
 import type { CommentProfileAuthor } from './comment-profile-card'
 import { CommentProfileCard } from './comment-profile-card'
 import { DataFailure, lineFor } from './data-failure'
-import { EmojiButton, insertAtCursor } from './emoji-picker'
+import { type CustomEmoji, EmojiButton, insertAtCursor } from './emoji-picker'
 import { formatAgo, formatCompact } from './format'
 import { showToast } from './ui/toast'
 import { ReadMore } from './read-more'
@@ -71,6 +71,7 @@ gql(`
     cursor
     disabled
     countText
+    customEmojis { id shortcut url }
   }
 `)
 
@@ -339,6 +340,9 @@ const style = css`
   }
 
   .composer {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.6rem;
     margin-top: 1.2rem;
   }
 
@@ -346,23 +350,79 @@ const style = css`
     margin: 0 0 2.4rem;
   }
 
+  .composer-avatar {
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+    font-size: 1.1rem;
+    transition:
+      width 0.2s cubic-bezier(0.2, 0, 0, 1),
+      height 0.2s cubic-bezier(0.2, 0, 0, 1),
+      font-size 0.2s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .composer.top .composer-avatar {
+    width: 3.6rem;
+    height: 3.6rem;
+    font-size: 1.4rem;
+  }
+
+  .composer.top.active .composer-avatar {
+    width: 4rem;
+    height: 4rem;
+    font-size: 1.6rem;
+  }
+
+  .composer-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .composer-field {
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+  }
+
+  .composer-field::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--text-primary);
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+    pointer-events: none;
+  }
+
+  .composer-field:focus-within::after {
+    transform: scaleX(1);
+  }
+
   .composer-input {
     display: block;
     width: 100%;
-    min-height: 4rem;
-    padding: 0.4rem 0;
+    min-height: 2.8rem;
+    padding: 0.2rem 0;
     border: none;
-    border-bottom: 1px solid var(--border);
     background: transparent;
     color: var(--text-primary);
     font: inherit;
     font-size: 1.4rem;
-    resize: vertical;
+    line-height: 2rem;
+    resize: none;
+    overflow-y: hidden;
   }
 
   .composer-input:focus {
     outline: none;
-    border-bottom-color: var(--text-primary);
+  }
+
+  .composer-input::placeholder {
+    color: var(--text-secondary);
   }
 
   .composer-actions {
@@ -626,6 +686,20 @@ const CreatorHeart = ({ avatar, tooltip }: { avatar?: string | null, tooltip?: s
   )
 }
 
+const mergeCustomEmojis = (
+  primary?: readonly CustomEmoji[] | null,
+  extra?: readonly CustomEmoji[] | null,
+): readonly CustomEmoji[] => {
+  const all = [...(primary ?? []), ...(extra ?? [])]
+  if (all.length === 0) return []
+  const seen = new Set<string>()
+  return all.filter((entry) => {
+    if (seen.has(entry.shortcut)) return false
+    seen.add(entry.shortcut)
+    return true
+  })
+}
+
 const DraftBox = ({
   className,
   draft,
@@ -634,6 +708,13 @@ const DraftBox = ({
   submitLabel,
   cancelDisabled = false,
   sending,
+  customEmojis = [],
+  avatar,
+  avatarName,
+  alwaysExpanded = false,
+  autoFocus = false,
+  active = false,
+  onActivate,
   onDraft,
   onCancel,
   onSend,
@@ -645,13 +726,33 @@ const DraftBox = ({
   submitLabel: string
   cancelDisabled?: boolean
   sending: boolean
+  customEmojis?: readonly CustomEmoji[]
+  avatar?: string | null
+  avatarName?: string | null
+  alwaysExpanded?: boolean
+  autoFocus?: boolean
+  active?: boolean
+  onActivate?: () => void
   onDraft: (value: string) => void
   onCancel: () => void
   onSend: () => void
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const expanded = alwaysExpanded || active || draft.length > 0
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
+
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${input.scrollHeight}px`
+  }, [draft, expanded])
 
   const onPickEmoji = (emoji: string) => {
+    onActivate?.()
     const input = inputRef.current
     const start = input?.selectionStart ?? draft.length
     const end = input?.selectionEnd ?? draft.length
@@ -665,42 +766,76 @@ const DraftBox = ({
     })
   }
 
+  const fallback = (avatarName?.trim().slice(0, 1) || 'Y').toUpperCase()
+
   return (
-    <div className={className}>
-      <textarea
-        ref={inputRef}
-        className='composer-input'
-        value={draft}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        onInput={(event: TargetedEvent<HTMLTextAreaElement>) => onDraft(event.currentTarget.value)}
-      />
-      <div className='composer-actions'>
-        <EmojiButton onPick={onPickEmoji} disabled={sending} />
-        <div className='composer-buttons'>
-          <button type='button' className='composer-cancel' onClick={onCancel} disabled={cancelDisabled}>
-            Cancel
-          </button>
-          <button
-            type='button'
-            className='composer-send'
-            disabled={draft.trim().length === 0 || sending}
-            onClick={onSend}
-          >
-            {submitLabel}
-          </button>
+    <div className={expanded ? `${className} active` : className}>
+      <span className={avatar ? 'avatar composer-avatar' : 'avatar composer-avatar fallback'} aria-hidden='true'>
+        {avatar ? <img src={avatar} alt='' loading='lazy' /> : fallback}
+      </span>
+      <div className='composer-main'>
+        <div className='composer-field'>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            className='composer-input'
+            value={draft}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            onFocus={() => onActivate?.()}
+            onClick={() => onActivate?.()}
+            onKeyDown={(event: KeyboardEvent) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && draft.trim().length > 0 && !sending) {
+                event.preventDefault()
+                onSend()
+              }
+            }}
+            onInput={(event: TargetedEvent<HTMLTextAreaElement>) => {
+              onActivate?.()
+              onDraft(event.currentTarget.value)
+            }}
+          />
         </div>
+        {expanded
+          ? (
+            <div className='composer-actions'>
+              <EmojiButton customEmojis={customEmojis} onPick={onPickEmoji} disabled={sending} />
+              <div className='composer-buttons'>
+                <button type='button' className='composer-cancel' onClick={onCancel} disabled={cancelDisabled}>
+                  Cancel
+                </button>
+                <button
+                  type='button'
+                  className='composer-send'
+                  disabled={draft.trim().length === 0 || sending}
+                  onClick={onSend}
+                >
+                  {submitLabel}
+                </button>
+              </div>
+            </div>
+          )
+          : undefined}
       </div>
     </div>
   )
 }
 
 /** The top-level comment box. Signed-out readers get a prompt, not a dead form. */
-const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, channelId: string } }) => {
-  const { ready, signedIn } = useSession()
+const Composer = ({
+  videoId,
+  post,
+  customEmojis = [],
+}: {
+  videoId?: string
+  post?: { id: string, channelId: string }
+  customEmojis?: readonly CustomEmoji[]
+}) => {
+  const { ready, signedIn, avatar, name, handle } = useSession()
   const [, postComment] = useMutation(POST_COMMENT)
   const [, commentOnPost] = useMutation(COMMENT_ON_POST)
   const [draft, setDraft] = useState('')
+  const [active, setActive] = useState(false)
   const [sending, setSending] = useState(false)
 
   if (ready && !signedIn) {
@@ -726,6 +861,7 @@ const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, ch
         return
       }
       setDraft('')
+      setActive(false)
       // no optimistic row: a fabricated id would poison the normalized cache
       showToast('Comment posted')
     })
@@ -738,10 +874,18 @@ const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, ch
       placeholder='Add a comment…'
       ariaLabel='Add a comment'
       submitLabel='Comment'
-      cancelDisabled={draft.length === 0 || sending}
+      cancelDisabled={sending}
       sending={sending}
+      customEmojis={customEmojis}
+      avatar={avatar}
+      avatarName={name ?? handle}
+      active={active}
+      onActivate={() => setActive(true)}
       onDraft={setDraft}
-      onCancel={() => setDraft('')}
+      onCancel={() => {
+        setDraft('')
+        setActive(false)
+      }}
       onSend={send}
     />
   )
@@ -764,8 +908,8 @@ const CommentText = (
  * comment's `actionsToken`, the per-comment endpoints its read carried, and are
  * disabled on a comment whose read carried none.
  */
-const CommentActions = ({ comment }: { comment: CommentNode }) => {
-  const { ready, signedIn } = useSession()
+const CommentActions = ({ comment, customEmojis = [] }: { comment: CommentNode, customEmojis?: readonly CustomEmoji[] }) => {
+  const { ready, signedIn, avatar, name, handle } = useSession()
   const [, rateComment] = useMutation(RATE_COMMENT)
   const [, replyToComment] = useMutation(REPLY_TO_COMMENT)
   const [replying, setReplying] = useState(false)
@@ -850,6 +994,11 @@ const CommentActions = ({ comment }: { comment: CommentNode }) => {
             submitLabel='Reply'
             cancelDisabled={sending}
             sending={sending}
+            customEmojis={customEmojis}
+            avatar={avatar}
+            avatarName={name ?? handle}
+            alwaysExpanded
+            autoFocus
             onDraft={setDraft}
             onCancel={() => { setReplying(false); setDraft('') }}
             onSend={sendReply}
@@ -905,9 +1054,10 @@ const AuthorAvatarButton = (
   : <span className='avatar fallback'>?</span>
 
 const ReplyRow = (
-  { reply, videoId, activeProfileKey, onOpenProfile }: {
+  { reply, videoId, customEmojis, activeProfileKey, onOpenProfile }: {
     reply: CommentNode
     videoId?: string
+    customEmojis?: readonly CustomEmoji[]
     activeProfileKey: string | null
     onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
   },
@@ -935,7 +1085,7 @@ const ReplyRow = (
           {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
         </div>
         <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
-        <CommentActions comment={reply} />
+        <CommentActions comment={reply} customEmojis={customEmojis} />
         {inlineReplies.length > 0 || reply.repliesCursor
           ? (
             <ReplyThread
@@ -944,6 +1094,7 @@ const ReplyRow = (
               count={reply.replyCount}
               defaultOpen={inlineReplies.length > 0}
               videoId={videoId}
+              customEmojis={customEmojis}
               activeProfileKey={activeProfileKey}
               onOpenProfile={onOpenProfile}
             />
@@ -959,12 +1110,13 @@ const ReplyRow = (
  * collapsible along its vertical thread rail.
  */
 const ReplyThread = (
-  { initialReplies, cursor, count, defaultOpen = false, videoId, activeProfileKey, onOpenProfile }: {
+  { initialReplies, cursor, count, defaultOpen = false, videoId, customEmojis, activeProfileKey, onOpenProfile }: {
     initialReplies?: readonly CommentNode[]
     cursor?: string | null
     count?: number | null
     defaultOpen?: boolean
     videoId?: string
+    customEmojis?: readonly CustomEmoji[]
     activeProfileKey: string | null
     onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
   },
@@ -1035,6 +1187,7 @@ const ReplyThread = (
                       key={reply.id}
                       reply={reply}
                       videoId={videoId}
+                      customEmojis={customEmojis}
                       activeProfileKey={activeProfileKey}
                       onOpenProfile={onOpenProfile}
                     />
@@ -1268,10 +1421,11 @@ const RydComments = ({ videoId }: { videoId: string }) => {
 }
 
 /** A video's comments, or with `post` instead, a channel post's. */
-export const Comments = ({ videoId, post, commentCountText }: {
+export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis }: {
   videoId?: string
   post?: { id: string, channelId: string }
   commentCountText?: string | null
+  extraCustomEmojis?: readonly CustomEmoji[]
 }) => {
   const [sort, setSort] = useState<CommentSort>('TOP')
   // pages carry the sort they came from: without it the accumulator dedupes a reorder into a drop
@@ -1300,7 +1454,9 @@ export const Comments = ({ videoId, post, commentCountText }: {
     key: comment => comment.id
   })
   // the first page carries the full count ('2,461,151 Comments'); later pages carry none, and the watch read only the rounded '2.4M'
-  const count = (loadedPages[0] ?? page)?.countText ?? commentCountText
+  const firstPage = loadedPages[0] ?? page
+  const count = firstPage?.countText ?? commentCountText
+  const customEmojis = mergeCustomEmojis(firstPage?.customEmojis, extraCustomEmojis)
   const heading = count ? /comment/i.test(count) ? count : `${count} Comments` : 'Comments'
   const onMore = () => {
     if (!page?.cursor || fetching) return
@@ -1346,7 +1502,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
           ))}
         </Menu>
       </div>
-      <Composer videoId={videoId} post={post} />
+      <Composer videoId={videoId} post={post} customEmojis={customEmojis} />
       <div className='list'>
         {items.map(comment => {
           const author = comment.author
@@ -1381,7 +1537,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
                   {comment.publishedText ? <span className='age'>{comment.publishedText}</span> : undefined}
                 </div>
                 <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
-                <CommentActions comment={comment} />
+                <CommentActions comment={comment} customEmojis={customEmojis} />
                 {inlineReplies.length > 0 || comment.repliesCursor
                   ? (
                     <ReplyThread
@@ -1390,6 +1546,7 @@ export const Comments = ({ videoId, post, commentCountText }: {
                       count={comment.replyCount}
                       defaultOpen={false}
                       videoId={videoId}
+                      customEmojis={customEmojis}
                       activeProfileKey={activeProfile?.key ?? null}
                       onOpenProfile={toggleProfile}
                     />

@@ -741,6 +741,7 @@ export type SourceCommentPage = {
   cursor?: string
   disabled?: boolean
   countText?: string
+  customEmojis?: SourceLiveChatEmoji[]
 }
 
 export type SourcePlaylist = {

@@ -1,6 +1,6 @@
 import type { WatchActionId } from '../components/watch-actions-layout'
 import type { PlaylistPanelData } from '../components/playlist-panel'
-import type { RelatedVideosQuery } from '../generated/graphql'
+import type { LiveChatEmoji, RelatedVideosQuery } from '../generated/graphql'
 
 import type { VideoCardData } from '../components/video-card'
 
@@ -846,6 +846,14 @@ const WatchPage = () => {
     }
   }, [watch?.id, enabledActions, channel?.isSubscribed, watch?.likeCountText])
   const [chatHiddenFor, setChatHiddenFor] = useState<string | undefined>(undefined)
+  const [chatEmojis, setChatEmojis] = useState<{ videoId: string, items: readonly LiveChatEmoji[] }>({
+    videoId: '',
+    items: [],
+  })
+  const handleChatEmojis = useCallback(
+    (items: readonly LiveChatEmoji[]) => setChatEmojis({ videoId, items }),
+    [videoId],
+  )
   // held as the video it was opened on, so the next video starts with the panel closed
   const [replayFor, setReplayFor] = useState<string | undefined>(undefined)
   const replayOpen = watch?.hasChatReplay === true && replayFor === videoId
@@ -858,7 +866,15 @@ const WatchPage = () => {
   const liveChat = watch?.isLive
     ? chatHidden
       ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
-      : <LiveChat key={`chat:${videoId}`} videoId={videoId} subscribed={channel?.isSubscribed ?? undefined} onHide={() => setChatHiddenFor(videoId)} />
+      : (
+        <LiveChat
+          key={`chat:${videoId}`}
+          videoId={videoId}
+          subscribed={channel?.isSubscribed ?? undefined}
+          onHide={() => setChatHiddenFor(videoId)}
+          onCustomEmojis={handleChatEmojis}
+        />
+      )
     : undefined
 
   const chapters = watch?.chapters ?? []
@@ -1147,7 +1163,14 @@ const WatchPage = () => {
           : undefined}
         <div className='comments-slot'>
           {!watchFetching && watch && !watch.commentsHidden
-            ? <Comments key={`comments:${videoId}`} videoId={videoId} commentCountText={watch.commentCountText} />
+            ? (
+              <Comments
+                key={`comments:${videoId}`}
+                videoId={videoId}
+                commentCountText={watch.commentCountText}
+                extraCustomEmojis={chatEmojis.videoId === videoId ? chatEmojis.items : undefined}
+              />
+            )
             : undefined}
         </div>
       </div>

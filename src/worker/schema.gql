@@ -970,6 +970,7 @@ type CommentPage {
   # The comments header's own count, which is exact. The /next-derived text on
   # WatchMeta is a rounded teaser and needed a regex to read.
   countText: String
+  customEmojis: [LiveChatEmoji!]
 }
 
 # youtubei.js encodes only these two orderings, and passing one to getComments
