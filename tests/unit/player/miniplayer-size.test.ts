@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vite-plus/test'
 
 import {
   clampMiniplayerWidth,
+  coerceMiniplayerPosition,
   coerceMiniplayerWidth,
   DEFAULT_MINIPLAYER_WIDTH,
   draggedMiniplayerWidth,
   MAX_MINIPLAYER_WIDTH,
   MIN_MINIPLAYER_WIDTH,
+  miniplayerBoxHeight,
+  miniplayerPositionBounds,
   miniplayerWidthBounds,
+  nudgeMiniplayerPosition,
+  positionFromCoords,
+  resizedMiniplayerRect,
+  resolveMiniplayerRect,
   stepMiniplayerWidth,
 } from '../../../src/player/miniplayer-size'
 
@@ -119,5 +126,72 @@ describe('miniplayer sizing helpers', () => {
     expect(stepMiniplayerWidth(400, -1, false, 1280, 800)).toBe(360)
     expect(stepMiniplayerWidth(280, -1, true, 1280, 800)).toBe(280)
     expect(stepMiniplayerWidth(1120, 1, true, 1280, 800)).toBe(1130)
+  })
+
+  it('coerces normalized miniplayer positions and rejects invalid inputs', () => {
+    expect(coerceMiniplayerPosition(undefined)).toBeUndefined()
+    expect(coerceMiniplayerPosition(null)).toBeUndefined()
+    expect(coerceMiniplayerPosition([0, 0])).toBeUndefined()
+    expect(coerceMiniplayerPosition({ x: '0.5', y: 0.5 })).toBeUndefined()
+    expect(coerceMiniplayerPosition({ x: Number.NaN, y: 0.5 })).toBeUndefined()
+    expect(coerceMiniplayerPosition({ x: 0.25, y: 0.75 })).toEqual({ x: 0.25, y: 0.75 })
+    expect(coerceMiniplayerPosition({ x: -2, y: 3 })).toEqual({ x: 0, y: 1 })
+  })
+
+  it('resolves, clamps, nudges, and converts coordinates safely below the 56px header', () => {
+    const height = miniplayerBoxHeight(400)
+    expect(height).toBe(301)
+
+    const bounds = miniplayerPositionBounds(1280, 800, 400, height)
+    expect(bounds).toEqual({ minLeft: 16, maxLeft: 864, minTop: 72, maxTop: 483 })
+
+    expect(resolveMiniplayerRect(undefined, 400, height, 1280, 800)).toEqual({
+      left: 864,
+      top: 483,
+      width: 400,
+      height: 301,
+    })
+    expect(resolveMiniplayerRect({ x: 0, y: 0 }, 400, height, 1280, 800)).toEqual({
+      left: 16,
+      top: 72,
+      width: 400,
+      height: 301,
+    })
+
+    // Zero-span travel falls back cleanly to 1 without dividing by zero
+    expect(positionFromCoords(16, 72, { minLeft: 16, maxLeft: 16, minTop: 72, maxTop: 72 })).toEqual({ x: 1, y: 1 })
+
+    const nudged = nudgeMiniplayerPosition({ x: 0, y: 0 }, 64, 24, 400, height, 1280, 800)
+    expect(resolveMiniplayerRect(nudged, 400, height, 1280, 800)).toMatchObject({ left: 80, top: 96 })
+  })
+
+  it('resizes anchored at top-left for right, bottom, and bottom-right handles without leaving bounds', () => {
+    const startRect = { left: 16, top: 72, width: 400, height: 301 }
+    expect(resizedMiniplayerRect({
+      startRect,
+      edge: 'right',
+      dx: 160,
+      dy: 0,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+    })).toEqual({ left: 16, top: 72, width: 560, height: 391 })
+
+    expect(resizedMiniplayerRect({
+      startRect,
+      edge: 'bottom',
+      dx: 0,
+      dy: 90,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+    })).toEqual({ left: 16, top: 72, width: 560, height: 391 })
+
+    expect(resizedMiniplayerRect({
+      startRect,
+      edge: 'bottom-right',
+      dx: 160,
+      dy: 90,
+      viewportWidth: 1280,
+      viewportHeight: 800,
+    })).toEqual({ left: 16, top: 72, width: 560, height: 391 })
   })
 })

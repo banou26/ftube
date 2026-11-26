@@ -139,6 +139,30 @@ describe('the miniplayer width setting', () => {
   })
 })
 
+describe('the miniplayer position setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to undefined, clamps valid coordinates, drops malformed values, and clears on reset', async () => {
+    expect((await load()).getSettings().miniplayerPosition).toBeUndefined()
+    expect((await load({ miniplayerPosition: 'top-left' })).getSettings().miniplayerPosition).toBeUndefined()
+    expect((await load({ miniplayerPosition: [0, 0] })).getSettings().miniplayerPosition).toBeUndefined()
+    expect((await load({ miniplayerPosition: { x: Number.NaN, y: 0.5 } })).getSettings().miniplayerPosition).toBeUndefined()
+    expect((await load({ miniplayerPosition: { x: -1, y: 2 } })).getSettings().miniplayerPosition).toEqual({ x: 0, y: 1 })
+    expect((await load({ miniplayerPosition: { x: 0.2, y: 0.4 } })).getSettings().miniplayerPosition).toEqual({ x: 0.2, y: 0.4 })
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ miniplayerPosition: { x: 0.1, y: 0.2 } })
+    expect(JSON.parse(written.at(-1)!).miniplayerPosition).toEqual({ x: 0.1, y: 0.2 })
+    updateSettings({ miniplayerPosition: undefined })
+    expect(JSON.parse(written.at(-1)!).miniplayerPosition).toBeUndefined()
+  })
+})
+
 describe('the caption size setting', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

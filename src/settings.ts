@@ -1,11 +1,12 @@
 import type { CaptionLook } from './player/caption-style'
+import type { MiniplayerPosition } from './player/miniplayer-size'
 import type { AppIconId } from './theme/app-icon'
 import type { SeekHandle } from './theme/seek-handle'
 
 import { useEffect, useState } from 'preact/hooks'
 
 import { CAPTION_OPTIONS } from './player/caption-style'
-import { coerceMiniplayerWidth } from './player/miniplayer-size'
+import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
 import { applyAppIcon, coerceAppIcon } from './theme/app-icon'
 import { applyCustomPalette, normalizeHexColor } from './theme/palette'
@@ -44,6 +45,7 @@ export type Settings = {
   ambientMode: boolean
   annotations: boolean
   miniplayerWidth?: number
+  miniplayerPosition?: MiniplayerPosition
   showDislikes: boolean
   skipSponsors: boolean
   guideCollapsed: boolean
@@ -79,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ambientMode: true,
   annotations: true,
   miniplayerWidth: undefined,
+  miniplayerPosition: undefined,
   showDislikes: true,
   skipSponsors: true,
   guideCollapsed: false,
@@ -129,6 +132,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
     annotations: typeof stored.annotations === 'boolean' ? stored.annotations : DEFAULT_SETTINGS.annotations,
     miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
+    miniplayerPosition: coerceMiniplayerPosition(stored.miniplayerPosition),
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,
     guideCollapsed: typeof stored.guideCollapsed === 'boolean' ? stored.guideCollapsed : DEFAULT_SETTINGS.guideCollapsed,
@@ -182,6 +186,7 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...patch,
     ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
     ...('miniplayerWidth' in patch ? { miniplayerWidth: coerceMiniplayerWidth(patch.miniplayerWidth) } : {}),
+    ...('miniplayerPosition' in patch ? { miniplayerPosition: coerceMiniplayerPosition(patch.miniplayerPosition) } : {}),
     ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),
     ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
   }

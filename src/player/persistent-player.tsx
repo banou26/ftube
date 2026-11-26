@@ -1,7 +1,8 @@
-import type { MiniplayerResizeEdge } from './miniplayer-size'
+import type { MiniplayerRect, MiniplayerResizeEdge } from './miniplayer-size'
 import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
+import { GripHorizontal } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
@@ -9,7 +10,21 @@ import { Link, useLocation, useSearch } from 'wouter'
 
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { isAllowedWithHideShorts } from '../shorts-filter'
-import { clampMiniplayerWidth, draggedMiniplayerWidth, miniplayerWidthBounds, stepMiniplayerWidth } from './miniplayer-size'
+import {
+  clampMiniplayerWidth,
+  draggedMiniplayerWidth,
+  MINIPLAYER_META_HEIGHT,
+  MINIPLAYER_MOVE_LARGE_STEP,
+  MINIPLAYER_MOVE_STEP,
+  miniplayerBoxHeight,
+  miniplayerPositionBounds,
+  miniplayerWidthBounds,
+  nudgeMiniplayerPosition,
+  positionFromCoords,
+  resizedMiniplayerRect,
+  resolveMiniplayerRect,
+  stepMiniplayerWidth,
+} from './miniplayer-size'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
@@ -28,7 +43,7 @@ const style = css`
   position: fixed;
   right: 1.6rem;
   bottom: 1.6rem;
-  z-index: 60;
+  z-index: 1500;
   width: 40rem;
   max-width: calc(100vw - 3.2rem);
   border-radius: 1.2rem;
@@ -89,8 +104,58 @@ const style = css`
   }
 
   .dock-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
     height: 7.6rem;
-    padding: 1.2rem 1.6rem;
+    padding: 1.2rem 1.2rem 1.2rem 1.6rem;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .dock-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .dock-move {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 3.2rem;
+    height: 3.2rem;
+    padding: 0;
+    border: none;
+    border-radius: 0.6rem;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: grab;
+    touch-action: none;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .dock-move:hover,
+  .dock-move:focus-visible {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .dock-move:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: 1px;
+  }
+
+  &.moving,
+  &.moving .dock-meta,
+  &.moving .dock-move,
+  &.moving .dock-slot {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  &.moving .dock-slot,
+  &.moving .dock-text {
+    pointer-events: none;
   }
 
   .dock-title,
@@ -140,7 +205,16 @@ const style = css`
   .resize-left {
     top: 1.4rem;
     left: 0;
-    bottom: 0;
+    bottom: 0.8rem;
+    width: 0.8rem;
+    z-index: 3;
+    cursor: ew-resize;
+  }
+
+  .resize-right {
+    top: 4rem;
+    right: 0;
+    bottom: 1.4rem;
     width: 0.8rem;
     z-index: 3;
     cursor: ew-resize;
@@ -156,9 +230,27 @@ const style = css`
     cursor: ns-resize;
   }
 
+  .resize-bottom {
+    left: 0.8rem;
+    right: 1.4rem;
+    bottom: 0;
+    height: 0.8rem;
+    z-index: 3;
+    cursor: ns-resize;
+  }
+
   .resize-corner {
     top: 0;
     left: 0;
+    width: 1.4rem;
+    height: 1.4rem;
+    z-index: 4;
+    cursor: nwse-resize;
+  }
+
+  .resize-bottom-right {
+    right: 0;
+    bottom: 0;
     width: 1.4rem;
     height: 1.4rem;
     z-index: 4;
@@ -182,23 +274,39 @@ const style = css`
     pointer-events: none;
   }
 
-  &:hover .resize-corner::after {
+  .resize-bottom-right::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    border-bottom-right-radius: 1.2rem;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  &:hover .resize-corner::after,
+  &:hover .resize-bottom-right::after {
     opacity: 0.65;
   }
 
   .resize-corner:hover::after,
   .resize-corner:focus-visible::after,
-  &.resizing[data-resize-edge='top-left'] .resize-corner::after {
+  &.resizing[data-resize-edge='top-left'] .resize-corner::after,
+  .resize-bottom-right:hover::after,
+  &.resizing[data-resize-edge='bottom-right'] .resize-bottom-right::after {
     opacity: 1;
     border-color: var(--accent);
   }
 
-  .resize-left::after {
+  .resize-left::after,
+  .resize-right::after {
     content: '';
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 0;
     width: 2px;
     background: var(--accent);
     opacity: 0;
@@ -206,15 +314,25 @@ const style = css`
     pointer-events: none;
   }
 
+  .resize-left::after {
+    left: 0;
+  }
+
+  .resize-right::after {
+    right: 0;
+  }
+
   .resize-left:hover::after,
-  &.resizing[data-resize-edge='left'] .resize-left::after {
+  &.resizing[data-resize-edge='left'] .resize-left::after,
+  .resize-right:hover::after,
+  &.resizing[data-resize-edge='right'] .resize-right::after {
     opacity: 0.9;
   }
 
-  .resize-top::after {
+  .resize-top::after,
+  .resize-bottom::after {
     content: '';
     position: absolute;
-    top: 0;
     left: 0;
     right: 0;
     height: 2px;
@@ -224,11 +342,27 @@ const style = css`
     pointer-events: none;
   }
 
+  .resize-top::after {
+    top: 0;
+  }
+
+  .resize-bottom::after {
+    bottom: 0;
+  }
+
   .resize-top:hover::after,
-  &.resizing[data-resize-edge='top'] .resize-top::after {
+  &.resizing[data-resize-edge='top'] .resize-top::after,
+  .resize-bottom:hover::after,
+  &.resizing[data-resize-edge='bottom'] .resize-bottom::after {
     opacity: 0.9;
   }
 `
+
+const DRAG_THRESHOLD = 5
+
+const isInteractiveDragControl = (target: EventTarget | null) =>
+  target instanceof Element
+  && Boolean(target.closest('button:not(.dock-move), input, select, textarea, [role="slider"], [role="button"], .resize-handle, .scrubber, .mini-volume'))
 
 const readViewport = () => (typeof document === 'undefined'
   ? { width: 1280, height: 800 }
@@ -258,9 +392,12 @@ const PersistentPlayer = () => {
   const ambientMode = useSetting('ambientMode')
   const annotations = useSetting('annotations')
   const storedMiniplayerWidth = useSetting('miniplayerWidth')
+  const storedMiniplayerPosition = useSetting('miniplayerPosition')
   const asideRef = useRef<HTMLElement>(null)
+  const metaRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(readViewport)
-  const [drag, setDrag] = useState<{ edge: MiniplayerResizeEdge, width: number } | undefined>(undefined)
+  const [drag, setDrag] = useState<{ edge: MiniplayerResizeEdge, width: number, rect?: MiniplayerRect } | undefined>(undefined)
+  const [dragMove, setDragMove] = useState<MiniplayerRect | undefined>(undefined)
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
@@ -281,14 +418,26 @@ const PersistentPlayer = () => {
   }, [])
 
   const bounds = miniplayerWidthBounds(viewport.width, viewport.height)
-  const renderedWidth = drag
-    ? drag.width
-    : clampMiniplayerWidth(storedMiniplayerWidth, viewport.width, viewport.height)
+  const renderedWidth = dragMove
+    ? dragMove.width
+    : drag
+      ? drag.width
+      : clampMiniplayerWidth(storedMiniplayerWidth, viewport.width, viewport.height)
 
-  const startResize = useCallback((edge: MiniplayerResizeEdge) => (event: PointerEvent) => {
+  const currentMetaHeight = () => metaRef.current?.offsetHeight || MINIPLAYER_META_HEIGHT
+  const boxHeight = miniplayerBoxHeight(renderedWidth, MINIPLAYER_META_HEIGHT)
+
+  const positionedRect = dragMove
+    ?? drag?.rect
+    ?? (storedMiniplayerPosition !== undefined
+      ? resolveMiniplayerRect(storedMiniplayerPosition, renderedWidth, boxHeight, viewport.width, viewport.height)
+      : undefined)
+
+  const startMoveDrag = useCallback((event: PointerEvent) => {
     if (event.button !== 0 || !docked) return
-    event.preventDefault()
-    event.stopPropagation()
+    if (isInteractiveDragControl(event.target)) return
+    const aside = asideRef.current
+    if (!aside) return
     stopDragRef.current?.()
 
     const handle = event.currentTarget as HTMLElement
@@ -297,26 +446,34 @@ const PersistentPlayer = () => {
     const startY = event.clientY
     const liveViewport = readViewport()
     setViewport(liveViewport)
-    const startWidth = Math.round(asideRef.current?.getBoundingClientRect().width ?? renderedWidth)
-    let lastWidth = startWidth
+    const measuredRect = aside.getBoundingClientRect()
+    const startWidth = Math.round(measuredRect.width) || renderedWidth
+    const startHeight = Math.round(measuredRect.height) || miniplayerBoxHeight(startWidth, currentMetaHeight())
+    const startLeft = Math.round(measuredRect.left)
+    const startTop = Math.round(measuredRect.top)
     let moved = false
+    let latestRect: MiniplayerRect = { left: startLeft, top: startTop, width: startWidth, height: startHeight }
+    let clickCleanupTimer: ReturnType<typeof setTimeout> | undefined
 
-    try {
-      handle.setPointerCapture?.(pointerId)
-    } catch {
-      // ignore synthetic events that cannot capture pointers
+    const computeMovedRect = (point: PointerEvent): MiniplayerRect => {
+      const nextViewport = readViewport()
+      const moveBounds = miniplayerPositionBounds(nextViewport.width, nextViewport.height, startWidth, startHeight)
+      return {
+        left: Math.round(Math.min(moveBounds.maxLeft, Math.max(moveBounds.minLeft, startLeft + (point.clientX - startX)))),
+        top: Math.round(Math.min(moveBounds.maxTop, Math.max(moveBounds.minTop, startTop + (point.clientY - startY)))),
+        width: startWidth,
+        height: startHeight,
+      }
     }
 
-    const computeWidth = (point: PointerEvent) => {
-      const nextViewport = readViewport()
-      return draggedMiniplayerWidth({
-        edge,
-        startWidth,
-        dx: startX - point.clientX,
-        dy: startY - point.clientY,
-        viewportWidth: nextViewport.width,
-        viewportHeight: nextViewport.height,
-      })
+    const suppressNextClick = (clickEvent: Event) => {
+      clickEvent.preventDefault()
+      clickEvent.stopPropagation()
+      window.removeEventListener('click', suppressNextClick, true)
+      if (clickCleanupTimer !== undefined) {
+        clearTimeout(clickCleanupTimer)
+        clickCleanupTimer = undefined
+      }
     }
 
     let finished = false
@@ -328,24 +485,47 @@ const PersistentPlayer = () => {
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onBlur)
       stopDragRef.current = undefined
-      if (finalEvent && (finalEvent.clientX !== startX || finalEvent.clientY !== startY)) {
-        moved = true
-        lastWidth = computeWidth(finalEvent)
+      if (finalEvent) {
+        const dist = Math.hypot(finalEvent.clientX - startX, finalEvent.clientY - startY)
+        if (moved || dist >= DRAG_THRESHOLD) {
+          moved = true
+          latestRect = computeMovedRect(finalEvent)
+        }
       }
-      setDrag(undefined)
+      setDragMove(undefined)
       try {
         if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId)
       } catch {
         // ignore if capture was already released
       }
-      if (commit && moved) updateSettings({ miniplayerWidth: lastWidth })
+      if (moved) {
+        window.addEventListener('click', suppressNextClick, true)
+        clickCleanupTimer = setTimeout(() => {
+          window.removeEventListener('click', suppressNextClick, true)
+          clickCleanupTimer = undefined
+        }, 50)
+      }
+      if (commit && moved) {
+        const commitViewport = readViewport()
+        const commitBounds = miniplayerPositionBounds(commitViewport.width, commitViewport.height, latestRect.width, latestRect.height)
+        updateSettings({ miniplayerPosition: positionFromCoords(latestRect.left, latestRect.top, commitBounds) })
+      }
     }
 
     const onMove = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return
-      if (moveEvent.clientX !== startX || moveEvent.clientY !== startY) moved = true
-      lastWidth = computeWidth(moveEvent)
-      setDrag({ edge, width: lastWidth })
+      const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY)
+      if (!moved && dist < DRAG_THRESHOLD) return
+      if (!moved) {
+        moved = true
+        try {
+          handle.setPointerCapture?.(pointerId)
+        } catch {
+          // ignore synthetic events that cannot capture pointers
+        }
+      }
+      latestRect = computeMovedRect(moveEvent)
+      setDragMove(latestRect)
     }
 
     const onUp = (upEvent: PointerEvent) => {
@@ -365,14 +545,146 @@ const PersistentPlayer = () => {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onCancel)
     window.addEventListener('blur', onBlur)
-    setDrag({ edge, width: startWidth })
   }, [docked, renderedWidth])
+
+  const startResize = useCallback((edge: MiniplayerResizeEdge) => (event: PointerEvent) => {
+    if (event.button !== 0 || !docked) return
+    event.preventDefault()
+    event.stopPropagation()
+    stopDragRef.current?.()
+
+    const handle = event.currentTarget as HTMLElement
+    const pointerId = event.pointerId
+    const startX = event.clientX
+    const startY = event.clientY
+    const liveViewport = readViewport()
+    setViewport(liveViewport)
+    const metaHeight = currentMetaHeight()
+    const measuredRect = asideRef.current?.getBoundingClientRect()
+    const startWidth = Math.round(measuredRect?.width ?? renderedWidth)
+    const startHeight = Math.round(measuredRect?.height ?? miniplayerBoxHeight(startWidth, metaHeight))
+    const anchoredMove = storedMiniplayerPosition !== undefined || edge === 'right' || edge === 'bottom' || edge === 'bottom-right'
+    const startRect: MiniplayerRect = measuredRect
+      ? {
+          left: Math.round(measuredRect.left),
+          top: Math.round(measuredRect.top),
+          width: startWidth,
+          height: startHeight,
+        }
+      : resolveMiniplayerRect(storedMiniplayerPosition, startWidth, startHeight, liveViewport.width, liveViewport.height)
+    let lastWidth = startWidth
+    let lastRect: MiniplayerRect | undefined = anchoredMove ? startRect : undefined
+    let moved = false
+
+    try {
+      handle.setPointerCapture?.(pointerId)
+    } catch {
+      // ignore synthetic events that cannot capture pointers
+    }
+
+    const computeNext = (point: PointerEvent) => {
+      const nextViewport = readViewport()
+      if (anchoredMove) {
+        const nextRect = resizedMiniplayerRect({
+          startRect,
+          edge,
+          dx: point.clientX - startX,
+          dy: point.clientY - startY,
+          viewportWidth: nextViewport.width,
+          viewportHeight: nextViewport.height,
+          metaHeight,
+        })
+        return { width: nextRect.width, rect: nextRect }
+      }
+      return {
+        width: draggedMiniplayerWidth({
+          edge,
+          startWidth,
+          dx: startX - point.clientX,
+          dy: startY - point.clientY,
+          viewportWidth: nextViewport.width,
+          viewportHeight: nextViewport.height,
+        }),
+        rect: undefined,
+      }
+    }
+
+    let finished = false
+    const finish = (commit: boolean, finalEvent?: PointerEvent) => {
+      if (finished) return
+      finished = true
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('blur', onBlur)
+      stopDragRef.current = undefined
+      if (finalEvent && (finalEvent.clientX !== startX || finalEvent.clientY !== startY)) {
+        moved = true
+        const next = computeNext(finalEvent)
+        lastWidth = next.width
+        lastRect = next.rect
+      }
+      setDrag(undefined)
+      try {
+        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // ignore if capture was already released
+      }
+      if (commit && moved) {
+        if (anchoredMove && lastRect) {
+          const commitViewport = readViewport()
+          const commitBounds = miniplayerPositionBounds(commitViewport.width, commitViewport.height, lastRect.width, lastRect.height)
+          updateSettings({
+            miniplayerWidth: lastRect.width,
+            miniplayerPosition: positionFromCoords(lastRect.left, lastRect.top, commitBounds),
+          })
+        } else {
+          updateSettings({ miniplayerWidth: lastWidth })
+        }
+      }
+    }
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return
+      if (moveEvent.clientX !== startX || moveEvent.clientY !== startY) moved = true
+      const next = computeNext(moveEvent)
+      lastWidth = next.width
+      lastRect = next.rect
+      setDrag({ edge, width: next.width, rect: next.rect })
+    }
+
+    const onUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return
+      finish(true, upEvent)
+    }
+
+    const onCancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId !== pointerId) return
+      finish(false)
+    }
+
+    const onBlur = () => finish(false)
+
+    stopDragRef.current = () => finish(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('blur', onBlur)
+    setDrag({ edge, width: startWidth, rect: lastRect })
+  }, [docked, renderedWidth, storedMiniplayerPosition])
 
   const resetMiniplayerWidth = useCallback((event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
     stopDragRef.current?.()
     updateSettings({ miniplayerWidth: undefined })
+  }, [])
+
+  const resetMiniplayerPosition = useCallback((event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    stopDragRef.current?.()
+    updateSettings({ miniplayerPosition: undefined })
   }, [])
 
   const stopHandleClick = useCallback((event: MouseEvent) => {
@@ -399,6 +711,39 @@ const PersistentPlayer = () => {
       updateSettings({ miniplayerWidth: undefined })
     }
   }, [renderedWidth, viewport.width, viewport.height])
+
+  const onMoveKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    const step = event.shiftKey ? MINIPLAYER_MOVE_LARGE_STEP : MINIPLAYER_MOVE_STEP
+    const height = miniplayerBoxHeight(renderedWidth, currentMetaHeight())
+    let dx = 0
+    let dy = 0
+    if (event.key === 'ArrowLeft') dx = -step
+    else if (event.key === 'ArrowRight') dx = step
+    else if (event.key === 'ArrowUp') dy = -step
+    else if (event.key === 'ArrowDown') dy = step
+    else if (event.key === 'Home' || event.key === '0') {
+      event.preventDefault()
+      event.stopPropagation()
+      updateSettings({ miniplayerPosition: undefined })
+      return
+    } else {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    updateSettings({
+      miniplayerPosition: nudgeMiniplayerPosition(
+        storedMiniplayerPosition,
+        dx,
+        dy,
+        renderedWidth,
+        height,
+        viewport.width,
+        viewport.height,
+      ),
+    })
+  }, [renderedWidth, storedMiniplayerPosition, viewport.width, viewport.height])
 
   const videoId = session.videoId
   // the same document and variables as the watch route, so on the watch page both share its one /next
@@ -511,38 +856,62 @@ const PersistentPlayer = () => {
       <aside
         ref={asideRef}
         css={style}
-        className={[!docked && 'hidden', drag && 'resizing'].filter(Boolean).join(' ') || undefined}
+        className={[!docked && 'hidden', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
         data-resize-edge={drag?.edge}
-        style={docked ? { width: `${renderedWidth}px` } : undefined}
+        style={docked
+          ? positionedRect
+            ? {
+                left: `${positionedRect.left}px`,
+                top: `${positionedRect.top}px`,
+                right: 'auto',
+                bottom: 'auto',
+                width: `${positionedRect.width}px`,
+              }
+            : { width: `${renderedWidth}px` }
+          : undefined}
         aria-label='Miniplayer'
         aria-hidden={!docked}
+        onPointerDown={startMoveDrag}
       >
         <div className='dock-slot' ref={registerPlayerDock} />
         {docked
           ? (
             <>
-              <div className='dock-meta'>
-                <Link
-                  className='dock-title'
-                  href={upNextHref({ id: session.videoId!, list: session.list, index: session.index })}
+              <div className='dock-meta' ref={metaRef}>
+                <div className='dock-text'>
+                  <Link
+                    className='dock-title'
+                    draggable={false}
+                    href={upNextHref({ id: session.videoId!, list: session.list, index: session.index })}
+                  >
+                    {watch?.title ?? session.title ?? 'Now playing'}
+                  </Link>
+                  {/* youtube.com names the playlist and the place in it where it would name the channel */}
+                  {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
+                    ? (
+                      <div className='dock-byline'>
+                        <span className='dock-name'>
+                          {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
+                        </span>
+                        {playlist && count > 0
+                          ? <span className='dock-index'>{current + 1} / {count}</span>
+                          : !playlist && localQueue.currentIndex >= 0
+                            ? <span className='dock-index'>{localQueue.currentIndex + 1} / {localQueue.items.length}</span>
+                            : undefined}
+                      </div>
+                    )
+                    : undefined}
+                </div>
+                <button
+                  type='button'
+                  className='dock-move'
+                  aria-label='Move miniplayer'
+                  title='Drag to move miniplayer (double-click to reset)'
+                  onDoubleClick={resetMiniplayerPosition}
+                  onKeyDown={onMoveKeyDown}
                 >
-                  {watch?.title ?? session.title ?? 'Now playing'}
-                </Link>
-                {/* youtube.com names the playlist and the place in it where it would name the channel */}
-                {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
-                  ? (
-                    <div className='dock-byline'>
-                      <span className='dock-name'>
-                        {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
-                      </span>
-                      {playlist && count > 0
-                        ? <span className='dock-index'>{current + 1} / {count}</span>
-                        : !playlist && localQueue.currentIndex >= 0
-                          ? <span className='dock-index'>{localQueue.currentIndex + 1} / {localQueue.items.length}</span>
-                          : undefined}
-                    </div>
-                  )
-                  : undefined}
+                  <GripHorizontal size={16} strokeWidth={1.75} />
+                </button>
               </div>
               <div
                 className='resize-handle resize-left'
@@ -553,10 +922,26 @@ const PersistentPlayer = () => {
                 onDoubleClick={resetMiniplayerWidth}
               />
               <div
+                className='resize-handle resize-right'
+                data-resize='right'
+                aria-hidden='true'
+                onPointerDown={startResize('right')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
+              />
+              <div
                 className='resize-handle resize-top'
                 data-resize='top'
                 aria-hidden='true'
                 onPointerDown={startResize('top')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
+              />
+              <div
+                className='resize-handle resize-bottom'
+                data-resize='bottom'
+                aria-hidden='true'
+                onPointerDown={startResize('bottom')}
                 onClick={stopHandleClick}
                 onDoubleClick={resetMiniplayerWidth}
               />
@@ -576,6 +961,14 @@ const PersistentPlayer = () => {
                 onClick={stopHandleClick}
                 onDoubleClick={resetMiniplayerWidth}
                 onKeyDown={onCornerKeyDown}
+              />
+              <div
+                className='resize-handle resize-bottom-right'
+                data-resize='bottom-right'
+                aria-hidden='true'
+                onPointerDown={startResize('bottom-right')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
               />
             </>
           )
