@@ -7,7 +7,7 @@ import type { SeekHandle, SeekIconCategory, SeekIconName } from '../theme/seek-h
 import type { EmojiCategory } from './emoji-picker'
 
 import { SeekKnob } from '../player/seek-knob'
-import { resetCustomAppearance, resolveTheme, updateSettings } from '../settings'
+import { resetCustomAppearance, updateSettings } from '../settings'
 import { APP_ICONS, buildAppIconDataUri } from '../theme/app-icon'
 import { normalizeHexColor, THEME_PRESETS } from '../theme/palette'
 import { filterSeekIcons, SEEK_ICON_CATEGORIES } from '../theme/seek-handle'
@@ -89,8 +89,9 @@ const style = css`
   .preview-player {
     padding: 1.4rem 1.4rem 1rem;
     border-radius: 0.6rem;
-    background: #181818;
-    color: #ffffff;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
   }
 
   .preview-scrubber {
@@ -104,7 +105,7 @@ const style = css`
     position: relative;
     width: 100%;
     height: 0.4rem;
-    background: rgba(255, 255, 255, 0.28);
+    background: color-mix(in srgb, var(--text-primary) 18%, transparent);
     border-radius: 999px;
   }
 
@@ -133,7 +134,7 @@ const style = css`
     width: 1.4rem;
     height: 1.4rem;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
 
@@ -287,6 +288,20 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
   const [emojiQuery, setEmojiQuery] = useState('')
   const [iconCategory, setIconCategory] = useState<SeekIconCategory | 'All'>('All')
   const [iconQuery, setIconQuery] = useState('')
+  const [deviceLight, setDeviceLight] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: light)').matches
+      : false,
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(prefers-color-scheme: light)')
+    const sync = () => setDeviceLight(query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
 
   useEffect(() => {
     setHexDraft(settings.customThemeColor ?? '')
@@ -305,7 +320,7 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
 
   const activeColor = settings.customThemeColor
   const colorPickerValue = activeColor ?? '#ff0033'
-  const resolvedMode = resolveTheme(settings.theme)
+  const resolvedMode = settings.theme === 'device' ? (deviceLight ? 'light' : 'dark') : settings.theme
   const activePreset = THEME_PRESETS.find(preset => preset.color === activeColor)
   const paletteLabel = activePreset ? activePreset.name : activeColor ? `Custom (${activeColor})` : 'Default'
   const invalidHex = hexDraft.trim() !== '' && !normalizeHexColor(hexDraft)

@@ -7,14 +7,15 @@ const srgbChannel = (v: number) => {
   return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
 }
 
+const relativeLuminance = (str: string) => {
+  const m = str.match(/[\d.]+/g) ?? ['0', '0', '0']
+  const [r = 0, g = 0, b = 0] = m.map(Number)
+  return 0.2126 * srgbChannel(r) + 0.7152 * srgbChannel(g) + 0.0722 * srgbChannel(b)
+}
+
 const contrastFromRgb = (fg: string, bg: string) => {
-  const parse = (str: string) => {
-    const m = str.match(/\d+/g) ?? ['0', '0', '0']
-    const [r = 0, g = 0, b = 0] = m.map(Number)
-    return 0.2126 * srgbChannel(r) + 0.7152 * srgbChannel(g) + 0.0722 * srgbChannel(b)
-  }
-  const l1 = parse(fg)
-  const l2 = parse(bg)
+  const l1 = relativeLuminance(fg)
+  const l2 = relativeLuminance(bg)
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
 }
 
@@ -251,4 +252,52 @@ test('adapts inline SVG header logo colors to the selected custom accent with WC
   await expect(pill).toHaveCSS('fill', 'rgb(255, 0, 0)')
   await expect(playTriangle).toHaveCSS('fill', 'rgb(255, 255, 255)')
   await expect(chevron).toHaveCSS('stroke', 'rgb(255, 255, 255)')
+})
+
+test('adapts settings accent preview player to light, dark, and live device color schemes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/settings')
+  const custom = page.locator('#custom-appearance')
+  const previewPlayer = custom.locator('.preview-player')
+  const previewPlayed = custom.locator('.preview-played')
+  const previewTrack = custom.locator('.preview-track')
+  const previewMeta = custom.locator('.preview-meta')
+  const previewCta = custom.locator('.preview-cta')
+  await expect(previewPlayer).toBeVisible()
+
+  await page.getByRole('button', { name: 'Light', exact: true }).click()
+  await expect(previewMeta).toContainText('(light)')
+  const defaultLightBg = await previewPlayer.evaluate(el => getComputedStyle(el).backgroundColor)
+  expect(defaultLightBg).not.toBe('rgb(24, 24, 24)')
+  expect(relativeLuminance(defaultLightBg)).toBeGreaterThan(0.6)
+  const lightTrackBg = await previewTrack.evaluate(el => getComputedStyle(el).backgroundColor)
+  expect(lightTrackBg).not.toBe('rgba(255, 255, 255, 0.28)')
+
+  const defaultPlayedBg = await previewPlayed.evaluate(el => getComputedStyle(el).backgroundColor)
+  const defaultCtaColor = await previewCta.evaluate(el => getComputedStyle(el).color)
+
+  await custom.getByRole('button', { name: 'Violet', exact: true }).click()
+  const violetLightBg = await previewPlayer.evaluate(el => getComputedStyle(el).backgroundColor)
+  const violetPlayedBg = await previewPlayed.evaluate(el => getComputedStyle(el).backgroundColor)
+  const violetCtaColor = await previewCta.evaluate(el => getComputedStyle(el).color)
+  expect(relativeLuminance(violetLightBg)).toBeGreaterThan(0.6)
+  expect(violetLightBg).not.toBe(defaultLightBg)
+  expect(violetPlayedBg).not.toBe(defaultPlayedBg)
+  expect(violetCtaColor).not.toBe(defaultCtaColor)
+
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
+  await expect(previewMeta).toContainText('(dark)')
+  const violetDarkBg = await previewPlayer.evaluate(el => getComputedStyle(el).backgroundColor)
+  expect(relativeLuminance(violetDarkBg)).toBeLessThan(0.25)
+
+  await page.getByRole('button', { name: 'Device theme', exact: true }).click()
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(previewMeta).toContainText('(light)')
+  expect(relativeLuminance(await previewPlayer.evaluate(el => getComputedStyle(el).backgroundColor))).toBeGreaterThan(0.6)
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(previewMeta).toContainText('(dark)')
+  expect(relativeLuminance(await previewPlayer.evaluate(el => getComputedStyle(el).backgroundColor))).toBeLessThan(0.25)
+
+  await custom.getByRole('button', { name: 'Reset to default' }).click()
 })
