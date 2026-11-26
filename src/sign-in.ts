@@ -14,11 +14,14 @@ import { clearSignedIn, markSignedIn, readChannel, storeChannel } from './engine
 export type SignInOutcome = 'authed' | 'closed' | 'blocked' | 'unsupported'
 
 // youtube.com first, where a click on its own Sign in link carries the hop to Google: a direct ServiceLogin entry
-// does not get past the identifier (projects/mirage-google-login.md)
-const SIGN_IN_URL = 'https://www.youtube.com/'
+// does not get past the identifier (projects/mirage-google-login.md); ?app=desktop avoids m.youtube.com redirects
+// on mobile UAs without setting a persistent desktop preference cookie, while m.youtube.com stays allowed as fallback
+const SIGN_IN_URL = 'https://www.youtube.com/?app=desktop'
+const SIGN_IN_DOMAINS = ['www.youtube.com', 'm.youtube.com']
 const SIGN_IN_LINK = 'a[href*="ServiceLogin"]'
+const MOBILE_YOU_TAB = '[role="tab"].pivot-you'
 // youtube.com's signed-in header; a SAPISID left in the jar by an ended session would read as signed in
-const AVATAR = '#avatar-btn'
+const AVATAR = '#avatar-btn, button.topbar-menu-button-avatar-button, ytm-mobile-topbar-renderer img.profile-icon-img'
 const POLL_MS = 1_000
 // a read across a redirect can wait on the lib's own retry for tens of seconds, so each one is bounded
 const READ_TIMEOUT_MS = 5_000
@@ -76,9 +79,16 @@ const bounded = <T>(read: () => Promise<T>) => {
 }
 
 // every read is a severity-0 count, which asks no card; a host outside the attachment rejects it, which reads as not yet
-const signedInThere = async (login: WindowFrame) => await login.locator(AVATAR).count() > 0
+const present = async (login: WindowFrame, selector: string) => await login.locator(selector).count() > 0
 
-const showsSignInLink = async (login: WindowFrame) => await login.locator(SIGN_IN_LINK).count() > 0
+const signedInThere = (login: WindowFrame) => present(login, AVATAR)
+
+const showsSignInLink = (login: WindowFrame) => present(login, SIGN_IN_LINK)
+
+// a timer, so the call settles before the click takes the page away; the person can still click it themselves
+const clickInWindow = (login: WindowFrame, selector: string) => {
+  void login.evaluate((target) => { setTimeout(() => document.querySelector<HTMLElement>(target)?.click(), 0) }, selector).catch(() => {})
+}
 
 const isTerminal = (error: unknown) => loadedLib()?.isTerminalError(error) ?? false
 
@@ -110,6 +120,7 @@ const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutc
   }
   const closed = login.closed.then(() => 'closed' as const)
   let clicked = false
+  let openedYouTab = false
   for (;;) {
     const tick = await Promise.race([
       closed,
@@ -122,8 +133,10 @@ const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutc
     }
     if (!clicked && await bounded(() => showsSignInLink(login))) {
       clicked = true
-      // a timer, so the call settles before the click takes the page away; the person can still click it themselves
-      void login.evaluate((selector) => { setTimeout(() => document.querySelector<HTMLElement>(selector)?.click(), 0) }, SIGN_IN_LINK).catch(() => {})
+      clickInWindow(login, SIGN_IN_LINK)
+    } else if (!clicked && !openedYouTab && await bounded(() => present(login, MOBILE_YOU_TAB))) {
+      openedYouTab = true
+      clickInWindow(login, MOBILE_YOU_TAB)
     }
   }
 }
@@ -138,7 +151,7 @@ export const openSignInWindow = (lib: Pick<typeof import('@fkn/lib'), 'attachFra
   // first statement on purpose
   const attaching = lib.attachFrame({
     window: {},
-    domains: ['www.youtube.com'],
+    domains: SIGN_IN_DOMAINS,
     cookies: 'persistent',
     permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
   })

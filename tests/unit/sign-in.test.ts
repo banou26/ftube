@@ -17,12 +17,18 @@ type Options = Record<string, unknown>
 // youtube.com in FKN's window: its header shows the Sign in link until the person signed in, then the avatar
 const fakeLogin = () => {
   let end = () => {}
-  const page = { avatar: false, link: true }
+  const page = { avatar: false, mobileAvatar: false, link: true, mobileYouTab: false }
   const login = {
     page,
     goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
     locator: (selector: string) => ({
-      count: async () => (selector === '#avatar-btn' ? page.avatar : page.link) ? 1 : 0,
+      count: async () => {
+        if (selector.includes('#avatar-btn')) {
+          return page.avatar || (selector.includes('topbar-menu-button-avatar-button') && page.mobileAvatar) ? 1 : 0
+        }
+        if (selector.includes('pivot-you')) return page.mobileYouTab ? 1 : 0
+        return page.link ? 1 : 0
+      },
     }),
     evaluate: vi.fn(async (_run: unknown, selector: string) => { calls.push(`click ${selector}`) }),
     close: vi.fn(async () => {
@@ -128,7 +134,7 @@ describe('the sign-in window', () => {
     const [options] = lib.attachFrame.mock.calls[0]! as [Options]
     expect(options).toEqual({
       window: {},
-      domains: ['www.youtube.com'],
+      domains: ['www.youtube.com', 'm.youtube.com'],
       cookies: 'persistent',
       permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
     })
@@ -140,7 +146,7 @@ describe('the sign-in window', () => {
     const { signIn } = await import('../../src/sign-in')
     signIn()
     await poll(3)
-    expect(calls).toEqual(['goto https://www.youtube.com/ commit', 'click a[href*="ServiceLogin"]'])
+    expect(calls).toEqual(['goto https://www.youtube.com/?app=desktop commit', 'click a[href*="ServiceLogin"]'])
     // Google's pages: nothing there reads as signed in, however long they take
     login.page.link = false
     await poll(5)
@@ -149,6 +155,30 @@ describe('the sign-in window', () => {
     await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(calls.slice(2)).toEqual(['close', `store ${SIGNED_IN_KEY}`, 'reset', 'reload'])
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
+  it('opens the mobile You tab on m.youtube.com, clicks Sign in there once, and finishes on mobile avatar', async () => {
+    const login = fakeLogin()
+    login.page.link = false
+    login.page.mobileYouTab = true
+    const { reload, stored } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+    signIn()
+    await poll(2)
+    expect(calls).toEqual(['goto https://www.youtube.com/?app=desktop commit', 'click [role="tab"].pivot-you'])
+    // You tab reveals the ServiceLogin link; does not re-click the pivot tab
+    login.page.link = true
+    await poll(2)
+    expect(calls).toEqual([
+      'goto https://www.youtube.com/?app=desktop commit',
+      'click [role="tab"].pivot-you',
+      'click a[href*="ServiceLogin"]',
+    ])
+    login.page.link = false
+    login.page.mobileAvatar = true
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(stored[SIGNED_IN_KEY]).toBe('1')
   })
 
