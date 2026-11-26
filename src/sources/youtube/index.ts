@@ -660,6 +660,7 @@ const requireSignIn = (client: { session: { logged_in: boolean } }, action: stri
 export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSeed }: YoutubeSourceOptions): Source => {
   const client = createClient?.() ?? Innertube.create({ fetch, retrieve_player: false }) as unknown as Promise<YoutubeClient>
   const videoContinuations = createContinuations<SourceVideoPage>()
+  const relatedContinuations = createContinuations<SourceVideoPage>()
   const sectionContinuations = createContinuations<SourceSectionedVideoPage>()
   const commentContinuations = createContinuations<SourceCommentPage>()
   const playlistContinuations = createContinuations<SourcePlaylistPage>()
@@ -989,7 +990,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
 
   const registerRelated = (videoId: string, endpoint: EndpointNode): string => {
     const kind = `related:${videoId}`
-    return videoContinuations.register(kind, async () => {
+    return relatedContinuations.register(kind, async () => {
       const response = await endpoint.call((await client).actions, { parse: true }) as ContinuationResponse
       return relatedPage(kind, continuationMemo(response))
     })
@@ -1551,11 +1552,11 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       formData: { searchInputFormData: { query } },
     })).data),
     relatedVideos: async (cursor) => {
-      const kind = videoContinuations.kindOf(cursor)
-      if (kind !== undefined && !kind.startsWith('related:')) {
-        throw new Error(`youtube: continuation ${cursor} belongs to ${kind}, not a watch sidebar`)
+      const otherKind = videoContinuations.kindOf(cursor)
+      if (otherKind !== undefined) {
+        throw new Error(`youtube: continuation ${cursor} belongs to ${otherKind}, not a watch sidebar`)
       }
-      return videoContinuations.resolve(kind ?? 'related:unknown', cursor)
+      return relatedContinuations.resolve(relatedContinuations.kindOf(cursor) ?? 'related:unknown', cursor)
     },
     commentReplies: async (cursor) => {
       const kind = commentContinuations.kindOf(cursor)

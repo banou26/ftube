@@ -300,4 +300,64 @@ describe('youtube watch relatedChips integration', () => {
     expect(actionsCalls).toContain('TOK_CHIP_MUSIC_2')
     expect(actionsCalls).toContain('TOK_CHIP_CODING')
   })
+
+  it('isolates related chip cursors from videoContinuations so opening many watch videos does not evict subscriptions cursors', async () => {
+    const actions = {
+      execute: async (endpoint: string, payload?: { videoId?: string }) => {
+        if (endpoint === '/next') {
+          const id = payload?.videoId ?? 'v'
+          return watchNextWithSecondary({
+            relatedChipCloudRenderer: {
+              content: {
+                chipCloudRenderer: {
+                  chips: [
+                    { chipCloudChipRenderer: { text: { simpleText: 'All' }, isSelected: true } },
+                    ...Array.from({ length: 8 }, (_, idx) => ({
+                      chipCloudChipRenderer: {
+                        text: { simpleText: `Topic ${idx}` },
+                        isSelected: false,
+                        navigationEndpoint: { continuationCommand: { token: `TOK_${id}_${idx}` } },
+                      },
+                    })),
+                  ],
+                },
+              },
+            },
+          })
+        }
+        return {}
+      },
+    }
+    const client = {
+      session: { logged_in: true },
+      actions,
+      getSubscriptionsFeed: async () => ({
+        videos: [],
+        has_continuation: true,
+        getContinuation: async () => ({
+          videos: [],
+          has_continuation: false,
+          page_contents: [],
+        }),
+      }),
+    }
+
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => client as never,
+    })
+
+    const subPage = await source.subscriptions()
+    expect(subPage.cursor).toBeTruthy()
+
+    // Register 80 chip cursors across 10 watch calls (> 64 CONTINUATION_LIMIT in one map).
+    for (let i = 0; i < 10; i++) {
+      const meta = await source.watch(`vid-${i}`)
+      expect(meta?.relatedChips).toHaveLength(9)
+    }
+
+    // Earlier subscriptions cursor in videoContinuations must survive intact.
+    await expect(source.subscriptions(subPage.cursor)).resolves.toMatchObject({ items: [] })
+    await expect(source.relatedVideos(subPage.cursor!)).rejects.toThrow('not a watch sidebar')
+  })
 })

@@ -64,6 +64,7 @@ test('formats notifications menu panel width, constrained avatars and thumbnails
     expect(metrics.panelLeft).toBeGreaterThanOrEqual(0)
     expect(metrics.panelRight).toBeLessThanOrEqual(metrics.viewportWidth)
     expect(metrics.panelWidth).toBeLessThanOrEqual(484)
+    expect(metrics.panelWidth).toBeGreaterThanOrEqual(Math.min(480, metrics.viewportWidth - 24) - 1)
     expect(metrics.avatarWidth).toBeGreaterThanOrEqual(36)
     expect(metrics.avatarWidth).toBeLessThanOrEqual(44)
     expect(metrics.avatarHeight).toBeLessThanOrEqual(44)

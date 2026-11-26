@@ -67,6 +67,14 @@ test('pillarboxed theater bars mirror the left and right video edges instead of 
     ],
   })
 
+  const canvasScales = await page.evaluate(() => [...document.querySelectorAll('[data-ambient-glow] canvas, [data-ambient-bars] canvas')]
+    .map((canvas) => {
+      const transform = getComputedStyle(canvas).transform
+      const matrix = new DOMMatrixReadOnly(transform === 'none' ? undefined : transform)
+      return [matrix.a, matrix.d]
+    }))
+  expect(canvasScales).toEqual([[1, 1], [1, 1]])
+
   // Video is 16:9 inside 1200x450 -> rendered video is 800x450 centered at x = +200..+1000.
   const box = (await host.locator('[data-player-root]').boundingBox())!
   const midY = Math.round(box.y + box.height * 0.5)
