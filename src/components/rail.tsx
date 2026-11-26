@@ -27,6 +27,14 @@ const style = css`
     display: none;
   }
 
+  .track:has(> .tile) {
+    --card-hover-inset: -1rem;
+    --card-hover-radius: 1.6rem;
+    gap: var(--rail-gap, 2rem);
+    padding: 1rem;
+    margin: -1rem 0;
+  }
+
   .track > * {
     flex: none;
     scroll-snap-align: start;

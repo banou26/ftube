@@ -32,7 +32,7 @@ export const shortsTileStyle = css`
   &:not([aria-hidden='true'])::before {
     content: '';
     position: absolute;
-    inset: var(--card-hover-inset, -0.8rem);
+    inset: var(--card-hover-inset, -1rem);
     z-index: -1;
     border-radius: var(--card-hover-radius, 1.6rem);
     background: transparent;
@@ -60,7 +60,7 @@ export const shortsTileStyle = css`
     position: relative;
     display: block;
     aspect-ratio: 2 / 3;
-    border-radius: 0.8rem;
+    border-radius: 1.2rem;
     overflow: hidden;
     background: var(--bg-elevated);
   }
@@ -80,7 +80,7 @@ export const shortsTileStyle = css`
 
   .details {
     position: relative;
-    padding: 0.8rem 3.6rem 0 0;
+    padding: 0.8rem 3.6rem 0.2rem 0;
   }
 
   .title {

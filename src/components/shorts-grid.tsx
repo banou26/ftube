@@ -12,7 +12,7 @@ import { ShortsTile, shortsTileStyle } from './shorts-tile'
 const style = css`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(18.6rem, 1fr));
-  row-gap: 0.6rem;
+  row-gap: 1.6rem;
   width: calc(round(down, 100%, 21.4rem) * 218 / 214 - 3.2rem);
   margin: 0 auto;
 

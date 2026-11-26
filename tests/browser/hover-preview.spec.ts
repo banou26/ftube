@@ -615,9 +615,22 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   await page.mouse.move(0, 0)
   await expect.poll(() => beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
 
-  // Shelf tile sits inside <Rail>, which clips to 0 inset and 1.2rem radius without vertical scroll overflow.
+  // Shelf tile sits inside <Rail>, which must keep padded rounded backdrop without clipping or vertical overflow.
   await shelfTile.locator('.details').hover()
   await expect.poll(() => beforeOf(shelfTile)).not.toBe('rgba(0, 0, 0, 0)')
+  const shelfInset = await shelfTile.evaluate((el) => {
+    const cs = getComputedStyle(el, '::before')
+    return {
+      top: Number.parseFloat(cs.top),
+      right: Number.parseFloat(cs.right),
+      bottom: Number.parseFloat(cs.bottom),
+      left: Number.parseFloat(cs.left),
+    }
+  })
+  expect(shelfInset.top).toBeLessThanOrEqual(-6)
+  expect(shelfInset.right).toBeLessThanOrEqual(-6)
+  expect(shelfInset.bottom).toBeLessThanOrEqual(-6)
+  expect(shelfInset.left).toBeLessThanOrEqual(-6)
   expect(await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0)
 
   // Skeleton tiles reuse shortsTileStyle with aria-hidden="true" and must stay transparent even after transition duration.
