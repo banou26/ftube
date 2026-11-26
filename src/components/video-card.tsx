@@ -698,7 +698,7 @@ export const VideoCard = (
   const duration = formatDuration(video.durationSeconds)
   const progress = resumePercent(video.progressPercent)
   const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
-  const canPreview = video.isUpcoming !== true && !carouselShort && (Boolean(playerParams) || Boolean(inlinePreview))
+  const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)
   const prefetch = usePrefetchOnIntent(video.id, playerParams)
   const [hovered, setHovered] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
@@ -738,6 +738,7 @@ export const VideoCard = (
               videoId={video.id}
               href={watchHref}
               playerParams={playerParams}
+              carryTime={!carouselShort}
               onFail={video.animatedThumbnail ? handlePreviewFail : undefined}
             />
           )

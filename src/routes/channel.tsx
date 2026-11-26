@@ -174,7 +174,9 @@ const CHANNEL_VIEW_QUERY = gql(`
           shorts {
             id
             title
+            inlinePlayerParams
             thumbnail
+            animatedThumbnail
             viewCount
             shortsSequence
           }

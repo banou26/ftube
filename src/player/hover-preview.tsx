@@ -283,14 +283,21 @@ const style = css`
  * design: this is a hover affordance over a thumbnail that is already correct,
  * so an error card in its place would be worse than no preview.
  *
- * `href` is the card's own watch link. A plain click on the playing preview
- * opens it at the preview's position once that is past CARRY_SECONDS; a live
- * preview opens at the stream's edge.
+ * `href` is the card's own watch link. When `carryTime` is true (default), a plain
+ * click on the playing preview opens it at the preview's position once that is
+ * past CARRY_SECONDS; a live preview opens at the stream's edge. Pass `carryTime={false}`
+ * for `/shorts/` links so the tile's route link keeps navigation state intact.
  * `playerParams`, when present, are the card's inline playback params, which the preview's
  * watch page is read with, as youtube.com reads its own.
  */
 export const HoverPreview = (
-  { videoId, href, playerParams, onFail }: { videoId: string, href: string, playerParams?: string, onFail?: () => void },
+  { videoId, href, playerParams, carryTime = true, onFail }: {
+    videoId: string
+    href: string
+    playerParams?: string
+    carryTime?: boolean
+    onFail?: () => void
+  },
 ) => {
   const [, navigate] = useLocation()
   const seekHandle = useSetting('seekHandle')
@@ -430,7 +437,7 @@ export const HoverPreview = (
   const openAtTime = (event: MouseEvent) => {
     const at = Math.floor(videoRef.current?.currentTime ?? 0)
     // youtube.com opens a live preview at the stream's edge, wherever the preview is (measured 2026-11-11)
-    if (live || at < CARRY_SECONDS || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    if (!carryTime || live || at < CARRY_SECONDS || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
     event.preventDefault()
     const url = new URL(href, location.origin)
     url.searchParams.set('t', `${at}s`)

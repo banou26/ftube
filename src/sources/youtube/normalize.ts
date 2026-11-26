@@ -1062,6 +1062,8 @@ export const normalizeShortsLockup = (input: unknown): SourceVideo | undefined =
     overlay_metadata?: { primary_text?: Text, secondary_text?: Text }
     accessibility_text?: string
     badge?: { label?: string, text?: string }
+    inline_player_params?: string
+    inline_player_data?: { payload?: { params?: string } }
   } | undefined
   const id = node?.on_tap_endpoint?.payload?.videoId ?? node?.entity_id
   const title = presentText(node?.overlay_metadata?.primary_text) ?? node?.accessibility_text
@@ -1082,6 +1084,7 @@ export const normalizeShortsLockup = (input: unknown): SourceVideo | undefined =
     viewCount: presentText(node?.overlay_metadata?.secondary_text),
     isShort: true,
     shortsSequence: node?.on_tap_endpoint?.payload?.sequenceParams,
+    inlinePlayerParams: inlinePlayerParams(node?.inline_player_params ?? node?.inline_player_data?.payload?.params),
     badges: badgeTexts(node?.badge ? [node.badge] : undefined),
   }
 }

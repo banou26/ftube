@@ -211,6 +211,19 @@ describe('youtube normalization', () => {
     expect(normalizeShortsLockup(lockup)?.shortsSequence).toBe('channel-sequence')
   })
 
+  it('reads inlinePlayerParams on a Shorts lockup when inline_player_data carries params', () => {
+    expect(normalizeShortsLockup({
+      on_tap_endpoint: { payload: { videoId: 'abc123' } },
+      overlay_metadata: { primary_text: { text: 'A Short' } },
+      inline_player_data: { payload: { videoId: 'abc123', params: 'YAHIAQG%3D' } },
+    })?.inlinePlayerParams).toBe('YAHIAQG=')
+    expect(normalizeShortsLockup({
+      on_tap_endpoint: { payload: { videoId: 'abc123' } },
+      overlay_metadata: { primary_text: { text: 'A Short' } },
+      inline_player_data: { payload: { videoId: 'abc123' } },
+    })?.inlinePlayerParams).toBeUndefined()
+  })
+
   it('falls back to the entity id and drops a short with no title', () => {
     expect(normalizeShortsLockup({
       entity_id: 'shorts-entity',

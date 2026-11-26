@@ -259,6 +259,14 @@ export const mountShorts = () => {
       badges: [],
     },
   ]
+  const carouselShort = {
+    id: 'carousel-short-0',
+    title: 'A carousel Short',
+    viewCount: '95K views',
+    isShort: true,
+    inlinePlayerParams: CARD_PARAMS,
+    badges: [],
+  }
   const client = new Client({
     url: '/preview-harness',
     exchanges: [fetchExchange],
@@ -275,6 +283,9 @@ export const mountShorts = () => {
       </section>
       <section data-previews='shorts-shelf'>
         <ShortsShelf shorts={shelfShorts} />
+      </section>
+      <section data-previews='carousel-short' style={{ width: '36rem' }}>
+        <VideoCard video={carouselShort} variant='carousel' />
       </section>
     </Provider>,
     host,

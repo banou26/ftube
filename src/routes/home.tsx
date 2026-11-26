@@ -41,8 +41,10 @@ const HOME_FEED_QUERY = gql(`
       shorts {
         id
         title
+        inlinePlayerParams
         thumbnail
         thumbnailSrcset
+        animatedThumbnail
         viewCount
       }
       chips {

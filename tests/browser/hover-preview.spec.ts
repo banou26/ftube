@@ -635,3 +635,74 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   await expect.poll(() => beforeOf(gridTile)).not.toBe('rgba(0, 0, 0, 0)')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
 })
+
+test('Shorts tiles open hover previews, fall back to animatedThumbnail, and preserve /shorts/ state on click', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(answerPlaybackHere)
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/privacy')
+  const known = await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountShorts: () => void, CARD_PARAMS: string, MOVING: string }
+    module.mountShorts()
+    return { cardParams: module.CARD_PARAMS, moving: module.MOVING }
+  })
+
+  const gridTiles = page.locator('[data-previews="shorts-grid"] article.tile')
+  const [withParams, withMoving, plainShort] = [gridTiles.nth(0), gridTiles.nth(1), gridTiles.nth(2)]
+  const carouselShort = page.locator('[data-previews="carousel-short"] article')
+  const opened = () => page.evaluate(() =>
+    (window as unknown as Asked).asked
+      .filter(({ method }) => method === 'openPlayback')
+      .map(({ args }) => [args[0], args[2] ?? null]))
+
+  await expect(withParams.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+
+  // Plain Short without inline params still asks HoverPreview for playback, and unmounts on pointer leave.
+  await plainShort.locator('a.thumb').hover()
+  await expect(plainShort.locator('video')).toHaveCount(1)
+  await expect.poll(opened, { timeout: 60_000 }).toEqual([['short-plain-0', null]])
+  await page.mouse.move(0, 0)
+  await expect(plainShort.locator('video')).toHaveCount(0)
+
+  // Short with animatedThumbnail falls back cleanly when openPlayback rejects.
+  await withMoving.locator('a.thumb').hover()
+  await expect.poll(opened, { timeout: 60_000 }).toEqual([['short-plain-0', null], ['short-moving-0', null]])
+  await expect(withMoving.locator('img.moving')).toHaveAttribute('src', known.moving)
+  await page.mouse.move(0, 0)
+  await expect(withMoving.locator('img.moving')).toHaveCount(0)
+
+  // Carousel Short also mounts HoverPreview and navigates to /shorts/<id> without ?t=.
+  await carouselShort.locator('a.thumb').hover()
+  await expect(carouselShort.locator('video')).toHaveCount(1)
+  await expect.poll(opened, { timeout: 60_000 }).toEqual([
+    ['short-plain-0', null],
+    ['short-moving-0', null],
+    ['carousel-short-0', known.cardParams],
+  ])
+  await carouselShort.locator('video').evaluate((el) => {
+    Object.defineProperty(el, 'currentTime', { value: 15, configurable: true })
+  })
+  await carouselShort.locator('a.thumb').click()
+  await expect(page).toHaveURL(/\/shorts\/carousel-short-0$/)
+
+  // Remount cleanly and check Short tile click with sequence preserved and no ?t= query parameter.
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountShorts: () => void }
+    module.mountShorts()
+  })
+  const tile = page.locator('[data-previews="shorts-grid"] article.tile').first()
+  await expect(tile.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+  await tile.locator('a.thumb').hover()
+  await expect(tile.locator('video')).toHaveCount(1)
+  await expect.poll(opened, { timeout: 60_000 }).toContainEqual(['short-params-0', known.cardParams])
+  await tile.locator('video').evaluate((el) => {
+    Object.defineProperty(el, 'currentTime', { value: 15, configurable: true })
+  })
+  await tile.locator('a.thumb').click()
+  await expect(page).toHaveURL(/\/shorts\/short-params-0$/)
+  expect(await page.evaluate(() => (history.state as { sequence?: string } | null)?.sequence)).toBe('shorts-seq-1')
+})

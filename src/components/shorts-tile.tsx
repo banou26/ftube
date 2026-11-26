@@ -1,8 +1,12 @@
+import type { TargetedPointerEvent } from 'preact'
+
 import type { VideoCardData } from './video-card'
 
 import { css } from '@emotion/react'
+import { useCallback, useEffect, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
+import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor } from '../player/links'
 import { usePrefetchOnIntent } from '../player/prefetch'
 import { formatViews } from './format'
@@ -56,6 +60,7 @@ export const shortsTileStyle = css`
   }
 
   .thumb {
+    position: relative;
     display: block;
     aspect-ratio: 2 / 3;
     border-radius: 0.8rem;
@@ -68,6 +73,12 @@ export const shortsTileStyle = css`
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+
+  .thumb img.moving {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
   }
 
   .details {
@@ -132,11 +143,43 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
   const href = shortsHrefFor(short.id)
   const state: ShortsLinkState | undefined = short.shortsSequence ? { sequence: short.shortsSequence } : undefined
   const views = formatViews(short.viewCount)
-  const prefetch = usePrefetchOnIntent(short.id)
+  const playerParams = short.isUpcoming !== true ? short.inlinePlayerParams ?? undefined : undefined
+  const canPreview = short.isUpcoming !== true
+  const prefetch = usePrefetchOnIntent(short.id, playerParams)
+  const [hovered, setHovered] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
+  useEffect(() => setPreviewFailed(false), [short.id, playerParams])
+  const moving = hovered && (!canPreview || previewFailed) ? short.animatedThumbnail ?? undefined : undefined
   return (
-    <article css={shortsTileStyle} className='tile' {...prefetch}>
+    <article
+      css={shortsTileStyle}
+      className='tile'
+      onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
+        if (!canPreview) prefetch.onPointerEnter()
+        if (event.pointerType === 'mouse') setHovered(true)
+      }}
+      onPointerLeave={() => {
+        if (!canPreview) prefetch.onPointerLeave()
+        setHovered(false)
+        setPreviewFailed(false)
+      }}
+      onPointerDown={prefetch.onPointerDown}
+    >
       <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}
+        {hovered && canPreview
+          ? (
+            <HoverPreview
+              videoId={short.id}
+              href={href}
+              playerParams={playerParams}
+              carryTime={false}
+              onFail={short.animatedThumbnail ? handlePreviewFail : undefined}
+            />
+          )
+          : undefined}
+        {moving ? <img className='moving' src={moving} alt='' /> : undefined}
       </Link>
       <div className='details'>
         <h3 className='title'>
