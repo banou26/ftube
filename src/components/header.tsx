@@ -1,6 +1,7 @@
 import type { TargetedEvent, TargetedKeyboardEvent, TargetedSubmitEvent } from 'preact'
 
 import { css } from '@emotion/react'
+import { PoweredByFkn } from '@fkn/lib/react'
 import { ArrowLeft, CircleUserRound, Menu, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
@@ -88,6 +89,33 @@ const style = css`
     display: flex;
     align-items: center;
     gap: 1.6rem;
+  }
+
+  .brand {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  /* Holds Logo + Skip navigation at the 4rem start row height so focused Skip aligns 12px from top and 6px after Logo. */
+  .brand-anchor {
+    position: relative;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+  }
+
+  .powered {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    font-size: 2rem;
+    line-height: 1;
+    --fkn-powered-by-card: var(--bg-menu);
+    --fkn-powered-by-border: var(--border);
+    --fkn-powered-by-ink: var(--text-primary);
+    --fkn-powered-by-link: var(--accent);
   }
 
   /* youtube.com's, measured on 2026-11-10: off the page until focused, then a 40 px pill 6 px after the logo and 12 px
@@ -350,6 +378,10 @@ const style = css`
       display: none;
     }
 
+    .powered {
+      display: none;
+    }
+
     .open-search {
       display: flex;
       margin-left: auto;
@@ -540,8 +572,18 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
         <button type='button' className='icon-button' aria-label='Guide' onClick={onMenu}>
           <Menu size={24} strokeWidth={1.5} />
         </button>
-        <Logo />
-        <button type='button' className='skip' onClick={onSkip}>Skip navigation</button>
+        <div className='brand'>
+          <span className='brand-anchor'>
+            <Logo />
+            <button type='button' className='skip' onClick={onSkip}>Skip navigation</button>
+          </span>
+          <PoweredByFkn
+            className='powered'
+            label='Powered by FKN'
+            linkLabel='How it works'
+            href='https://docs.fkn.dev/user/'
+          />
+        </div>
       </div>
       <button type='button' className='icon-button back' aria-label='Back' onClick={() => setSearchOpen(false)}>
         <ArrowLeft size={24} strokeWidth={1.5} />

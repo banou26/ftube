@@ -43,6 +43,8 @@ const NOT_FETCHED_FROM_THE_PAGE: Record<string, string[]> = {
   'www.linkedin.com': SHARE_TARGETS,
   // SVG XML namespace literal used in SVG markup, never fetched by the page
   'www.w3.org': ['src/theme/app-icon.ts'],
+  // External user link opened from @fkn/lib's PoweredByFkn popover, never fetched by the page
+  'docs.fkn.dev': ['src/components/header.tsx'],
 }
 
 // Named by no code or fixture: the standard emoji in live chat messages (fonts.gstatic.com/s/e/notoemoji, read again
