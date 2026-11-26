@@ -10,6 +10,7 @@ import { Link } from 'wouter'
 import { useDocumentTitle } from '../app'
 import { formatAgo, formatCount, safeDecode } from '../components/format'
 import GroupDialog from '../components/group-dialog'
+import GroupSyncBanner from '../components/group-sync-banner'
 import { FeedSentinel } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
@@ -348,6 +349,7 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
           </button>
         ))}
       </div>
+      <GroupSyncBanner showWhenSynced={false} />
       {failed.length > 0 ? <p className='notice'>{failedLine(failed.map(channel => channel.name))}</p> : undefined}
       {channels.length === 0
         ? <p className='notice'>{subgroups.length > 0 ? 'No channels in this group or its subfolders' : 'No channels in this group'}</p>

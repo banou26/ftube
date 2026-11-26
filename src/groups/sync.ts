@@ -80,6 +80,9 @@ export const within = <T>(ms: number, work: () => Promise<T>, orElse?: () => T):
 /** How long any FKN call may take before it counts as no answer. */
 export const FKN_BOUND_MS = 8_000
 
+/** Outcome emitted after a sync step finishes, pauses on auth/lock, or fails. */
+export type GroupSyncOutcome = 'unknown' | 'signed-out' | 'locked' | 'synced' | 'error'
+
 /** FKN storage as the sync calls it, unbounded: groupSync bounds each call. */
 export type GroupsCloud = {
   availability: () => Promise<'connected' | 'disconnected' | 'unknown'>
@@ -100,13 +103,14 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * A list last merged with another account's file is dropped, never merged into this one. A step that heard of an
  * account change keeps nothing, and one that found the list changed under it leaves it to the next step.
  */
-export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => crypto.randomUUID(), boundMs = FKN_BOUND_MS }: {
+export const groupSync = ({ store, cloud, onAccountChange, lock, onStatus, newId = () => crypto.randomUUID(), boundMs = FKN_BOUND_MS }: {
   store: Pick<GroupStore, 'persists' | 'snapshot' | 'settle' | 'onEdit'>
   cloud: GroupsCloud
   /** `account.onChange` of the @fkn/lib realm `cloud` calls. */
   onAccountChange: (listener: (change?: { switched: boolean }) => void) => unknown
   /** One step at a time across every tab of the origin. Runs `work` after it returns, or only one step ever runs. */
   lock: (work: () => Promise<void>) => Promise<void>
+  onStatus?: (outcome: GroupSyncOutcome) => void
   newId?: () => string
   boundMs?: number
 }) => {
@@ -123,16 +127,26 @@ export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => c
 
     // FKN not answering reads as "could not tell", never as a sign out
     const availability = await within(boundMs, cloud.availability, () => 'unknown' as const)
-    if (availability === 'unknown' || !current()) return
+    if (availability === 'unknown') {
+      if (current()) onStatus?.('unknown')
+      return
+    }
+    if (!current()) return
     const before = store.snapshot()
     if (availability === 'disconnected') {
       // the account's groups leave with it, and deletions only matter while there is an account copy to merge
       if (before.file || Object.keys(before.deleted).length > 0) store.settle(before.file ? [] : before.groups, { deleted: {} })
+      onStatus?.('signed-out')
       return
     }
 
     // a sealed read with no key held raises FKN's card, which only a click may do
-    if (!await within(boundMs, cloud.unlocked, () => false) || !current()) return
+    const unlocked = await within(boundMs, cloud.unlocked, () => undefined)
+    if (unlocked !== true) {
+      if (current()) onStatus?.(unlocked === false ? 'locked' : 'unknown')
+      return
+    }
+    if (!current()) return
     let text: string | null = null
     let gone = false
     let migratedFromV1 = false
@@ -163,7 +177,13 @@ export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => c
     let held = theirs !== undefined
     if (changed) {
       // the read that found the file gone drops a key from before a reset, and a write with none raises FKN's card
-      if (gone && !await within(boundMs, cloud.unlocked, () => false)) return
+      if (gone) {
+        const stillUnlocked = await within(boundMs, cloud.unlocked, () => undefined)
+        if (stillUnlocked !== true) {
+          if (current()) onStatus?.(stillUnlocked === false ? 'locked' : 'unknown')
+          return
+        }
+      }
       if (!current()) return
       await within(boundMs, () => cloud.write(GROUPS_PATH, JSON.stringify({ file, ...merged })))
       if (!held) minted = { file, generation: began }
@@ -176,13 +196,25 @@ export const groupSync = ({ store, cloud, onAccountChange, lock, newId = () => c
     }
     const sync: GroupsSync = held ? { file, deleted: merged.deleted } : { deleted: merged.deleted }
     store.settle(merged.groups, sync)
+    onStatus?.('synced')
   }
 
   let queued: Promise<void> | undefined
-  const start = (): Promise<void> => queued ??= lock(() => {
-    queued = undefined
-    return step()
-  }).catch((error: unknown) => console.warn('groups: FKN account sync', error))
+  const start = (): Promise<void> => {
+    if (queued) return queued
+    let entered = false
+    const next = lock(() => {
+      entered = true
+      queued = undefined
+      return step()
+    }).catch((error: unknown) => {
+      if (queued === next) queued = undefined
+      onStatus?.('error')
+      console.warn('groups: FKN account sync', error)
+    })
+    if (!entered) queued = next
+    return next
+  }
 
   store.onEdit(() => void start())
   void onAccountChange((change) => {

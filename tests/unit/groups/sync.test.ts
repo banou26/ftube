@@ -86,13 +86,14 @@ const fknWorld = () => {
       },
     }
     let tail = Promise.resolve()
-    const open = ({ boundMs }: { boundMs?: number } = {}) => {
+    const open = ({ boundMs, onStatus }: { boundMs?: number, onStatus?: (outcome: import('../../../src/groups/sync').GroupSyncOutcome) => void } = {}) => {
       const store = createGroupStore(storage?.storage)
       const sync = groupSync({
         store,
         cloud,
         onAccountChange: listener => state.listeners.add(listener),
         lock: work => (tail = tail.then(work, work)),
+        onStatus,
         boundMs,
       })
       return { store, sync }
@@ -637,5 +638,46 @@ describe('groupSync', () => {
     const onPhone = phone.open()
     await onPhone.sync.check()
     expect(onPhone.store.getGroups().find(kept => kept.id === sub.id)?.parentId).toBe('legacy-1')
+  })
+
+  it('reports signed-out, locked, unknown, error, and synced outcomes via onStatus', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const world = fknWorld()
+    const device = world.browser(undefined)
+    const seen: import('../../../src/groups/sync').GroupSyncOutcome[] = []
+    const { sync } = device.open({ boundMs: 20, onStatus: outcome => seen.push(outcome) })
+
+    await sync.check()
+    device.signIn('ann')
+    device.state.unlocked = false
+    await sync.check()
+    device.state.unlocked = true
+    await sync.check()
+    device.state.hang.add('availability')
+    await sync.check()
+    device.state.hang.clear()
+    device.state.hang.add('unlocked')
+    await sync.check()
+    device.state.hang.clear()
+    device.cloud.read = async () => { throw new Error('network boom') }
+    await sync.check()
+
+    expect(seen).toEqual(['signed-out', 'locked', 'synced', 'unknown', 'unknown', 'error'])
+  })
+
+  it('runs subsequent checks even when lock invokes work synchronously before returning', async () => {
+    const world = fknWorld()
+    const device = world.browser('ann')
+    const store = createGroupStore(memoryStorage().storage)
+    const sync = groupSync({
+      store,
+      cloud: device.cloud,
+      onAccountChange: () => {},
+      lock: async work => work(),
+    })
+    await sync.check()
+    store.createGroup({ name: 'After first check' })
+    await sync.check()
+    expect(world.namesOf('ann')).toEqual(['After first check'])
   })
 })

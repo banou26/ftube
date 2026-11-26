@@ -8,6 +8,7 @@ import { Link } from 'wouter'
 import { useDocumentTitle } from '../app'
 import { formatCount } from '../components/format'
 import GroupDialog from '../components/group-dialog'
+import GroupSyncBanner from '../components/group-sync-banner'
 import Dialog from '../components/ui/dialog'
 import { directSubgroups, groupChannelsWithDescendants, groupHrefFor, groupStore, groupTreeOrder, useGroups } from '../groups/store'
 import { showUndoableToast } from '../undo'
@@ -206,6 +207,7 @@ const FeedGroupsPage = () => {
           New group
         </button>
       </div>
+      <GroupSyncBanner />
       {tree.length === 0
         ? <p className='empty'>No groups yet</p>
         : (

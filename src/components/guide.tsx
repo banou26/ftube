@@ -3,13 +3,14 @@ import type { FunctionComponent } from 'preact'
 import type { Group } from '../groups/store'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { gql } from '../generated'
 import { groupHrefFor, groupTreeOrder, useGroups } from '../groups/store'
+import { checkGroups, useGroupSyncStatus } from '../groups/sync-live'
 import { warmShaka } from '../player/prefetch'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
@@ -141,6 +142,7 @@ const SubscriptionRail = () => {
 
 const GroupsSection = () => {
   const groups = useGroups()
+  const sync = useGroupSyncStatus()
   const [path, navigate] = useLocation()
   const [creating, setCreating] = useState(false)
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -208,6 +210,18 @@ const GroupsSection = () => {
           <button type='button' className='item' onClick={() => setCreating(true)}>
             <Plus size={24} strokeWidth={1.5} />
             <span className='label'>New group</span>
+          </button>
+        )
+        : undefined}
+      {sync.state === 'locked' && sync.lib
+        ? (
+          <button
+            type='button'
+            className='item'
+            onClick={() => void sync.lib!.fs.unlock().then(() => void checkGroups().catch(() => {}), () => {})}
+          >
+            <LockKeyholeOpen size={24} strokeWidth={1.5} />
+            <span className='label'>Unlock to sync groups</span>
           </button>
         )
         : undefined}
