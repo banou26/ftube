@@ -6,7 +6,9 @@ import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
 
 import { createCache } from '../../../src/graphql'
+import { setTheater as setPlayerTheater } from '../../../src/player/session'
 import WatchPage from '../../../src/routes/watch'
+import { updateSettings } from '../../../src/settings'
 import { resolvers } from '../../../src/worker/resolvers'
 import typeDefs from '../../../src/worker/schema.gql?raw'
 
@@ -17,6 +19,8 @@ export type WatchHarnessOptions = {
   channelName?: string
   likeCountText?: string
   isLive?: boolean
+  theater?: boolean
+  longDescription?: boolean
   withChips?: boolean
   chipDelays?: Record<string, number>
 }
@@ -36,6 +40,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const withChips = options.withChips === true
   let subscribed = options.subscribed ?? false
   let level: NotificationLevel = options.notificationLevel ?? 'PERSONALIZED'
+  setPlayerTheater(updateSettings({ theater: options.theater === true }).theater)
 
   const app = document.getElementById('app')
   if (app) app.hidden = true
@@ -45,7 +50,13 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const baseRelated = [
     makeRelatedVideo('rel-all-1', 'All Related Video 1', 'Alpha Channel'),
     makeRelatedVideo('rel-all-2', 'All Related Video 2', 'Beta Channel'),
+    ...(options.longDescription
+      ? Array.from({ length: 14 }, (_, i) => makeRelatedVideo(`rel-long-${i + 1}`, `Long Related Video ${i + 1}`, 'Stream Archives'))
+      : []),
   ]
+  const descriptionText = options.longDescription
+    ? Array.from({ length: 18 }, (_, i) => `Paragraph ${i + 1}: Extended stream notes so the watch page is comfortably scrollable in theater mode.`).join('\n\n')
+    : 'Harness description.'
   const musicRelated = [
     makeRelatedVideo('rel-music-1', 'Music Filtered Video 1', 'Sound Lab'),
     makeRelatedVideo('rel-music-2', 'Music Filtered Video 2', 'Synth Studio'),
@@ -56,6 +67,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const codeRelated = [
     makeRelatedVideo('rel-code-1', 'Coding Filtered Video 1', 'Systems Weekly'),
   ]
+  let closePoll: (() => void) | undefined
 
   const source = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
@@ -70,8 +82,8 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       relativeDateText: '3 weeks ago',
       hashtags: [],
       likeCountText: options.likeCountText ?? '1.2K',
-      description: 'Harness description.',
-      descriptionRuns: [{ text: 'Harness description.' }],
+      description: descriptionText,
+      descriptionRuns: [{ text: descriptionText }],
       channel: {
         id: 'UC-harness',
         name: options.channelName ?? 'Harness Creator Studio',
@@ -97,6 +109,31 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       chapters: [],
       cardTeasers: [],
     }),
+    liveChat: async (_id: string, cursor?: string) => {
+      if (!cursor) {
+        return {
+          items: [{
+            id: 'tc-1',
+            kind: 'TEXT',
+            text: 'Hello theater chat!',
+            runs: [{ text: 'Hello theater chat!' }],
+            author: { id: 'UC-chatter', name: 'Chatter', handle: '@chatter' },
+          }],
+          cursor: 'theater-cur-1',
+          view: 'TOP',
+        }
+      }
+      return new Promise((resolve) => {
+        closePoll = () => {
+          closePoll = undefined
+          resolve({ items: [] })
+        }
+      })
+    },
+    closeLiveChat: async () => {
+      closePoll?.()
+      return true
+    },
     relatedVideos: async (cursor: string) => {
       const delay = options.chipDelays?.[cursor] ?? 0
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))

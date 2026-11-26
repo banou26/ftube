@@ -285,6 +285,39 @@ const style = css`
     padding-top: 2.4rem;
   }
 
+  &.theater.theater-chat {
+    --theater-chat-width: clamp(32rem, 27vw, 40rem);
+    padding-right: var(--theater-chat-width);
+  }
+
+  &.theater.theater-chat .columns {
+    grid-template-columns: minmax(0, var(--player-max)) clamp(26rem, 25vw, 38rem);
+    max-width: 100%;
+  }
+
+  .theater-chat-rail {
+    position: fixed;
+    top: var(--header-height, 5.6rem);
+    right: 0;
+    bottom: 0;
+    width: var(--theater-chat-width);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-subtle);
+    border-left: 1px solid var(--border);
+  }
+
+  .theater-chat-rail > .live-chat,
+  .theater-chat-rail > .chat-replay {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+  }
+
   .primary > .chat-replay,
   .primary > .live-chat,
   .primary > .live-chat-teaser {
@@ -475,7 +508,8 @@ const style = css`
     grid-template-rows: auto;
 
     &,
-    &.theater {
+    &.theater,
+    &.theater.theater-chat {
       padding: 0 var(--margin) 2.4rem;
     }
 
@@ -820,6 +854,7 @@ const WatchPage = () => {
     ? <ChatReplay key={`replay:${videoId}`} videoId={videoId} onClose={() => setReplayFor(undefined)} />
     : undefined
   const chatHidden = chatHiddenFor === videoId
+  const theaterChatDocked = theater && !oneColumn && ((watch?.isLive === true && !chatHidden) || replayOpen)
   const liveChat = watch?.isLive
     ? chatHidden
       ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
@@ -852,7 +887,7 @@ const WatchPage = () => {
   }
 
   return (
-    <main css={style} className={theater ? 'theater' : undefined}>
+    <main css={style} className={theater ? (theaterChatDocked ? 'theater theater-chat' : 'theater') : undefined}>
       <div className='stage' ref={stageRef}>
         {/* The player is NOT mounted here: it lives above the router, so leaving the page docks it rather than destroying its SABR session */}
         <div className='player-slot' ref={claimPlayer} />
@@ -1019,11 +1054,11 @@ const WatchPage = () => {
             {watch?.hasChatReplay ? <ChatReplayTeaser open={replayOpen} onOpen={() => setReplayFor(videoId)} /> : undefined}
           </div>
         </div>
-        {watchFetching || playlist || queue.items.length > 0 || (watch?.isLive && !oneColumn) || replayOpen || (related && related.length > 0) || relatedChips.length > 0 || chipLoading || Boolean(chipError) || (!oneColumn && videoPanel)
+        {watchFetching || playlist || queue.items.length > 0 || (watch?.isLive && !oneColumn && !theaterChatDocked) || (replayOpen && !theaterChatDocked) || (related && related.length > 0) || relatedChips.length > 0 || chipLoading || Boolean(chipError) || (!oneColumn && videoPanel)
           ? (
             <aside className='secondary'>
-              {oneColumn ? undefined : replay}
-              {oneColumn ? undefined : liveChat}
+              {oneColumn || theaterChatDocked ? undefined : replay}
+              {oneColumn || theaterChatDocked ? undefined : liveChat}
               {oneColumn ? undefined : videoPanel}
               {playlist ? <PlaylistPanel playlist={playlist} /> : queue.items.length > 0 ? <QueuePanel /> : undefined}
               {relatedChips.length > 0
@@ -1116,6 +1151,9 @@ const WatchPage = () => {
             : undefined}
         </div>
       </div>
+      {theaterChatDocked
+        ? <aside className='theater-chat-rail' aria-label='Live chat rail'>{replay ?? liveChat}</aside>
+        : undefined}
       {sharing ? <ShareDialog videoId={videoId} title={watch?.title ?? undefined} list={listId} onClose={() => setSharing(false)} /> : undefined}
       {saving ? <SaveDialog videoId={videoId} onClose={() => setSaving(false)} /> : undefined}
       {grouping && channel
