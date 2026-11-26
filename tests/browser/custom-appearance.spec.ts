@@ -153,11 +153,12 @@ test('tints video card and compact card resume progress bars with the custom acc
   await page.goto('/settings')
   await page.locator('#custom-appearance').getByRole('button', { name: 'Emerald' }).click()
 
+  const harness = '/tests/browser/fixtures/appearance-cards-harness.tsx'
   await page.goto('/privacy')
-  await page.evaluate(async () => {
-    const mod = await import('/tests/browser/fixtures/appearance-cards-harness.tsx') as { mountAppearanceCards: () => void }
+  await page.evaluate(async (path) => {
+    const mod = await import(path) as { mountAppearanceCards: () => void }
     mod.mountAppearanceCards()
-  })
+  }, harness)
 
   const gridFill = page.locator('[data-appearance-cards-harness] [data-card="grid"] .progress span')
   const compactFill = page.locator('[data-appearance-cards-harness] [data-card="compact"] .progress span')
@@ -179,10 +180,10 @@ test('tints video card and compact card resume progress bars with the custom acc
   await page.goto('/settings')
   await page.locator('#custom-appearance').getByRole('button', { name: 'Reset to default' }).click()
   await page.goto('/privacy')
-  await page.evaluate(async () => {
-    const mod = await import('/tests/browser/fixtures/appearance-cards-harness.tsx') as { mountAppearanceCards: () => void }
+  await page.evaluate(async (path) => {
+    const mod = await import(path) as { mountAppearanceCards: () => void }
     mod.mountAppearanceCards()
-  })
+  }, harness)
   await expect(gridFill).toHaveCSS('background-color', 'rgb(255, 0, 51)')
   await expect(compactFill).toHaveCSS('background-color', 'rgb(255, 0, 51)')
 })
