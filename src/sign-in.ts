@@ -1,10 +1,11 @@
-import type { WindowFrame } from '@fkn/lib'
+import type { Frame, WindowFrame } from '@fkn/lib'
 
 import { showToast } from './components/ui/toast'
 import { mountHiddenFrame, stopAgentHost } from './engine/agent-host'
 import { resetEngine, startEngine } from './engine/client'
 import { loadedLib, startPlatform } from './engine/platform'
 import { clearSignedIn, markSignedIn, readChannel, storeChannel } from './engine/signed-in'
+import { mountSignInModal } from './sign-in-modal'
 
 /**
  * How a sign-in through FKN's window ended: `'authed'` once youtube.com showed its avatar there, the window closed
@@ -25,6 +26,10 @@ const AVATAR = '#avatar-btn, button.topbar-menu-button-avatar-button'
 const POLL_MS = 1_000
 // a read across a redirect can wait on the lib's own retry for tens of seconds, so each one is bounded
 const READ_TIMEOUT_MS = 5_000
+// Inline attachFrame shares the persistent jar without WindowFrame's close flush, so pause briefly after authed
+// navigation for Mirage's scheduled IndexedDB cookie commit before removing the iframe.
+const INLINE_COOKIE_COMMIT_MS = 250
+const MODAL_ABORTED = Symbol('modal-aborted')
 const REFUSALS = new Set(['ExtensionOperationUnsupportedError', 'FrameWindowRefusedError'])
 
 // every tab's engine reads the session and the channel once at boot, so a sign-in, a sign-out or a switch in any tab reloads them all
@@ -34,9 +39,26 @@ const SIGNED_OUT = 'signed-out'
 const SWITCHED = 'switched'
 const SIGNING_OUT = 'signing-out'
 
-let openWindow: WindowFrame | undefined
+type AttachLib = Pick<typeof import('@fkn/lib'), 'attachFrame'>
+type SignInSession = Pick<WindowFrame, 'goto' | 'locator' | 'evaluate' | 'closed'> & {
+  close(commitCookies?: boolean): Promise<void>
+}
+
+let openWindow: Pick<SignInSession, 'close'> | undefined
 let opening = false
 let finishing = false
+
+/** Returns whether FTube is running inside an installed standalone home-screen WebApp. */
+export const isStandalonePwa = (): boolean =>
+  (typeof navigator !== 'undefined' && (navigator as { standalone?: boolean }).standalone === true)
+  || (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(display-mode: standalone)').matches === true)
+
+const hasDomHost = () => typeof document !== 'undefined' && Boolean(document.body)
+
+const isJarUnreachable = (error: unknown) => {
+  const err = error as { name?: unknown, reason?: unknown } | null
+  return err?.name === 'FrameWindowRefusedError' && err.reason === 'jar-unreachable'
+}
 
 // the /signin page has nothing left for a signed-in person
 const landSignedIn = () => {
@@ -79,20 +101,21 @@ const bounded = <T>(read: () => Promise<T>) => {
 }
 
 // every read is a severity-0 count, which asks no card; a host outside the attachment rejects it, which reads as not yet
-const present = async (login: WindowFrame, selector: string) => await login.locator(selector).count() > 0
+const present = async (login: Pick<SignInSession, 'locator'>, selector: string) => await login.locator(selector).count() > 0
 
-const signedInThere = (login: WindowFrame) => present(login, AVATAR)
+const signedInThere = (login: Pick<SignInSession, 'locator'>) => present(login, AVATAR)
 
-const showsSignInLink = (login: WindowFrame) => present(login, SIGN_IN_LINK)
+const showsSignInLink = (login: Pick<SignInSession, 'locator'>) => present(login, SIGN_IN_LINK)
 
 // a timer, so the call settles before the click takes the page away; the person can still click it themselves
-const clickInWindow = (login: WindowFrame, selector: string) => {
+const clickInWindow = (login: Pick<SignInSession, 'evaluate'>, selector: string) => {
   void login.evaluate((target) => { setTimeout(() => document.querySelector<HTMLElement>(target)?.click(), 0) }, selector).catch(() => {})
 }
 
 const isTerminal = (error: unknown) => loadedLib()?.isTerminalError(error) ?? false
 
 const outcomeOf = (error: unknown): SignInOutcome => {
+  if (error === MODAL_ABORTED) return 'closed'
   const name = (error as Error | null)?.name
   if (name === 'FrameWindowBlockedError') return 'blocked'
   if (name && REFUSALS.has(name)) return 'unsupported'
@@ -101,11 +124,15 @@ const outcomeOf = (error: unknown): SignInOutcome => {
   throw error
 }
 
-const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutcome> => {
-  let login: WindowFrame
+const waitInSession = async (
+  attaching: Promise<SignInSession>,
+  onJarUnreachable?: () => Promise<SignInOutcome>,
+): Promise<SignInOutcome> => {
+  let login: SignInSession
   try {
     login = await attaching
   } catch (error) {
+    if (onJarUnreachable && isJarUnreachable(error)) return onJarUnreachable()
     return outcomeOf(error)
   }
   openWindow = login
@@ -128,7 +155,7 @@ const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutc
     ])
     if (tick === 'closed') return 'closed'
     if (tick === true) {
-      await login.close()
+      await login.close(true)
       return 'authed'
     }
     if (!clicked && await bounded(() => showsSignInLink(login))) {
@@ -141,13 +168,52 @@ const waitInWindow = async (attaching: Promise<WindowFrame>): Promise<SignInOutc
   }
 }
 
+const openInlineSignIn = (lib: AttachLib): Promise<SignInOutcome> => {
+  const modal = mountSignInModal()
+  let settled = false
+  let attached: Frame | undefined
+  const waitClosed = modal.closed.then(() => 'closed' as const)
+  const attaching = lib.attachFrame({
+    iframe: modal.iframe,
+    domains: SIGN_IN_DOMAINS,
+    cookies: 'persistent',
+    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
+  }).then((frame) => {
+    attached = frame
+    return frame
+  })
+  void attaching.catch(() => {})
+  const session = Promise.race([attaching, waitClosed]).then((value): SignInSession => {
+    if (value === 'closed') throw MODAL_ABORTED
+    return {
+      goto: value.goto.bind(value),
+      locator: value.locator.bind(value),
+      evaluate: value.evaluate.bind(value),
+      closed: modal.closed,
+      close: async (commitCookies = false) => {
+        if (settled) return
+        settled = true
+        if (commitCookies && attached) await new Promise((resolve) => setTimeout(resolve, INLINE_COOKIE_COMMIT_MS))
+        modal.close()
+      },
+    }
+  })
+  return waitInSession(session).finally(() => {
+    settled = true
+    openWindow = undefined
+    modal.close()
+  })
+}
+
 /**
- * Opens youtube.com in FKN's window on the jar every fkn.app app shares ('persistent'), clicks its Sign in link, and
- * resolves once youtube.com shows the account there, or the window ended. Asks for the Evaluation grant up front,
- * which the FKN page that later reads the session needs too. Call it directly in the click handler, with the lib the
- * platform loaded: an await before it would open the window without the click's activation.
+ * Opens youtube.com on the jar every fkn.app app shares ('persistent'), clicks its Sign in link, and
+ * resolves once youtube.com shows the account there, the popup/modal ended, or FKN refused a window. Uses an
+ * inline modal iframe directly when running as a standalone PWA (or on `jar-unreachable`) so iOS Home Screen
+ * apps keep the app's persistent cookie partition. Call directly in the click handler without an await first so
+ * non-standalone browsers preserve popup activation.
  */
-export const openSignInWindow = (lib: Pick<typeof import('@fkn/lib'), 'attachFrame'>): Promise<SignInOutcome> => {
+export const openSignInWindow = (lib: AttachLib): Promise<SignInOutcome> => {
+  if (isStandalonePwa() && hasDomHost()) return openInlineSignIn(lib)
   // first statement on purpose
   const attaching = lib.attachFrame({
     window: {},
@@ -155,7 +221,8 @@ export const openSignInWindow = (lib: Pick<typeof import('@fkn/lib'), 'attachFra
     cookies: 'persistent',
     permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
   })
-  return waitInWindow(attaching).finally(() => { openWindow = undefined })
+  return waitInSession(attaching, hasDomHost() ? () => openInlineSignIn(lib) : undefined)
+    .finally(() => { openWindow = undefined })
 }
 
 /** What every Sign in control calls on its click. While a window is open, a click does nothing more. */

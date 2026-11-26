@@ -57,3 +57,26 @@ test('says how to get past a blocked window, and tries again from the toast', as
   await toast.getByRole('button', { name: 'Try again' }).click()
   await expect.poll(() => page.evaluate(() => (window as unknown as { opens: { count: number } }).opens.count)).toBe(2)
 })
+
+test('opens an inline FKN sign-in modal instead of a popup in standalone WebApp mode', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'standalone', { value: true, configurable: true })
+  })
+  let popupOpened = false
+  page.context().on('page', () => { popupOpened = true })
+
+  await page.goto('/')
+  await engineReady(page)
+  await page.locator('header button.sign-in').click()
+
+  const dialog = page.getByRole('dialog', { name: 'Sign in to YouTube' })
+  await expect(dialog).toBeVisible({ timeout: 15_000 })
+  const iframe = dialog.locator('iframe[title="Sign in to YouTube"]')
+  await expect(iframe).toBeVisible()
+  await expect(iframe).toHaveAttribute('src', /^https:\/\/fkn\.app\/attach-frame\b/)
+  expect(popupOpened).toBe(false)
+
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toHaveCount(0)
+})

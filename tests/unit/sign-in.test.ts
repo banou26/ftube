@@ -310,6 +310,254 @@ describe('the sign-in window', () => {
   })
 })
 
+const installDom = () => {
+  type Listener = (event: { key?: string, stopPropagation?: () => void }) => void
+  const docListeners = new Map<string, Set<Listener>>()
+  const makeElement = (tagName: string) => {
+    const children: FakeElement[] = []
+    const attrs = new Map<string, string>()
+    const listeners = new Map<string, Set<Listener>>()
+    const element: FakeElement = {
+      tagName: tagName.toUpperCase(),
+      id: '',
+      className: '',
+      textContent: '',
+      innerHTML: '',
+      title: '',
+      type: '',
+      tabIndex: 0,
+      isConnected: false,
+      style: { overflow: '' } as Record<string, string>,
+      parentNode: null,
+      get children() { return children },
+      setAttribute: (name: string, value: string) => { attrs.set(name, value) },
+      getAttribute: (name: string) => attrs.get(name) ?? null,
+      appendChild: (child: FakeElement) => {
+        child.parentNode = element
+        const propagateConnect = (node: FakeElement, connected: boolean) => {
+          node.isConnected = connected
+          for (const grand of node.children) propagateConnect(grand, connected)
+        }
+        children.push(child)
+        propagateConnect(child, element.isConnected || element === body || element === head)
+        return child
+      },
+      append: (...nodes: FakeElement[]) => {
+        for (const node of nodes) element.appendChild(node)
+      },
+      remove: () => {
+        if (element.parentNode) {
+          const siblings = element.parentNode.children
+          const idx = siblings.indexOf(element)
+          if (idx >= 0) siblings.splice(idx, 1)
+          element.parentNode = null
+        }
+        const disconnect = (node: FakeElement) => {
+          node.isConnected = false
+          for (const child of node.children) disconnect(child)
+        }
+        disconnect(element)
+      },
+      focus: vi.fn(),
+      addEventListener: (type: string, listener: Listener) => {
+        let set = listeners.get(type)
+        if (!set) listeners.set(type, (set = new Set()))
+        set.add(listener)
+      },
+      removeEventListener: (type: string, listener: Listener) => {
+        listeners.get(type)?.delete(listener)
+      },
+      dispatch: (type: string, event: { key?: string, stopPropagation?: () => void } = {}) => {
+        for (const listener of listeners.get(type) ?? []) listener(event)
+      },
+      querySelectorAll: (selector: string) => {
+        const out: FakeElement[] = []
+        const walk = (node: FakeElement) => {
+          for (const child of node.children) {
+            if ((selector === 'iframe' && child.tagName === 'IFRAME')
+              || (selector === 'button' && child.tagName === 'BUTTON')) out.push(child)
+            walk(child)
+          }
+        }
+        walk(element)
+        return out
+      },
+    }
+    return element
+  }
+  type FakeElement = {
+    tagName: string
+    id: string
+    className: string
+    textContent: string
+    innerHTML: string
+    title: string
+    type: string
+    tabIndex: number
+    isConnected: boolean
+    style: Record<string, string>
+    parentNode: FakeElement | null
+    children: FakeElement[]
+    setAttribute(name: string, value: string): void
+    getAttribute(name: string): string | null
+    appendChild(child: FakeElement): FakeElement
+    append(...nodes: FakeElement[]): void
+    remove(): void
+    focus: ReturnType<typeof vi.fn>
+    addEventListener(type: string, listener: Listener): void
+    removeEventListener(type: string, listener: Listener): void
+    dispatch(type: string, event?: { key?: string, stopPropagation?: () => void }): void
+    querySelectorAll(selector: string): FakeElement[]
+  }
+  const head = makeElement('head')
+  const body = makeElement('body')
+  head.isConnected = true
+  body.isConnected = true
+  const previousFocus = makeElement('button')
+  const doc = {
+    head,
+    body,
+    activeElement: previousFocus,
+    createElement: (tag: string) => makeElement(tag),
+    getElementById: (id: string) => [...head.children, ...body.children].find((el) => el.id === id) ?? null,
+    addEventListener: (type: string, listener: Listener) => {
+      let set = docListeners.get(type)
+      if (!set) docListeners.set(type, (set = new Set()))
+      set.add(listener)
+    },
+    removeEventListener: (type: string, listener: Listener) => {
+      docListeners.get(type)?.delete(listener)
+    },
+    dispatchKeyDown: (key: string) => {
+      for (const listener of docListeners.get('keydown') ?? []) {
+        listener({ key, stopPropagation: () => {} })
+      }
+    },
+  }
+  vi.stubGlobal('document', doc)
+  return { doc, body, previousFocus }
+}
+
+const fakeInlineFrame = () => {
+  const page = { avatar: false, mobileAvatar: false, link: true, mobileYouTab: false }
+  return {
+    page,
+    goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
+    locator: (selector: string) => ({
+      count: async () => {
+        if (selector.includes('#avatar-btn')) {
+          return page.avatar || (selector.includes('topbar-menu-button-avatar-button') && page.mobileAvatar) ? 1 : 0
+        }
+        if (selector.includes('pivot-you')) return page.mobileYouTab ? 1 : 0
+        return page.link ? 1 : 0
+      },
+    }),
+    evaluate: vi.fn(async (_run: unknown, selector: string) => { calls.push(`click ${selector}`) }),
+  }
+}
+
+const jarUnreachable = () => Object.assign(
+  new Error('The app\'s session could not be reached'),
+  { name: 'FrameWindowRefusedError', reason: 'jar-unreachable' },
+)
+
+describe('inline standalone PWA and jar-unreachable sign-in', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    calls.length = 0
+    channels.clear()
+    showToast.mockClear()
+    resetIdentity.mockClear()
+    startPlatform.mockClear()
+    lib.attachFrame.mockReset()
+    lib.loaded = true
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('opens an inline FKN frame modal instead of a popup in iOS standalone WebApp mode', async () => {
+    const inline = fakeInlineFrame()
+    const { reload, stored } = install(inline as unknown as Login)
+    const { body } = installDom()
+    vi.stubGlobal('navigator', { standalone: true })
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
+    const [options] = lib.attachFrame.mock.calls[0]! as [Options & { iframe?: { isConnected?: boolean } }]
+    expect(options.window).toBeUndefined()
+    expect(options.iframe?.isConnected).toBe(true)
+    expect(options.domains).toEqual(['www.youtube.com', 'm.youtube.com'])
+    expect(options.cookies).toBe('persistent')
+    expect(options.permissions).toEqual([{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }])
+
+    await poll(2)
+    inline.page.link = false
+    inline.page.mobileAvatar = true
+    await poll(2)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+    expect(body.children).toHaveLength(0)
+  })
+
+  it('detects standalone display-mode via matchMedia', async () => {
+    const inline = fakeInlineFrame()
+    inline.page.avatar = true
+    const { reload } = install(inline as unknown as Login)
+    installDom()
+    vi.stubGlobal('navigator', {})
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(display-mode: standalone)' }))
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    expect(lib.attachFrame).toHaveBeenCalledOnce()
+    const [options] = lib.attachFrame.mock.calls[0]! as [Options]
+    expect(options.iframe).toBeDefined()
+    expect(options.window).toBeUndefined()
+    await poll(2)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+  })
+
+  it('falls back to the inline modal when attachWindow refuses with jar-unreachable', async () => {
+    const inline = fakeInlineFrame()
+    const { reload, stored } = install(jarUnreachable(), inline as unknown as Login)
+    installDom()
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await vi.waitFor(() => expect(lib.attachFrame).toHaveBeenCalledTimes(2))
+    expect((lib.attachFrame.mock.calls[0]![0] as Options).window).toEqual({})
+    expect((lib.attachFrame.mock.calls[1]![0] as Options).iframe).toBeDefined()
+
+    inline.page.avatar = true
+    await poll(2)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+    expect(showToast).not.toHaveBeenCalled()
+  })
+
+  it('resolves closed without reloading when the user dismisses the inline modal', async () => {
+    const inline = fakeInlineFrame()
+    const { reload, stored } = install(inline as unknown as Login)
+    const { body, doc } = installDom()
+    vi.stubGlobal('navigator', { standalone: true })
+    const { openSignInWindow } = await import('../../src/sign-in')
+
+    const outcome = openSignInWindow(lib as unknown as Parameters<typeof openSignInWindow>[0])
+    await poll(1)
+    expect(body.children).toHaveLength(1)
+    doc.dispatchKeyDown('Escape')
+    await expect(outcome).resolves.toBe('closed')
+    expect(body.children).toHaveLength(0)
+    expect(reload).not.toHaveBeenCalled()
+    expect(stored[SIGNED_IN_KEY]).toBeUndefined()
+  })
+})
+
 describe('switching channel', () => {
   beforeEach(() => {
     vi.resetModules()
