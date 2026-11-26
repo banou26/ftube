@@ -3,8 +3,8 @@ import type { RichTextRun } from './rich-text'
 import type { VideoCardData } from './video-card'
 
 import { css } from '@emotion/react'
-import { MessageSquareText, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { ChevronLeft, ChevronRight, MessageSquareText, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation } from 'urql'
 import { Link } from 'wouter'
 
@@ -135,6 +135,26 @@ const style = css`
     margin-top: 0;
     aspect-ratio: 1 / 1;
     object-fit: cover;
+  }
+
+  .post-image-btn {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: zoom-in;
+    border-radius: 0.8rem;
+    overflow: hidden;
+    margin-top: 1.2rem;
+  }
+
+  .post-image-btn .post-image {
+    margin-top: 0;
+  }
+
+  .post-images .post-image-btn {
+    margin-top: 0;
   }
 
   .post-poll {
@@ -321,6 +341,161 @@ const PostActions = ({ post }: { post: PostCardData }) => {
   )
 }
 
+const lightboxStyle = css`
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.4rem;
+  background: rgba(0, 0, 0, 0.88);
+
+  .viewer-img {
+    max-width: min(92vw, 128rem);
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 0.8rem;
+    user-select: none;
+  }
+
+  .viewer-btn {
+    position: absolute;
+    width: 4.4rem;
+    height: 4.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .viewer-btn:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .viewer-close {
+    top: 1.6rem;
+    right: 1.6rem;
+  }
+
+  .viewer-prev {
+    left: 1.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .viewer-next {
+    right: 1.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .viewer-count {
+    position: absolute;
+    bottom: 1.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.4rem 1.2rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    font-size: 1.3rem;
+    font-weight: 500;
+  }
+`
+
+const PostImageLightbox = (
+  { images, index, onChange, onClose }: {
+    images: readonly string[]
+    index: number
+    onChange: (nextIndex: number) => void
+    onClose: () => void
+  },
+) => {
+  const viewerRef = useRef<HTMLDivElement>(null)
+  const latest = useRef({ index, total: images.length, onChange, onClose })
+  latest.current = { index, total: images.length, onChange, onClose }
+
+  useLayoutEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    viewerRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      const { index: cur, total, onChange: step, onClose: close } = latest.current
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        close()
+      } else if (total > 1 && event.key === 'ArrowLeft') {
+        event.preventDefault()
+        step((cur - 1 + total) % total)
+      } else if (total > 1 && event.key === 'ArrowRight') {
+        event.preventDefault()
+        step((cur + 1) % total)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
+
+  const total = images.length
+  const src = images[index]
+  if (!src) return null
+
+  return (
+    <div
+      ref={viewerRef}
+      css={lightboxStyle}
+      role='dialog'
+      aria-modal='true'
+      aria-label='Post image viewer'
+      tabIndex={-1}
+      onClick={(event: MouseEvent) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <button type='button' className='viewer-btn viewer-close' aria-label='Close image' onClick={onClose}>
+        <X size={22} strokeWidth={2} />
+      </button>
+      {total > 1
+        ? (
+          <button
+            type='button'
+            className='viewer-btn viewer-prev'
+            aria-label='Previous image'
+            onClick={() => onChange((index - 1 + total) % total)}
+          >
+            <ChevronLeft size={24} strokeWidth={2} />
+          </button>
+        )
+        : undefined}
+      <img className='viewer-img' src={src} alt='' />
+      {total > 1
+        ? (
+          <>
+            <button
+              type='button'
+              className='viewer-btn viewer-next'
+              aria-label='Next image'
+              onClick={() => onChange((index + 1) % total)}
+            >
+              <ChevronRight size={24} strokeWidth={2} />
+            </button>
+            <span className='viewer-count'>{index + 1} / {total}</span>
+          </>
+        )
+        : undefined}
+    </div>
+  )
+}
+
 /**
  * A channel post, on a channel's Posts tab, Community page, on its own page, or in a row of a topic channel's Home.
  * Interactive voting (`PostActions`) renders when `readMore` is true so Home harness tests without an urql Provider
@@ -336,6 +511,13 @@ export const PostCard = (
   const images = post.attachedImages && post.attachedImages.length > 1
     ? post.attachedImages
     : undefined
+  const allImages = images ?? (post.attachedImage ? [post.attachedImage] : [])
+  const [viewerIndex, setViewerIndex] = useState<number>()
+
+  useEffect(() => {
+    setViewerIndex(undefined)
+  }, [post.id])
+
   const body = post.runs && post.runs.length > 0
     ? <RichText runs={post.runs} />
     : post.text
@@ -366,11 +548,30 @@ export const PostCard = (
       {images
         ? (
           <div className='post-images'>
-            {images.map((src, index) => <img key={`${src}-${index}`} className='post-image' src={src} alt='' loading='lazy' />)}
+            {images.map((src, index) => (
+              <button
+                key={`${src}-${index}`}
+                type='button'
+                className='post-image-btn'
+                aria-label={`View image ${index + 1} of ${images.length} full size`}
+                onClick={() => setViewerIndex(index)}
+              >
+                <img className='post-image' src={src} alt='' loading='lazy' />
+              </button>
+            ))}
           </div>
         )
         : post.attachedImage
-          ? <img className='post-image' src={post.attachedImage} alt='' loading='lazy' />
+          ? (
+            <button
+              type='button'
+              className='post-image-btn'
+              aria-label='View image full size'
+              onClick={() => setViewerIndex(0)}
+            >
+              <img className='post-image' src={post.attachedImage} alt='' loading='lazy' />
+            </button>
+          )
           : undefined}
       {post.attachedVideo ? <VideoCardCompact video={post.attachedVideo} /> : undefined}
       {post.poll && post.poll.choices.length > 0
@@ -421,6 +622,16 @@ export const PostCard = (
                 )
                 : undefined}
           </div>
+        )
+        : undefined}
+      {viewerIndex !== undefined
+        ? (
+          <PostImageLightbox
+            images={allImages}
+            index={viewerIndex}
+            onChange={setViewerIndex}
+            onClose={() => setViewerIndex(undefined)}
+          />
         )
         : undefined}
     </article>
