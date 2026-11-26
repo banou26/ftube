@@ -150,18 +150,26 @@ const setAppleTouchIconHref = (pngUri: string | undefined) => {
   if (!existing) document.head.append(link)
 }
 
+const replaceHeadLink = (selector: string, attrs: Record<string, string>) => {
+  if (typeof document === 'undefined' || !document.head) return
+  for (const node of document.querySelectorAll(selector)) node.remove()
+  const link = document.createElement('link')
+  for (const [key, value] of Object.entries(attrs)) link.setAttribute(key, value)
+  document.head.append(link)
+}
+
 export const applyAppIcon = (
   iconId: AppIconId,
   customThemeColor: string | undefined,
   mode: ThemeMode,
 ) => {
   if (typeof document === 'undefined') return
-  const iconLink = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]')
   const manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')
   const version = ++activeIconVersion
 
   if (iconId === 'default') {
-    if (iconLink) iconLink.href = '/favicon.svg'
+    replaceHeadLink('link[rel="icon"][type="image/svg+xml"]', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' })
+    replaceHeadLink('link[rel="icon"]:not([type="image/svg+xml"])', { rel: 'icon', sizes: 'any', href: '/favicon.ico' })
     revokeManifestBlob()
     if (manifestLink) manifestLink.href = '/app.webmanifest'
     setAppleTouchIconHref(undefined)
@@ -175,13 +183,18 @@ export const applyAppIcon = (
   const bgColor = palette?.['--bg-base'] ?? (mode === 'light' ? '#f9f9f9' : '#0f0f0f')
   const svgIcon: ManifestIcon = { src: dataUri, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
 
-  if (iconLink) iconLink.href = dataUri
+  replaceHeadLink('link[rel="icon"][type="image/svg+xml"]', { rel: 'icon', type: 'image/svg+xml', href: dataUri })
+  replaceHeadLink('link[rel="icon"]:not([type="image/svg+xml"])', { rel: 'icon', sizes: 'any', href: dataUri })
   updateManifestLink(manifestLink, bgColor, [svgIcon])
 
   if (typeof Image !== 'function') return
   const image = new Image()
   image.onload = () => {
     if (version !== activeIconVersion) return
+    const png32 = renderIconPng(image, 32)
+    if (png32) {
+      replaceHeadLink('link[rel="icon"]:not([type="image/svg+xml"])', { rel: 'icon', sizes: '32x32', type: 'image/png', href: png32 })
+    }
     const applePng = renderIconPng(image, 180)
     if (applePng) setAppleTouchIconHref(applePng)
     const png192 = renderIconPng(image, 192)

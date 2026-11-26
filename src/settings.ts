@@ -190,9 +190,18 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),
     ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
   }
+  const hasCustomColor = 'customThemeColor' in patch
+  const autoAppIcon = hasCustomColor && !('appIcon' in patch)
+    ? normalizedPatch.customThemeColor && !current.customThemeColor && current.appIcon === 'default'
+      ? { appIcon: 'theme' as AppIconId }
+      : !normalizedPatch.customThemeColor && current.customThemeColor && current.appIcon === 'theme'
+        ? { appIcon: 'default' as AppIconId }
+        : {}
+    : {}
   const next: Settings = {
     ...current,
     ...normalizedPatch,
+    ...autoAppIcon,
     ...('theme' in patch ? { themeChosen: 'themeChosen' in patch ? patch.themeChosen : true } : {}),
     ...('captionsEnabled' in patch ? { captionsChosen: true } : {}),
   }

@@ -413,4 +413,15 @@ describe('custom appearance settings', () => {
     expect(reset.themeChosen).toBeUndefined()
     expect(JSON.parse(written.at(-1)!).customThemeColor).toBeUndefined()
   })
+
+  it('auto-selects theme appIcon when picking a custom theme accent and honors explicit Classic override', async () => {
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+    const { updateSettings } = await import('../../src/settings')
+    expect(updateSettings({ customThemeColor: '#10b981' }).appIcon).toBe('theme')
+    expect(updateSettings({ appIcon: 'default' }).appIcon).toBe('default')
+    expect(updateSettings({ customThemeColor: '#2563eb' }).appIcon).toBe('default')
+    expect(updateSettings({ appIcon: 'theme' }).appIcon).toBe('theme')
+    expect(updateSettings({ customThemeColor: undefined }).appIcon).toBe('default')
+  })
 })

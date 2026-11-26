@@ -301,3 +301,33 @@ test('adapts settings accent preview player to light, dark, and live device colo
 
   await custom.getByRole('button', { name: 'Reset to default' }).click()
 })
+
+test('refreshes the browser favicon immediately when picking a custom theme accent', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/settings')
+
+  const custom = page.locator('#custom-appearance')
+  await expect(custom).toBeVisible()
+
+  const svgIcon = page.locator('link[rel="icon"][type="image/svg+xml"]')
+  const fallbackIcon = page.locator('link[rel="icon"]:not([type="image/svg+xml"])')
+
+  await custom.getByRole('button', { name: 'Emerald', exact: true }).click()
+  await expect(svgIcon).toHaveAttribute('href', /data:image\/svg\+xml.*%2310b981/i)
+  await expect(fallbackIcon).not.toHaveAttribute('href', '/favicon.ico')
+
+  const hexInput = custom.getByLabel('Custom primary color hex')
+  await hexInput.fill('#2563eb')
+  await expect(svgIcon).toHaveAttribute('href', /data:image\/svg\+xml.*%232563eb/i)
+
+  await custom.getByRole('button', { name: 'Classic icon', exact: true }).click()
+  await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
+  await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')
+
+  await custom.getByRole('button', { name: 'Reset to default', exact: true }).click()
+  await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
+  await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
+})
