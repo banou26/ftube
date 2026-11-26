@@ -27,30 +27,30 @@ type Topic = {
 // Ordered so more specific categories (F1, Mathematics, 3D, Programming) beat broad parents when equal
 const TOPICS: readonly Topic[] = [
   { name: 'F1', emoji: '🚗', aliases: ['f1', 'formula 1', 'formula one', 'formula racing', 'grand prix', 'motorsport'] },
-  { name: 'Cars', emoji: '🚗', aliases: ['car', 'automotive', 'automobile', 'auto', 'voiture', 'jdm', 'drifting', 'drag racing', 'muscle car', 'tuner car', 'project car', 'engine swap', 'turbo', 'supercharger', 'truck', 'racing', 'rally', 'off road'], descriptionKeywords: ['automotive', 'cars', 'motorsport', 'racing'] },
+  { name: 'Cars', emoji: '🚗', aliases: ['car', 'automotive', 'automobile', 'auto', 'voiture', 'jdm', 'drifting', 'drag racing', 'muscle car', 'tuner car', 'project car', 'engine swap', 'turbo', 'supercharger', 'truck', 'racing', 'rally', 'off road'], descriptionKeywords: ['automotive', 'car reviews', 'project cars', 'motorsport', 'car culture'] },
   { name: 'ASMR', emoji: '🎧', aliases: ['asmr', 'relaxation', 'relax', 'sleep', 'stress relief', 'whisper', 'tingle'] },
   { name: 'Mathematics', emoji: '🔬', aliases: ['mathematics', 'math', 'maths', 'mathematiques', 'calculus', 'linear algebra', 'algebra', 'geometry', 'topology', 'probability'], descriptionKeywords: ['mathematics', 'math', 'calculus', 'geometry'] },
   { name: '3D', emoji: '🎨', aliases: ['3d', '3d modeling', '3d animation', 'cgi', 'vfx', 'blender 3d', 'sculpture'], descriptionKeywords: ['3d creation', '3d modeling', '3d animation', 'cgi'] },
-  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rust', 'golang', 'react', 'angular', 'firebase', 'linux', 'devops', 'computer science', 'developer'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials'] },
+  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rustlang', 'rust programming', 'golang', 'react', 'angular', 'firebase', 'linux', 'devops', 'computer science', 'developer'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials'] },
   { name: 'Trailers', emoji: '🎬', aliases: ['trailer', 'movie trailer', 'film trailer', 'game trailer', 'teaser'], descriptionKeywords: ['trailers'] },
   { name: 'Gaming', emoji: '🎮', aliases: ['gaming', 'video game', 'videogame', 'videogaming', 'gamer', 'game', 'jeu video', 'jeux video', 'retrogaming', 'retro gaming', 'esport', 'console', 'playstation', 'xbox', 'nintendo', 'pc gaming', 'megadrive', 'speedrun', 'e3'], descriptionKeywords: ['gaming', 'video games', 'videogames', 'gamer', 'esports'] },
-  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'ai', 'gadget review'], descriptionKeywords: ['consumer electronics', 'tech videos', 'technology', 'computer hardware', 'smartphones'] },
-  { name: 'Music', emoji: '🎵', aliases: ['music', 'musician', 'singer', 'song', 'album', 'band', 'rock', 'pop', 'hip hop', 'rap', 'jazz', 'electronic music', 'classical music', 'dj', 'soundtrack', 'musique'], descriptionKeywords: ['music', 'singer', 'songwriter', 'musician', 'album'] },
-  { name: 'Movies', emoji: '🎬', aliases: ['movie', 'film', 'cinema', 'series', 'television', 'anime', 'documentary'], descriptionKeywords: ['movies', 'cinema', 'films'] },
+  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'gadget review'], descriptionKeywords: ['consumer electronics', 'tech videos', 'tech reviews', 'computer hardware', 'smartphones'] },
+  { name: 'Music', emoji: '🎵', aliases: ['music', 'musician', 'singer', 'song', 'album', 'band', 'rock', 'pop', 'hip hop', 'rap', 'jazz', 'electronic music', 'classical music', 'dj', 'soundtrack', 'musique'], descriptionKeywords: ['official music', 'music video', 'singer', 'songwriter', 'musician', 'album', 'discography', 'record label'] },
+  { name: 'Movies', emoji: '🎬', aliases: ['movie', 'film', 'cinema', 'series', 'television', 'anime', 'documentary'], descriptionKeywords: ['movie reviews', 'film analysis', 'cinema', 'filmmaker'] },
   { name: 'Cooking', emoji: '🍳', aliases: ['cooking', 'food', 'recipe', 'culinary', 'baking', 'chef', 'cuisine', 'kitchen'], descriptionKeywords: ['cooking', 'recipes', 'culinary', 'baking'] },
-  { name: 'Science', emoji: '🔬', aliases: ['science', 'physics', 'chemistry', 'biology', 'astronomy', 'space', 'engineering', 'scientific'], descriptionKeywords: ['science', 'physics', 'astronomy', 'biology', 'chemistry'] },
+  { name: 'Science', emoji: '🔬', aliases: ['science', 'physics', 'chemistry', 'biology', 'astronomy', 'astrophysics', 'space science', 'outer space', 'engineering', 'scientific'], descriptionKeywords: ['science', 'physics', 'astronomy', 'biology', 'chemistry'] },
   { name: 'News', emoji: '📰', aliases: ['news', 'journalism', 'politics', 'current events', 'world news', 'actualites'], descriptionKeywords: ['journalism', 'breaking news', 'world news', 'current events'] },
   { name: 'Sports', emoji: '⚽', aliases: ['sport', 'football', 'soccer', 'basketball', 'nba', 'nfl', 'tennis', 'baseball', 'hockey', 'ufc', 'mma', 'athletics'], descriptionKeywords: ['sports', 'football', 'soccer', 'basketball'] },
-  { name: 'Fitness', emoji: '🏋️', aliases: ['fitness', 'workout', 'gym', 'bodybuilding', 'exercise', 'training', 'health', 'nutrition'], descriptionKeywords: ['fitness', 'workout', 'bodybuilding'] },
-  { name: 'Travel', emoji: '✈️', aliases: ['travel', 'tourism', 'aviation', 'airline', 'backpacking', 'adventure', 'voyage'], descriptionKeywords: ['travel', 'backpacking', 'aviation'] },
-  { name: 'Comedy', emoji: '😂', aliases: ['comedy', 'humor', 'humour', 'sketch', 'standup', 'satire', 'parody'], descriptionKeywords: ['comedy', 'sketch comedy', 'standup', 'satire'] },
+  { name: 'Fitness', emoji: '🏋️', aliases: ['fitness', 'workout', 'gym', 'bodybuilding', 'exercise', 'strength training', 'weight training', 'health', 'nutrition'], descriptionKeywords: ['fitness', 'workout', 'bodybuilding'] },
+  { name: 'Travel', emoji: '✈️', aliases: ['travel', 'tourism', 'aviation', 'airline', 'backpacking', 'adventure', 'voyage'], descriptionKeywords: ['travel vlog', 'backpacking', 'aviation', 'travel guide'] },
+  { name: 'Comedy', emoji: '😂', aliases: ['comedy', 'humor', 'humour', 'sketch', 'standup', 'satire', 'parody'], descriptionKeywords: ['sketch comedy', 'standup comedy', 'satire', 'comedian'] },
   { name: 'Education', emoji: '📚', aliases: ['education', 'learning', 'history', 'philosophy', 'documentary', 'lecture', 'explain'], descriptionKeywords: ['educational', 'history', 'philosophy'] },
   { name: 'Art', emoji: '🎨', aliases: ['art', 'drawing', 'painting', 'illustration', 'design', 'graphic design', 'digital art'], descriptionKeywords: ['digital art', 'illustration', 'graphic design', 'painting'] },
   { name: 'Photography', emoji: '📷', aliases: ['photography', 'camera', 'filmmaking', 'videography', 'cinematography', 'photo'], descriptionKeywords: ['photography', 'filmmaking', 'cinematography'] },
-  { name: 'DIY', emoji: '🛠️', aliases: ['diy', 'maker', 'woodworking', 'craft', 'electronics diy', 'repair', 'restoration'], descriptionKeywords: ['woodworking', 'maker', 'diy projects'] },
-  { name: 'Podcasts', emoji: '🎤', aliases: ['podcast', 'interview', 'talk show', 'discussion'], descriptionKeywords: ['podcast', 'interviews'] },
-  { name: 'Pets', emoji: '🐶', aliases: ['pet', 'dog', 'cat', 'animal', 'wildlife'], descriptionKeywords: ['dogs', 'cats', 'wildlife', 'animals'] },
-  { name: 'Nature', emoji: '🌱', aliases: ['nature', 'gardening', 'plant', 'ecology', 'botany', 'farming'], descriptionKeywords: ['gardening', 'botany', 'nature'] },
+  { name: 'DIY', emoji: '🛠️', aliases: ['diy', 'maker', 'woodworking', 'craft', 'electronics diy', 'repair', 'restoration'], descriptionKeywords: ['woodworking', 'diy projects'] },
+  { name: 'Podcasts', emoji: '🎤', aliases: ['podcast', 'interview', 'talk show', 'discussion'], descriptionKeywords: ['podcast'] },
+  { name: 'Pets', emoji: '🐶', aliases: ['pet', 'dog', 'cat', 'puppy', 'kitten', 'animal', 'wildlife'], descriptionKeywords: ['dogs', 'cats', 'wildlife'] },
+  { name: 'Nature', emoji: '🌱', aliases: ['nature', 'gardening', 'plant', 'ecology', 'botany', 'farming'], descriptionKeywords: ['gardening', 'botany'] },
   { name: 'Business', emoji: '💼', aliases: ['business', 'finance', 'investing', 'economics', 'startup', 'entrepreneurship', 'marketing'], descriptionKeywords: ['investing', 'economics', 'entrepreneurship', 'personal finance'] },
 ]
 
@@ -315,13 +315,10 @@ export const suggestGroup = (channel: ChannelGroupHints, groups: readonly Group[
       }
     }
 
-    if (normDesc && (normName.length >= 3 || UPPERCASE_TERMS.has(normName))) {
+    // Description alone is too noisy ("business inquiries", "music by ..."); only let it strengthen a tag or topic match
+    if (score > 0 && !diluted && normDesc && (normName.length >= 3 || UPPERCASE_TERMS.has(normName))) {
       if (containsWholePhrase(normDesc, normName)) {
-        score += cleanTags.length === 0 ? 50 : 28
-      } else if (groupTopic && cleanTags.length === 0 && (topicScores.get(groupTopic) ?? 0) === 0) {
-        if ((groupTopic.descriptionKeywords ?? []).some(kw => containsWholePhrase(normDesc, normalizePhrase(kw)))) {
-          score += 45
-        }
+        score += 20
       }
     }
 
@@ -349,9 +346,8 @@ export const suggestGroup = (channel: ChannelGroupHints, groups: readonly Group[
   if (bestOverall?.alreadyIn) return undefined
 
   const existingNormNames = new Set(groups.map(group => normalizePhrase(group.name)))
-  const existingTopics = new Set(groups.map(group => topicForNormalized(normalizePhrase(group.name))).filter(Boolean))
 
-  if (topTopic && topTopicScore >= 45 && !existingNormNames.has(normalizePhrase(topTopic.name)) && !existingTopics.has(topTopic)) {
+  if (topTopic && topTopicScore >= 45 && !existingNormNames.has(normalizePhrase(topTopic.name))) {
     return { kind: 'new', name: topTopic.name, emoji: topTopic.emoji }
   }
 

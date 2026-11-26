@@ -1037,7 +1037,7 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                       />
                       <GroupsButton
                         channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
-                        hints={{ handle: channel.handle, description: channel.description, tags: channel.tags, isVerifiedArtist: channel.isVerifiedArtist }}
+                        hints={{ handle: channel.handle, description: channel.description, tags: channel.tags ?? [], isVerifiedArtist: channel.isVerifiedArtist }}
                       />
                     </>
                   )}

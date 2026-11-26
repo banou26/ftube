@@ -777,6 +777,7 @@ const VideoPlayer = (
   const latest = useRef({ docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
   latest.current = { docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
 
+  // Re-run on videoElement change so metadata is restored if <video> remounts after bindMediaSession's cleanup clears it.
   useEffect(() => {
     updateMediaSessionMetadata({ videoId, title, artist: channelName })
   }, [videoElement, videoId, title, channelName])
@@ -831,6 +832,8 @@ const VideoPlayer = (
     }
   }, [videoElement, markExplicitPause])
 
+  // Must remain declared after bindMediaSession: Preact runs cleanups before effects in declaration order,
+  // so track handlers update cleanly without tearing down metadata or playbackState when hasNext/hasPrevious flip.
   useEffect(() => {
     if (!videoElement) return
     setMediaSessionTrackHandlers({
@@ -1132,6 +1135,7 @@ const VideoPlayer = (
             state={state}
             isLive={isLive}
             onExpand={onMiniplayer}
+            onUserPause={markExplicitPause}
             onVolumeChange={(next: { volume: number, muted: boolean }) => {
               wake()
               flash(next.muted ? 'mute' : 'volume', `${Math.round(next.volume * 100)}%`)

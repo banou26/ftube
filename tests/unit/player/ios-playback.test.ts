@@ -21,14 +21,20 @@ class Emitter {
   emit (type: string) {
     for (const listener of this.listeners.get(type) ?? []) listener({ type } as Event)
   }
+
+  listenerCount () {
+    let total = 0
+    for (const set of this.listeners.values()) total += set.size
+    return total
+  }
 }
 
-const createHarness = () => {
+const createHarness = (initialPaused = false) => {
   const videoEmitter = new Emitter()
   const docEmitter = new Emitter()
   const play = vi.fn().mockResolvedValue(undefined)
   const video = {
-    paused: false,
+    paused: initialPaused,
     ended: false,
     play,
     addEventListener: videoEmitter.addEventListener.bind(videoEmitter),
@@ -42,7 +48,7 @@ const createHarness = () => {
     removeEventListener: docEmitter.removeEventListener.bind(docEmitter),
     emit: docEmitter.emit.bind(docEmitter),
   }
-  return { video, doc, play }
+  return { video, doc, play, videoEmitter, docEmitter }
 }
 
 describe('bindNativeTransitionResume', () => {
@@ -57,6 +63,7 @@ describe('bindNativeTransitionResume', () => {
 
   it.each([
     'webkitpresentationmodechanged',
+    'webkitbeginfullscreen',
     'webkitendfullscreen',
     'enterpictureinpicture',
   ] as const)('resumes involuntary pause within 600ms of %s and retries once after 100ms', (event) => {
@@ -141,9 +148,9 @@ describe('bindNativeTransitionResume', () => {
     controller.destroy()
   })
 
-  it('cancels the pending retry timer on playing, markExplicitPause, and destroy', () => {
+  it('cancels the pending retry timer on playing, markExplicitPause, and destroy, and detaches listeners', () => {
     for (const stop of ['playing', 'explicit', 'destroy'] as const) {
-      const { video, doc, play } = createHarness()
+      const { video, doc, play, videoEmitter, docEmitter } = createHarness()
       const controller = bindNativeTransitionResume({ video, doc })
 
       video.emit('webkitendfullscreen')
@@ -158,6 +165,8 @@ describe('bindNativeTransitionResume', () => {
         controller.markExplicitPause()
       } else {
         controller.destroy()
+        expect(videoEmitter.listenerCount()).toBe(0)
+        expect(docEmitter.listenerCount()).toBe(0)
       }
 
       vi.advanceTimersByTime(500)
@@ -172,7 +181,45 @@ describe('bindNativeTransitionResume', () => {
         expect(play).toHaveBeenCalledTimes(1)
       } else {
         controller.destroy()
+        expect(videoEmitter.listenerCount()).toBe(0)
+        expect(docEmitter.listenerCount()).toBe(0)
       }
     }
+  })
+
+  it('does not auto-start a video that was already paused at bind time', () => {
+    const { video, doc, play } = createHarness(true)
+    const controller = bindNativeTransitionResume({ video, doc })
+
+    video.emit('webkitendfullscreen')
+    video.emit('pause')
+    vi.advanceTimersByTime(200)
+    expect(play).not.toHaveBeenCalled()
+
+    controller.destroy()
+  })
+
+  it('skips the retry timer when playback unpauses or ends before retryMs elapses', () => {
+    const first = createHarness()
+    const firstController = bindNativeTransitionResume({ video: first.video, doc: first.doc })
+    first.video.emit('webkitendfullscreen')
+    first.video.paused = true
+    first.video.emit('pause')
+    expect(first.play).toHaveBeenCalledTimes(1)
+    first.video.paused = false
+    vi.advanceTimersByTime(200)
+    expect(first.play).toHaveBeenCalledTimes(1)
+    firstController.destroy()
+
+    const second = createHarness()
+    const secondController = bindNativeTransitionResume({ video: second.video, doc: second.doc })
+    second.video.emit('webkitendfullscreen')
+    second.video.paused = true
+    second.video.emit('pause')
+    expect(second.play).toHaveBeenCalledTimes(1)
+    second.video.ended = true
+    vi.advanceTimersByTime(200)
+    expect(second.play).toHaveBeenCalledTimes(1)
+    secondController.destroy()
   })
 })

@@ -112,12 +112,13 @@ const style = css`
  * video cannot play, which leaves Expand and Close; at the end of the video the end screen has the middle of it.
  */
 export const MiniplayerControls = (
-  { video, state, isLive, onExpand, onVolumeChange }: {
+  { video, state, isLive, onExpand, onVolumeChange, onUserPause }: {
     video?: HTMLVideoElement
     state: PlayerState
     isLive: boolean
     onExpand?: () => void
     onVolumeChange?: (next: { volume: number, muted: boolean }) => void
+    onUserPause?: () => void
   },
 ) => {
   const [adjusting, setAdjusting] = useState(false)
@@ -193,7 +194,14 @@ export const MiniplayerControls = (
               className='play'
               aria-label={state.paused ? 'Play' : 'Pause'}
               aria-keyshortcuts='k'
-              onClick={() => (state.paused ? void video.play().catch(() => {}) : video.pause())}
+              onClick={() => {
+                if (state.paused) {
+                  void video.play().catch(() => {})
+                  return
+                }
+                onUserPause?.()
+                video.pause()
+              }}
             >
               {state.paused ? <Play size={42} fill='currentColor' strokeWidth={0} /> : <Pause size={42} fill='currentColor' strokeWidth={0} />}
             </button>

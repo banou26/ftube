@@ -137,4 +137,101 @@ describe('suggestGroup', () => {
       description: 'Subscribe for new videos every week.',
     }, USER_GROUPS)).toBeUndefined()
   })
+
+  it('ignores boilerplate description phrases when matching existing groups', () => {
+    const extraGroups = [
+      group('business', 'Business', '💼'),
+      group('music', 'Music', '🎵'),
+      group('news', 'News', '📰'),
+      group('fun', 'Fun', '🎉'),
+    ]
+    expect(suggestGroup({
+      id: 'UCdesc1',
+      name: 'PlayThroughs',
+      description: 'I play games. For business inquiries: foo@example.com',
+    }, extraGroups)).toBeUndefined()
+
+    expect(suggestGroup({
+      id: 'UCdesc2',
+      name: 'BlockWorld',
+      description: 'Minecraft lets plays. Music by Epidemic Sound',
+    }, extraGroups)).toBeUndefined()
+
+    expect(suggestGroup({
+      id: 'UCdesc3',
+      name: 'Updates',
+      description: 'Subscribe for news about my channel',
+    }, extraGroups)).toBeUndefined()
+
+    expect(suggestGroup({
+      id: 'UCdesc4',
+      name: 'Friends',
+      description: 'Just having fun with friends',
+    }, extraGroups)).toBeUndefined()
+  })
+
+  it('avoids false positives on ambiguous aliases and falls back to uppercase AI', () => {
+    expect(suggestGroup({
+      id: 'UCrust',
+      name: 'Island',
+      tags: ['rust', 'survival'],
+    }, USER_GROUPS)).toEqual({ kind: 'new', name: 'Rust', emoji: '📁' })
+
+    expect(suggestGroup({
+      id: 'UCpuppy',
+      name: 'Paws',
+      tags: ['training', 'puppy'],
+    }, USER_GROUPS)).toEqual({ kind: 'new', name: 'Pets', emoji: '🐶' })
+
+    expect(suggestGroup({
+      id: 'UCkerbal',
+      name: 'Orbiter',
+      tags: ['space', 'kerbal'],
+    }, USER_GROUPS)).toEqual({ kind: 'new', name: 'Space', emoji: '📁' })
+
+    expect(suggestGroup({
+      id: 'UCai',
+      name: 'PromptLab',
+      tags: ['ai'],
+    }, USER_GROUPS)).toEqual({ kind: 'new', name: 'AI', emoji: '📁' })
+  })
+
+  it('filters vanity brand words, matches alias-named groups without duplicating them, and enforces the >= 80 secondary bar', () => {
+    expect(suggestGroup({
+      id: 'UCflamingo',
+      name: 'Flamingo Studio',
+      tags: ['flamingo highlights', 'flamingo vlog'],
+    }, [])).toBeUndefined()
+
+    const videoGamesGroup = group('vg', 'Video Games', '🎮')
+    expect(suggestGroup({
+      id: 'UCesport',
+      name: 'ProMatch',
+      tags: ['esport'],
+    }, [videoGamesGroup])).toEqual({ kind: 'existing', group: videoGamesGroup })
+
+    const joinedVideoGames = group('vg', 'Video Games', '🎮', ['UCesport'])
+    expect(suggestGroup({
+      id: 'UCesport',
+      name: 'ProMatch',
+      tags: ['esport'],
+    }, [joinedVideoGames])).toBeUndefined()
+
+    const joinedGamingWithTrailers = [
+      group('gaming', 'Gaming', '🎮', ['UCKy1dAqELo0zrOtPkf0eTMw']),
+      group('trailers', 'Trailers', '🎬'),
+    ]
+    // Weak secondary tag (score < 80) stays undefined once already in top matching group
+    expect(suggestGroup({
+      id: 'UCKy1dAqELo0zrOtPkf0eTMw',
+      name: 'IGN',
+      tags: ['gaming', 'teaser'],
+    }, joinedGamingWithTrailers)).toBeUndefined()
+    // Direct tag hit (score >= 80) still offers the second matching group
+    expect(suggestGroup({
+      id: 'UCKy1dAqELo0zrOtPkf0eTMw',
+      name: 'IGN',
+      tags: ['gaming', 'trailers'],
+    }, joinedGamingWithTrailers)).toEqual({ kind: 'existing', group: joinedGamingWithTrailers[1] })
+  })
 })

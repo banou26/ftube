@@ -50,7 +50,6 @@ export const bindNativeTransitionResume = (
   const now = options.now ?? (() => Date.now())
 
   let destroyed = false
-  let explicitPause = false
   let wasPlaying = !video.paused && !video.ended
   let lastTransitionAt: number | null = null
   let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -80,14 +79,12 @@ export const bindNativeTransitionResume = (
   }
 
   const onPlaybackActive = () => {
-    explicitPause = false
     wasPlaying = true
     clearRetry()
   }
 
   const onPause = () => {
-    if (destroyed || explicitPause || video.ended || !wasPlaying) {
-      explicitPause = false
+    if (destroyed || video.ended || !wasPlaying) {
       wasPlaying = false
       clearRetry()
       return
@@ -101,7 +98,7 @@ export const bindNativeTransitionResume = (
     clearRetry()
     retryTimer = setTimeout(() => {
       retryTimer = null
-      if (destroyed || explicitPause || video.ended || !video.paused) return
+      if (destroyed || !wasPlaying || video.ended || !video.paused) return
       attemptPlay()
     }, retryMs)
   }
@@ -114,7 +111,6 @@ export const bindNativeTransitionResume = (
 
   return {
     markExplicitPause () {
-      explicitPause = true
       wasPlaying = false
       clearRetry()
     },

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { expect, test } from './test'
 
@@ -269,4 +269,155 @@ test('names the chapter the playhead is in, beside the clock', async ({ page }) 
       previous = measured.width
     }
   }
+})
+
+test('keeps MediaSession metadata and playbackState across track handler changes and guards native iOS transitions', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.addInitScript(() => {
+    const log: { kind: string, action?: string, value: unknown }[] = []
+    Object.defineProperty(window, '__msLog', { value: log, writable: true, configurable: true })
+    const ms = navigator.mediaSession
+    if (!ms) return
+    const proto = Object.getPrototypeOf(ms) as MediaSession
+    const metaDesc = Object.getOwnPropertyDescriptor(proto, 'metadata') ?? Object.getOwnPropertyDescriptor(ms, 'metadata')
+    const stateDesc = Object.getOwnPropertyDescriptor(proto, 'playbackState') ?? Object.getOwnPropertyDescriptor(ms, 'playbackState')
+    const origSetActionHandler = ms.setActionHandler.bind(ms)
+    if (metaDesc?.get && metaDesc?.set) {
+      Object.defineProperty(ms, 'metadata', {
+        configurable: true,
+        get () {
+          return metaDesc.get!.call(this)
+        },
+        set (value) {
+          ;(window as unknown as { __msLog: typeof log }).__msLog.push({ kind: 'metadata', value: value ? value.title : null })
+          metaDesc.set!.call(this, value)
+        },
+      })
+    }
+    if (stateDesc?.get && stateDesc?.set) {
+      Object.defineProperty(ms, 'playbackState', {
+        configurable: true,
+        get () {
+          return stateDesc.get!.call(this)
+        },
+        set (value) {
+          ;(window as unknown as { __msLog: typeof log }).__msLog.push({ kind: 'playbackState', value })
+          stateDesc.set!.call(this, value)
+        },
+      })
+    }
+    ms.setActionHandler = ((action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      ;(window as unknown as { __msLog: typeof log }).__msLog.push({ kind: 'handler', action, value: handler !== null })
+      return origSetActionHandler(action, handler)
+    }) as MediaSession['setActionHandler']
+  })
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto(`/watch?v=${VIDEO_ID}`)
+  const video = await startPlayback(page)
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeAttached({ timeout: 60_000 })
+
+  await expect.poll(async () => page.evaluate(() => ({
+    title: navigator.mediaSession?.metadata?.title ?? '',
+    playbackState: navigator.mediaSession?.playbackState ?? 'none',
+  }))).toEqual({ title: expect.stringMatching(/\S/), playbackState: 'playing' })
+
+  const readLog = () => page.evaluate(() => (window as unknown as { __msLog: { kind: string, action?: string, value: unknown }[] }).__msLog)
+
+  // Flip hasPrevious false -> true via the session queue without remounting VideoPlayer
+  await page.evaluate(async ({ queuePath, videoId }) => {
+    ;(window as unknown as { __msLog: unknown[] }).__msLog = []
+    const queue = await import(queuePath) as typeof import('../../src/player/queue')
+    queue.appendQueueEntry({ id: 'prev-vid-id', title: 'Previous Video' })
+    queue.appendQueueEntry({ id: videoId, title: 'Current Video' })
+    queue.setQueueIndex(1)
+  }, { queuePath: '/src/player/queue.ts', videoId: VIDEO_ID })
+
+  await expect.poll(async () => (await readLog()).some(entry => entry.kind === 'handler' && entry.action === 'previoustrack' && entry.value === true)).toBe(true)
+  const addLog = await readLog()
+  expect(addLog).not.toContainEqual({ kind: 'metadata', value: null })
+  expect(addLog).not.toContainEqual({ kind: 'playbackState', value: 'none' })
+  await expect.poll(async () => page.evaluate(() => ({
+    title: navigator.mediaSession?.metadata?.title ?? '',
+    playbackState: navigator.mediaSession?.playbackState ?? 'none',
+  }))).toEqual({ title: expect.stringMatching(/\S/), playbackState: 'playing' })
+
+  // Flip hasPrevious true -> false again
+  await page.evaluate(async (queuePath) => {
+    ;(window as unknown as { __msLog: unknown[] }).__msLog = []
+    const queue = await import(queuePath) as typeof import('../../src/player/queue.ts')
+    queue.clearQueue()
+  }, '/src/player/queue.ts')
+
+  await expect.poll(async () => (await readLog()).some(entry => entry.kind === 'handler' && entry.action === 'previoustrack' && entry.value === false)).toBe(true)
+  const removeLog = await readLog()
+  expect(removeLog).not.toContainEqual({ kind: 'metadata', value: null })
+  expect(removeLog).not.toContainEqual({ kind: 'playbackState', value: 'none' })
+  await expect.poll(async () => page.evaluate(() => ({
+    title: navigator.mediaSession?.metadata?.title ?? '',
+    playbackState: navigator.mediaSession?.playbackState ?? 'none',
+  }))).toEqual({ title: expect.stringMatching(/\S/), playbackState: 'playing' })
+
+  // Involuntary pause inside a native transition recovers automatically
+  await video.evaluate((element) => {
+    const media = element as HTMLVideoElement
+    media.dispatchEvent(new Event('webkitendfullscreen'))
+    media.pause()
+  })
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(false)
+
+  const ensurePlaying = async () => {
+    await video.evaluate(async (element) => {
+      const media = element as HTMLVideoElement
+      if (!media.paused) return
+      await new Promise<void>((resolve) => {
+        media.addEventListener('playing', () => resolve(), { once: true })
+        void media.play()
+      })
+    })
+  }
+  const fireNativeTransition = () => video.evaluate(element => element.dispatchEvent(new Event('webkitendfullscreen')))
+
+  // 1. PlayerControls Pause button inside transition window stays paused past the 100ms retry
+  await ensurePlaying()
+  await pointAt(page, 'player')
+  const pauseButton = player(page).getByRole('button', { name: 'Pause', exact: true })
+  await expect(pauseButton).toBeVisible()
+  await fireNativeTransition()
+  await pauseButton.click()
+  await page.waitForTimeout(250)
+  expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
+
+  // 2. Clicking the video surface (togglePlay) inside transition window stays paused
+  await ensurePlaying()
+  const videoBox = (await video.boundingBox())!
+  await fireNativeTransition()
+  await page.mouse.click(videoBox.x + videoBox.width / 2, videoBox.y + videoBox.height * 0.4)
+  await page.waitForTimeout(250)
+  expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
+
+  // 3. Keyboard shortcut ('k') inside transition window stays paused
+  await ensurePlaying()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+  await fireNativeTransition()
+  await page.keyboard.press('k')
+  await page.waitForTimeout(250)
+  expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
+
+  // 4. MiniplayerControls Pause button inside transition window stays paused
+  await ensurePlaying()
+  await page.evaluate(() => {
+    history.pushState(null, '', '/settings')
+    dispatchEvent(new PopStateEvent('popstate'))
+  })
+  const mini = page.getByRole('complementary', { name: 'Miniplayer' })
+  await expect(mini).toBeVisible({ timeout: 30_000 })
+  const miniBox = (await video.boundingBox())!
+  await page.mouse.move(miniBox.x + miniBox.width / 2, miniBox.y + miniBox.height / 2)
+  const miniPause = mini.getByRole('button', { name: 'Pause', exact: true })
+  await expect(miniPause).toBeVisible()
+  await fireNativeTransition()
+  await miniPause.click()
+  await page.waitForTimeout(250)
+  expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
 })

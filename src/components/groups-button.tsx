@@ -58,26 +58,30 @@ export const GroupsButton = (
 ) => {
   const groups = useGroups()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [tagsRequested, setTagsRequested] = useState(false)
   const [draft, setDraft] = useState<{ name?: string, emoji?: string } | undefined>(undefined)
-  const [{ data: tagsData }] = useQuery({
+  const [{ data: tagsData, fetching: tagsFetching }] = useQuery({
     query: CHANNEL_TAGS_QUERY,
     variables: { id: channel.id },
-    pause: !menuOpen || hints?.tags != null,
+    pause: (!menuOpen && !tagsRequested) || hints?.tags != null,
     requestPolicy: 'cache-first',
   })
   const suggestion = useMemo(
-    () => suggestGroup(
-      {
-        id: channel.id,
-        name: channel.name,
-        handle: hints?.handle,
-        description: hints?.description,
-        isVerifiedArtist: hints?.isVerifiedArtist,
-        tags: hints?.tags ?? tagsData?.channelTags,
-      },
-      groups,
-    ),
-    [channel.id, channel.name, hints?.handle, hints?.description, hints?.isVerifiedArtist, hints?.tags, tagsData?.channelTags, groups],
+    () => {
+      if (hints?.tags == null && tagsFetching) return undefined
+      return suggestGroup(
+        {
+          id: channel.id,
+          name: channel.name,
+          handle: hints?.handle,
+          description: hints?.description,
+          isVerifiedArtist: hints?.isVerifiedArtist,
+          tags: hints?.tags ?? tagsData?.channelTags,
+        },
+        groups,
+      )
+    },
+    [channel.id, channel.name, hints?.handle, hints?.description, hints?.isVerifiedArtist, hints?.tags, tagsData?.channelTags, tagsFetching, groups],
   )
   const inAny = groups.some(group => includes(group, channel.id))
   const Icon = inAny ? FolderCheck : FolderPlus
@@ -94,7 +98,17 @@ export const GroupsButton = (
         label='Groups'
         align='start'
         onOpenChange={setMenuOpen}
-        trigger={<button type='button' css={triggerStyle}><Icon size={18} strokeWidth={1.5} />Groups</button>}
+        trigger={(
+          <button
+            type='button'
+            css={triggerStyle}
+            onPointerEnter={() => setTagsRequested(true)}
+            onFocus={() => setTagsRequested(true)}
+          >
+            <Icon size={18} strokeWidth={1.5} />
+            Groups
+          </button>
+        )}
       >
         <div css={panelStyle} role='presentation'>
           {suggestion

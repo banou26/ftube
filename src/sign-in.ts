@@ -21,7 +21,7 @@ const SIGN_IN_DOMAINS = ['www.youtube.com', 'm.youtube.com']
 const SIGN_IN_LINK = 'a[href*="ServiceLogin"]'
 const MOBILE_YOU_TAB = '[role="tab"].pivot-you'
 // youtube.com's signed-in header; a SAPISID left in the jar by an ended session would read as signed in
-const AVATAR = '#avatar-btn, button.topbar-menu-button-avatar-button, ytm-mobile-topbar-renderer img.profile-icon-img'
+const AVATAR = '#avatar-btn, button.topbar-menu-button-avatar-button'
 const POLL_MS = 1_000
 // a read across a redirect can wait on the lib's own retry for tens of seconds, so each one is bounded
 const READ_TIMEOUT_MS = 5_000
