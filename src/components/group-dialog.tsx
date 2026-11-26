@@ -13,6 +13,7 @@ import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
 import { ChannelPreviewCard } from './channel-preview'
 import { DataFailure } from './data-failure'
+import { EmojiButton } from './emoji-picker'
 import Dialog from './ui/dialog'
 
 // `all` pages the whole list, so it is asked only here and never by the guide, which keeps the first page
@@ -62,7 +63,14 @@ const style = css`
     border-color: var(--accent-focus);
   }
 
+  .emoji-controls {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
   .emoji-row {
+    flex: 1;
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
@@ -375,8 +383,15 @@ export const GroupDialog = (
   const [emoji, setEmoji] = useState(group?.emoji ?? initialEmoji ?? DEFAULT_EMOJI)
   const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
-  const [choices] = useState(() => EMOJI.includes(emoji) ? EMOJI : [emoji, ...EMOJI])
+  const [choices, setChoices] = useState(() => EMOJI.includes(emoji) ? EMOJI : [emoji, ...EMOJI])
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
+
+  const pickGroupEmoji = (picked: string) => {
+    const next = picked.trim()
+    if (!next) return
+    setEmoji(next)
+    setChoices(current => current.includes(next) ? current : [next, ...current])
+  }
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const parentOptions = groupTreeOrder(allGroups)
     .filter(({ group: candidate }) => !group || !isDescendant(allGroups, candidate.id, group.id))
@@ -482,20 +497,23 @@ export const GroupDialog = (
             : undefined}
           <div className='field'>
             <span className='field-label' id={iconLabel}>Icon</span>
-            <div className='emoji-row' role='radiogroup' aria-labelledby={iconLabel}>
-              {choices.map(choice => (
-                <button
-                  key={choice}
-                  type='button'
-                  className='emoji'
-                  role='radio'
-                  aria-checked={choice === emoji}
-                  aria-label={choice}
-                  onClick={() => setEmoji(choice)}
-                >
-                  {choice}
-                </button>
-              ))}
+            <div className='emoji-controls'>
+              <div className='emoji-row' role='radiogroup' aria-labelledby={iconLabel}>
+                {choices.map(choice => (
+                  <button
+                    key={choice}
+                    type='button'
+                    className='emoji'
+                    role='radio'
+                    aria-checked={choice === emoji}
+                    aria-label={choice}
+                    onClick={() => setEmoji(choice)}
+                  >
+                    {choice}
+                  </button>
+                ))}
+              </div>
+              <EmojiButton label='More emojis' closeOnPick onPick={pickGroupEmoji} />
             </div>
           </div>
           <div className='field'>

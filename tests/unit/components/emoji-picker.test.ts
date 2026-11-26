@@ -3,7 +3,18 @@ import { describe, expect, it, vi } from 'vite-plus/test'
 vi.mock('@emotion/react', () => ({ css: () => undefined }))
 vi.mock('@emotion/react/jsx-runtime', () => ({ jsx: () => null, jsxs: () => null }))
 vi.mock('@emotion/react/jsx-dev-runtime', () => ({ jsxDEV: () => null }))
-vi.mock('lucide-react', () => ({ Smile: () => null }))
+vi.mock('lucide-react', () => ({
+  Cake: () => null,
+  Car: () => null,
+  Flower2: () => null,
+  Hand: () => null,
+  Heart: () => null,
+  Lightbulb: () => null,
+  Search: () => null,
+  Smile: () => null,
+  Trophy: () => null,
+  Tv: () => null,
+}))
 vi.mock('preact/compat', () => ({ createPortal: () => null }))
 vi.mock('preact/hooks', () => ({
   useCallback: (fn: unknown) => fn,
@@ -14,7 +25,15 @@ vi.mock('preact/hooks', () => ({
   useState: () => [false, () => {}],
 }))
 
-const { EMOJI_CATEGORIES, filterCustomEmojis, filterEmojis, insertAtCursor } = await import('../../../src/components/emoji-picker')
+const {
+  EMOJI_CATEGORIES,
+  EMOJIS,
+  SKIN_TONES,
+  applySkinTone,
+  filterCustomEmojis,
+  filterEmojis,
+  insertAtCursor,
+} = await import('../../../src/components/emoji-picker')
 
 describe('insertAtCursor', () => {
   it('inserts an emoji at the start, middle, and end of a draft', () => {
@@ -54,5 +73,39 @@ describe('filterEmojis', () => {
     expect(filterCustomEmojis(custom, '')).toHaveLength(2)
     expect(filterCustomEmojis(custom, 'HYP')).toEqual([custom[0]])
     expect(filterCustomEmojis(custom, 'none')).toEqual([])
+  })
+})
+
+describe('categories and skin tones', () => {
+  it('includes Travel and Activities categories and unique emoji keys', () => {
+    expect(EMOJI_CATEGORIES).toContain('Travel')
+    expect(EMOJI_CATEGORIES).toContain('Activities')
+    expect(EMOJIS.filter(entry => entry.category === 'Travel').length).toBeGreaterThan(5)
+    expect(EMOJIS.filter(entry => entry.category === 'Activities').length).toBeGreaterThan(5)
+    const unique = new Set(EMOJIS.map(entry => entry.emoji))
+    expect(unique.size).toBe(EMOJIS.length)
+  })
+
+  it('defines six skin tones and applies modifiers only to eligible entries', () => {
+    expect(SKIN_TONES).toHaveLength(6)
+    expect(SKIN_TONES.map(tone => tone.modifier)).toEqual([
+      '',
+      '\u{1F3FB}',
+      '\u{1F3FC}',
+      '\u{1F3FD}',
+      '\u{1F3FE}',
+      '\u{1F3FF}',
+    ])
+
+    const thumbsUp = EMOJIS.find(entry => entry.name === 'Thumbs up')!
+    const victory = EMOJIS.find(entry => entry.name === 'Victory hand')!
+    const grinning = EMOJIS.find(entry => entry.name === 'Grinning face')!
+    const fire = EMOJIS.find(entry => entry.name === 'Fire')!
+
+    expect(applySkinTone(thumbsUp, '')).toBe('👍')
+    expect(applySkinTone(thumbsUp, '\u{1F3FD}')).toBe('👍🏽')
+    expect(applySkinTone(victory, '\u{1F3FD}')).toBe('\u270C\u{1F3FD}')
+    expect(applySkinTone(grinning, '\u{1F3FD}')).toBe('😀')
+    expect(applySkinTone(fire, '\u{1F3FF}')).toBe('🔥')
   })
 })

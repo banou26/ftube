@@ -2,23 +2,57 @@ import type { TargetedEvent } from 'preact'
 import type { LiveChatEmoji } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { Smile } from 'lucide-react'
+import { Cake, Car, Flower2, Hand, Heart, Lightbulb, Search, Smile, Trophy, Tv } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 import { getFullscreenElement } from '../player/fullscreen'
 import { useDismiss } from './ui/popup'
 
-export type EmojiCategory = 'Smileys' | 'Gestures' | 'Hearts' | 'Nature' | 'Food' | 'Objects'
+export type EmojiCategory =
+  | 'Smileys'
+  | 'Gestures'
+  | 'Hearts'
+  | 'Nature'
+  | 'Food'
+  | 'Travel'
+  | 'Activities'
+  | 'Objects'
+
+export type SkinToneModifier =
+  | ''
+  | '\u{1F3FB}'
+  | '\u{1F3FC}'
+  | '\u{1F3FD}'
+  | '\u{1F3FE}'
+  | '\u{1F3FF}'
+
+export type SkinToneOption = {
+  modifier: SkinToneModifier
+  label: string
+  color: string
+}
+
+export const SKIN_TONES: readonly SkinToneOption[] = [
+  { modifier: '', label: 'Default skin tone', color: '#ffc83d' },
+  { modifier: '\u{1F3FB}', label: 'Light skin tone', color: '#f7d7c4' },
+  { modifier: '\u{1F3FC}', label: 'Medium-light skin tone', color: '#d8b094' },
+  { modifier: '\u{1F3FD}', label: 'Medium skin tone', color: '#bb9167' },
+  { modifier: '\u{1F3FE}', label: 'Medium-dark skin tone', color: '#8e562e' },
+  { modifier: '\u{1F3FF}', label: 'Dark skin tone', color: '#613d30' },
+]
 
 export type EmojiEntry = {
   emoji: string
   name: string
   category: EmojiCategory
   keywords: readonly string[]
+  skinTone?: boolean
 }
 
 export type CustomEmoji = LiveChatEmoji
+
+type PickerTab = 'Channel' | EmojiCategory
 
 export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   'Smileys',
@@ -26,8 +60,33 @@ export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   'Hearts',
   'Nature',
   'Food',
+  'Travel',
+  'Activities',
   'Objects',
 ]
+
+const SECTION_LABELS: Record<PickerTab, string> = {
+  Channel: 'Channel emojis',
+  Smileys: 'Smileys',
+  Gestures: 'Gestures',
+  Hearts: 'Hearts & symbols',
+  Nature: 'Animals & nature',
+  Food: 'Food & drink',
+  Travel: 'Travel & places',
+  Activities: 'Activities',
+  Objects: 'Objects',
+}
+
+const CATEGORY_ICONS: Record<EmojiCategory, typeof Smile> = {
+  Smileys: Smile,
+  Gestures: Hand,
+  Hearts: Heart,
+  Nature: Flower2,
+  Food: Cake,
+  Travel: Car,
+  Activities: Trophy,
+  Objects: Lightbulb,
+}
 
 export const EMOJIS: readonly EmojiEntry[] = [
   { emoji: '😀', name: 'Grinning face', category: 'Smileys', keywords: ['smile', 'happy', 'grin'] },
@@ -71,22 +130,22 @@ export const EMOJIS: readonly EmojiEntry[] = [
   { emoji: '🤖', name: 'Robot', category: 'Smileys', keywords: ['bot', 'ai', 'tech'] },
   { emoji: '👽', name: 'Alien', category: 'Smileys', keywords: ['ufo', 'space'] },
 
-  { emoji: '👍', name: 'Thumbs up', category: 'Gestures', keywords: ['like', 'yes', 'good', 'approve'] },
-  { emoji: '👎', name: 'Thumbs down', category: 'Gestures', keywords: ['dislike', 'no', 'bad'] },
-  { emoji: '👏', name: 'Clapping hands', category: 'Gestures', keywords: ['applause', 'bravo', 'clap'] },
-  { emoji: '🙌', name: 'Raising hands', category: 'Gestures', keywords: ['hooray', 'praise', 'celebrate'] },
-  { emoji: '🙏', name: 'Folded hands', category: 'Gestures', keywords: ['please', 'thanks', 'pray'] },
+  { emoji: '👍', name: 'Thumbs up', category: 'Gestures', keywords: ['like', 'yes', 'good', 'approve'], skinTone: true },
+  { emoji: '👎', name: 'Thumbs down', category: 'Gestures', keywords: ['dislike', 'no', 'bad'], skinTone: true },
+  { emoji: '👏', name: 'Clapping hands', category: 'Gestures', keywords: ['applause', 'bravo', 'clap'], skinTone: true },
+  { emoji: '🙌', name: 'Raising hands', category: 'Gestures', keywords: ['hooray', 'praise', 'celebrate'], skinTone: true },
+  { emoji: '🙏', name: 'Folded hands', category: 'Gestures', keywords: ['please', 'thanks', 'pray'], skinTone: true },
   { emoji: '🤝', name: 'Handshake', category: 'Gestures', keywords: ['deal', 'agree'] },
-  { emoji: '✌️', name: 'Victory hand', category: 'Gestures', keywords: ['peace', 'two'] },
-  { emoji: '🤞', name: 'Crossed fingers', category: 'Gestures', keywords: ['luck', 'hope'] },
-  { emoji: '🫶', name: 'Heart hands', category: 'Gestures', keywords: ['love', 'support'] },
-  { emoji: '👌', name: 'OK hand', category: 'Gestures', keywords: ['ok', 'nice', 'perfect'] },
-  { emoji: '👋', name: 'Waving hand', category: 'Gestures', keywords: ['hi', 'hello', 'bye'] },
-  { emoji: '🤙', name: 'Call me hand', category: 'Gestures', keywords: ['hang', 'loose'] },
-  { emoji: '💪', name: 'Flexed biceps', category: 'Gestures', keywords: ['strong', 'muscle', 'gym'] },
+  { emoji: '✌️', name: 'Victory hand', category: 'Gestures', keywords: ['peace', 'two'], skinTone: true },
+  { emoji: '🤞', name: 'Crossed fingers', category: 'Gestures', keywords: ['luck', 'hope'], skinTone: true },
+  { emoji: '🫶', name: 'Heart hands', category: 'Gestures', keywords: ['love', 'support'], skinTone: true },
+  { emoji: '👌', name: 'OK hand', category: 'Gestures', keywords: ['ok', 'nice', 'perfect'], skinTone: true },
+  { emoji: '👋', name: 'Waving hand', category: 'Gestures', keywords: ['hi', 'hello', 'bye'], skinTone: true },
+  { emoji: '🤙', name: 'Call me hand', category: 'Gestures', keywords: ['hang', 'loose'], skinTone: true },
+  { emoji: '💪', name: 'Flexed biceps', category: 'Gestures', keywords: ['strong', 'muscle', 'gym'], skinTone: true },
   { emoji: '👀', name: 'Eyes', category: 'Gestures', keywords: ['look', 'watch', 'see'] },
   { emoji: '🫡', name: 'Saluting face', category: 'Gestures', keywords: ['salute', 'respect'] },
-  { emoji: '🤷', name: 'Person shrugging', category: 'Gestures', keywords: ['shrug', 'idk'] },
+  { emoji: '🤷', name: 'Person shrugging', category: 'Gestures', keywords: ['shrug', 'idk'], skinTone: true },
 
   { emoji: '❤️', name: 'Red heart', category: 'Hearts', keywords: ['love', 'heart'] },
   { emoji: '🧡', name: 'Orange heart', category: 'Hearts', keywords: ['love', 'heart'] },
@@ -139,23 +198,66 @@ export const EMOJIS: readonly EmojiEntry[] = [
   { emoji: '🌶️', name: 'Hot pepper', category: 'Food', keywords: ['spicy', 'hot'] },
   { emoji: '🍫', name: 'Chocolate bar', category: 'Food', keywords: ['sweet', 'candy'] },
 
-  { emoji: '🎉', name: 'Party popper', category: 'Objects', keywords: ['celebrate', 'congrats', 'party'] },
-  { emoji: '🏆', name: 'Trophy', category: 'Objects', keywords: ['win', 'champion', 'award'] },
-  { emoji: '🎮', name: 'Video game', category: 'Objects', keywords: ['game', 'controller', 'gaming'] },
-  { emoji: '🎧', name: 'Headphone', category: 'Objects', keywords: ['audio', 'music', 'listen'] },
+  { emoji: '🚀', name: 'Rocket', category: 'Travel', keywords: ['launch', 'fast', 'space'] },
+  { emoji: '✈️', name: 'Airplane', category: 'Travel', keywords: ['flight', 'trip', 'travel'] },
+  { emoji: '🚗', name: 'Automobile', category: 'Travel', keywords: ['car', 'drive', 'road'] },
+  { emoji: '🚕', name: 'Taxi', category: 'Travel', keywords: ['cab', 'ride'] },
+  { emoji: '🚌', name: 'Bus', category: 'Travel', keywords: ['transit', 'ride'] },
+  { emoji: '🚆', name: 'Train', category: 'Travel', keywords: ['rail', 'commute'] },
+  { emoji: '🚲', name: 'Bicycle', category: 'Travel', keywords: ['bike', 'cycle'] },
+  { emoji: '🛸', name: 'Flying saucer', category: 'Travel', keywords: ['ufo', 'space'] },
+  { emoji: '⛵', name: 'Sailboat', category: 'Travel', keywords: ['boat', 'sea', 'sail'] },
+  { emoji: '🏖️', name: 'Beach with umbrella', category: 'Travel', keywords: ['vacation', 'beach'] },
+  { emoji: '🏔️', name: 'Snow-capped mountain', category: 'Travel', keywords: ['mountain', 'hike'] },
+  { emoji: '🗺️', name: 'World map', category: 'Travel', keywords: ['map', 'explore'] },
+  { emoji: '🧭', name: 'Compass', category: 'Travel', keywords: ['navigate', 'direction'] },
+  { emoji: '🌍', name: 'Globe showing Europe-Africa', category: 'Travel', keywords: ['earth', 'world'] },
+  { emoji: '🏙️', name: 'Cityscape', category: 'Travel', keywords: ['city', 'buildings'] },
+  { emoji: '⛺', name: 'Tent', category: 'Travel', keywords: ['camp', 'outdoors'] },
+
+  { emoji: '🎉', name: 'Party popper', category: 'Activities', keywords: ['celebrate', 'congrats', 'party'] },
+  { emoji: '🏆', name: 'Trophy', category: 'Activities', keywords: ['win', 'champion', 'award'] },
+  { emoji: '🎮', name: 'Video game', category: 'Activities', keywords: ['game', 'controller', 'gaming'] },
+  { emoji: '⚽', name: 'Soccer ball', category: 'Activities', keywords: ['soccer', 'football', 'sport'] },
+  { emoji: '🏀', name: 'Basketball', category: 'Activities', keywords: ['hoops', 'sport'] },
+  { emoji: '🏈', name: 'American football', category: 'Activities', keywords: ['football', 'sport'] },
+  { emoji: '⚾', name: 'Baseball', category: 'Activities', keywords: ['ball', 'sport'] },
+  { emoji: '🎾', name: 'Tennis', category: 'Activities', keywords: ['racket', 'sport'] },
+  { emoji: '🎸', name: 'Guitar', category: 'Activities', keywords: ['rock', 'music', 'instrument'] },
+  { emoji: '🎤', name: 'Microphone', category: 'Activities', keywords: ['sing', 'karaoke', 'mic'] },
+  { emoji: '🎧', name: 'Headphone', category: 'Activities', keywords: ['audio', 'music', 'listen'] },
+  { emoji: '🎨', name: 'Artist palette', category: 'Activities', keywords: ['art', 'paint', 'draw'] },
+  { emoji: '🎭', name: 'Performing arts', category: 'Activities', keywords: ['theater', 'drama'] },
+  { emoji: '🎯', name: 'Bullseye', category: 'Activities', keywords: ['target', 'dart', 'goal'] },
+  { emoji: '🎲', name: 'Game die', category: 'Activities', keywords: ['dice', 'luck', 'boardgame'] },
+  { emoji: '🎳', name: 'Bowling', category: 'Activities', keywords: ['strike', 'game'] },
+
   { emoji: '🎵', name: 'Musical note', category: 'Objects', keywords: ['music', 'song'] },
   { emoji: '🎶', name: 'Musical notes', category: 'Objects', keywords: ['music', 'melody'] },
   { emoji: '🎬', name: 'Clapper board', category: 'Objects', keywords: ['video', 'film', 'cinema'] },
   { emoji: '📸', name: 'Camera with flash', category: 'Objects', keywords: ['photo', 'camera'] },
   { emoji: '💡', name: 'Light bulb', category: 'Objects', keywords: ['idea', 'bright'] },
-  { emoji: '🚀', name: 'Rocket', category: 'Objects', keywords: ['launch', 'fast', 'space'] },
   { emoji: '💻', name: 'Laptop', category: 'Objects', keywords: ['code', 'computer', 'tech'] },
   { emoji: '📚', name: 'Books', category: 'Objects', keywords: ['study', 'read', 'learn'] },
   { emoji: '⏳', name: 'Hourglass', category: 'Objects', keywords: ['time', 'wait'] },
   { emoji: '🔔', name: 'Bell', category: 'Objects', keywords: ['notify', 'subscribe', 'alert'] },
   { emoji: '📌', name: 'Pushpin', category: 'Objects', keywords: ['pin', 'note'] },
   { emoji: '🏁', name: 'Chequered flag', category: 'Objects', keywords: ['finish', 'race', 'done'] },
+  { emoji: '🔧', name: 'Wrench', category: 'Objects', keywords: ['tool', 'fix'] },
+  { emoji: '🛠️', name: 'Hammer and wrench', category: 'Objects', keywords: ['tools', 'build'] },
+  { emoji: '🔑', name: 'Key', category: 'Objects', keywords: ['lock', 'unlock'] },
+  { emoji: '🎁', name: 'Wrapped gift', category: 'Objects', keywords: ['present', 'gift'] },
+  { emoji: '💼', name: 'Briefcase', category: 'Objects', keywords: ['work', 'bag', 'business'] },
 ]
+
+/** Applies `modifier` to an emoji entry when `entry.skinTone` is true, stripping trailing VS16 (`U+FE0F`) first. */
+export const applySkinTone = (
+  entry: Pick<EmojiEntry, 'emoji' | 'skinTone'>,
+  modifier: SkinToneModifier,
+): string => {
+  if (!modifier || !entry.skinTone) return entry.emoji
+  return `${entry.emoji.replace(/\uFE0F$/, '')}${modifier}`
+}
 
 /** Inserts `insert` into `text` across the clamped `[start, end]` range and returns the updated text and caret offset. */
 export const insertAtCursor = (
@@ -219,22 +321,56 @@ const triggerStyle = css`
 `
 
 const panelStyle = css`
-  position: fixed;
-  width: min(30.4rem, calc(100vw - 1.6rem));
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 1.2rem;
-  background: var(--bg-menu);
-  box-shadow: var(--shadow-menu);
-  z-index: var(--z-popup);
+  --picker-bg: var(--bg-menu);
+  display: flex;
+  flex-direction: column;
+  background: var(--picker-bg);
+  color: var(--text-primary);
+
+  &.inline {
+    --picker-bg: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: 1.2rem;
+    overflow: hidden;
+  }
+
+  .emoji-top {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 1rem 1.2rem 0.6rem;
+  }
+
+  .emoji-search-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    height: 3.6rem;
+    padding: 0 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 1.8rem;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+  }
+
+  .emoji-search-wrap:focus-within {
+    border-color: var(--text-primary);
+    color: var(--text-primary);
+  }
+
+  .emoji-search-icon {
+    flex: none;
+    pointer-events: none;
+  }
 
   .emoji-search {
-    display: block;
-    width: 100%;
-    height: 3.2rem;
-    padding: 0 1rem;
-    border: 1px solid var(--border);
-    border-radius: 1.6rem;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: none;
     background: transparent;
     color: var(--text-primary);
     font: inherit;
@@ -243,60 +379,158 @@ const panelStyle = css`
 
   .emoji-search:focus {
     outline: none;
+  }
+
+  .emoji-search::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .skin-tone-trigger {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4rem;
+    height: 3.4rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    background: var(--bg-input);
+    cursor: pointer;
+  }
+
+  .skin-tone-trigger:hover,
+  .skin-tone-trigger:focus-visible,
+  .skin-tone-trigger[aria-expanded='true'] {
     border-color: var(--text-primary);
+  }
+
+  .skin-tone-swatch {
+    display: block;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.4rem;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  .skin-tone-tray {
+    position: absolute;
+    top: calc(100% + 0.2rem);
+    right: 1.2rem;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.8rem;
+    background: var(--bg-menu);
+    box-shadow: var(--shadow-menu);
+  }
+
+  .skin-tone-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    padding: 0;
+    border: 1.5px solid transparent;
+    border-radius: 0.6rem;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .skin-tone-option:hover,
+  .skin-tone-option:focus-visible {
+    background: var(--bg-hover);
+  }
+
+  .skin-tone-option[aria-selected='true'] {
+    border-color: var(--text-primary);
+    background: var(--bg-hover);
   }
 
   .emoji-tabs {
     display: flex;
-    gap: 0.4rem;
-    margin-top: 0.8rem;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0 0.8rem;
+    border-bottom: 1px solid var(--border-subtle);
     overflow-x: auto;
     scrollbar-width: none;
   }
 
   .emoji-tab {
+    position: relative;
     flex: none;
-    height: 2.6rem;
-    padding: 0 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4rem;
+    height: 3.4rem;
+    padding: 0;
     border: none;
-    border-radius: 1.3rem;
+    border-bottom: 2px solid transparent;
     background: transparent;
     color: var(--text-secondary);
-    font: inherit;
-    font-size: 1.2rem;
-    font-weight: 500;
     cursor: pointer;
   }
 
-  .emoji-tab:hover {
-    background: var(--bg-hover);
+  .emoji-tab:hover,
+  .emoji-tab:focus-visible {
     color: var(--text-primary);
   }
 
   .emoji-tab[aria-selected='true'] {
-    background: var(--bg-chip);
     color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
   }
 
   .emoji-grid {
+    position: relative;
+    height: 24rem;
+    overflow-y: auto;
+    padding: 0 1.2rem 1rem;
+  }
+
+  &.inline .emoji-grid {
+    height: 22rem;
+  }
+
+  .emoji-section-title {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 0.8rem 0 0.4rem;
+    background: var(--picker-bg);
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
+  .emoji-section-grid {
     display: grid;
     grid-template-columns: repeat(8, minmax(0, 1fr));
     gap: 0.2rem;
-    max-height: 18rem;
-    overflow-y: auto;
-    margin-top: 0.8rem;
+  }
+
+  &.inline .emoji-section-grid {
+    grid-template-columns: repeat(auto-fill, minmax(3.6rem, 1fr));
   }
 
   .emoji-cell {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 3.2rem;
+    height: 3.4rem;
     padding: 0;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 0.6rem;
     background: transparent;
-    font-size: 1.9rem;
+    font-size: 2rem;
     line-height: 1;
     cursor: pointer;
   }
@@ -306,27 +540,34 @@ const panelStyle = css`
     background: var(--bg-hover-strong);
   }
 
+  .emoji-cell.selected {
+    background: var(--bg-chip);
+    border-color: var(--accent, var(--text-primary));
+  }
+
   .emoji-cell img {
     width: 2.2rem;
     height: 2.2rem;
     object-fit: contain;
   }
 
-  .emoji-section-title {
-    grid-column: 1 / -1;
-    padding: 0.4rem 0.2rem 0.2rem;
-    font-size: 1.1rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
   .emoji-empty {
-    grid-column: 1 / -1;
-    padding: 1.6rem 0;
+    padding: 2rem 0;
     text-align: center;
     font-size: 1.3rem;
     color: var(--text-secondary);
   }
+`
+
+const popoverStyle = css`
+  position: fixed;
+  width: min(34rem, calc(100vw - 1.6rem));
+  border: 1px solid var(--border);
+  border-radius: 1.2rem;
+  background: var(--bg-menu);
+  box-shadow: var(--shadow-menu);
+  overflow: hidden;
+  z-index: calc(var(--z-dialog) + 1);
 `
 
 const GAP = 8
@@ -336,7 +577,7 @@ const placePanel = (panel: HTMLElement, trigger: HTMLElement) => {
   const { clientWidth: width, clientHeight: height } = document.documentElement
   const roomBelow = height - anchor.bottom - GAP
   const roomAbove = anchor.top - GAP
-  const wanted = panel.offsetHeight || 280
+  const wanted = panel.offsetHeight || 340
   const below = wanted <= roomBelow || roomBelow >= roomAbove
   panel.style.top = below ? `${anchor.bottom + GAP}px` : 'auto'
   panel.style.bottom = below ? 'auto' : `${height - anchor.top + GAP}px`
@@ -344,38 +585,298 @@ const placePanel = (panel: HTMLElement, trigger: HTMLElement) => {
   panel.style.left = `${Math.max(GAP, Math.min(anchor.left, maxLeft))}px`
 }
 
-/** Button opening a local searchable Unicode and optional channel custom emoji picker anchored beside the trigger. */
-export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
+/** YouTube-style searchable emoji picker with skin-tone selector, category icon bar, and continuous scrolling sections. */
+export const EmojiPickerPanel = ({
+  variant = 'popover',
+  onPick,
+  customEmojis = [],
+  selected,
+  autoFocus = false,
+  searchPlaceholder = 'Search emoji',
+  searchLabel = 'Search emoji',
+}: {
+  variant?: 'popover' | 'inline'
   onPick: (emoji: string) => void
-  disabled?: boolean
   customEmojis?: readonly CustomEmoji[]
+  selected?: string
+  autoFocus?: boolean
+  searchPlaceholder?: string
+  searchLabel?: string
 }) => {
-  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<EmojiCategory>('Smileys')
-  const rootRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const [skinTone, setSkinTone] = useState<SkinToneModifier>('')
+  const [toneOpen, setToneOpen] = useState(false)
+  const hasCustom = customEmojis.length > 0
+  const tabs: readonly PickerTab[] = hasCustom ? ['Channel', ...EMOJI_CATEGORIES] : EMOJI_CATEGORIES
+  const [activeTab, setActiveTab] = useState<PickerTab>(hasCustom ? 'Channel' : 'Smileys')
   const searchRef = useRef<HTMLInputElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const sectionRefs = useRef<Partial<Record<PickerTab, HTMLElement | null>>>({})
   const gridId = useId()
-  const close = useCallback(() => setOpen(false), [])
-
-  useDismiss({ open, onClose: close, rootRef, panelRef, triggerRef })
 
   useEffect(() => {
-    if (open) searchRef.current?.focus()
-  }, [open])
+    if (!hasCustom && activeTab === 'Channel') {
+      setActiveTab('Smileys')
+    }
+  }, [hasCustom, activeTab])
+
+  useEffect(() => {
+    if (autoFocus) searchRef.current?.focus()
+  }, [autoFocus])
+
+  const setSectionRef = (tab: PickerTab) => (el: HTMLElement | null) => {
+    sectionRefs.current[tab] = el
+  }
+
+  const jumpToTab = (tab: PickerTab) => {
+    setActiveTab(tab)
+    const grid = gridRef.current
+    const section = sectionRefs.current[tab]
+    if (grid && section) {
+      grid.scrollTop = section.offsetTop
+    }
+  }
 
   const onTabKeyDown = (event: KeyboardEvent) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
-    const index = EMOJI_CATEGORIES.indexOf(category)
+    const focused = (event.target as HTMLElement | null)?.getAttribute('data-tab') as PickerTab | null
+    const baseTab = focused && tabs.includes(focused) ? focused : activeTab
+    const index = Math.max(0, tabs.indexOf(baseTab))
     const step = event.key === 'ArrowRight' ? 1 : -1
-    const nextIndex = (index + step + EMOJI_CATEGORIES.length) % EMOJI_CATEGORIES.length
-    setCategory(EMOJI_CATEGORIES[nextIndex]!)
+    const nextIndex = (index + step + tabs.length) % tabs.length
+    const nextTab = tabs[nextIndex]!
+    jumpToTab(nextTab)
     ;(tabsRef.current?.children[nextIndex] as HTMLElement | undefined)?.focus()
   }
+
+  const currentTone = SKIN_TONES.find(tone => tone.modifier === skinTone) ?? SKIN_TONES[0]!
+  const searching = query.trim().length > 0
+  const matchingCustom = hasCustom ? filterCustomEmojis(customEmojis, query) : []
+  const matchingStandard = searching ? filterEmojis(query) : []
+
+  return (
+    <div css={panelStyle} className={variant === 'inline' ? 'inline' : undefined}>
+      <div className='emoji-top'>
+        <label className='emoji-search-wrap'>
+          <Search size={16} strokeWidth={1.75} className='emoji-search-icon' aria-hidden='true' />
+          <input
+            ref={searchRef}
+            type='search'
+            className='emoji-search'
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchLabel}
+            onInput={(event: TargetedEvent<HTMLInputElement>) => setQuery(event.currentTarget.value)}
+          />
+        </label>
+        <button
+          type='button'
+          className='skin-tone-trigger'
+          aria-label='Choose skin tone'
+          aria-haspopup='listbox'
+          aria-expanded={toneOpen}
+          title={currentTone.label}
+          onClick={() => setToneOpen(open => !open)}
+        >
+          <span className='skin-tone-swatch' style={{ backgroundColor: currentTone.color }} aria-hidden='true' />
+        </button>
+        {toneOpen
+          ? (
+            <div className='skin-tone-tray' role='listbox' aria-label='Skin tone'>
+              {SKIN_TONES.map(tone => (
+                <button
+                  key={tone.label}
+                  type='button'
+                  role='option'
+                  className='skin-tone-option'
+                  aria-label={tone.label}
+                  aria-selected={tone.modifier === skinTone}
+                  title={tone.label}
+                  onClick={() => {
+                    setSkinTone(tone.modifier)
+                    setToneOpen(false)
+                  }}
+                >
+                  <span className='skin-tone-swatch' style={{ backgroundColor: tone.color }} aria-hidden='true' />
+                </button>
+              ))}
+            </div>
+          )
+          : undefined}
+      </div>
+
+      {!searching
+        ? (
+          <div ref={tabsRef} className='emoji-tabs' role='tablist' aria-label='Emoji categories' onKeyDown={onTabKeyDown}>
+            {tabs.map((tab) => {
+              const Icon = tab === 'Channel' ? Tv : CATEGORY_ICONS[tab]
+              return (
+                <button
+                  key={tab}
+                  type='button'
+                  role='tab'
+                  data-tab={tab}
+                  className='emoji-tab'
+                  aria-controls={gridId}
+                  aria-selected={tab === activeTab}
+                  aria-label={tab}
+                  title={tab}
+                  onClick={() => jumpToTab(tab)}
+                >
+                  <Icon size={17} strokeWidth={1.75} aria-hidden='true' />
+                </button>
+              )
+            })}
+          </div>
+        )
+        : undefined}
+
+      <div id={gridId} ref={gridRef} className='emoji-grid'>
+        {searching
+          ? (
+            <>
+              {matchingCustom.length > 0
+                ? (
+                  <>
+                    <div className='emoji-section-title'>{SECTION_LABELS.Channel}</div>
+                    <div className='emoji-section-grid'>
+                      {matchingCustom.map(entry => (
+                        <button
+                          key={entry.id}
+                          type='button'
+                          className='emoji-cell'
+                          aria-label={entry.shortcut}
+                          title={entry.shortcut}
+                          onClick={() => onPick(`${entry.shortcut} `)}
+                        >
+                          <img src={entry.url} alt={entry.shortcut} loading='lazy' />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )
+                : undefined}
+              {matchingStandard.length > 0
+                ? (
+                  <div className='emoji-section-grid'>
+                    {matchingStandard.map((entry) => {
+                      const resolved = applySkinTone(entry, skinTone)
+                      const isSelected = selected === resolved
+                      return (
+                        <button
+                          key={entry.emoji}
+                          type='button'
+                          className={isSelected ? 'emoji-cell selected' : 'emoji-cell'}
+                          aria-label={entry.name}
+                          aria-pressed={selected !== undefined ? isSelected : undefined}
+                          title={entry.name}
+                          onClick={() => onPick(resolved)}
+                        >
+                          {resolved}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+                : matchingCustom.length === 0
+                ? <div className='emoji-empty'>No matching emojis</div>
+                : undefined}
+            </>
+          )
+          : (
+            <>
+              {hasCustom
+                ? (
+                  <div ref={setSectionRef('Channel')}>
+                    <div className='emoji-section-title'>{SECTION_LABELS.Channel}</div>
+                    <div className='emoji-section-grid'>
+                      {customEmojis.map(entry => (
+                        <button
+                          key={entry.id}
+                          type='button'
+                          className='emoji-cell'
+                          aria-label={entry.shortcut}
+                          title={entry.shortcut}
+                          onClick={() => onPick(`${entry.shortcut} `)}
+                        >
+                          <img src={entry.url} alt={entry.shortcut} loading='lazy' />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+                : undefined}
+              {EMOJI_CATEGORIES.map((category) => {
+                const items = filterEmojis('', category)
+                return (
+                  <div key={category} ref={setSectionRef(category)}>
+                    <div className='emoji-section-title'>{SECTION_LABELS[category]}</div>
+                    <div className='emoji-section-grid'>
+                      {items.map((entry) => {
+                        const resolved = applySkinTone(entry, skinTone)
+                        const isSelected = selected === resolved
+                        return (
+                          <button
+                            key={entry.emoji}
+                            type='button'
+                            className={isSelected ? 'emoji-cell selected' : 'emoji-cell'}
+                            aria-label={entry.name}
+                            aria-pressed={selected !== undefined ? isSelected : undefined}
+                            title={entry.name}
+                            onClick={() => onPick(resolved)}
+                          >
+                            {resolved}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+      </div>
+    </div>
+  )
+}
+
+/** Button opening a portalled YouTube-style Unicode and optional channel custom emoji picker beside the trigger. */
+export const EmojiButton = ({
+  onPick,
+  disabled = false,
+  customEmojis = [],
+  label = 'Insert emoji',
+  closeOnPick = false,
+}: {
+  onPick: (emoji: string) => void
+  disabled?: boolean
+  customEmojis?: readonly CustomEmoji[]
+  label?: string
+  closeOnPick?: boolean
+}) => {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+
+  useDismiss({ open, onClose: close, rootRef, panelRef, triggerRef })
+
+  // Capture Escape ahead of parent Dialog listeners so only this floating picker closes
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [open])
 
   useLayoutEffect(() => {
     const panel = panelRef.current
@@ -401,11 +902,12 @@ export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
       window.removeEventListener('resize', schedule)
       observer.disconnect()
     }
-  }, [open, query, category, customEmojis.length])
+  }, [open, customEmojis.length])
 
-  const matchingCustom = customEmojis.length > 0 ? filterCustomEmojis(customEmojis, query) : []
-  const entries = filterEmojis(query, category)
-  const showCustom = matchingCustom.length > 0 && (query.trim().length > 0 || category === 'Smileys')
+  const handlePick = (emoji: string) => {
+    onPick(emoji)
+    if (closeOnPick) setOpen(false)
+  }
 
   return (
     <div ref={rootRef}>
@@ -413,7 +915,7 @@ export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
         ref={triggerRef}
         type='button'
         css={triggerStyle}
-        aria-label='Insert emoji'
+        aria-label={label}
         aria-expanded={open}
         aria-haspopup='dialog'
         disabled={disabled}
@@ -423,73 +925,13 @@ export const EmojiButton = ({ onPick, disabled = false, customEmojis = [] }: {
       </button>
       {open
         ? createPortal(
-          <div ref={panelRef} css={panelStyle} role='dialog' aria-label='Emoji picker'>
-            <input
-              ref={searchRef}
-              type='search'
-              className='emoji-search'
-              value={query}
-              placeholder='Search emoji'
-              aria-label='Search emoji'
-              onInput={(event: TargetedEvent<HTMLInputElement>) => setQuery(event.currentTarget.value)}
+          <div ref={panelRef} css={popoverStyle} role='dialog' aria-label='Emoji picker'>
+            <EmojiPickerPanel
+              variant='popover'
+              autoFocus
+              customEmojis={customEmojis}
+              onPick={handlePick}
             />
-            {query.trim().length === 0
-              ? (
-                <div ref={tabsRef} className='emoji-tabs' role='tablist' aria-label='Emoji categories' onKeyDown={onTabKeyDown}>
-                  {EMOJI_CATEGORIES.map(tab => (
-                    <button
-                      key={tab}
-                      type='button'
-                      role='tab'
-                      className='emoji-tab'
-                      aria-controls={gridId}
-                      aria-selected={tab === category}
-                      onClick={() => setCategory(tab)}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-              )
-              : undefined}
-            <div id={gridId} className='emoji-grid'>
-              {showCustom
-                ? (
-                  <>
-                    <div className='emoji-section-title'>Channel emojis</div>
-                    {matchingCustom.map(entry => (
-                      <button
-                        key={entry.id}
-                        type='button'
-                        className='emoji-cell'
-                        aria-label={entry.shortcut}
-                        title={entry.shortcut}
-                        onClick={() => onPick(`${entry.shortcut} `)}
-                      >
-                        <img src={entry.url} alt={entry.shortcut} loading='lazy' />
-                      </button>
-                    ))}
-                    {entries.length > 0 ? <div className='emoji-section-title'>Standard</div> : undefined}
-                  </>
-                )
-                : undefined}
-              {entries.length > 0
-                ? entries.map(entry => (
-                  <button
-                    key={entry.emoji}
-                    type='button'
-                    className='emoji-cell'
-                    aria-label={entry.name}
-                    title={entry.name}
-                    onClick={() => onPick(entry.emoji)}
-                  >
-                    {entry.emoji}
-                  </button>
-                ))
-                : !showCustom
-                ? <div className='emoji-empty'>No matching emojis</div>
-                : undefined}
-            </div>
           </div>,
           getFullscreenElement() ?? document.body,
         )

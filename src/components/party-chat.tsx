@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { party } from '../party'
 import { chatText, MAX_CHAT_LENGTH } from '../party/protocol'
 import { useParty, usePartyMessages, usePartyPresence } from '../party/use-party'
+import { EmojiButton, insertAtCursor } from './emoji-picker'
 import { PartyAvatar } from './party-avatar'
 
 const style = css`
@@ -127,6 +128,7 @@ const style = css`
 
   form {
     display: flex;
+    align-items: center;
     gap: 0.6rem;
     padding: 0.8rem;
     border-top: 1px solid var(--border-subtle);
@@ -149,7 +151,7 @@ const style = css`
     border-color: var(--accent-focus);
   }
 
-  form button {
+  form button[type='submit'] {
     flex: none;
     display: flex;
     align-items: center;
@@ -163,7 +165,7 @@ const style = css`
     cursor: pointer;
   }
 
-  form button:hover {
+  form button[type='submit']:hover {
     background: var(--bg-chip-hover);
   }
 `
@@ -179,6 +181,7 @@ export const PartyChat = () => {
   const [unread, setUnread] = useState(0)
   const [draft, setDraft] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const openRef = useRef(open)
   openRef.current = open
 
@@ -206,6 +209,22 @@ export const PartyChat = () => {
   }, [open, lines.length])
 
   if (!active) return null
+
+  const pickEmoji = (emoji: string) => {
+    const input = inputRef.current
+    const start = input?.selectionStart ?? draft.length
+    const end = input?.selectionEnd ?? draft.length
+    const next = insertAtCursor(draft, start, end, emoji)
+    const value = next.value.slice(0, MAX_CHAT_LENGTH)
+    const cursor = Math.min(next.cursor, value.length)
+    setDraft(value)
+    requestAnimationFrame(() => {
+      const current = inputRef.current
+      if (!current) return
+      current.focus()
+      current.setSelectionRange(cursor, cursor)
+    })
+  }
 
   const submit = (event: TargetedSubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -241,12 +260,14 @@ export const PartyChat = () => {
             </div>
             <form onSubmit={submit}>
               <input
+                ref={inputRef}
                 value={draft}
                 maxLength={MAX_CHAT_LENGTH}
                 placeholder='Message'
                 aria-label='Party message'
                 onInput={(event: TargetedEvent<HTMLInputElement>) => setDraft(event.currentTarget.value)}
               />
+              <EmojiButton onPick={pickEmoji} />
               <button type='submit' aria-label='Send message'>
                 <Send size={16} strokeWidth={1.75} />
               </button>

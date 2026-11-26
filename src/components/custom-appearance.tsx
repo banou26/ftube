@@ -4,7 +4,6 @@ import { useEffect, useState } from 'preact/hooks'
 import type { TargetedEvent } from 'preact'
 import type { Settings } from '../settings'
 import type { SeekHandle, SeekIconCategory, SeekIconName } from '../theme/seek-handle'
-import type { EmojiCategory } from './emoji-picker'
 
 import { SeekKnob } from '../player/seek-knob'
 import { resetCustomAppearance, updateSettings } from '../settings'
@@ -13,7 +12,7 @@ import { normalizeHexColor, THEME_PRESETS } from '../theme/palette'
 import { filterSeekIcons, SEEK_ICON_CATEGORIES } from '../theme/seek-handle'
 import { SEEK_ICON_COMPONENTS } from '../theme/seek-icons'
 import { showUndoableToast } from '../undo'
-import { EMOJI_CATEGORIES, filterEmojis } from './emoji-picker'
+import { EmojiPickerPanel } from './emoji-picker'
 
 const style = css`
   display: flex;
@@ -225,6 +224,10 @@ const style = css`
     color: var(--accent);
   }
 
+  .emoji-handle-picker {
+    margin-top: 1rem;
+  }
+
   .icon-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
@@ -284,8 +287,6 @@ type Props = {
 export const CustomAppearance = ({ settings, onUpdate }: Props) => {
   const [hexDraft, setHexDraft] = useState(settings.customThemeColor ?? '')
   const [handleTab, setHandleTab] = useState<HandleTab>(settings.seekHandle.kind)
-  const [emojiCategory, setEmojiCategory] = useState<EmojiCategory | 'All'>('All')
-  const [emojiQuery, setEmojiQuery] = useState('')
   const [iconCategory, setIconCategory] = useState<SeekIconCategory | 'All'>('All')
   const [iconQuery, setIconQuery] = useState('')
   const [deviceLight, setDeviceLight] = useState(() =>
@@ -325,7 +326,6 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
   const paletteLabel = activePreset ? activePreset.name : activeColor ? `Custom (${activeColor})` : 'Default'
   const invalidHex = hexDraft.trim() !== '' && !normalizeHexColor(hexDraft)
 
-  const visibleEmojis = filterEmojis(emojiQuery, emojiCategory === 'All' ? undefined : emojiCategory)
   const visibleIcons = filterSeekIcons(iconQuery, iconCategory === 'All' ? undefined : iconCategory)
 
   const handleHexInput = (raw: string) => {
@@ -353,7 +353,6 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
     resetCustomAppearance()
     setHexDraft('')
     setHandleTab('default')
-    setEmojiQuery('')
     setIconQuery('')
     showUndoableToast('Custom appearance reset to default', {
       label: 'Reset custom appearance',
@@ -473,56 +472,12 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
 
         {handleTab === 'emoji'
           ? (
-            <div>
-              <div className='filter-row'>
-                <input
-                  type='search'
-                  className='text-input search-input'
-                  aria-label='Search seek emojis'
-                  placeholder='Search emojis...'
-                  value={emojiQuery}
-                  onInput={(event: TargetedEvent<HTMLInputElement>) => setEmojiQuery(event.currentTarget.value)}
-                />
-              </div>
-              <div className='filter-row'>
-                <button
-                  type='button'
-                  className={emojiCategory === 'All' ? 'choice active' : 'choice'}
-                  aria-pressed={emojiCategory === 'All'}
-                  onClick={() => setEmojiCategory('All')}
-                >
-                  All
-                </button>
-                {EMOJI_CATEGORIES.map(category => (
-                  <button
-                    type='button'
-                    key={category}
-                    className={emojiCategory === category ? 'choice active' : 'choice'}
-                    aria-pressed={emojiCategory === category}
-                    onClick={() => setEmojiCategory(category)}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-              <div className='handle-grid' role='group' aria-label='Seek handle emojis'>
-                {visibleEmojis.map((entry) => {
-                  const active = settings.seekHandle.kind === 'emoji' && settings.seekHandle.value === entry.emoji
-                  return (
-                    <button
-                      type='button'
-                      key={entry.name}
-                      className={active ? 'handle-tile active' : 'handle-tile'}
-                      aria-label={entry.name}
-                      aria-pressed={active}
-                      title={entry.name}
-                      onClick={() => pickHandle({ kind: 'emoji', value: entry.emoji })}
-                    >
-                      <span aria-hidden='true'>{entry.emoji}</span>
-                    </button>
-                  )
-                })}
-              </div>
+            <div className='emoji-handle-picker' role='group' aria-label='Seek handle emojis'>
+              <EmojiPickerPanel
+                variant='inline'
+                selected={settings.seekHandle.kind === 'emoji' ? settings.seekHandle.value : undefined}
+                onPick={(emoji: string) => pickHandle({ kind: 'emoji', value: emoji })}
+              />
             </div>
           )
           : undefined}
