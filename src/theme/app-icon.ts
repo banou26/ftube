@@ -25,58 +25,35 @@ export const isAppIconId = (value: unknown): value is AppIconId =>
 export const coerceAppIcon = (value: unknown): AppIconId =>
   isAppIconId(value) ? value : 'default'
 
+const renderPillIconSvg = (pillFill: string, markColor: string, pillStroke?: string) => [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
+  `  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="${pillFill}"${pillStroke ? ` stroke="${pillStroke}" stroke-width="1"` : ''} />`,
+  `  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="${markColor}" />`,
+  `  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
+  '</svg>',
+].join('\n')
+
 export const buildAppIconSvg = (id: AppIconId, accentColor?: string): string => {
   const accent = normalizeHexColor(accentColor) ?? '#ff0000'
 
   if (id === 'theme') {
-    const markColor = pickContrastingInk(accent)
-    const pillOverlay = markColor === '#ffffff' ? '#0f0f0f' : '#ffffff'
-    return [
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
-      `  <rect x="0" y="0" width="32" height="32" rx="7" fill="${accent}" />`,
-      `  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="${pillOverlay}" opacity="0.24" />`,
-      `  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="${markColor}" />`,
-      `  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
-      '</svg>',
-    ].join('\n')
+    return renderPillIconSvg(accent, pickContrastingInk(accent))
   }
 
   if (id === 'dark') {
-    const tileBg = '#0f0f0f'
-    const pillFill = contrastRatio(accent, tileBg) >= 2.0 ? accent : generateThemePalette(accent, 'dark')['--brand-red']
-    const markColor = pickContrastingInk(pillFill)
-    return [
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
-      `  <rect x="0" y="0" width="32" height="32" rx="7" fill="${tileBg}" />`,
-      `  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="${pillFill}" />`,
-      `  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="${markColor}" />`,
-      `  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
-      '</svg>',
-    ].join('\n')
+    const pillFill = '#141414'
+    const markColor = contrastRatio(accent, pillFill) >= 3.0 ? accent : generateThemePalette(accent, 'dark')['--brand-red']
+    return renderPillIconSvg(pillFill, markColor, 'rgba(255,255,255,0.16)')
   }
 
   if (id === 'light') {
-    const tileBg = '#f9f9f9'
-    const pillFill = contrastRatio(accent, tileBg) >= 2.0 ? accent : generateThemePalette(accent, 'light')['--accent']
-    const markColor = pickContrastingInk(pillFill)
-    return [
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
-      `  <rect x="0" y="0" width="32" height="32" rx="7" fill="${tileBg}" />`,
-      `  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="${pillFill}" />`,
-      `  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="${markColor}" />`,
-      `  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
-      '</svg>',
-    ].join('\n')
+    const pillFill = '#f4f4f5'
+    const markColor = contrastRatio(accent, pillFill) >= 3.0 ? accent : generateThemePalette(accent, 'light')['--accent']
+    return renderPillIconSvg(pillFill, markColor, 'rgba(0,0,0,0.14)')
   }
 
   // Official FTube mark (matches public/favicon.svg)
-  return [
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
-    '  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="#ff0000" />',
-    '  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="#ffffff" />',
-    '  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />',
-    '</svg>',
-  ].join('\n')
+  return renderPillIconSvg('#ff0000', '#ffffff')
 }
 
 export const buildAppIconDataUri = (id: AppIconId, accentColor?: string): string =>

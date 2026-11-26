@@ -63,7 +63,7 @@ const style = css`
   .preview-brand img {
     width: 2.8rem;
     height: 2.8rem;
-    border-radius: 0.6rem;
+    object-fit: contain;
     flex-shrink: 0;
   }
 
@@ -259,7 +259,7 @@ const style = css`
   .app-icon-tile img {
     width: 2.8rem;
     height: 2.8rem;
-    border-radius: 0.6rem;
+    object-fit: contain;
     flex-shrink: 0;
   }
 

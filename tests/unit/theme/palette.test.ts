@@ -71,12 +71,22 @@ describe('theme palette generator', () => {
 })
 
 describe('app icons', () => {
-  it('builds valid SVG data using the official FTube mark for every variant', () => {
+  it('builds valid single-silhouette SVG data using the official FTube mark without nested squares', () => {
+    const fills = new Set<string>()
     for (const option of APP_ICONS) {
       const svg = buildAppIconSvg(option.id, '#10b981')
       expect(svg).toContain('<svg')
       expect(svg).toContain('viewBox="0 0 32 32"')
       expect(svg).toContain('M11.4 20.35V11.65L18.9 16')
+      expect(svg, `${option.id} should not render a square box`).not.toContain('<rect')
+      expect(svg.match(/M30\.37 8\.78/g) ?? []).toHaveLength(1)
+      const pillMatch = svg.match(/M30\.37 8\.78[^>]*fill="([^"]+)"/)
+      const markMatch = svg.match(/M11\.4 20\.35[^>]*fill="([^"]+)"/)
+      expect(pillMatch?.[1]).toBeTruthy()
+      expect(markMatch?.[1]).toBeTruthy()
+      fills.add(`${pillMatch![1]}:${markMatch![1]}`)
+      expect(contrastRatio(markMatch![1]!, pillMatch![1]!), `${option.id} icon contrast`).toBeGreaterThanOrEqual(3.0)
     }
+    expect(fills.size).toBe(APP_ICONS.length)
   })
 })
