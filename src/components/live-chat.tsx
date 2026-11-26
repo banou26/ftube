@@ -179,8 +179,26 @@ export const chatStyles = css`
     gap: 0.8rem;
   }
 
+  .avatar-link {
+    display: inline-flex;
+    flex: none;
+    border-radius: 50%;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .avatar-link:hover {
+    opacity: 0.85;
+  }
+
+  .avatar-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
   .pinned-body img.avatar,
-  .pinned-body span.avatar {
+  .pinned-body span.avatar,
+  .pinned-body .avatar-link {
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
@@ -227,11 +245,25 @@ export const chatStyles = css`
     line-height: 2rem;
   }
 
-  .row img.avatar {
+  .row img.avatar,
+  .row > span.avatar,
+  .row > .avatar-link {
     width: 2.4rem;
     height: 2.4rem;
     border-radius: 50%;
     grid-row: 1 / span 2;
+  }
+
+  .row.paid .paid-head .avatar-link {
+    width: 2.4rem;
+    height: 2.4rem;
+    grid-row: auto;
+  }
+
+  .avatar-link > .avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
   }
 
   .who {
@@ -1094,6 +1126,36 @@ const ChatBadges = (
   )
 }
 
+type ChatAvatarAuthor = {
+  id?: string | null
+  name?: string | null
+  avatar?: string | null
+}
+
+const ChatAvatar = (
+  { author, placeholder = false }: {
+    author?: ChatAvatarAuthor | null
+    placeholder?: boolean
+  },
+) => {
+  const image = author?.avatar
+    ? <img className='avatar' src={author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
+    : placeholder
+      ? <span className='avatar' />
+      : null
+  if (!image) return null
+  if (!author?.id) return image
+  return (
+    <Link
+      href={`/channel/${encodeURIComponent(author.id)}`}
+      className='avatar-link'
+      aria-label={author.name ? `View ${author.name} channel` : 'View channel'}
+    >
+      {image}
+    </Link>
+  )
+}
+
 export const ChatLine = (
   { message, self, onAuthorClick, onTopFanClick }: {
     message: ChatLineMessage
@@ -1144,7 +1206,7 @@ export const ChatLine = (
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
         >
-          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          <ChatAvatar author={message.author} />
           {badges}
           {authorNode}
           {message.purchaseAmountText ? <span style={{ marginLeft: 'auto' }}>{message.purchaseAmountText}</span> : undefined}
@@ -1167,7 +1229,7 @@ export const ChatLine = (
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#0f7b3e', color: '#fff' }}
         >
-          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          <ChatAvatar author={message.author} />
           <div className='paid-head-meta'>
             <div>
               {badges}
@@ -1190,7 +1252,7 @@ export const ChatLine = (
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
         >
-          {message.author?.avatar ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' /> : undefined}
+          <ChatAvatar author={message.author} />
           {badges}
           {authorNode}
           {message.purchaseAmountText ? <span style={{ marginLeft: 'auto' }}>{message.purchaseAmountText}</span> : undefined}
@@ -1205,9 +1267,7 @@ export const ChatLine = (
   if (message.kind === 'GIFT') {
     return (
       <div className='row gift' data-chat-kind='gift'>
-        {message.author?.avatar
-          ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
-          : <span className='avatar' />}
+        <ChatAvatar author={message.author} placeholder />
         <div className='gift-body'>
           <Gift size={14} strokeWidth={1.75} className='gift-icon' aria-hidden='true' />
           {badges}
@@ -1220,9 +1280,7 @@ export const ChatLine = (
 
   return (
     <div className='row'>
-      {message.author?.avatar
-        ? <img className='avatar' src={message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
-        : <span className='avatar' />}
+      <ChatAvatar author={message.author} placeholder />
       <div>
         {badges}
         {authorNode}
@@ -1495,9 +1553,7 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
                     </div>
                   </div>
                   <div className='pinned-body'>
-                    {activePinned.message.author?.avatar
-                      ? <img className='avatar' src={activePinned.message.author.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
-                      : <span className='avatar' />}
+                    <ChatAvatar author={activePinned.message.author} placeholder />
                     <div className={pinExpanded ? 'pinned-content' : 'pinned-content clamped'}>
                       {activePinned.message.author
                         ? <span className='who'>{activePinned.message.author.name}</span>

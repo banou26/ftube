@@ -152,3 +152,31 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
   await page.evaluate(() => window.__liveChatHarness?.unmount())
   await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.closedVideoIds ?? [])).toEqual(['live-1', 'live-1'])
 })
+
+test('makes avatars in live chat messages and pinned banner clickable channel links without breaking mentions', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+  const harness = page.locator('[data-live-chat-harness]')
+  await expect(async () => {
+    if (await harness.count() === 0) {
+      await page.evaluate(async (path) => {
+        const mod = await import(path) as typeof import('./fixtures/live-chat-harness')
+        mod.mountLiveChatHarness()
+      }, HARNESS)
+    }
+    await expect(harness).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const chat = harness.getByRole('region', { name: 'Live chat' })
+  await expect(chat).toBeVisible()
+
+  for (const id of ['UCalice', 'UCbob', 'UCsupporter', 'UCmember', 'UCdonor', 'UCpayer', 'UCowner']) {
+    const link = chat.locator(`a.avatar-link[href="/channel/${id}"]`)
+    await expect(link, `expected avatar link for ${id}`).toBeVisible()
+  }
+
+  await chat.getByRole('button', { name: 'Mention Alice' }).click()
+  await expect(chat.getByPlaceholder('Chat…')).toHaveValue('@alice ')
+})
