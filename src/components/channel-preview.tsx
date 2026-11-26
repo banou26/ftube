@@ -120,8 +120,8 @@ const style = css`
   }
 
   .description {
-    margin: 0;
-    padding: 0 1.4rem 1rem;
+    margin: 0 1.4rem 1rem;
+    padding: 0;
     font-size: 1.2rem;
     line-height: 1.7rem;
     color: var(--text-secondary);
