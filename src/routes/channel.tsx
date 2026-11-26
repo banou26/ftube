@@ -91,6 +91,8 @@ const CHANNEL_VIEW_QUERY = gql(`
         isVerified
         isVerifiedArtist
         hasCommunityPage
+        isLive
+        liveVideoId
       }
       videos {
         items {
@@ -322,6 +324,39 @@ const style = css`
     align-items: center;
     gap: 2.4rem;
     margin-top: 2.4rem;
+  }
+
+  .avatar-wrap {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    text-decoration: none;
+  }
+
+  .avatar-wrap.live {
+    padding: 0.4rem;
+    box-shadow: 0 0 0 0.25rem #e1002d;
+  }
+
+  .avatar-live-badge {
+    position: absolute;
+    bottom: -0.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.15rem 0.6rem;
+    border: 0.2rem solid var(--bg);
+    border-radius: 0.4rem;
+    background: #e1002d;
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.4rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
   }
 
   .avatar {
@@ -775,6 +810,14 @@ const style = css`
       text-align: center;
     }
 
+    .avatar-wrap.live {
+      padding: 0.3rem;
+    }
+
+    .avatar-live-badge {
+      font-size: 1rem;
+    }
+
     .avatar {
       width: 9.6rem;
       height: 9.6rem;
@@ -1002,6 +1045,18 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   const visibleHome = data?.channel.home
     ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts) }
     : undefined
+  const avatarInner = channel
+    ? (
+      <>
+        <div className={channel.avatar ? 'avatar' : 'avatar fallback'}>
+          {channel.avatar
+            ? <img src={channel.avatar} alt='' />
+            : channel.name.slice(0, 1).toUpperCase()}
+        </div>
+        {channel.isLive ? <span className='avatar-live-badge'>LIVE</span> : undefined}
+      </>
+    )
+    : undefined
 
   return (
     <main css={style}>
@@ -1009,11 +1064,17 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
       {channel
         ? (
           <header className='header'>
-            <div className={channel.avatar ? 'avatar' : 'avatar fallback'}>
-              {channel.avatar
-                ? <img src={channel.avatar} alt='' />
-                : channel.name.slice(0, 1).toUpperCase()}
-            </div>
+            {channel.isLive && channel.liveVideoId
+              ? (
+                <Link
+                  href={`/watch?v=${encodeURIComponent(channel.liveVideoId)}`}
+                  className='avatar-wrap live'
+                  aria-label={`Watch ${channel.name} live`}
+                >
+                  {avatarInner}
+                </Link>
+              )
+              : <div className={channel.isLive ? 'avatar-wrap live' : 'avatar-wrap'}>{avatarInner}</div>}
             <div className='info'>
               <h1 className='name'>{channel.name}<VerifiedBadge channel={channel} size={20} /></h1>
               {meta ? <p className='meta'>{meta}</p> : undefined}

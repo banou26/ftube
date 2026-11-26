@@ -486,6 +486,41 @@ describe('youtube normalization', () => {
     }).tags).toEqual([])
   })
 
+  it('extracts live status and liveVideoId from channel header avatar tap or live badge metadata', () => {
+    expect(normalizeChannel({
+      metadata: { external_id: 'UClive', title: 'Live Creator' },
+      header: {
+        content: {
+          image: {
+            avatar: { image: [{ url: 'https://yt3.googleusercontent.com/live.jpg', width: 160 }] },
+            renderer_context: {
+              command_context: {
+                on_tap: { payload: { videoId: 'live-stream-42' } },
+              },
+            },
+          },
+        },
+      },
+    })).toMatchObject({
+      id: 'UClive',
+      isLive: true,
+      liveVideoId: 'live-stream-42',
+    })
+
+    const offline = normalizeChannel({
+      metadata: { external_id: 'UCoff', title: 'Offline Creator' },
+      header: {
+        content: {
+          image: {
+            avatar: { image: [{ url: 'https://yt3.googleusercontent.com/off.jpg', width: 160 }] },
+          },
+        },
+      },
+    })
+    expect(offline.isLive).toBeUndefined()
+    expect(offline.liveVideoId).toBeUndefined()
+  })
+
   it('normalizes lockup watch-next items', () => {
     expect(normalizeLockupVideo({
       content_id: 'abc',

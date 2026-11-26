@@ -608,6 +608,19 @@ const channelHome = (feed: ChannelFeed): SourceChannelHome => {
   return home
 }
 
+const enrichChannelLive = (channel: SourceChannel, candidates: readonly SourceVideo[]): SourceChannel => {
+  if (channel.isLive && channel.liveVideoId) return channel
+  const live = candidates.find(
+    (video) => video.isLive === true && (!video.channel?.id || video.channel.id === channel.id),
+  )
+  if (!live) return channel
+  return {
+    ...channel,
+    isLive: true,
+    liveVideoId: channel.liveVideoId ?? live.id,
+  }
+}
+
 // The Videos, Shorts and Live tabs sort by a chip bar rather than the sort menu youtubei.js reads. A bar led by a dropdown
 // (the Live tab's) holds the sorts inside the dropdown and filters with the chips after it (Members only, Public).
 const tabChips = (feed: ChannelFeed) => {
@@ -1402,16 +1415,29 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         feed = await feed.applySort(appliedSort)
       }
       const rest = { availableTabs, tab: selected, sortOptions, appliedSort, sortMenu: chips.menu, filterOptions, appliedFilter }
-      channels.set(id, { channel, page: rest })
-      if (selected === 'HOME') return { ...rest, channel, videos: { items: [], playlists: [] }, home: channelHome(feed) }
+      if (selected === 'HOME') {
+        const home = channelHome(feed)
+        const candidates = [
+          ...(home.featured ? [home.featured] : []),
+          ...home.shelves.flatMap((shelf) => shelf.videos),
+        ]
+        const liveChannel = enrichChannelLive(channel, candidates)
+        channels.set(id, { channel: liveChannel, page: rest })
+        return { ...rest, channel: liveChannel, videos: { items: [], playlists: [] }, home }
+      }
       if (selected === 'STORE') {
+        channels.set(id, { channel, page: rest })
         const store = (feed.memo?.get('Shelf') ?? []).flatMap((shelf) => normalizeStoreShelf(shelf) ?? [])
         return { ...rest, channel, videos: { items: [], playlists: [] }, store }
       }
       if (selected === 'COMMUNITY') {
+        channels.set(id, { channel, page: rest })
         return { ...rest, channel, videos: { items: [], playlists: [] }, posts: postPage(`community:${id}`, feed as PostsFeed) }
       }
-      return { ...rest, channel, videos: page(kind, feed, { own: true }) }
+      const videos = page(kind, feed, { own: true })
+      const liveChannel = enrichChannelLive(channel, videos.items)
+      channels.set(id, { channel: liveChannel, page: rest })
+      return { ...rest, channel: liveChannel, videos }
     },
     channelAbout: async (id) => {
       const result = await fetchChannel(id)

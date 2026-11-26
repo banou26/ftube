@@ -124,6 +124,7 @@ type ChannelHeader = {
   title?: Text
   box_art?: Thumbnail[]
   author?: { thumbnails?: Thumbnail[], is_verified?: boolean, is_verified_artist?: boolean }
+  badges?: { style?: string, badge_style?: string, label?: string, is_live?: boolean }[]
   banner?: Thumbnail[]
   subscribers?: Text
   videos_count?: Text
@@ -131,7 +132,15 @@ type ChannelHeader = {
   content?: {
     title?: { text?: Text }
     banner?: { image?: Thumbnail[] }
-    image?: { image?: Thumbnail[], avatar?: { image?: Thumbnail[] } }
+    image?: {
+      image?: Thumbnail[]
+      avatar?: { image?: Thumbnail[] }
+      a11y_label?: string
+      renderer_context?: {
+        command_context?: { on_tap?: { payload?: { videoId?: string } } }
+        accessibility_context?: { label?: string }
+      }
+    }
     animated_image?: { image?: Thumbnail[] }
     metadata?: MetadataParts
     description?: { description?: Text }
@@ -142,6 +151,21 @@ type ChannelHeader = {
 
 // state_entity_store_key and entity_mutations are this repo's patch of youtubei.js (patches/), which otherwise drops both
 export type EntityMutation = { payload?: { subscriptionStateEntity?: { key?: string, subscribed?: boolean } } }
+
+type HeaderMemoEntry = {
+  state_entity_store_key?: string
+  on_tap?: { payload?: { url?: string }, metadata?: { url?: string } }
+  renderer_context?: {
+    command_context?: { on_tap?: { payload?: { videoId?: string } } }
+    accessibility_context?: { label?: string }
+  }
+  a11y_label?: string
+  style?: string
+  badge_style?: string
+  is_live?: boolean
+  badges?: { style?: string, badge_style?: string, label?: string, is_live?: boolean }[]
+  live_badge?: unknown
+}
 
 type ChannelDetails = {
   header?: ChannelHeader
@@ -161,10 +185,7 @@ type ChannelDetails = {
     notification_preference_button?: { current_state_id?: string | number }
   }
   page?: {
-    header_memo?: Map<string, {
-      state_entity_store_key?: string
-      on_tap?: { payload?: { url?: string }, metadata?: { url?: string } }
-    }[]>
+    header_memo?: Map<string, HeaderMemoEntry[]>
     entity_mutations?: EntityMutation[]
   }
 }
@@ -608,6 +629,27 @@ export const normalizeChannelTags = (input: unknown): string[] => {
   return out
 }
 
+const hasLiveBadge = (badges: { style?: string, badge_style?: string, is_live?: boolean }[] | undefined) =>
+  badges?.some((badge) => badge.is_live === true || badge.style?.includes('LIVE') || badge.badge_style?.includes('LIVE')) === true
+
+const channelLiveInfo = (channel: ChannelDetails): Pick<SourceChannel, 'isLive' | 'liveVideoId'> => {
+  const viewVideoId = presentText(channel.header?.content?.image?.renderer_context?.command_context?.on_tap?.payload?.videoId)
+  if (viewVideoId) return { isLive: true, liveVideoId: viewVideoId }
+  const memoAvatars = channel.page?.header_memo?.get('DecoratedAvatarView') ?? []
+  for (const avatar of memoAvatars) {
+    const memoVideoId = presentText(avatar.renderer_context?.command_context?.on_tap?.payload?.videoId)
+    if (memoVideoId) return { isLive: true, liveVideoId: memoVideoId }
+  }
+  const badgeNodes = [
+    ...(channel.page?.header_memo?.get('MetadataBadge') ?? []),
+    ...(channel.page?.header_memo?.get('BadgeView') ?? []),
+  ]
+  if (hasLiveBadge(channel.header?.badges) || hasLiveBadge(badgeNodes)) {
+    return { isLive: true }
+  }
+  return {}
+}
+
 export const normalizeChannel = (input: unknown, fallbackId?: string): SourceChannel => {
   const channel = input as ChannelDetails
   const id = channel.metadata?.external_id ?? fallbackId
@@ -631,6 +673,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
   const hasCommunityPage = buttonViews?.some(
     (btn) => btn.on_tap?.payload?.browseId === 'FEcommunity_page' || btn.accessibility_id === 'eml.header_community_button',
   ) === true
+  const live = channelLiveInfo(channel)
   const tags = normalizeChannelTags(channel)
   return {
     id,
@@ -648,6 +691,8 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
     isSubscribed: headerSubscribed(channel) ?? channel.subscribe_button?.subscribed,
     ...(isOwnChannel ? { isOwnChannel } : {}),
     ...(hasCommunityPage ? { hasCommunityPage } : {}),
+    ...(live.isLive ? { isLive: true } : {}),
+    ...(live.liveVideoId ? { liveVideoId: live.liveVideoId } : {}),
     notificationLevel: notificationLevel(channel.subscribe_button?.notification_preference_button?.current_state_id),
     isVerified: fromAuthor.isVerified ?? fromTitle.isVerified,
     isVerifiedArtist: fromAuthor.isVerifiedArtist ?? fromTitle.isVerifiedArtist,

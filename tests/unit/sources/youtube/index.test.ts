@@ -660,6 +660,47 @@ describe('youtube channel tabs', () => {
       .rejects.toThrow('belongs to')
   })
 
+  it('enriches channel live status from the channel feed while ignoring other channels live streams', async () => {
+    const liveOwn = createFakeClient()
+    const ownInner = liveOwn.getChannel
+    liveOwn.getChannel = async () => Object.assign(await ownInner(), {
+      async getVideos() {
+        return {
+          ...feed('live-own-1'),
+          videos: [{ video_id: 'live-own-1', title: { text: 'Live now' }, is_live: true }],
+          memo: new Map<string, unknown[]>(),
+          has_continuation: false,
+        }
+      },
+    })
+    const ownSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => liveOwn })
+    const ownResult = await ownSource.channel('c')
+    expect(ownResult.channel.isLive).toBe(true)
+    expect(ownResult.channel.liveVideoId).toBe('live-own-1')
+
+    const foreignOnly = createFakeClient()
+    const foreignInner = foreignOnly.getChannel
+    foreignOnly.getChannel = async () => Object.assign(await foreignInner(), {
+      async getVideos() {
+        return {
+          ...feed('live-foreign-1'),
+          videos: [{
+            video_id: 'live-foreign-1',
+            title: { text: 'Collab guest stream' },
+            is_live: true,
+            author: { id: 'UC_other_creator', name: 'Other Creator' },
+          }],
+          memo: new Map<string, unknown[]>(),
+          has_continuation: false,
+        }
+      },
+    })
+    const foreignSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => foreignOnly })
+    const foreignResult = await foreignSource.channel('c')
+    expect(foreignResult.channel.isLive).toBeUndefined()
+    expect(foreignResult.channel.liveVideoId).toBeUndefined()
+  })
+
   // youtube.com's signed-out answer for a channel id nobody holds, read 2026-11-10, less its tracking fields
   it('rejects with upstream\'s own line for a channel that does not exist, marked apart from any other failure', async () => {
     const answer = {

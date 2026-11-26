@@ -34,6 +34,8 @@ type Channel {
   isOwnChannel: Boolean
   # True when the channel exposes YouTube Communities (/community) in its header actions.
   hasCommunityPage: Boolean
+  isLive: Boolean
+  liveVideoId: ID
   notificationLevel: NotificationLevel
   isVerified: Boolean
   # An official artist channel, badged with a music note instead of the check.
