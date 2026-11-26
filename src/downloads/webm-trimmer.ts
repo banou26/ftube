@@ -1,5 +1,7 @@
 import type { TrimRange } from './trim'
 
+import { concatChunks } from './bytes'
+
 const ID_EBML = 0x1a45dfa3
 const ID_SEGMENT = 0x18538067
 const ID_SEEK_HEAD = 0x114d9b74
@@ -30,19 +32,6 @@ type ExtractedBlock = {
   restBytes: Uint8Array
   durationMs?: number
   extraElements: Uint8Array[]
-}
-
-const concatChunks = (chunks: readonly Uint8Array[]): Uint8Array => {
-  if (chunks.length === 1) return chunks[0]!
-  let total = 0
-  for (const chunk of chunks) total += chunk.byteLength
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return out
 }
 
 const readVintId = (bytes: Uint8Array, offset: number): { id: number, length: number } | undefined => {

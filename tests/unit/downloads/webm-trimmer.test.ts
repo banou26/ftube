@@ -1,6 +1,17 @@
+import type * as NodeChildProcess from 'node:child_process'
+import type * as NodeFs from 'node:fs'
+import type * as NodeOs from 'node:os'
+import type * as NodePath from 'node:path'
+
 import { describe, expect, it } from 'vite-plus/test'
 
 import { trimWebmAudio } from '../../../src/downloads/webm-trimmer'
+
+const proc = (globalThis as unknown as { process: NodeJS.Process }).process
+const childProcess = proc.getBuiltinModule('node:child_process') as typeof NodeChildProcess
+const fsMod = proc.getBuiltinModule('node:fs') as typeof NodeFs
+const osMod = proc.getBuiltinModule('node:os') as typeof NodeOs
+const pathMod = proc.getBuiltinModule('node:path') as typeof NodePath
 
 const ebmlId = (bytes: readonly number[]) => Uint8Array.from(bytes)
 
@@ -268,5 +279,39 @@ describe('trimWebmAudio', () => {
       { absMs: 35_000, payload: [42], durationMs: 1000 },
     ])
     expect(parsed.durationMs).toBe(36_000)
+  })
+
+  it('produces an ffprobe/ffmpeg-valid Opus WebM output from a real WebM fixture', () => {
+    const fixture = new Uint8Array(fsMod.readFileSync(pathMod.join(__dirname, '../fixtures/sample-opus.webm')))
+    const trimmed = concat(trimWebmAudio([fixture], { startMs: 2_500, endMs: 5_000 }))
+    const parsed = parseTopAndSegment(trimmed)
+    expect(parsed.tracksSeen).toBe(true)
+    expect(parsed.blocks.length).toBeGreaterThan(20)
+
+    const hasFfmpeg = childProcess.spawnSync('ffprobe', ['-version']).status === 0
+      && childProcess.spawnSync('ffmpeg', ['-version']).status === 0
+    if (!hasFfmpeg) return
+
+    const dir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'ftube-webm-'))
+    try {
+      const outPath = pathMod.join(dir, 'cropped.webm')
+      fsMod.writeFileSync(outPath, trimmed)
+      const probe = childProcess.spawnSync(
+        'ffprobe',
+        ['-v', 'error', '-show_entries', 'format=duration:stream=codec_name', '-of', 'json', outPath],
+        { encoding: 'utf8' },
+      )
+      expect(probe.status, probe.stderr).toBe(0)
+      const info = JSON.parse(probe.stdout) as { format: { duration: string }, streams: { codec_name: string }[] }
+      expect(info.streams.map((s) => s.codec_name)).toEqual(['opus'])
+      expect(Number(info.format.duration)).toBeGreaterThan(2.3)
+      expect(Number(info.format.duration)).toBeLessThan(2.7)
+
+      const decode = childProcess.spawnSync('ffmpeg', ['-v', 'error', '-i', outPath, '-f', 'null', '-'], { encoding: 'utf8' })
+      expect(decode.status, decode.stderr).toBe(0)
+      expect(decode.stderr.trim()).toBe('')
+    } finally {
+      fsMod.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

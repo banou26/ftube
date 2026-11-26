@@ -1,6 +1,17 @@
+import type * as NodeChildProcess from 'node:child_process'
+import type * as NodeFs from 'node:fs'
+import type * as NodeOs from 'node:os'
+import type * as NodePath from 'node:path'
+
 import { describe, expect, it } from 'vite-plus/test'
 
 import { muxMp4, muxMp4Audio } from '../../../src/downloads/mp4-muxer'
+
+const proc = (globalThis as unknown as { process: NodeJS.Process }).process
+const childProcess = proc.getBuiltinModule('node:child_process') as typeof NodeChildProcess
+const fsMod = proc.getBuiltinModule('node:fs') as typeof NodeFs
+const osMod = proc.getBuiltinModule('node:os') as typeof NodeOs
+const pathMod = proc.getBuiltinModule('node:path') as typeof NodePath
 
 const concat = (parts: readonly Uint8Array[]): Uint8Array => {
   const total = parts.reduce((sum, part) => sum + part.byteLength, 0)
@@ -785,5 +796,93 @@ describe('muxMp4', () => {
     const aTrak = listBoxes(aMoov.data, 8).find((b) => b.type === 'trak')!
     const aElst = listBoxes(listBoxes(aTrak.data, 8).find((b) => b.type === 'edts')!.data, 8).find((b) => b.type === 'elst')!
     expect(readUint32(aElst.data, 16)).toBe(1500)
+  })
+
+  it('produces ffprobe/ffmpeg-valid full and cropped MP4/M4A outputs with aligned A/V pre-roll', () => {
+    const videoFixture = new Uint8Array(fsMod.readFileSync(pathMod.join(__dirname, '../fixtures/sample-av-fmp4-video.mp4')))
+    const audioFixture = new Uint8Array(fsMod.readFileSync(pathMod.join(__dirname, '../fixtures/sample-av-fmp4-audio.m4a')))
+
+    const fullMp4 = concat(muxMp4([videoFixture], [audioFixture]))
+    const croppedMp4 = concat(muxMp4([videoFixture], [audioFixture], { startMs: 2_500, endMs: 5_000 }))
+    const fullM4a = concat(muxMp4Audio([audioFixture]))
+    const croppedM4a = concat(muxMp4Audio([audioFixture], { startMs: 2_500, endMs: 5_000 }))
+
+    expect(listBoxes(fullMp4).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
+    expect(listBoxes(croppedMp4).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
+    expect(listBoxes(fullM4a).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
+    expect(listBoxes(croppedM4a).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
+
+    // Even before external decoding, video and audio in croppedMp4 must keep symmetric pre-roll counts
+    const cMoov = listBoxes(croppedMp4).find((b) => b.type === 'moov')!
+    const cTraks = listBoxes(cMoov.data, 8).filter((b) => b.type === 'trak')
+    expect(cTraks).toHaveLength(2)
+
+    const hasFfmpeg = childProcess.spawnSync('ffprobe', ['-version']).status === 0
+      && childProcess.spawnSync('ffmpeg', ['-version']).status === 0
+    if (!hasFfmpeg) return
+
+    const dir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'ftube-muxer-'))
+    try {
+      const files = {
+        fullMp4: pathMod.join(dir, 'full.mp4'),
+        croppedMp4: pathMod.join(dir, 'cropped.mp4'),
+        fullM4a: pathMod.join(dir, 'full.m4a'),
+        croppedM4a: pathMod.join(dir, 'cropped.m4a'),
+      }
+      fsMod.writeFileSync(files.fullMp4, fullMp4)
+      fsMod.writeFileSync(files.croppedMp4, croppedMp4)
+      fsMod.writeFileSync(files.fullM4a, fullM4a)
+      fsMod.writeFileSync(files.croppedM4a, croppedM4a)
+
+      const probe = (filePath: string, extraArgs: string[] = []) => {
+        const res = childProcess.spawnSync(
+          'ffprobe',
+          ['-v', 'error', ...extraArgs, '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height,duration,start_time', '-of', 'json', filePath],
+          { encoding: 'utf8' },
+        )
+        expect(res.status, res.stderr).toBe(0)
+        return JSON.parse(res.stdout) as {
+          format: { duration: string }
+          streams: { codec_type: string, codec_name: string, width?: number, height?: number, duration: string, start_time: string }[]
+        }
+      }
+
+      const decodeCheck = (filePath: string, extraArgs: string[] = []) => {
+        const res = childProcess.spawnSync('ffmpeg', ['-v', 'error', ...extraArgs, '-i', filePath, '-f', 'null', '-'], { encoding: 'utf8' })
+        expect(res.status, res.stderr).toBe(0)
+        expect(res.stderr.trim()).toBe('')
+      }
+
+      for (const path of Object.values(files)) decodeCheck(path)
+      decodeCheck(files.croppedMp4, ['-ignore_editlist', '1'])
+
+      const fullProbe = probe(files.fullMp4)
+      expect(fullProbe.streams.map((s) => s.codec_name)).toEqual(['h264', 'aac'])
+      expect(Number(fullProbe.format.duration)).toBeGreaterThan(5.8)
+      expect(Number(fullProbe.format.duration)).toBeLessThan(6.2)
+
+      const croppedProbe = probe(files.croppedMp4)
+      expect(croppedProbe.streams.map((s) => s.codec_name)).toEqual(['h264', 'aac'])
+      expect(Number(croppedProbe.format.duration)).toBeGreaterThan(2.3)
+      expect(Number(croppedProbe.format.duration)).toBeLessThan(2.7)
+
+      const noEditProbe = probe(files.croppedMp4, ['-ignore_editlist', '1'])
+      const vNoEdit = noEditProbe.streams.find((s) => s.codec_type === 'video')!
+      const aNoEdit = noEditProbe.streams.find((s) => s.codec_type === 'audio')!
+      // Without edit lists, both tracks must still align within <150ms rather than drifting by the GOP interval (500ms+).
+      expect(Math.abs(Number(vNoEdit.duration) - Number(aNoEdit.duration))).toBeLessThan(0.15)
+      expect(Math.abs(Number(vNoEdit.start_time) - Number(aNoEdit.start_time))).toBeLessThan(0.15)
+
+      const m4aProbe = probe(files.fullM4a)
+      expect(m4aProbe.streams.map((s) => s.codec_name)).toEqual(['aac'])
+      expect(Number(m4aProbe.format.duration)).toBeGreaterThan(5.8)
+
+      const croppedM4aProbe = probe(files.croppedM4a)
+      expect(croppedM4aProbe.streams.map((s) => s.codec_name)).toEqual(['aac'])
+      expect(Number(croppedM4aProbe.format.duration)).toBeGreaterThan(2.4)
+      expect(Number(croppedM4aProbe.format.duration)).toBeLessThan(2.6)
+    } finally {
+      fsMod.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

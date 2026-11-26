@@ -11,6 +11,7 @@ import type { SleepTimer } from './sleep-timer'
 import type { SkipSegment } from './sponsorblock'
 import type { PlayerState } from './use-player-state'
 
+import { formatClockSeconds } from '../downloads/trim'
 import { captionLabel } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
@@ -27,16 +28,7 @@ import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './slee
 import { SpeedPicker } from './speed-picker'
 import { VolumeControl } from './volume-control'
 
-export const clock = (seconds: number) => {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-  const total = Math.floor(seconds)
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const rest = total % 60
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
-    : `${minutes}:${String(rest).padStart(2, '0')}`
-}
+export const clock = formatClockSeconds
 
 /* youtube.com's 2025 bar, measured headless at 1280 and 1920 (the sizes do not scale with the player):
    40 px tall groups on a 30% black wash, 12 px from the sides and 8 px from the bottom, no gradient behind them, and the

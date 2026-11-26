@@ -7,17 +7,22 @@ export type TrimRange = {
 /** Minimum allowed cropped clip length (1 second). */
 export const MIN_CLIP_MS = 1_000
 
-/** Formats milliseconds into `m:ss` or `h:mm:ss` for clip controls and labels. */
-export const formatTimestamp = (ms: number): string => {
-  const safeSec = Math.max(0, Math.round((Number.isFinite(ms) ? ms : 0) / 1000))
-  const hours = Math.floor(safeSec / 3600)
-  const minutes = Math.floor((safeSec % 3600) / 60)
-  const seconds = safeSec % 60
+/** Formats non-negative whole seconds into `m:ss` or `h:mm:ss`. */
+export const formatClockSeconds = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const total = Math.floor(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const rest = total % 60
   if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
   }
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
+  return `${minutes}:${String(rest).padStart(2, '0')}`
 }
+
+/** Formats milliseconds into `m:ss` or `h:mm:ss` for clip controls and labels. */
+export const formatTimestamp = (ms: number): string =>
+  formatClockSeconds(Math.max(0, Math.round((Number.isFinite(ms) ? ms : 0) / 1000)))
 
 /** Parses `ss`, `mm:ss`, or `hh:mm:ss` (with optional decimals on seconds) into milliseconds. */
 export const parseTimestamp = (input: string, maxDurationMs?: number): number | undefined => {
@@ -75,6 +80,16 @@ export const isFullRange = (
   if (!trim) return true
   if (!Number.isFinite(durationMs) || durationMs <= 0) return false
   return trim.startMs <= toleranceMs && trim.endMs >= Math.max(0, durationMs - toleranceMs)
+}
+
+/** Clamps `trim` to `durationMs` and returns `undefined` when it covers the full duration or `durationMs` is unset. */
+export const normalizeTrimRange = (
+  trim: TrimRange | undefined,
+  durationMs: number | undefined,
+): TrimRange | undefined => {
+  if (!trim || !durationMs || !Number.isFinite(durationMs) || durationMs <= 0) return undefined
+  const clamped = clampTrimRange(trim.startMs, trim.endMs, durationMs, MIN_CLIP_MS)
+  return isFullRange(clamped, durationMs) ? undefined : clamped
 }
 
 /** Proportionally scales full-stream byte estimate to the cropped `[startMs, endMs]` clip span. */

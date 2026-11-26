@@ -5,7 +5,9 @@ import type { TrimRange } from './trim'
 
 import { startEngine } from '../engine/client'
 import { showToast } from '../components/ui/toast'
-import { formatClipFilenameSuffix, formatClipLabel, isFullRange } from './trim'
+import { MAX_DOWNLOAD_BYTES, MAX_DOWNLOAD_ERROR } from './bytes'
+import { muxInWorker } from './mux-client'
+import { formatClipFilenameSuffix, formatClipLabel, normalizeTrimRange } from './trim'
 
 /** Target video metadata passed when opening the download picker or queuing a download. */
 export type DownloadTarget = {
@@ -178,6 +180,7 @@ const trayListeners = new Set<(snapshot: DownloadTraySnapshot) => void>()
 const dialogListeners = new Set<(target: DownloadTarget | undefined) => void>()
 const trayIds = new Set<string>()
 const remoteIds = new Map<string, string>()
+const muxAbortControllers = new Map<string, AbortController>()
 const cancelledIds = new Set<string>()
 const blobUrls = new Map<string, string>()
 const blobSizes = new Map<string, number>()
@@ -341,6 +344,8 @@ export const cancelDownload = async (id: string) => {
   const current = items.find((entry) => entry.id === id)
   if (!current || FINAL_STATUSES.has(current.status)) return
   cancelledIds.add(id)
+  muxAbortControllers.get(id)?.abort()
+  muxAbortControllers.delete(id)
   const remoteId = remoteIds.get(id)
   remoteIds.delete(id)
   updateItem(id, { status: 'cancelled' }, true)
@@ -396,8 +401,8 @@ export const startVideoDownload = async (
     saveFile?: (blobUrl: string, filename: string) => void
   } = {},
 ): Promise<DownloadItem> => {
-  const effectiveTrim = input.trim && !(input.durationMs && isFullRange(input.trim, input.durationMs))
-    ? input.trim
+  const effectiveTrim = input.trim
+    ? (input.durationMs ? normalizeTrimRange(input.trim, input.durationMs) : input.trim)
     : undefined
   const clipLabel = effectiveTrim ? formatClipLabel(effectiveTrim) : undefined
   const id = `dl-${Date.now()}-${++nextSeq}`
@@ -427,6 +432,9 @@ export const startVideoDownload = async (
   const saveFile = deps.saveFile ?? triggerBrowserSave
 
   try {
+    if (input.estimatedBytes !== undefined && input.estimatedBytes > MAX_DOWNLOAD_BYTES) {
+      throw new Error(MAX_DOWNLOAD_ERROR)
+    }
     const api = await getApi()
     if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
     const started = await api.startDownload({
@@ -442,10 +450,15 @@ export const startVideoDownload = async (
       throw new DOMException('Cancelled', 'AbortError')
     }
     const totalBytes = started.estimatedBytes ?? input.estimatedBytes
+    if (totalBytes !== undefined && totalBytes > MAX_DOWNLOAD_BYTES) {
+      void api.cancelDownload(started.downloadId).catch(() => {})
+      throw new Error(MAX_DOWNLOAD_ERROR)
+    }
     updateItem(id, { status: 'downloading', totalBytes })
 
     const videoChunks: Uint8Array[] = []
     const audioChunks: Uint8Array[] = []
+    let receivedBytes = 0
 
     for (;;) {
       if (cancelledIds.has(id)) {
@@ -453,8 +466,20 @@ export const startVideoDownload = async (
         throw new DOMException('Cancelled', 'AbortError')
       }
       const poll = await api.pollDownload(started.downloadId)
-      for (const buffer of poll.videoChunks) videoChunks.push(new Uint8Array(buffer))
-      for (const buffer of poll.audioChunks) audioChunks.push(new Uint8Array(buffer))
+      for (const buffer of poll.videoChunks) {
+        receivedBytes += buffer.byteLength
+        videoChunks.push(new Uint8Array(buffer))
+      }
+      for (const buffer of poll.audioChunks) {
+        receivedBytes += buffer.byteLength
+        audioChunks.push(new Uint8Array(buffer))
+      }
+      if (receivedBytes > MAX_DOWNLOAD_BYTES || poll.loadedBytes > MAX_DOWNLOAD_BYTES) {
+        videoChunks.length = 0
+        audioChunks.length = 0
+        void api.cancelDownload(started.downloadId).catch(() => {})
+        throw new Error(MAX_DOWNLOAD_ERROR)
+      }
       updateItem(id, {
         loadedBytes: poll.loadedBytes,
         totalBytes: poll.totalBytes ?? totalBytes,
@@ -466,37 +491,45 @@ export const startVideoDownload = async (
 
     if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
 
-    let parts: Uint8Array[]
-    if (input.mode === 'video') {
+    let blob: Blob
+    const needsMuxOrTrim = input.mode === 'video' || input.container === 'm4a' || Boolean(effectiveTrim)
+    if (needsMuxOrTrim) {
       updateItem(id, { status: 'muxing' })
       await new Promise((resolve) => setTimeout(resolve, 0))
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-      const { muxMp4 } = await import('./mp4-muxer')
-      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-      parts = muxMp4(videoChunks, audioChunks, effectiveTrim)
-      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-    } else if (effectiveTrim) {
-      updateItem(id, { status: 'muxing' })
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-      if (input.container === 'webm') {
-        const { trimWebmAudio } = await import('./webm-trimmer')
-        if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-        parts = trimWebmAudio(audioChunks, effectiveTrim)
-      } else {
-        const { muxMp4Audio } = await import('./mp4-muxer')
-        if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-        parts = muxMp4Audio(audioChunks, effectiveTrim)
+      const muxAbort = new AbortController()
+      muxAbortControllers.set(id, muxAbort)
+      try {
+        blob = input.mode === 'video'
+          ? await muxInWorker({
+              kind: 'mp4',
+              videoChunks,
+              audioChunks,
+              trim: effectiveTrim,
+              mimeType: started.mimeType,
+            }, muxAbort.signal)
+          : input.container === 'webm'
+          ? await muxInWorker({
+              kind: 'webm-trim',
+              audioChunks,
+              trim: effectiveTrim!,
+              mimeType: started.mimeType,
+            }, muxAbort.signal)
+          : await muxInWorker({
+              kind: 'm4a',
+              audioChunks,
+              trim: effectiveTrim,
+              mimeType: started.mimeType,
+            }, muxAbort.signal)
+      } finally {
+        muxAbortControllers.delete(id)
       }
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
     } else {
-      parts = audioChunks
+      blob = new Blob(audioChunks as BlobPart[], { type: started.mimeType })
     }
-
-    const blob = new Blob(parts as BlobPart[], { type: started.mimeType })
     videoChunks.length = 0
     audioChunks.length = 0
-    parts = []
     if (blob.size === 0) throw new Error('youtube: downloaded file was empty')
     const blobUrl = URL.createObjectURL(blob)
     saveFile(blobUrl, filename)

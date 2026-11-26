@@ -1,6 +1,14 @@
+import type * as NodeFs from 'node:fs'
+import type * as NodePath from 'node:path'
+
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 
+import { MAX_DOWNLOAD_BYTES } from '../../../src/downloads/bytes'
 import { codecLabel } from '../../../src/frame/formats'
+
+const proc = (globalThis as unknown as { process: NodeJS.Process }).process
+const fsMod = proc.getBuiltinModule('node:fs') as typeof NodeFs
+const pathMod = proc.getBuiltinModule('node:path') as typeof NodePath
 
 const loadStore = async () => {
   vi.resetModules()
@@ -138,17 +146,17 @@ describe('download store history and flow', () => {
     const result = await startVideoDownload({
       target: { videoId: 'vid-a', title: 'Track: One' },
       mode: 'audio',
-      audioKey: '140',
-      qualityLabel: 'M4A 128 kbps',
-      container: 'm4a',
+      audioKey: '251',
+      qualityLabel: 'WebM 130 kbps',
+      container: 'webm',
       estimatedBytes: 10,
     }, {
       engine: async () => ({
         startDownload: async () => ({
           downloadId: 'sess-1',
           estimatedBytes: 10,
-          container: 'm4a',
-          mimeType: 'audio/mp4',
+          container: 'webm',
+          mimeType: 'audio/webm',
         }),
         pollDownload: async () => {
           pollCount += 1
@@ -177,8 +185,8 @@ describe('download store history and flow', () => {
 
     expect(result.status).toBe('completed')
     expect(result.sizeBytes).toBe(10)
-    expect(saved).toEqual([{ url: 'blob:test-audio', filename: 'Track One.m4a' }])
-    expect(notified).toEqual(['Saved Track One.m4a'])
+    expect(saved).toEqual([{ url: 'blob:test-audio', filename: 'Track One.webm' }])
+    expect(notified).toEqual(['Saved Track One.webm'])
     expect(getDownloads()).toHaveLength(1)
 
     removeDownload(result.id)
@@ -188,12 +196,12 @@ describe('download store history and flow', () => {
     const second = await startVideoDownload({
       target: { videoId: 'vid-b', title: 'Track: Two' },
       mode: 'audio',
-      audioKey: '140',
-      qualityLabel: 'M4A 128 kbps',
-      container: 'm4a',
+      audioKey: '251',
+      qualityLabel: 'WebM 130 kbps',
+      container: 'webm',
     }, {
       engine: async () => ({
-        startDownload: async () => ({ downloadId: 'sess-2', container: 'm4a', mimeType: 'audio/mp4' }),
+        startDownload: async () => ({ downloadId: 'sess-2', container: 'webm', mimeType: 'audio/webm' }),
         pollDownload: async () => ({
           videoChunks: [],
           audioChunks: [Uint8Array.from([1, 2]).buffer],
@@ -254,12 +262,12 @@ describe('download store history and flow', () => {
     const result = await startVideoDownload({
       target: { videoId: 'vid-rm', title: 'Remove Active' },
       mode: 'audio',
-      audioKey: '140',
-      qualityLabel: 'M4A',
-      container: 'm4a',
+      audioKey: '251',
+      qualityLabel: 'WebM',
+      container: 'webm',
     }, {
       engine: async () => ({
-        startDownload: async () => ({ downloadId: 'sess-rm', container: 'm4a', mimeType: 'audio/mp4' }),
+        startDownload: async () => ({ downloadId: 'sess-rm', container: 'webm', mimeType: 'audio/webm' }),
         pollDownload: async () => {
           const active = getDownloads()[0]
           if (active) removeDownload(active.id)
@@ -293,7 +301,7 @@ describe('download store history and flow', () => {
     })
     const deps = {
       engine: async () => ({
-        startDownload: async () => ({ downloadId: 'sess', container: 'm4a' as const, mimeType: 'audio/mp4' }),
+        startDownload: async () => ({ downloadId: 'sess', container: 'webm' as const, mimeType: 'audio/webm' }),
         pollDownload: async () => ({
           videoChunks: [],
           audioChunks: [Uint8Array.from([1]).buffer],
@@ -308,9 +316,9 @@ describe('download store history and flow', () => {
     const input = {
       target: { videoId: 'v', title: 'Large' },
       mode: 'audio' as const,
-      audioKey: '140',
-      qualityLabel: 'M4A',
-      container: 'm4a' as const,
+      audioKey: '251',
+      qualityLabel: 'WebM',
+      container: 'webm' as const,
     }
     await startVideoDownload(input, deps)
     await startVideoDownload(input, deps)
@@ -381,13 +389,13 @@ describe('download store history and flow', () => {
     const result = await startVideoDownload({
       target: { videoId: 'vid-tray', title: 'Tray Video' },
       mode: 'audio',
-      audioKey: '140',
-      qualityLabel: 'M4A 128 kbps',
-      container: 'm4a',
+      audioKey: '251',
+      qualityLabel: 'WebM 130 kbps',
+      container: 'webm',
       estimatedBytes: 4,
     }, {
       engine: async () => ({
-        startDownload: async () => ({ downloadId: 'sess-tray', container: 'm4a', mimeType: 'audio/mp4' }),
+        startDownload: async () => ({ downloadId: 'sess-tray', container: 'webm', mimeType: 'audio/webm' }),
         pollDownload: async () => ({
           videoChunks: [],
           audioChunks: [Uint8Array.from([1, 2, 3, 4]).buffer],
@@ -414,12 +422,12 @@ describe('download store history and flow', () => {
     const second = await startVideoDownload({
       target: { videoId: 'vid-tray-2', title: 'Tray Video Two' },
       mode: 'audio',
-      audioKey: '140',
-      qualityLabel: 'M4A 128 kbps',
-      container: 'm4a',
+      audioKey: '251',
+      qualityLabel: 'WebM 130 kbps',
+      container: 'webm',
     }, {
       engine: async () => ({
-        startDownload: async () => ({ downloadId: 'sess-tray-2', container: 'm4a', mimeType: 'audio/mp4' }),
+        startDownload: async () => ({ downloadId: 'sess-tray-2', container: 'webm', mimeType: 'audio/webm' }),
         pollDownload: async () => ({
           videoChunks: [],
           audioChunks: [Uint8Array.from([1, 2]).buffer],
@@ -518,5 +526,128 @@ describe('download store history and flow', () => {
     expect(item.filename).toBe('Zoo Visit (0m04s-0m12s).m4a')
     expect(saved).toEqual([{ url: 'blob:cropped-audio', filename: 'Zoo Visit (0m04s-0m12s).m4a' }])
     expect(u32(0)).toHaveLength(4)
+  })
+
+  it('remuxes uncropped M4A downloads via muxMp4Audio instead of saving raw fragmented DASH', async () => {
+    const { startVideoDownload } = await loadStore()
+    const audioFixture = new Uint8Array(fsMod.readFileSync(pathMod.join(__dirname, '../fixtures/sample-av-fmp4-audio.m4a')))
+    let capturedBlob: Blob | undefined
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((obj) => {
+      capturedBlob = obj as Blob
+      return 'blob:m4a-remuxed'
+    })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    const result = await startVideoDownload({
+      target: { videoId: 'vid-m4a', title: 'Clean Audio' },
+      mode: 'audio',
+      audioKey: '140',
+      qualityLabel: 'M4A 128 kbps',
+      container: 'm4a',
+      estimatedBytes: audioFixture.byteLength,
+    }, {
+      engine: async () => ({
+        startDownload: async () => ({ downloadId: 'sess-m4a', container: 'm4a', mimeType: 'audio/mp4' }),
+        pollDownload: async () => ({
+          videoChunks: [],
+          audioChunks: [audioFixture.slice().buffer],
+          loadedBytes: audioFixture.byteLength,
+          done: true,
+        }),
+        cancelDownload: async () => {},
+      }),
+      notify: () => {},
+      saveFile: () => {},
+    })
+
+    expect(result.status).toBe('completed')
+    const outBytes = new Uint8Array(await capturedBlob!.arrayBuffer())
+    const boxes: string[] = []
+    for (let pos = 0; pos + 8 <= outBytes.byteLength;) {
+      const size = new DataView(outBytes.buffer, outBytes.byteOffset + pos, 4).getUint32(0)
+      boxes.push(String.fromCharCode(outBytes[pos + 4]!, outBytes[pos + 5]!, outBytes[pos + 6]!, outBytes[pos + 7]!))
+      pos += size
+    }
+    expect(boxes).toEqual(['ftyp', 'moov', 'mdat'])
+  })
+
+  it('enforces MAX_DOWNLOAD_BYTES cap both pre-flight and during streamed polling', async () => {
+    const { startVideoDownload } = await loadStore()
+    const preflight = await startVideoDownload({
+      target: { videoId: 'vid-big-pre', title: 'Huge' },
+      mode: 'video',
+      videoKey: '137',
+      audioKey: '140',
+      qualityLabel: '4K',
+      container: 'mp4',
+      estimatedBytes: MAX_DOWNLOAD_BYTES + 1,
+    }, {
+      engine: async () => {
+        throw new Error('engine should not be contacted when pre-flight exceeds cap')
+      },
+      notify: () => {},
+      saveFile: () => {},
+    })
+    expect(preflight.status).toBe('failed')
+    expect(preflight.error).toContain('1 GB')
+
+    const cancelled: string[] = []
+    const streamed = await startVideoDownload({
+      target: { videoId: 'vid-big-stream', title: 'Overrun' },
+      mode: 'audio',
+      audioKey: '251',
+      qualityLabel: 'WebM',
+      container: 'webm',
+      estimatedBytes: 1024,
+    }, {
+      engine: async () => ({
+        startDownload: async () => ({ downloadId: 'sess-big', container: 'webm', mimeType: 'audio/webm' }),
+        pollDownload: async () => ({
+          videoChunks: [],
+          audioChunks: [new ArrayBuffer(16)],
+          loadedBytes: MAX_DOWNLOAD_BYTES + 1024,
+          done: false,
+        }),
+        cancelDownload: async (id) => { cancelled.push(id) },
+      }),
+      notify: () => {},
+      saveFile: () => {},
+    })
+    expect(streamed.status).toBe('failed')
+    expect(streamed.error).toContain('1 GB')
+    expect(cancelled).toEqual(['sess-big'])
+  })
+
+  it('transfers buffers to Web Worker when Worker is available and terminates it cleanly', async () => {
+    const terminated: boolean[] = []
+    let transferredCount = 0
+    class MockWorker {
+      private listeners = new Map<string, Set<(event: unknown) => void>>()
+      addEventListener(type: string, cb: (event: unknown) => void) {
+        if (!this.listeners.has(type)) this.listeners.set(type, new Set())
+        this.listeners.get(type)!.add(cb)
+      }
+      removeEventListener(type: string, cb: (event: unknown) => void) {
+        this.listeners.get(type)?.delete(cb)
+      }
+      postMessage(_data: unknown, transfer?: ArrayBuffer[]) {
+        transferredCount = transfer?.length ?? 0
+        queueMicrotask(() => {
+          const blob = new Blob([Uint8Array.from([1, 2, 3, 4])], { type: 'audio/mp4' })
+          for (const cb of this.listeners.get('message') ?? []) cb({ data: { ok: true, blob } })
+        })
+      }
+      terminate() {
+        terminated.push(true)
+      }
+    }
+    vi.stubGlobal('Worker', MockWorker)
+    const { muxInWorker } = await import('../../../src/downloads/mux-client')
+    const chunks = [Uint8Array.from([9, 8, 7]), Uint8Array.from([6, 5])]
+    const out = await muxInWorker({ kind: 'm4a', audioChunks: chunks, mimeType: 'audio/mp4' })
+    expect(out.size).toBe(4)
+    expect(transferredCount).toBe(2)
+    expect(chunks).toHaveLength(0)
+    expect(terminated).toEqual([true])
   })
 })

@@ -84,7 +84,7 @@ const bytes = (value: ArrayBuffer | ArrayBufferView | null | undefined) => {
 
 const headers = (input: Headers) => Object.fromEntries(input.entries())
 
-const wait = (durationMs: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+export const wait = (durationMs: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
   if (signal?.aborted) return reject(signal.reason)
   const complete = () => {
     signal?.removeEventListener('abort', aborted)

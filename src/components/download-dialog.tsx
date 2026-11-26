@@ -6,6 +6,7 @@ import { Download, Pause, Play, RefreshCw, RotateCcw, Scissors } from 'lucide-re
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
+import { LARGE_DOWNLOAD_WARNING_BYTES, MAX_DOWNLOAD_BYTES } from '../downloads/bytes'
 import { closeDownloadDialog, formatBytes, pickDefaultAudioForVideo, startVideoDownload, useDownloadDialogTarget } from '../downloads/store'
 import { clampTrimRange, estimateTrimmedBytes, formatClipLabel, formatTimestamp, isFullRange, MIN_CLIP_MS, parseTimestamp } from '../downloads/trim'
 import { startEngine } from '../engine/client'
@@ -14,8 +15,6 @@ import { playerHost, usePlayerSession } from '../player/session'
 import { Dialog } from './ui/dialog'
 
 type DownloadMode = 'video' | 'audio'
-
-const LARGE_DOWNLOAD_WARNING_BYTES = 512 * 1024 * 1024
 
 const style = css`
   display: flex;
@@ -635,8 +634,9 @@ export const DownloadDialog = (
         : activeVideo?.estimatedBytes)
     : activeAudio?.estimatedBytes
   const selectedEstimatedBytes = estimateTrimmedBytes(rawSelectedBytes, durationMs, currentRange)
+  const exceedsMaxBytes = Boolean(selectedEstimatedBytes && selectedEstimatedBytes > MAX_DOWNLOAD_BYTES)
 
-  const canStart = !loading && !error && !isLive && (
+  const canStart = !loading && !error && !isLive && !exceedsMaxBytes && (
     mode === 'video' ? Boolean(activeVideo && mp4AudioForTrack) : Boolean(activeAudio)
   )
   const canCrop = !loading && !error && !isLive && durationMs >= 2_000
@@ -1070,10 +1070,16 @@ export const DownloadDialog = (
             )}
         </div>
 
-        {!loading && !error && !isLive && selectedEstimatedBytes && selectedEstimatedBytes > LARGE_DOWNLOAD_WARNING_BYTES
+        {!loading && !error && !isLive && exceedsMaxBytes && selectedEstimatedBytes
+          ? (
+            <p className='size-warning' role='alert'>
+              File too large (~{formatBytes(selectedEstimatedBytes)}): exceeds the 1 GB browser memory limit. Pick a lower quality or trim a shorter clip.
+            </p>
+          )
+          : !loading && !error && !isLive && selectedEstimatedBytes && selectedEstimatedBytes > LARGE_DOWNLOAD_WARNING_BYTES
           ? (
             <p className='size-warning'>
-              Large file (~{formatBytes(selectedEstimatedBytes)}): assembled in browser memory before saving.
+              Large file (~{formatBytes(selectedEstimatedBytes)}): assembled in a background worker before saving.
             </p>
           )
           : undefined}

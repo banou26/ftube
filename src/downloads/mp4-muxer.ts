@@ -1,5 +1,7 @@
 import type { TrimRange } from './trim'
 
+import { concatChunks } from './bytes'
+
 type Mp4Box = {
   type: string
   start: number
@@ -54,19 +56,6 @@ type ParsedTrack = {
 const MOVIE_TIMESCALE = 1000
 const TARGET_CHUNK_SEC = 1
 const NON_SYNC_SAMPLE_FLAG = 0x00010000
-
-const concatChunks = (chunks: readonly Uint8Array[]): Uint8Array => {
-  if (chunks.length === 1) return chunks[0]!
-  let total = 0
-  for (const chunk of chunks) total += chunk.byteLength
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return out
-}
 
 const readUint16 = (bytes: Uint8Array, offset: number): number =>
   ((bytes[offset]! << 8) | bytes[offset + 1]!) >>> 0
@@ -795,17 +784,23 @@ const buildTrak = (
   return wrapBox('trak', trakChildren)
 }
 
-const trimTrack = (track: ParsedTrack, trim: TrimRange): ParsedTrack => {
+const trimTrack = (
+  track: ParsedTrack,
+  trim: TrimRange,
+  cutStartMs = trim.startMs,
+): { track: ParsedTrack, actualCutStartMs: number } => {
   const { samples, mdhdTimescale, sourceBytes } = track
   const startTicks = Math.round((trim.startMs * mdhdTimescale) / 1000)
+  const cutTicks = Math.round((cutStartMs * mdhdTimescale) / 1000)
   const endTicks = Math.round((trim.endMs * mdhdTimescale) / 1000)
   const requestedClipMs = Math.max(1, Math.round(trim.endMs - trim.startMs))
   const baseEditOffset = track.elstEntries.find((entry) => entry.mediaTime >= 0)?.mediaTime ?? 0
   const targetStartCts = startTicks + baseEditOffset
+  const cutStartCts = cutTicks + baseEditOffset
   const targetEndCts = endTicks + baseEditOffset
 
   const firstAtOrAfter = (() => {
-    const idx = samples.findIndex((sample) => sample.dts + sample.ctsOffset >= targetStartCts)
+    const idx = samples.findIndex((sample) => sample.dts + sample.ctsOffset >= cutStartCts)
     return idx >= 0 ? idx : samples.length - 1
   })()
 
@@ -813,14 +808,14 @@ const trimTrack = (track: ParsedTrack, trim: TrimRange): ParsedTrack => {
   let startIdx = firstAtOrAfter
   if (allSync) {
     const chosen = samples[firstAtOrAfter]!
-    if (firstAtOrAfter > 0 && chosen.dts + chosen.ctsOffset > targetStartCts) {
+    if (firstAtOrAfter > 0 && chosen.dts + chosen.ctsOffset > cutStartCts) {
       startIdx = firstAtOrAfter - 1
     }
   } else {
     let syncIdx = -1
     for (let i = Math.min(firstAtOrAfter, samples.length - 1); i >= 0; i -= 1) {
       const candidate = samples[i]!
-      if (candidate.isSync && candidate.dts + candidate.ctsOffset <= targetStartCts) {
+      if (candidate.isSync && candidate.dts + candidate.ctsOffset <= cutStartCts) {
         syncIdx = i
         break
       }
@@ -845,6 +840,7 @@ const trimTrack = (track: ParsedTrack, trim: TrimRange): ParsedTrack => {
 
   const baseDts = kept[0]!.dts
   const elstMediaTime = Math.max(0, Math.round(targetStartCts - baseDts))
+  const actualCutStartMs = trim.startMs - ((targetStartCts - baseDts) * 1000) / mdhdTimescale
   let totalDurationTicks = 0
   for (const sample of kept) totalDurationTicks += sample.duration
   const availableDurationMs = Math.max(
@@ -895,18 +891,21 @@ const trimTrack = (track: ParsedTrack, trim: TrimRange): ParsedTrack => {
   flushBatch()
 
   return {
-    ...track,
-    mvhdTimescale: MOVIE_TIMESCALE,
-    elstEntries: [{
-      segmentDuration: trimmedDurationMs,
-      mediaTime: elstMediaTime,
-      rateInt: 1,
-      rateFrac: 0,
-    }],
-    samples: kept,
-    chunks,
-    totalDurationTicks,
-    overrideDurationMs: trimmedDurationMs,
+    track: {
+      ...track,
+      mvhdTimescale: MOVIE_TIMESCALE,
+      elstEntries: [{
+        segmentDuration: trimmedDurationMs,
+        mediaTime: elstMediaTime,
+        rateInt: 1,
+        rateFrac: 0,
+      }],
+      samples: kept,
+      chunks,
+      totalDurationTicks,
+      overrideDurationMs: trimmedDurationMs,
+    },
+    actualCutStartMs,
   }
 }
 
@@ -969,8 +968,27 @@ export const muxMp4 = (
 ): Uint8Array[] => {
   const rawVideo = parseTrack(videoChunks, 1)
   const rawAudio = parseTrack(audioChunks, 2)
-  const video = trim ? trimTrack(rawVideo, trim) : rawVideo
-  const audio = trim ? trimTrack(rawAudio, trim) : rawAudio
+  let video = rawVideo
+  let audio = rawAudio
+  if (trim) {
+    const trimmedVideo = trimTrack(rawVideo, trim)
+    // Align audio's cut point to video's resolved keyframe pre-roll so edit-list-ignoring players stay A/V synced too.
+    const trimmedAudio = trimTrack(rawAudio, trim, Math.min(trim.startMs, trimmedVideo.actualCutStartMs))
+    const sharedDurationMs = Math.min(
+      trimmedVideo.track.overrideDurationMs ?? 0,
+      trimmedAudio.track.overrideDurationMs ?? 0,
+    )
+    video = {
+      ...trimmedVideo.track,
+      overrideDurationMs: sharedDurationMs,
+      elstEntries: trimmedVideo.track.elstEntries.map((entry) => ({ ...entry, segmentDuration: sharedDurationMs })),
+    }
+    audio = {
+      ...trimmedAudio.track,
+      overrideDurationMs: sharedDurationMs,
+      elstEntries: trimmedAudio.track.elstEntries.map((entry) => ({ ...entry, segmentDuration: sharedDurationMs })),
+    }
+  }
 
   const hasSignedCtts = video.samples.some((sample) => sample.ctsOffset < 0)
     || audio.samples.some((sample) => sample.ctsOffset < 0)
@@ -994,7 +1012,7 @@ export const muxMp4 = (
  */
 export const muxMp4Audio = (audioChunks: readonly Uint8Array[], trim?: TrimRange): Uint8Array[] => {
   const rawAudio = parseTrack(audioChunks, 1)
-  const audio = trim ? trimTrack(rawAudio, trim) : rawAudio
+  const audio = trim ? trimTrack(rawAudio, trim).track : rawAudio
   const hasSignedCtts = audio.samples.some((sample) => sample.ctsOffset < 0)
   const ftyp = buildFtyp(audio.codecBrand, hasSignedCtts)
   const movieDurationMs = audio.overrideDurationMs
