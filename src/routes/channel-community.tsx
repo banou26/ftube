@@ -31,6 +31,8 @@ const CHANNEL_COMMUNITY_QUERY = gql(`
           likeStatus
           actionsToken
           isCreator
+          isMembersOnly
+          membersOnlyLabel
           commentCountText
           commentCountLabel
           attachedImage

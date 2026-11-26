@@ -19,6 +19,8 @@ const POST_QUERY = gql(`
       likeStatus
       actionsToken
       isCreator
+      isMembersOnly
+      membersOnlyLabel
       attachedImage
       attachedImages
       author { id name avatar isVerified isVerifiedArtist }

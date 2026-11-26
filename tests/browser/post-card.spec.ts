@@ -70,3 +70,9 @@ test('clicking a multi-image post thumbnail opens lightbox and navigates with bu
   await page.keyboard.press('ArrowRight')
   await expect(viewer.locator('img')).toHaveAttribute('src', /Slide%20Three/)
 })
+
+test('displays members-only badge pill on members-only posts', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const host = await mountVariant(page, 'members')
+  await expect(host.locator('.members-only-pill')).toContainText('Members only')
+})

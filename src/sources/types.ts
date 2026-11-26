@@ -309,6 +309,8 @@ export type SourcePost = {
   likeStatus?: SourceLikeStatus
   actionsToken?: string
   isCreator?: boolean
+  isMembersOnly?: boolean
+  membersOnlyLabel?: string
   // as the Posts tab shows it ("1K"); absent where youtube.com shows none, as on the post's own page
   commentCountText?: string
   // upstream's spoken form of the count ("1K comments")

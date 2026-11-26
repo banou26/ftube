@@ -14,6 +14,7 @@ import { signIn } from '../sign-in'
 import { lineFor } from './data-failure'
 import { ReadMore } from './read-more'
 import { RichText } from './rich-text'
+import { MembersOnly } from './row-marks'
 import { showToast } from './ui/toast'
 import { VerifiedBadge } from './verified-badge'
 import { VideoCardCompact } from './video-card-compact'
@@ -38,6 +39,8 @@ export type PostCardData = {
   likeStatus?: LikeStatus | null
   actionsToken?: string | null
   isCreator?: boolean | null
+  isMembersOnly?: boolean | null
+  membersOnlyLabel?: string | null
   commentCountText?: string | null
   commentCountLabel?: string | null
   attachedImage?: string | null
@@ -107,6 +110,15 @@ const style = css`
     color: var(--text-primary);
     font-size: 1.1rem;
     font-weight: 600;
+  }
+
+  .members-only-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 2.2rem;
+    padding: 0 0.8rem;
+    border-radius: 0.4rem;
+    background: var(--bg-chip);
   }
 
   .post-text {
@@ -539,6 +551,13 @@ export const PostCard = (
           : undefined}
         {post.isCreator ? <span className='creator-badge'>Creator</span> : undefined}
         {post.publishedText ? <Link href={`/post/${post.id}`} className='post-date'>{post.publishedText}</Link> : undefined}
+        {post.isMembersOnly
+          ? (
+            <span className='members-only-pill'>
+              <MembersOnly label={post.membersOnlyLabel ?? undefined} />
+            </span>
+          )
+          : undefined}
       </div>
       {post.text
         ? readMore

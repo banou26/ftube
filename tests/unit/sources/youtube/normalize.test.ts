@@ -161,6 +161,16 @@ describe('youtube normalization', () => {
     })
     expect(normalizeCommunityPost({ content: { text: 'orphan' } })).toBeUndefined()
     expect(normalizeCommunityPost(undefined)).toBeUndefined()
+    expect(normalizeCommunityPost({
+      id: 'UgkxMemberNode',
+      author: { id: 'UC1', name: 'Chan' },
+      content: { text: 'VIP update' },
+      sponsors_only_badge: { label: { text: 'Members only' } },
+    })).toMatchObject({
+      id: 'UgkxMemberNode',
+      isMembersOnly: true,
+      membersOnlyLabel: 'Members only',
+    })
   })
 
   it('keeps the shorts that every feed used to drop', () => {

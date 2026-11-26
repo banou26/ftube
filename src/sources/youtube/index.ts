@@ -2,11 +2,11 @@ import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, Sourc
 import type { ParsedCommunityPost, PostActionTokens } from './community'
 import type { EntityMutation } from './normalize'
 
-import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
+import { Innertube, Parser, Utils, YTNodes } from 'youtubei.js/web'
 
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
-import { extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
+import { collectMembersOnlyPosts, extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
 import { approximateCount, chatReplayToken, extractRelatedChips, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
@@ -1033,11 +1033,22 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     return result
   }
 
+  const mergeMembersOnly = (post: SourcePost, membersMap: Map<string, string | undefined>): SourcePost => {
+    if (!membersMap.has(post.id)) return post
+    const label = membersMap.get(post.id)
+    return {
+      ...post,
+      isMembersOnly: true,
+      ...(label ? { membersOnlyLabel: label } : {}),
+    }
+  }
+
   const postPage = (kind: string, feed: PostsFeed): SourcePostPage => {
+    const membersMap = collectMembersOnlyPosts((feed as { page?: unknown }).page)
     const result: SourcePostPage = {
       items: [...(feed.posts ?? [])].flatMap((node) => {
         const post = normalizeCommunityPost(node)
-        return post ? [withPostActionToken(post, extractParsedPostActions(node))] : []
+        return post ? [withPostActionToken(mergeMembersOnly(post, membersMap), extractParsedPostActions(node))] : []
       }),
     }
     if (feed.has_continuation) {
@@ -1498,11 +1509,18 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       })
       const { browseId, params } = endpoint?.payload ?? {}
       if (!browseId) return undefined
-      const memo = (await active.actions.execute('/browse', { browseId, params, parse: true })).contents_memo
+      const raw = await active.actions.execute('/browse', { browseId, params, parse: false }) as {
+        data?: unknown
+        contents_memo?: Map<string, unknown[]>
+      }
+      const parsed = raw?.data !== undefined ? Parser.parseResponse(raw.data as never) : raw
+      const memo = parsed?.contents_memo
       const nodes = [...(memo?.get('BackstagePost') ?? []), ...(memo?.get('Post') ?? [])] as { id?: string }[]
       const match = nodes.find((node) => node.id === id)
       const normalized = normalizeCommunityPost(match)
-      return normalized ? withPostActionToken(normalized, extractParsedPostActions(match)) : undefined
+      if (!normalized) return undefined
+      const membersMap = collectMembersOnlyPosts(raw?.data)
+      return withPostActionToken(mergeMembersOnly(normalized, membersMap), extractParsedPostActions(match))
     },
     watch: async (id, playlistId, playlistIndex) => {
       const response = await (await client).actions.execute('/next', {

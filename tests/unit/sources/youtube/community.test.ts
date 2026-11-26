@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test'
 
 import { createYoutubeSource } from '../../../../src/sources/youtube'
 import {
+  collectMembersOnlyPosts,
   extractParsedPostActions,
   extractRawPostActions,
   normalizeRawCommunityPost,
@@ -450,5 +451,57 @@ describe('createYoutubeSource community & ratePost (APP-865)', () => {
       { actions: ['ACT_DISLIKE'] },
       { actions: ['ACT_UNDISLIKE'] },
     ])
+  })
+
+  it('extracts members-only badge and label from sponsorsOnlyBadge and metadata badges', () => {
+    const withSponsorsBadge = normalizeRawCommunityPost({
+      backstagePostRenderer: {
+        postId: 'UgkxMembers1',
+        authorText: { simpleText: 'Baasuka' },
+        contentText: { runs: [{ text: 'Perk post' }] },
+        publishedTimeText: { simpleText: '19 hours ago' },
+        sponsorsOnlyBadge: {
+          sponsorsOnlyBadgeRenderer: {
+            label: { simpleText: 'Members only' },
+          },
+        },
+      },
+    })
+    expect(withSponsorsBadge?.post).toMatchObject({
+      id: 'UgkxMembers1',
+      isMembersOnly: true,
+      membersOnlyLabel: 'Members only',
+    })
+
+    const withLocalizedMetaBadge = normalizeRawCommunityPost({
+      backstagePostRenderer: {
+        postId: 'UgkxMembers2',
+        authorText: { simpleText: 'Baasuka' },
+        contentText: { runs: [{ text: 'Fr post' }] },
+        badges: [
+          {
+            metadataBadgeRenderer: {
+              style: 'BADGE_STYLE_TYPE_MEMBERS_ONLY',
+              icon: { iconType: 'SPONSORSHIP_STAR' },
+              label: 'Réservé aux membres',
+            },
+          },
+        ],
+      },
+    })
+    expect(withLocalizedMetaBadge?.post).toMatchObject({
+      id: 'UgkxMembers2',
+      isMembersOnly: true,
+      membersOnlyLabel: 'Réservé aux membres',
+    })
+
+    const scanned = collectMembersOnlyPosts({
+      nested: [
+        { postId: 'UgkxMembers1', sponsorsOnlyBadge: { sponsorsOnlyBadgeRenderer: { tooltip: { simpleText: 'Members only' } } } },
+        { postId: 'UgkxPublic', contentText: { simpleText: 'Open post' } },
+      ],
+    })
+    expect(scanned.get('UgkxMembers1')).toBe('Members only')
+    expect(scanned.has('UgkxPublic')).toBe(false)
   })
 })

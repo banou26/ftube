@@ -46,6 +46,8 @@ export const mountPostCardHarness = (variant: 'single' | 'multi' | 'members') =>
           id: 'post-members-1',
           text: 'Exclusive perks post',
           publishedText: '19 hours ago',
+          isMembersOnly: true,
+          membersOnlyLabel: 'Members only',
           author: { id: 'UC-post', name: 'Member Creator' },
         }
 

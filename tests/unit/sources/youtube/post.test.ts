@@ -44,7 +44,7 @@ describe('a post by its id', () => {
     const post = await source.post(POST)
     expect(sent).toEqual([
       `https://www.youtube.com/post/${POST}`,
-      { endpoint: '/browse', args: { ...RESOLVED, parse: true } },
+      { endpoint: '/browse', args: { ...RESOLVED, parse: false } },
     ])
     expect(post).toMatchObject({
       id: POST,
@@ -54,6 +54,64 @@ describe('a post by its id', () => {
       attachedImage: expect.stringContaining('yt3.ggpht.com/'),
     })
     expect(post?.text).toMatch(/^Alright, it's that time: https:\/\/vote\.mkbhd\.com\n\nWelcome to the Blind Smartphone Camera Test 2023!/)
+  })
+
+  it('preserves members-only badge metadata from raw /browse data even when youtubei.js drops it', async () => {
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => ({
+        resolveURL: async () => ({ payload: RESOLVED }),
+        actions: {
+          execute: async () => ({
+            data: {
+              contents: {
+                twoColumnBrowseResultsRenderer: {
+                  tabs: [{
+                    tabRenderer: {
+                      selected: true,
+                      content: {
+                        sectionListRenderer: {
+                          contents: [{
+                            itemSectionRenderer: {
+                              contents: [{
+                                backstagePostThreadRenderer: {
+                                  post: {
+                                    backstagePostRenderer: {
+                                      postId: 'UgkxMember1',
+                                      authorText: { simpleText: 'Baasuka' },
+                                      authorEndpoint: { browseEndpoint: { browseId: 'UCmember1' } },
+                                      contentText: { runs: [{ text: 'Members post body' }] },
+                                      publishedTimeText: { simpleText: '19 hours ago' },
+                                      sponsorsOnlyBadge: {
+                                        sponsorsOnlyBadgeRenderer: {
+                                          tooltip: { simpleText: 'Members only' },
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              }],
+                            },
+                          }],
+                        },
+                      },
+                    },
+                  }],
+                },
+              },
+            },
+          }),
+        },
+      }) as never,
+    })
+
+    const post = await source.post('UgkxMember1')
+    expect(post).toMatchObject({
+      id: 'UgkxMember1',
+      text: 'Members post body',
+      isMembersOnly: true,
+      membersOnlyLabel: 'Members only',
+    })
   })
 
   it('is absent when youtube.com has no post under the id', async () => {

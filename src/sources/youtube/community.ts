@@ -285,6 +285,68 @@ const rawPoll = (poll: unknown): SourcePostPoll | undefined => {
   }
 }
 
+type RawMembersBadge = {
+  sponsorsOnlyBadgeRenderer?: {
+    label?: RawText
+    tooltip?: RawText
+    customBadgeLabel?: string | RawText
+  }
+  metadataBadgeRenderer?: {
+    style?: string
+    icon?: { iconType?: string }
+    label?: string
+    accessibilityData?: { accessibilityData?: { label?: string } }
+  }
+}
+
+const extractRawPostMembersOnly = (node: {
+  sponsorsOnlyBadge?: RawMembersBadge
+  sponsorOnlyBadge?: RawMembersBadge
+  badges?: RawMembersBadge[]
+  ownerBadges?: RawMembersBadge[]
+} | undefined): { isMembersOnly: true, label?: string } | undefined => {
+  if (!node) return undefined
+  const sponsors = node.sponsorsOnlyBadge?.sponsorsOnlyBadgeRenderer ?? node.sponsorOnlyBadge?.sponsorsOnlyBadgeRenderer
+  if (sponsors) {
+    const label = rawText(sponsors.label)
+      ?? rawText(sponsors.tooltip)
+      ?? (typeof sponsors.customBadgeLabel === 'string' ? sponsors.customBadgeLabel : rawText(sponsors.customBadgeLabel))
+    return { isMembersOnly: true, ...(label?.trim() ? { label: label.trim() } : {}) }
+  }
+  for (const item of [...(node.badges ?? []), ...(node.ownerBadges ?? [])]) {
+    const meta = item.metadataBadgeRenderer
+    if (!meta) continue
+    if (meta.style === 'BADGE_STYLE_TYPE_MEMBERS_ONLY' || meta.icon?.iconType === 'SPONSORSHIP_STAR') {
+      const label = meta.label?.trim() || rawText(meta.accessibilityData?.accessibilityData?.label)?.trim()
+      return { isMembersOnly: true, ...(label ? { label } : {}) }
+    }
+  }
+  return undefined
+}
+
+/** Walks raw YouTube browse JSON and collects members-only flags/labels keyed by `postId`. */
+export const collectMembersOnlyPosts = (raw: unknown): Map<string, string | undefined> => {
+  const result = new Map<string, string | undefined>()
+  const visited = new WeakSet<object>()
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== 'object') return
+    if (visited.has(value)) return
+    visited.add(value)
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    const obj = value as Record<string, unknown> & { postId?: unknown }
+    if (typeof obj.postId === 'string' && obj.postId) {
+      const info = extractRawPostMembersOnly(obj as Parameters<typeof extractRawPostMembersOnly>[0])
+      if (info && !result.has(obj.postId)) result.set(obj.postId, info.label)
+    }
+    for (const key of Object.keys(obj)) visit(obj[key])
+  }
+  visit(raw)
+  return result
+}
+
 export const normalizeRawCommunityPost = (
   rawInput: unknown,
   hostChannelId?: string,
@@ -313,6 +375,9 @@ export const normalizeRawCommunityPost = (
     authorBadges?: unknown
     ownerBadges?: unknown
     showPostAuthorBackgroundHighlight?: boolean
+    sponsorsOnlyBadge?: RawMembersBadge
+    sponsorOnlyBadge?: RawMembersBadge
+    badges?: RawMembersBadge[]
     contentText?: RawText
     publishedTimeText?: RawText
     voteCount?: RawText
@@ -371,6 +436,12 @@ export const normalizeRawCommunityPost = (
 
   const isCreator = Boolean(node.showPostAuthorBackgroundHighlight)
     || (Boolean(hostChannelId) && explicitAuthorId === hostChannelId)
+  const membersOnly = extractRawPostMembersOnly({
+    sponsorsOnlyBadge: node.sponsorsOnlyBadge,
+    sponsorOnlyBadge: node.sponsorOnlyBadge,
+    badges: node.badges,
+    ownerBadges: Array.isArray(node.ownerBadges) ? node.ownerBadges as RawMembersBadge[] : undefined,
+  })
   const actions = extractRawPostActions(node)
 
   const post: SourcePost = {
@@ -382,6 +453,7 @@ export const normalizeRawCommunityPost = (
     voteCountText: rawText(node.voteCount) ?? rawText(buttons?.likeButton?.toggleButtonRenderer?.defaultText),
     likeStatus,
     ...(hostChannelId || node.showPostAuthorBackgroundHighlight !== undefined ? { isCreator } : {}),
+    ...(membersOnly ? { isMembersOnly: true, ...(membersOnly.label ? { membersOnlyLabel: membersOnly.label } : {}) } : {}),
     ...(commentCountText ? { commentCountText } : {}),
     ...(commentCountLabel ? { commentCountLabel } : {}),
     ...(attachedVideo ? { attachedVideo } : {}),

@@ -100,11 +100,11 @@ const membersStyle = css`
 `
 
 /** The green Members only mark youtube.com draws on its own line under a members-only row's date, and on its watch page. */
-export const MembersOnly = () => (
+export const MembersOnly = ({ label = 'Members only' }: { label?: string }) => (
   <div css={membersStyle} className='members-only'>
     <svg css={iconStyle} width={12} height={12} viewBox='0 0 12 12' aria-hidden='true'>
       <path d={STAR} />
     </svg>
-    Members only
+    {label}
   </div>
 )

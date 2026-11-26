@@ -45,6 +45,8 @@ const COMMUNITY_POSTS_QUERY = gql(`
         likeStatus
         actionsToken
         isCreator
+        isMembersOnly
+        membersOnlyLabel
         commentCountText
         commentCountLabel
         attachedImage
@@ -207,6 +209,8 @@ const CHANNEL_VIEW_QUERY = gql(`
             likeStatus
             actionsToken
             isCreator
+            isMembersOnly
+            membersOnlyLabel
             commentCountText
             commentCountLabel
             attachedImage
@@ -245,6 +249,8 @@ const CHANNEL_VIEW_QUERY = gql(`
           likeStatus
           actionsToken
           isCreator
+          isMembersOnly
+          membersOnlyLabel
           commentCountText
           commentCountLabel
           attachedImage

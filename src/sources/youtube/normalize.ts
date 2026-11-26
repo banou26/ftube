@@ -797,6 +797,9 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
     published?: Text
     vote_count?: Text
     vote_status?: string
+    sponsors_only_badge?: { label?: string | Text, tooltip?: string | Text }
+    sponsor_only_badge?: { label?: string | Text, tooltip?: string | Text }
+    badges?: { style?: string, label?: string, icon_type?: string }[]
     action_buttons?: {
       like_button?: { is_toggled?: boolean }
       dislike_button?: { is_toggled?: boolean }
@@ -844,6 +847,10 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
         })),
       }
     : undefined
+  const sponsorsBadge = node?.sponsors_only_badge ?? node?.sponsor_only_badge
+  const memberBadge = node?.badges?.find((badge) => badge.style === 'BADGE_STYLE_TYPE_MEMBERS_ONLY' || badge.icon_type === 'SPONSORSHIP_STAR')
+  const isMembersOnly = Boolean(sponsorsBadge || memberBadge)
+  const membersOnlyLabel = presentText(sponsorsBadge?.label) ?? presentText(sponsorsBadge?.tooltip) ?? memberBadge?.label
   return {
     id,
     author: authorChannel(node?.author),
@@ -851,6 +858,7 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
     ...(runs.length > 0 ? { runs } : {}),
     publishedText: presentText(node?.published),
     voteCountText: presentText(node?.vote_count),
+    ...(isMembersOnly ? { isMembersOnly: true, ...(membersOnlyLabel ? { membersOnlyLabel } : {}) } : {}),
     ...(parsedLikeStatus ? { likeStatus: parsedLikeStatus } : {}),
     ...(commentCountText ? { commentCountText } : {}),
     ...(commentCountLabel ? { commentCountLabel } : {}),
