@@ -180,3 +180,61 @@ test('makes avatars in live chat messages and pinned banner clickable channel li
   await chat.getByRole('button', { name: 'Mention Alice' }).click()
   await expect(chat.getByPlaceholder('Chat…')).toHaveValue('@alice ')
 })
+
+test('opens reactions tray vertically above trigger on hover, collapses on leave, and toggles pin on click', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+  const harness = page.locator('[data-live-chat-harness]')
+  await expect(async () => {
+    if (await harness.count() === 0) {
+      await page.evaluate(async (path) => {
+        const mod = await import(path) as typeof import('./fixtures/live-chat-harness')
+        mod.mountLiveChatHarness()
+      }, HARNESS)
+    }
+    await expect(harness).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const chat = harness.getByRole('region', { name: 'Live chat' })
+  const toggle = chat.getByRole('button', { name: 'Reactions' })
+  const tray = chat.getByRole('group', { name: 'Local reactions' })
+  await expect(toggle).toBeVisible()
+  await expect(tray).toHaveCount(0)
+
+  await toggle.hover()
+  await expect(tray).toBeVisible()
+
+  const toggleBox = await toggle.boundingBox()
+  const trayBox = await tray.boundingBox()
+  expect(toggleBox).not.toBeNull()
+  expect(trayBox).not.toBeNull()
+  expect(trayBox!.height).toBeGreaterThan(trayBox!.width * 2)
+  expect(trayBox!.y + trayBox!.height).toBeLessThanOrEqual(toggleBox!.y + 2)
+
+  const pickBoxes = await tray.locator('.reaction-pick').evaluateAll(els =>
+    els.map(el => {
+      const r = el.getBoundingClientRect()
+      return { y: r.y + r.height / 2, x: r.x + r.width / 2 }
+    }),
+  )
+  expect(pickBoxes.length).toBe(5)
+  for (let i = 1; i < pickBoxes.length; i++) {
+    expect(pickBoxes[i]!.y).toBeGreaterThan(pickBoxes[i - 1]!.y)
+  }
+
+  await tray.getByRole('button', { name: 'React ❤️' }).click()
+  await expect(chat.locator('.reaction-particle')).toContainText('❤️')
+
+  await chat.locator('.head').hover()
+  await expect(tray).toHaveCount(0)
+
+  await toggle.click()
+  await expect(tray).toBeVisible()
+  await chat.locator('.head').hover()
+  await expect(tray).toBeVisible()
+
+  await toggle.click()
+  await expect(tray).toHaveCount(0)
+})

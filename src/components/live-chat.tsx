@@ -27,6 +27,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
+import { useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { lineFor } from './data-failure'
@@ -447,14 +448,36 @@ export const chatStyles = css`
     white-space: nowrap;
   }
 
-  .reaction-tray {
-    display: flex;
+  .reaction-control {
+    position: relative;
+    display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
+    flex: none;
+  }
+
+  .reaction-tray {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.6rem);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     gap: 0.4rem;
-    padding: 0.6rem 1rem;
-    border-top: 1px solid var(--border);
+    padding: 0.6rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999rem;
     background: var(--bg-elevated);
+    box-shadow: var(--shadow-menu, 0 4px 16px rgba(0, 0, 0, 0.35));
+    z-index: 6;
+  }
+
+  .reaction-tray::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 0.8rem;
   }
 
   .reaction-pick {
@@ -1418,18 +1441,50 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
     switchView,
     hideChat,
   } = useLiveChatSession({ videoId, subscribed, onHide })
+  const [reactionsHovered, setReactionsHovered] = useState(false)
+  const reactionsVisible = !ended && (reactionsOpen || reactionsHovered)
 
-  const reactionButton = !ended
+  const reactionControl = !ended
     ? (
-      <button
-        type='button'
-        className='reaction-toggle'
-        aria-label='Reactions'
-        aria-expanded={reactionsOpen}
-        onClick={() => setReactionsOpen((open) => !open)}
+      <div
+        className='reaction-control'
+        onMouseEnter={() => setReactionsHovered(true)}
+        onMouseLeave={() => setReactionsHovered(false)}
       >
-        <Heart size={18} strokeWidth={1.5} />
-      </button>
+        {reactionsVisible
+          ? (
+            <div className='reaction-tray' role='group' aria-label='Local reactions'>
+              {LIVE_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type='button'
+                  className='reaction-pick'
+                  aria-label={`React ${emoji}`}
+                  onClick={() => triggerReaction(emoji)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )
+          : undefined}
+        <button
+          type='button'
+          className='reaction-toggle'
+          aria-label='Reactions'
+          aria-expanded={reactionsVisible}
+          onClick={() => {
+            if (reactionsOpen) {
+              setReactionsOpen(false)
+              setReactionsHovered(false)
+            } else {
+              setReactionsOpen(true)
+            }
+          }}
+        >
+          <Heart size={18} strokeWidth={1.5} />
+        </button>
+      </div>
     )
     : undefined
 
@@ -1618,24 +1673,6 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
               ? <button type='button' className='resume' onClick={() => setPinned(true)}>Jump to latest</button>
               : undefined}
 
-            {reactionsOpen && !ended
-              ? (
-                <div className='reaction-tray' role='group' aria-label='Local reactions'>
-                  {LIVE_REACTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type='button'
-                      className='reaction-pick'
-                      aria-label={`React ${emoji}`}
-                      onClick={() => triggerReaction(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )
-              : undefined}
-
             {!ended && ready
               ? canCompose
                 ? (
@@ -1702,7 +1739,7 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
                       <button type='submit' className='send-btn' disabled={sending || slowModeLeft > 0 || !draft.trim()}>
                         {slowModeLeft > 0 ? `${slowModeLeft}s` : 'Send'}
                       </button>
-                      {reactionButton}
+                      {reactionControl}
                     </form>
                   </div>
                 )
@@ -1712,7 +1749,7 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
                       <Lock size={14} strokeWidth={1.75} aria-hidden='true' />
                       <span className='restricted-text'>{inputState?.restrictionMessage || 'Sign in to chat'}</span>
                       <Link href='/signin' className='signin-link'>Sign in</Link>
-                      {reactionButton}
+                      {reactionControl}
                     </div>
                   )
                   : (
@@ -1728,11 +1765,11 @@ export const LiveChat = ({ videoId, subscribed, onHide }: { videoId: string, sub
                         <RefreshCw size={13} strokeWidth={1.75} aria-hidden='true' />
                         {refreshing ? 'Checking…' : 'Refresh'}
                       </button>
-                      {reactionButton}
+                      {reactionControl}
                     </div>
                   )
-              : reactionButton
-                ? <div className='reaction-bar'>{reactionButton}</div>
+              : reactionControl
+                ? <div className='reaction-bar'>{reactionControl}</div>
                 : undefined}
 
             {leaderboardOpen && leaderboardEntry
