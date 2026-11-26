@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { muxMp4 } from '../../../src/downloads/mp4-muxer'
+import { muxMp4, muxMp4Audio } from '../../../src/downloads/mp4-muxer'
 
 const concat = (parts: readonly Uint8Array[]): Uint8Array => {
   const total = parts.reduce((sum, part) => sum + part.byteLength, 0)
@@ -699,5 +699,91 @@ describe('muxMp4', () => {
       box('mdat', makePattern(1, 8)),
     ])
     expect(() => muxMp4([zeroSzVideo], [audio])).toThrow('zero-size samples')
+  })
+
+  it('trims video and audio tracks with keyframe preroll, non-zero tfdt offset, and edit-list start offset', () => {
+    // 10 kHz timescale -> 10 ticks/ms; 4 fragments starting at tfdt = 20_000 (2.0s), 1 keyframe every 1.0s (10 samples * 1000 ticks)
+    const vidSamples = Array.from({ length: 40 }, (_, i) => ({
+      payload: makePattern(100 + i, 24),
+      flags: i % 10 === 0 ? 0x0 : 0x10000,
+      cto: 0,
+    }))
+    const videoTrack = concat([
+      box('ftyp', fourcc('dash'), u32(0), fourcc('iso6'), fourcc('avc1'), fourcc('mp41')),
+      makeMoov({
+        trackId: 1,
+        mvhdTimescale: 1000,
+        mvhdDuration: 6000,
+        mdhdTimescale: 10_000,
+        mdhdDuration: 60_000,
+        handlerType: 'vide',
+        codecFourcc: 'avc1',
+        trex: { defaultDuration: 1000, defaultFlags: 0x10000 },
+      }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 20_000,
+        includeFlags: true,
+        samples: vidSamples,
+      }),
+    ])
+
+    const audioSamples = Array.from({ length: 40 }, (_, i) => ({
+      payload: makePattern(200 + i, 12),
+    }))
+    const audioTrack = concat([
+      box('ftyp', fourcc('dash'), u32(0), fourcc('iso6'), fourcc('mp4a'), fourcc('mp41')),
+      makeMoov({
+        trackId: 1,
+        mvhdTimescale: 1000,
+        mvhdDuration: 6000,
+        mdhdTimescale: 10_000,
+        mdhdDuration: 60_000,
+        handlerType: 'soun',
+        codecFourcc: 'mp4a',
+        trex: { defaultDuration: 1000, defaultFlags: 0 },
+      }),
+      makeDashFragment({
+        trackId: 1,
+        seq: 1,
+        decodeTime: 20_000,
+        samples: audioSamples,
+      }),
+    ])
+
+    // Trim [3500ms, 5000ms]: keyframe preroll goes back to t=3.0s (sample index 10 -> dts 30_000), elst mediaTime offsets 5_000 ticks (0.5s)
+    const muxed = concat(muxMp4([videoTrack], [audioTrack], { startMs: 3_500, endMs: 5_000 }))
+    const moov = listBoxes(muxed).find((b) => b.type === 'moov')!
+    const moovChildren = listBoxes(moov.data, 8)
+    const mvhd = moovChildren.find((b) => b.type === 'mvhd')!
+    const mvhdDurationMs = readUint32(mvhd.data, 24)
+    expect(mvhdDurationMs).toBe(1500)
+
+    const traks = moovChildren.filter((b) => b.type === 'trak')
+    const videoTrak = listBoxes(traks[0]!.data, 8)
+    const videoElst = listBoxes(videoTrak.find((b) => b.type === 'edts')!.data, 8).find((b) => b.type === 'elst')!
+    expect(readUint32(videoElst.data, 16)).toBe(1500)
+    expect(readInt32(videoElst.data, 20)).toBe(5000)
+
+    const videoStbl = listBoxes(
+      listBoxes(videoTrak.find((b) => b.type === 'mdia')!.data, 8).find((b) => b.type === 'minf')!.data,
+      8,
+    ).find((b) => b.type === 'stbl')!
+    const extracted = extractTrackPayloadsFromStbl(muxed, listBoxes(videoStbl.data, 8))
+    // Kept samples: indices 10..29 (t=3.0s..4.9s, starting cleanly at keyframe index 10)
+    expect(extracted.samples).toHaveLength(20)
+    expect([...extracted.samples[0]!]).toEqual([...makePattern(110, 24)])
+    const stss = parseStss(listBoxes(videoStbl.data, 8).find((b) => b.type === 'stss')!.data)
+    expect(stss[0]).toBe(1)
+
+    // Audio-only M4A trim for [3500ms, 5000ms]
+    const trimmedAudio = concat(muxMp4Audio([audioTrack], { startMs: 3_500, endMs: 5_000 }))
+    const aMoov = listBoxes(trimmedAudio).find((b) => b.type === 'moov')!
+    const aMvhd = listBoxes(aMoov.data, 8).find((b) => b.type === 'mvhd')!
+    expect(readUint32(aMvhd.data, 24)).toBe(1500)
+    const aTrak = listBoxes(aMoov.data, 8).find((b) => b.type === 'trak')!
+    const aElst = listBoxes(listBoxes(aTrak.data, 8).find((b) => b.type === 'edts')!.data, 8).find((b) => b.type === 'elst')!
+    expect(readUint32(aElst.data, 16)).toBe(1500)
   })
 })

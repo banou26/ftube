@@ -177,6 +177,8 @@ export type StartDownloadOptions = {
   mode: 'video' | 'audio'
   videoKey?: string
   audioKey: string
+  startMs?: number
+  endMs?: number
 }
 
 /** Handle and MIME metadata returned when a SABR download session starts. */

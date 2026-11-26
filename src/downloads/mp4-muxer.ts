@@ -1,3 +1,5 @@
+import type { TrimRange } from './trim'
+
 type Mp4Box = {
   type: string
   start: number
@@ -18,6 +20,8 @@ type SampleRecord = {
   size: number
   ctsOffset: number
   isSync: boolean
+  dts: number
+  byteOffset: number
 }
 
 type ChunkRecord = {
@@ -43,6 +47,8 @@ type ParsedTrack = {
   samples: SampleRecord[]
   chunks: ChunkRecord[]
   totalDurationTicks: number
+  sourceBytes: Uint8Array
+  overrideDurationMs?: number
 }
 
 const MOVIE_TIMESCALE = 1000
@@ -438,6 +444,8 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
             size,
             ctsOffset,
             isSync: (flags & NON_SYNC_SAMPLE_FLAG) === 0,
+            dts: decodeTime + runDuration,
+            byteOffset: runByteStart + runBytes,
           })
           runBytes += size
           runDuration += duration
@@ -489,6 +497,8 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
 
     for (let s = 0; s < frag.sampleCount; s += 1) {
       const sample = samples[frag.startSample + s]!
+      sample.dts = curDecode
+      sample.byteOffset = pos
       if (chunkSamples > 0 && chunkDur + sample.duration > targetChunkTicks) {
         chunkRecords.push({
           trackId,
@@ -538,6 +548,7 @@ const parseTrack = (chunks: readonly Uint8Array[], trackId: 1 | 2): ParsedTrack 
     samples,
     chunks: chunkRecords,
     totalDurationTicks,
+    sourceBytes: bytes,
   }
 }
 
@@ -754,7 +765,8 @@ const buildTrak = (
   chunkOffsets: readonly number[],
   useCo64: boolean,
 ): Uint8Array => {
-  const trackDurationMs = Math.round((track.totalDurationTicks * MOVIE_TIMESCALE) / track.mdhdTimescale)
+  const trackDurationMs = track.overrideDurationMs
+    ?? Math.round((track.totalDurationTicks * MOVIE_TIMESCALE) / track.mdhdTimescale)
   const stblChildren: Uint8Array[] = [track.stsdData, buildStts(track.samples)]
   const ctts = buildCtts(track.samples)
   if (ctts) stblChildren.push(ctts)
@@ -783,39 +795,132 @@ const buildTrak = (
   return wrapBox('trak', trakChildren)
 }
 
-/**
- * Remuxes two fragmented MP4 elementary tracks (`videoChunks` as track 1 and `audioChunks` as track 2) into a
- * standard non-fragmented fast-start ISO-BMFF MP4 suitable for `new Blob(parts, { type: 'video/mp4' })`.
- */
-export const muxMp4 = (videoChunks: readonly Uint8Array[], audioChunks: readonly Uint8Array[]): Uint8Array[] => {
-  const video = parseTrack(videoChunks, 1)
-  const audio = parseTrack(audioChunks, 2)
+const trimTrack = (track: ParsedTrack, trim: TrimRange): ParsedTrack => {
+  const { samples, mdhdTimescale, sourceBytes } = track
+  const startTicks = Math.round((trim.startMs * mdhdTimescale) / 1000)
+  const endTicks = Math.round((trim.endMs * mdhdTimescale) / 1000)
+  const requestedClipMs = Math.max(1, Math.round(trim.endMs - trim.startMs))
+  const baseEditOffset = track.elstEntries.find((entry) => entry.mediaTime >= 0)?.mediaTime ?? 0
+  const targetStartCts = startTicks + baseEditOffset
+  const targetEndCts = endTicks + baseEditOffset
 
-  const hasSignedCtts = video.samples.some((sample) => sample.ctsOffset < 0)
-    || audio.samples.some((sample) => sample.ctsOffset < 0)
-  const ftyp = buildFtyp(video.codecBrand, hasSignedCtts)
-  const videoDurationMs = Math.round((video.totalDurationTicks * MOVIE_TIMESCALE) / video.mdhdTimescale)
-  const audioDurationMs = Math.round((audio.totalDurationTicks * MOVIE_TIMESCALE) / audio.mdhdTimescale)
-  const movieDurationMs = Math.max(videoDurationMs, audioDurationMs)
-  const mvhd = buildMvhd(movieDurationMs, 3)
+  const firstAtOrAfter = (() => {
+    const idx = samples.findIndex((sample) => sample.dts + sample.ctsOffset >= targetStartCts)
+    return idx >= 0 ? idx : samples.length - 1
+  })()
 
-  const combined = [...video.chunks, ...audio.chunks].sort((a, b) =>
-    a.decodeTimeSec - b.decodeTimeSec || a.trackId - b.trackId || a.order - b.order,
+  const allSync = samples.every((sample) => sample.isSync)
+  let startIdx = firstAtOrAfter
+  if (allSync) {
+    const chosen = samples[firstAtOrAfter]!
+    if (firstAtOrAfter > 0 && chosen.dts + chosen.ctsOffset > targetStartCts) {
+      startIdx = firstAtOrAfter - 1
+    }
+  } else {
+    let syncIdx = -1
+    for (let i = Math.min(firstAtOrAfter, samples.length - 1); i >= 0; i -= 1) {
+      const candidate = samples[i]!
+      if (candidate.isSync && candidate.dts + candidate.ctsOffset <= targetStartCts) {
+        syncIdx = i
+        break
+      }
+    }
+    if (syncIdx < 0) {
+      syncIdx = samples.findIndex((sample) => sample.isSync)
+    }
+    startIdx = syncIdx >= 0 ? syncIdx : 0
+  }
+
+  let endIdx = startIdx
+  for (let i = startIdx; i < samples.length; i += 1) {
+    const sample = samples[i]!
+    if (Math.min(sample.dts, sample.dts + sample.ctsOffset) < targetEndCts) {
+      endIdx = i
+    }
+  }
+  const kept = samples.slice(startIdx, endIdx + 1)
+  if (kept.length === 0) {
+    throw new Error(`mp4-muxer: track ${track.trackId} contains no samples in trimmed range`)
+  }
+
+  const baseDts = kept[0]!.dts
+  const elstMediaTime = Math.max(0, Math.round(targetStartCts - baseDts))
+  let totalDurationTicks = 0
+  for (const sample of kept) totalDurationTicks += sample.duration
+  const availableDurationMs = Math.max(
+    1,
+    Math.round(((totalDurationTicks - elstMediaTime) * MOVIE_TIMESCALE) / mdhdTimescale),
   )
+  const trimmedDurationMs = Math.min(requestedClipMs, availableDurationMs)
 
-  const videoSampleCounts: number[] = []
-  const videoRelOffsets: number[] = []
-  const audioSampleCounts: number[] = []
-  const audioRelOffsets: number[] = []
+  const targetChunkTicks = Math.max(1, mdhdTimescale * TARGET_CHUNK_SEC)
+  const chunks: ChunkRecord[] = []
+  let order = 0
+  let batch: SampleRecord[] = []
+  let batchDur = 0
+  let batchDts = kept[0]!.dts
+
+  const flushBatch = () => {
+    if (batch.length === 0) return
+    let contiguous = true
+    for (let i = 1; i < batch.length; i += 1) {
+      const prev = batch[i - 1]!
+      if (prev.byteOffset + prev.size !== batch[i]!.byteOffset) {
+        contiguous = false
+        break
+      }
+    }
+    const payload = contiguous
+      ? sourceBytes.subarray(batch[0]!.byteOffset, batch[batch.length - 1]!.byteOffset + batch[batch.length - 1]!.size)
+      : concatChunks(batch.map((s) => sourceBytes.subarray(s.byteOffset, s.byteOffset + s.size)))
+    chunks.push({
+      trackId: track.trackId,
+      decodeTimeSec: (batchDts - baseDts) / mdhdTimescale,
+      order: order++,
+      sampleCount: batch.length,
+      payload,
+    })
+    batch = []
+    batchDur = 0
+  }
+
+  for (const sample of kept) {
+    if (batch.length > 0 && batchDur + sample.duration > targetChunkTicks) {
+      flushBatch()
+      batchDts = sample.dts
+    }
+    batch.push(sample)
+    batchDur += sample.duration
+  }
+  flushBatch()
+
+  return {
+    ...track,
+    mvhdTimescale: MOVIE_TIMESCALE,
+    elstEntries: [{
+      segmentDuration: trimmedDurationMs,
+      mediaTime: elstMediaTime,
+      rateInt: 1,
+      rateFrac: 0,
+    }],
+    samples: kept,
+    chunks,
+    totalDurationTicks,
+    overrideDurationMs: trimmedDurationMs,
+  }
+}
+
+const finalizeMdatAndMoov = (ftyp: Uint8Array, mvhd: Uint8Array, tracks: readonly ParsedTrack[], combined: readonly ChunkRecord[]): Uint8Array[] => {
+  const countsByTrack = new Map<number, number[]>()
+  const offsetsByTrack = new Map<number, number[]>()
+  for (const t of tracks) {
+    countsByTrack.set(t.trackId, [])
+    offsetsByTrack.set(t.trackId, [])
+  }
   let mdatPayloadBytes = 0
   for (const chunk of combined) {
-    if (chunk.trackId === 1) {
-      videoSampleCounts.push(chunk.sampleCount)
-      videoRelOffsets.push(mdatPayloadBytes)
-    } else {
-      audioSampleCounts.push(chunk.sampleCount)
-      audioRelOffsets.push(mdatPayloadBytes)
-    }
+    countsByTrack.get(chunk.trackId)!.push(chunk.sampleCount)
+    offsetsByTrack.get(chunk.trackId)!.push(mdatPayloadBytes)
     mdatPayloadBytes += chunk.payload.byteLength
   }
 
@@ -824,8 +929,14 @@ export const muxMp4 = (videoChunks: readonly Uint8Array[], audioChunks: readonly
 
   const assembleMoov = (mdatDataStart: number, useCo64: boolean) => wrapBox('moov', [
     mvhd,
-    buildTrak(video, videoSampleCounts, videoRelOffsets.map((off) => mdatDataStart + off), useCo64),
-    buildTrak(audio, audioSampleCounts, audioRelOffsets.map((off) => mdatDataStart + off), useCo64),
+    ...tracks.map((track) =>
+      buildTrak(
+        track,
+        countsByTrack.get(track.trackId)!,
+        offsetsByTrack.get(track.trackId)!.map((off) => mdatDataStart + off),
+        useCo64,
+      ),
+    ),
   ])
 
   const measure32 = assembleMoov(0, false)
@@ -845,4 +956,49 @@ export const muxMp4 = (videoChunks: readonly Uint8Array[], audioChunks: readonly
   }
 
   return [ftyp, moov, mdatHeader, ...combined.map((chunk) => chunk.payload)]
+}
+
+/**
+ * Remuxes two fragmented MP4 elementary tracks (`videoChunks` as track 1 and `audioChunks` as track 2) into a
+ * standard non-fragmented fast-start ISO-BMFF MP4, optionally trimmed to `[trim.startMs, trim.endMs]`.
+ */
+export const muxMp4 = (
+  videoChunks: readonly Uint8Array[],
+  audioChunks: readonly Uint8Array[],
+  trim?: TrimRange,
+): Uint8Array[] => {
+  const rawVideo = parseTrack(videoChunks, 1)
+  const rawAudio = parseTrack(audioChunks, 2)
+  const video = trim ? trimTrack(rawVideo, trim) : rawVideo
+  const audio = trim ? trimTrack(rawAudio, trim) : rawAudio
+
+  const hasSignedCtts = video.samples.some((sample) => sample.ctsOffset < 0)
+    || audio.samples.some((sample) => sample.ctsOffset < 0)
+  const ftyp = buildFtyp(video.codecBrand, hasSignedCtts)
+  const videoDurationMs = video.overrideDurationMs
+    ?? Math.round((video.totalDurationTicks * MOVIE_TIMESCALE) / video.mdhdTimescale)
+  const audioDurationMs = audio.overrideDurationMs
+    ?? Math.round((audio.totalDurationTicks * MOVIE_TIMESCALE) / audio.mdhdTimescale)
+  const movieDurationMs = trim ? Math.min(videoDurationMs, audioDurationMs) : Math.max(videoDurationMs, audioDurationMs)
+  const mvhd = buildMvhd(movieDurationMs, 3)
+
+  const combined = [...video.chunks, ...audio.chunks].sort((a, b) =>
+    a.decodeTimeSec - b.decodeTimeSec || a.trackId - b.trackId || a.order - b.order,
+  )
+  return finalizeMdatAndMoov(ftyp, mvhd, [video, audio], combined)
+}
+
+/**
+ * Remuxes (and trims when `trim` is provided) a fragmented MP4 audio track (`audioChunks`) into a non-fragmented
+ * fast-start M4A/MP4 container suitable for `new Blob(parts, { type: 'audio/mp4' })`.
+ */
+export const muxMp4Audio = (audioChunks: readonly Uint8Array[], trim?: TrimRange): Uint8Array[] => {
+  const rawAudio = parseTrack(audioChunks, 1)
+  const audio = trim ? trimTrack(rawAudio, trim) : rawAudio
+  const hasSignedCtts = audio.samples.some((sample) => sample.ctsOffset < 0)
+  const ftyp = buildFtyp(audio.codecBrand, hasSignedCtts)
+  const movieDurationMs = audio.overrideDurationMs
+    ?? Math.round((audio.totalDurationTicks * MOVIE_TIMESCALE) / audio.mdhdTimescale)
+  const mvhd = buildMvhd(movieDurationMs, 2)
+  return finalizeMdatAndMoov(ftyp, mvhd, [audio], audio.chunks)
 }

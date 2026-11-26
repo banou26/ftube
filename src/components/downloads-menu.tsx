@@ -488,6 +488,7 @@ export const DownloadsMenu = () => {
 
                       <div className='item-meta'>
                         <span>{item.qualityLabel}</span>
+                        {item.clipLabel ? <span>{item.clipLabel}</span> : undefined}
                         <span>
                           {!isActive && item.status === 'completed' && item.sizeBytes
                             ? formatBytes(item.sizeBytes)

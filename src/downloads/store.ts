@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'preact/hooks'
 
 import type { DownloadFormatOption, FrameApi } from '../frame/protocol'
+import type { TrimRange } from './trim'
 
 import { startEngine } from '../engine/client'
 import { showToast } from '../components/ui/toast'
-import { muxMp4 } from './mp4-muxer'
+import { muxMp4, muxMp4Audio } from './mp4-muxer'
+import { formatClipFilenameSuffix, formatClipLabel, isFullRange } from './trim'
+import { trimWebmAudio } from './webm-trimmer'
 
 /** Target video metadata passed when opening the download picker or queuing a download. */
 export type DownloadTarget = {
@@ -24,6 +27,7 @@ export type DownloadItem = {
   mode: 'video' | 'audio'
   container: 'mp4' | 'm4a' | 'webm'
   qualityLabel: string
+  clipLabel?: string
   filename: string
   status: 'starting' | 'downloading' | 'muxing' | 'completed' | 'failed' | 'cancelled'
   loadedBytes: number
@@ -44,6 +48,8 @@ export type StartVideoDownloadInput = {
   qualityLabel: string
   container: 'mp4' | 'm4a' | 'webm'
   estimatedBytes?: number
+  durationMs?: number
+  trim?: TrimRange
 }
 
 export const DOWNLOADS_STORAGE_KEY = 'yt-client:downloads'
@@ -65,8 +71,8 @@ const defaultStorage = (): StorageLike | undefined => {
   }
 }
 
-/** Sanitizes a video title into a filesystem-safe download filename with extension `ext`. */
-export const sanitizeFilename = (title: string, ext: string): string => {
+/** Sanitizes a video title into a filesystem-safe download filename with extension `ext` and optional clip suffix. */
+export const sanitizeFilename = (title: string, ext: string, trim?: TrimRange): string => {
   // Replace C0 control characters without splitting UTF-16 surrogate pairs.
   // oxlint-disable-next-line no-control-regex
   const withoutControls = title.replace(/[\u0000-\u001f]/g, ' ')
@@ -75,9 +81,11 @@ export const sanitizeFilename = (title: string, ext: string): string => {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^[.\s]+|[.\s]+$/g, '')
-  const base = (cleaned || 'video').slice(0, 120).trim()
   const extension = ext.replace(/^\.+/, '').trim() || 'bin'
-  return `${base}.${extension}`
+  const suffix = trim ? ` (${formatClipFilenameSuffix(trim)})` : ''
+  const maxBaseLen = Math.max(16, 120 - suffix.length)
+  const base = (cleaned || 'video').slice(0, maxBaseLen).trim()
+  return `${base}${suffix}.${extension}`
 }
 
 /** Formats a byte count into a short human-readable string (`B`, `KB`, `MB`, `GB`). */
@@ -390,8 +398,12 @@ export const startVideoDownload = async (
     saveFile?: (blobUrl: string, filename: string) => void
   } = {},
 ): Promise<DownloadItem> => {
+  const effectiveTrim = input.trim && !(input.durationMs && isFullRange(input.trim, input.durationMs))
+    ? input.trim
+    : undefined
+  const clipLabel = effectiveTrim ? formatClipLabel(effectiveTrim) : undefined
   const id = `dl-${Date.now()}-${++nextSeq}`
-  const filename = sanitizeFilename(input.target.title, input.container)
+  const filename = sanitizeFilename(input.target.title, input.container, effectiveTrim)
   const initial: DownloadItem = {
     id,
     videoId: input.target.videoId,
@@ -401,6 +413,7 @@ export const startVideoDownload = async (
     mode: input.mode,
     container: input.container,
     qualityLabel: input.qualityLabel,
+    clipLabel,
     filename,
     status: 'starting',
     loadedBytes: 0,
@@ -423,6 +436,7 @@ export const startVideoDownload = async (
       mode: input.mode,
       videoKey: input.videoKey,
       audioKey: input.audioKey,
+      ...(effectiveTrim ? { startMs: effectiveTrim.startMs, endMs: effectiveTrim.endMs } : {}),
     })
     remoteIds.set(id, started.downloadId)
     if (cancelledIds.has(id)) {
@@ -459,7 +473,15 @@ export const startVideoDownload = async (
       updateItem(id, { status: 'muxing' })
       await new Promise((resolve) => setTimeout(resolve, 0))
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-      parts = muxMp4(videoChunks, audioChunks)
+      parts = muxMp4(videoChunks, audioChunks, effectiveTrim)
+      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
+    } else if (effectiveTrim) {
+      updateItem(id, { status: 'muxing' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
+      parts = input.container === 'webm'
+        ? trimWebmAudio(audioChunks, effectiveTrim)
+        : muxMp4Audio(audioChunks, effectiveTrim)
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
     } else {
       parts = audioChunks

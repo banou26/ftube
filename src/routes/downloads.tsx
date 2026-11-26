@@ -252,6 +252,7 @@ export const DownloadsPage = () => {
                       <Link href={watchHrefFor(item.videoId)} className='title'>{item.title}</Link>
                       <div className='details'>
                         <span>{item.qualityLabel}</span>
+                        {item.clipLabel ? <span>{item.clipLabel}</span> : undefined}
                         <span>{downloadStatusLabel(item.status)}</span>
                         <span>
                           {formatBytes(item.loadedBytes)}
@@ -300,6 +301,7 @@ export const DownloadsPage = () => {
                     <Link href={watchHrefFor(item.videoId)} className='title'>{item.title}</Link>
                     <div className='details'>
                       <span>{item.qualityLabel}</span>
+                      {item.clipLabel ? <span>{item.clipLabel}</span> : undefined}
                       <span>{item.status === 'completed' && item.sizeBytes ? formatBytes(item.sizeBytes) : downloadStatusLabel(item.status)}</span>
                       {item.channelName ? <span>{item.channelName}</span> : undefined}
                     </div>
