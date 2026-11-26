@@ -1,11 +1,12 @@
+import type { WatchActionId } from '../components/watch-actions-layout'
 import type { PlaylistPanelData } from '../components/playlist-panel'
 import type { RelatedVideosQuery } from '../generated/graphql'
 
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { Download, EllipsisVertical, Link2, Share2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { Download, Ellipsis, FolderPlus, ListPlus, Share2 } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
 
@@ -18,16 +19,17 @@ import DescriptionBox from '../components/description-box'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { isAllowedWithHideShorts } from '../shorts-filter'
 import { parseStartSeconds } from '../components/format'
-import { GroupsButton } from '../components/groups-button'
+import { GroupsDialog } from '../components/groups-button'
 import { LikePill } from '../components/like-pill'
 import LiveChat, { LiveChatTeaser } from '../components/live-chat'
 import { openDownloadDialog } from '../downloads/store'
 import PlaylistPanel from '../components/playlist-panel'
 import { QueuePanel } from '../components/queue-panel'
 import { MembersOnly } from '../components/row-marks'
-import SaveMenu from '../components/save-menu'
+import SaveMenu, { SaveDialog } from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
 import SubscribeButton, { subscribeStyle } from '../components/subscribe-button'
+import { computeVisibleWatchActions } from '../components/watch-actions-layout'
 import { FeedSentinel } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { VideoCard, VideoCardSkeleton } from '../components/video-card'
@@ -246,9 +248,17 @@ const style = css`
     --action-height: 4rem;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 1.2rem;
     margin-top: 1.2rem;
+  }
+
+  .owner-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
   }
 
   .avatars {
@@ -282,8 +292,8 @@ const style = css`
   }
 
   .owner-text {
+    flex: 0 1 auto;
     min-width: 0;
-    margin-right: 1.2rem;
   }
 
   .channel-name {
@@ -308,14 +318,41 @@ const style = css`
   .sub-count {
     font-size: 1.2rem;
     color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    flex: none;
     align-items: center;
     gap: 0.8rem;
     margin-left: auto;
+  }
+
+  .action-slot {
+    display: inline-flex;
+    flex: none;
+  }
+
+  @media (max-width: 600px) {
+    .owner-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1rem;
+    }
+
+    .owner-info {
+      flex: none;
+      width: 100%;
+    }
+
+    .actions {
+      width: 100%;
+      margin-left: 0;
+    }
   }
 
   .pill {
@@ -479,6 +516,9 @@ const unavailableStyle = css`
 `
 
 const RELATED_SKELETON_KEYS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+const MAX_OWNER_TEXT_RESERVE = 160
+const OWNER_ROW_GAP = 12
+const ACTION_ROW_GAP = 8
 
 const WatchPage = () => {
   const params = new URLSearchParams(useSearch())
@@ -509,7 +549,11 @@ const WatchPage = () => {
     setRelatedPages([])
     setWantMoreRelated(false)
   }, [videoId])
-  useEffect(() => setSharing(false), [videoId])
+  useEffect(() => {
+    setSharing(false)
+    setSaving(false)
+    setGrouping(false)
+  }, [videoId])
 
   const watch = watchData?.watch
   useDocumentTitle(watch?.title ?? undefined)
@@ -547,6 +591,75 @@ const WatchPage = () => {
     listId === undefined || watch?.playlist?.id !== listId ? undefined : watch.playlist
 
   const [sharing, setSharing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [grouping, setGrouping] = useState(false)
+  const isLiveWatch = watch?.isLive === true
+  const enabledActions = useMemo<readonly WatchActionId[]>(
+    () => (isLiveWatch ? ['share', 'save'] : ['share', 'save', 'download']),
+    [isLiveWatch],
+  )
+  const [actionsLayout, setActionsLayout] = useState<{ inline: WatchActionId[], overflow: WatchActionId[] }>(
+    () => ({ inline: ['share', 'save', 'download'], overflow: [] }),
+  )
+  const ownerRowRef = useRef<HTMLDivElement>(null)
+  const ownerInfoRef = useRef<HTMLDivElement>(null)
+  const likeWrapRef = useRef<HTMLDivElement>(null)
+  const moreWrapRef = useRef<HTMLDivElement>(null)
+  const actionElsRef = useRef<Partial<Record<WatchActionId, HTMLElement | null>>>({})
+  const cachedActionWidths = useRef<Partial<Record<WatchActionId, number>>>({})
+  const setActionRef = useCallback((id: WatchActionId) => (el: HTMLElement | null) => {
+    actionElsRef.current[id] = el
+  }, [])
+
+  useLayoutEffect(() => {
+    const ownerRow = ownerRowRef.current
+    if (!ownerRow) return
+
+    const measure = () => {
+      for (const id of enabledActions) {
+        const el = actionElsRef.current[id]
+        if (el && el.offsetWidth > 0) cachedActionWidths.current[id] = el.offsetWidth
+      }
+      const rowWidth = ownerRow.clientWidth
+      const stacked = typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches
+      let availableWidth = rowWidth
+      if (!stacked) {
+        const ownerInfo = ownerInfoRef.current
+        const children = ownerInfo ? [...ownerInfo.children] as HTMLElement[] : []
+        const ownerReserve = children.reduce((sum, child, index) => {
+          const w = child.classList.contains('owner-text')
+            ? Math.min(child.scrollWidth, MAX_OWNER_TEXT_RESERVE)
+            : child.offsetWidth
+          return sum + w + (index > 0 ? OWNER_ROW_GAP : 0)
+        }, 0)
+        availableWidth = Math.max(0, rowWidth - ownerReserve - (ownerInfo ? OWNER_ROW_GAP : 0))
+      }
+      const next = computeVisibleWatchActions({
+        availableWidth,
+        likeWidth: likeWrapRef.current?.offsetWidth || 150,
+        moreWidth: moreWrapRef.current?.offsetWidth || 40,
+        actionWidths: cachedActionWidths.current,
+        enabled: enabledActions,
+        gap: ACTION_ROW_GAP,
+      })
+      setActionsLayout(prev =>
+        prev.inline.join(',') === next.inline.join(',') && prev.overflow.join(',') === next.overflow.join(',')
+          ? prev
+          : next,
+      )
+    }
+
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : undefined
+    observer?.observe(ownerRow)
+    if (ownerInfoRef.current) observer?.observe(ownerInfoRef.current)
+    if (likeWrapRef.current) observer?.observe(likeWrapRef.current)
+    window.addEventListener('resize', measure)
+    measure()
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [watch?.id, enabledActions, channel?.isSubscribed, watch?.likeCountText])
   const [chatHiddenFor, setChatHiddenFor] = useState<string | undefined>(undefined)
   // held as the video it was opened on, so the next video starts with the panel closed
   const [replayFor, setReplayFor] = useState<string | undefined>(undefined)
@@ -602,11 +715,11 @@ const WatchPage = () => {
           {watchError && !watch && !watchFetching ? <DataFailure error={watchError} reexecute={reexecuteWatch} /> : undefined}
           {watch
             ? (
-              <div className='owner-row'>
+              <div className='owner-row' ref={ownerRowRef}>
                 {/* youtube.com opens the choice of a collaboration's channels from its avatars, its names and its Subscribe */}
                 {watch.byline?.length && watch.collaborators?.length
                   ? (
-                    <>
+                    <div className='owner-info' ref={ownerInfoRef}>
                       <CollaboratorsButton channels={watch.collaborators} subscribe className='avatars' label='Collaboration channels'>
                         <AvatarStack channels={watch.collaborators} />
                       </CollaboratorsButton>
@@ -618,11 +731,11 @@ const WatchPage = () => {
                       <div css={subscribeStyle}>
                         <CollaboratorsButton channels={watch.collaborators} subscribe className='subscribe'>Subscribe</CollaboratorsButton>
                       </div>
-                    </>
+                    </div>
                   )
                   : channel
                   ? (
-                    <>
+                    <div className='owner-info' ref={ownerInfoRef}>
                       <Link
                         href={`/channel/${channel.id}`}
                         className={channel.avatar ? 'avatar' : 'avatar fallback'}
@@ -645,23 +758,41 @@ const WatchPage = () => {
                         channelId={channel.id}
                         subscribed={channel.isSubscribed}
                         notificationLevel={channel.notificationLevel}
+                        compact
                       />
-                      <GroupsButton
-                        channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
-                        hints={{ handle: channel.handle, isVerifiedArtist: channel.isVerifiedArtist }}
-                      />
-                    </>
+                    </div>
                   )
                   : undefined}
                 <div className='actions'>
-                  <LikePill videoId={videoId} likeStatus={watch?.likeStatus} likeCountText={watch?.likeCountText} />
-                  <button type='button' className='pill' onClick={() => setSharing(true)}>
-                    <Share2 size={20} strokeWidth={1.5} />
-                    Share
-                  </button>
-                  {!watch.isLive
-                    ? (
+                  <div className='action-slot' ref={likeWrapRef}>
+                    <LikePill videoId={videoId} likeStatus={watch?.likeStatus} likeCountText={watch?.likeCountText} />
+                  </div>
+                  {actionsLayout.inline.map((id) => {
+                    if (id === 'share') {
+                      return (
+                        <button
+                          key='share'
+                          ref={setActionRef('share')}
+                          type='button'
+                          className='pill'
+                          onClick={() => setSharing(true)}
+                        >
+                          <Share2 size={20} strokeWidth={1.5} />
+                          Share
+                        </button>
+                      )
+                    }
+                    if (id === 'save') {
+                      return (
+                        <span key='save' className='action-slot' ref={setActionRef('save')}>
+                          <SaveMenu videoId={videoId} />
+                        </span>
+                      )
+                    }
+                    return (
                       <button
+                        key='download'
+                        ref={setActionRef('download')}
                         type='button'
                         className='pill'
                         onClick={() => openDownloadDialog({
@@ -675,25 +806,47 @@ const WatchPage = () => {
                         Download
                       </button>
                     )
-                    : undefined}
-                  {/* Save sits beside Share rather than inside the More menu: a menu's panel is drawn on the body, so a press in a nested one would close the menu holding it */}
-                  <SaveMenu videoId={videoId} />
-                  <Menu
-                    label='More actions'
-                    trigger={
-                      <button type='button' className='round' aria-label='More actions'>
-                        <EllipsisVertical size={20} strokeWidth={1.5} />
-                      </button>
-                    }
-                  >
-                    <MenuItem icon={Link2} label='Share' onSelect={() => setSharing(true)} />
-                    <MenuItem
-                      label='Theater mode'
-                      checked={theater}
-                      closeOnSelect
-                      onSelect={toggleTheater}
-                    />
-                  </Menu>
+                  })}
+                  <div className='action-slot' ref={moreWrapRef}>
+                    <Menu
+                      label='More actions'
+                      trigger={
+                        <button type='button' className='round' aria-label='More actions'>
+                          <Ellipsis size={20} strokeWidth={1.5} />
+                        </button>
+                      }
+                    >
+                      {actionsLayout.overflow.includes('share')
+                        ? <MenuItem icon={Share2} label='Share' onSelect={() => setSharing(true)} />
+                        : undefined}
+                      {actionsLayout.overflow.includes('save')
+                        ? <MenuItem icon={ListPlus} label='Save' onSelect={() => setSaving(true)} />
+                        : undefined}
+                      {actionsLayout.overflow.includes('download')
+                        ? (
+                          <MenuItem
+                            icon={Download}
+                            label='Download'
+                            onSelect={() => openDownloadDialog({
+                              videoId,
+                              title: watch.title ?? 'Video',
+                              thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                              channelName: channel?.name ?? watch.byline?.map(part => part.text).join(' '),
+                            })}
+                          />
+                        )
+                        : undefined}
+                      {channel
+                        ? <MenuItem icon={FolderPlus} label='Groups' onSelect={() => setGrouping(true)} />
+                        : undefined}
+                      <MenuItem
+                        label='Theater mode'
+                        checked={theater}
+                        closeOnSelect
+                        onSelect={toggleTheater}
+                      />
+                    </Menu>
+                  </div>
                 </div>
               </div>
             )
@@ -779,6 +932,16 @@ const WatchPage = () => {
         </div>
       </div>
       {sharing ? <ShareDialog videoId={videoId} title={watch?.title ?? undefined} list={listId} onClose={() => setSharing(false)} /> : undefined}
+      {saving ? <SaveDialog videoId={videoId} onClose={() => setSaving(false)} /> : undefined}
+      {grouping && channel
+        ? (
+          <GroupsDialog
+            channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
+            hints={{ handle: channel.handle, isVerifiedArtist: channel.isVerifiedArtist }}
+            onClose={() => setGrouping(false)}
+          />
+        )
+        : undefined}
     </main>
   )
 }

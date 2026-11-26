@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Bell, BellOff, BellRing, Check, ChevronDown } from 'lucide-react'
+import { Bell, BellOff, BellRing, Check, ChevronDown, UserMinus } from 'lucide-react'
 import { useCallback, useRef, useState } from 'preact/hooks'
 import { useMutation } from 'urql'
 
@@ -7,7 +7,7 @@ import type { NotificationLevel } from '../generated/graphql'
 
 import { gql } from '../generated'
 import { lineFor } from './data-failure'
-import { MenuItem, Popup, useDismiss } from './ui/popup'
+import { MenuDivider, MenuItem, Popup, useDismiss } from './ui/popup'
 import { showToast } from './ui/toast'
 import { signIn } from '../sign-in'
 import { showUndoableToast } from '../undo'
@@ -110,10 +110,12 @@ const LEVELS: { level: NotificationLevel, label: string, Icon: typeof Bell }[] =
 ]
 
 export const SubscribeButton = (
-  { channelId, subscribed, notificationLevel }: {
+  { channelId, subscribed, notificationLevel, compact = false }: {
     channelId?: string
     subscribed?: boolean | null
     notificationLevel?: NotificationLevel | null
+    /** Renders a single compact bell trigger pill when subscribed, putting notification levels and Unsubscribe inside its popup. */
+    compact?: boolean
   },
 ) => {
   const { fetching: subscribing, toggle } = useToggleSubscription()
@@ -144,6 +146,54 @@ export const SubscribeButton = (
     void setLevel({ channelId, level: next }).then((result) => {
       if (result.error) showToast(lineFor(result.error))
     })
+  }
+
+  const onCompactUnsubscribe = () => {
+    setOpen(false)
+    if (!channelId) return
+    void toggle(channelId, true)
+  }
+
+  if (compact && isSubscribed) {
+    return (
+      <div css={subscribeStyle} ref={rootRef}>
+        <div className='bell'>
+          <button
+            ref={triggerRef}
+            type='button'
+            className='subscribe subscribed'
+            aria-label={`Subscribed, notifications: ${level.label}`}
+            aria-haspopup='menu'
+            aria-expanded={open}
+            disabled={pending}
+            onClick={() => setOpen(value => !value)}
+          >
+            <level.Icon size={18} strokeWidth={1.5} />
+            <ChevronDown size={14} strokeWidth={1.5} />
+          </button>
+          {open
+            ? (
+              <Popup label='Notifications' align='start'>
+                {LEVELS.map(entry => (
+                  <MenuItem
+                    key={entry.level}
+                    icon={entry.Icon}
+                    selected={entry.level === level.level}
+                    onSelect={() => onLevel(entry.level)}
+                  >
+                    {entry.label}
+                  </MenuItem>
+                ))}
+                <MenuDivider />
+                <MenuItem icon={UserMinus} onSelect={onCompactUnsubscribe}>
+                  Unsubscribe
+                </MenuItem>
+              </Popup>
+            )
+            : undefined}
+        </div>
+      </div>
+    )
   }
 
   return (
