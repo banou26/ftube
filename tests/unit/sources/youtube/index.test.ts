@@ -1437,6 +1437,7 @@ describe('youtube source', () => {
     liveChat: ['abc'],
     liveChatReplay: ['abc', 0 as unknown as string, undefined as unknown as string],
     communityPosts: ['c'],
+    channelCommunity: ['c', undefined as unknown as string],
     notifications: [],
     playlists: [],
     playlist: ['PL1'],

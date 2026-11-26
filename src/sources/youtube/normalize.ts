@@ -623,6 +623,13 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
   // a game's header "Grand Theft Auto V" where it says "Grand Theft Auto V - Topic", and Live's page header is all it has
   const topic = header?.contents?.find((node) => node.type === 'TopicChannelDetails')
   const isOwnChannel = headerIsOwnChannel(channel)
+  const buttonViews = channel.page?.header_memo?.get('ButtonView') as {
+    accessibility_id?: string
+    on_tap?: { payload?: { browseId?: string } }
+  }[] | undefined
+  const hasCommunityPage = buttonViews?.some(
+    (btn) => btn.on_tap?.payload?.browseId === 'FEcommunity_page' || btn.accessibility_id === 'eml.header_community_button',
+  ) === true
   const tags = normalizeChannelTags(channel)
   return {
     id,
@@ -639,6 +646,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
     tags,
     isSubscribed: headerSubscribed(channel) ?? channel.subscribe_button?.subscribed,
     ...(isOwnChannel ? { isOwnChannel } : {}),
+    ...(hasCommunityPage ? { hasCommunityPage } : {}),
     notificationLevel: notificationLevel(channel.subscribe_button?.notification_preference_button?.current_state_id),
     isVerified: fromAuthor.isVerified ?? fromTitle.isVerified,
     isVerifiedArtist: fromAuthor.isVerifiedArtist ?? fromTitle.isVerifiedArtist,
@@ -787,26 +795,69 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
     content?: Text
     published?: Text
     vote_count?: Text
-    action_buttons?: { reply_button?: { text?: string, label?: string } }
+    vote_status?: string
+    action_buttons?: {
+      like_button?: { is_toggled?: boolean }
+      dislike_button?: { is_toggled?: boolean }
+      reply_button?: { text?: string, label?: string }
+    }
     attachment?: unknown
   } | undefined
   const id = node?.id
   if (!id) return undefined
   const attachment = node?.attachment as {
+    type?: string
     image?: Thumbnail[]
     thumbnails?: Thumbnail[]
+    images?: { image?: Thumbnail[], thumbnails?: Thumbnail[] }[]
+    total_votes?: Text
+    choices?: {
+      text?: Text
+      vote_percentage_if_selected?: Text
+      vote_percentage_if_not_selected?: Text
+      image?: Thumbnail[]
+    }[]
   } | undefined
+  const likeToggled = node?.action_buttons?.like_button?.is_toggled === true
+  const dislikeToggled = node?.action_buttons?.dislike_button?.is_toggled === true
+  const parsedLikeStatus = likeToggled || node?.vote_status === 'LIKE'
+    ? 'LIKE' as const
+    : dislikeToggled || node?.vote_status === 'DISLIKE'
+      ? 'DISLIKE' as const
+      : node?.vote_status === 'INDIFFERENT' || node?.action_buttons?.like_button
+        ? 'INDIFFERENT' as const
+        : undefined
+  const commentCountText = presentText(node?.action_buttons?.reply_button?.text)
+  const commentCountLabel = presentText(node?.action_buttons?.reply_button?.label)
+  const runs = normalizeRuns(node?.content)
+  const multiImages = (attachment?.images ?? [])
+    .map((entry) => thumbnail(entry.image ?? entry.thumbnails))
+    .filter((url): url is string => Boolean(url))
+  const poll = attachment?.type === 'Poll' && attachment.choices?.length
+    ? {
+        totalVotesText: presentText(attachment.total_votes),
+        choices: attachment.choices.map((choice) => ({
+          text: presentText(choice.text) ?? '',
+          votePercentage: presentText(choice.vote_percentage_if_not_selected) ?? presentText(choice.vote_percentage_if_selected),
+          image: thumbnail(choice.image, AVATAR_WIDTH),
+        })),
+      }
+    : undefined
   return {
     id,
     author: authorChannel(node?.author),
     text: presentText(node?.content) ?? '',
+    ...(runs.length > 0 ? { runs } : {}),
     publishedText: presentText(node?.published),
     voteCountText: presentText(node?.vote_count),
-    commentCountText: presentText(node?.action_buttons?.reply_button?.text),
-    commentCountLabel: presentText(node?.action_buttons?.reply_button?.label),
+    ...(parsedLikeStatus ? { likeStatus: parsedLikeStatus } : {}),
+    ...(commentCountText ? { commentCountText } : {}),
+    ...(commentCountLabel ? { commentCountLabel } : {}),
     // guarded because normalizeFeedVideo takes a node rather than a maybe-node and throws on undefined
     attachedVideo: node?.attachment === undefined ? undefined : normalizeFeedVideo(node.attachment),
     attachedImage: thumbnail(attachment?.image ?? attachment?.thumbnails),
+    ...(multiImages.length > 0 ? { attachedImages: multiImages } : {}),
+    ...(poll ? { poll } : {}),
   }
 }
 

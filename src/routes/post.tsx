@@ -13,10 +13,15 @@ const POST_QUERY = gql(`
     post(id: $id) {
       id
       text
+      runs { text url videoId startSeconds browseId }
       publishedText
       voteCountText
+      likeStatus
+      actionsToken
+      isCreator
       attachedImage
-      author { id name avatar }
+      attachedImages
+      author { id name avatar isVerified isVerifiedArtist }
       attachedVideo {
         id
         title
@@ -26,6 +31,10 @@ const POST_QUERY = gql(`
         viewCount
         publishedText
         channel { id name }
+      }
+      poll {
+        totalVotesText
+        choices { text votePercentage image }
       }
     }
   }

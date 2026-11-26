@@ -3,7 +3,7 @@ import type { TargetedFocusEvent, TargetedSubmitEvent } from 'preact'
 import type { ChannelTab, ChannelViewQuery, CommunityPostsQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { ChevronDown, Link2, Search } from 'lucide-react'
+import { ChevronDown, Link2, Search, Users } from 'lucide-react'
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -38,12 +38,17 @@ const COMMUNITY_POSTS_QUERY = gql(`
       items {
         id
         text
+        runs { text url videoId startSeconds browseId }
         publishedText
         voteCountText
+        likeStatus
+        actionsToken
+        isCreator
         commentCountText
         commentCountLabel
         attachedImage
-        author { id name avatar }
+        attachedImages
+        author { id name avatar isVerified isVerifiedArtist }
         attachedVideo {
           id
           title
@@ -53,6 +58,10 @@ const COMMUNITY_POSTS_QUERY = gql(`
           viewCount
           publishedText
           channel { id name }
+        }
+        poll {
+          totalVotesText
+          choices { text votePercentage image }
         }
       }
       cursor
@@ -78,6 +87,7 @@ const CHANNEL_VIEW_QUERY = gql(`
         notificationLevel
         isVerified
         isVerifiedArtist
+        hasCommunityPage
       }
       videos {
         items {
@@ -188,12 +198,17 @@ const CHANNEL_VIEW_QUERY = gql(`
           posts {
             id
             text
+            runs { text url videoId startSeconds browseId }
             publishedText
             voteCountText
+            likeStatus
+            actionsToken
+            isCreator
             commentCountText
             commentCountLabel
             attachedImage
-            author { id name avatar }
+            attachedImages
+            author { id name avatar isVerified isVerifiedArtist }
             attachedVideo {
               id
               title
@@ -203,6 +218,10 @@ const CHANNEL_VIEW_QUERY = gql(`
               viewCount
               publishedText
               channel { id name }
+            }
+            poll {
+              totalVotesText
+              choices { text votePercentage image }
             }
           }
         }
@@ -217,12 +236,17 @@ const CHANNEL_VIEW_QUERY = gql(`
         items {
           id
           text
+          runs { text url videoId startSeconds browseId }
           publishedText
           voteCountText
+          likeStatus
+          actionsToken
+          isCreator
           commentCountText
           commentCountLabel
           attachedImage
-          author { id name avatar }
+          attachedImages
+          author { id name avatar isVerified isVerifiedArtist }
           attachedVideo {
             id
             title
@@ -232,6 +256,10 @@ const CHANNEL_VIEW_QUERY = gql(`
             viewCount
             publishedText
             channel { id name }
+          }
+          poll {
+            totalVotesText
+            choices { text votePercentage image }
           }
         }
         cursor
@@ -418,6 +446,7 @@ const style = css`
   .owner-action {
     display: inline-flex;
     align-items: center;
+    gap: 0.6rem;
     height: 3.6rem;
     padding: 0 1.6rem;
     border-radius: 1.8rem;
@@ -1041,6 +1070,14 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                       />
                     </>
                   )}
+                {channel.hasCommunityPage
+                  ? (
+                    <Link href={`${channelPath}/community`} className='owner-action'>
+                      <Users size={16} strokeWidth={1.75} />
+                      Community
+                    </Link>
+                  )
+                  : undefined}
               </div>
             </div>
           </header>

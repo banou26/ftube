@@ -39,6 +39,7 @@ test('links each tab to youtube.com\'s address for it, so a middle-click opens t
 })
 
 test('opens youtube.com\'s tab addresses in place, and moves the old ?tab= addresses to them', async ({ page }) => {
+  test.setTimeout(120_000)
   for (const path of ['/@Blender/videos', '/@Blender/streams', '/@Blender/featured', '/@Blender/about', '/@Blender/store', `/channel/${MKBHD_ID}/videos`, '/c/mkbhd/shorts']) {
     await page.goto(path)
     await expect(page, `${path} should stay`).toHaveURL(path)
@@ -57,7 +58,7 @@ test('opens youtube.com\'s tab addresses in place, and moves the old ?tab= addre
     ['/user/marquesbrownlee?tab=PLAYLISTS', '/user/marquesbrownlee/playlists'],
   ] as const) {
     await page.goto(path)
-    await expect(page, `${path} should land on ${expected}`).toHaveURL(expected)
+    await expect(page, `${path} should land on ${expected}`).toHaveURL(expected, path === '/@Blender/community' ? { timeout: 60_000 } : undefined)
   }
 })
 

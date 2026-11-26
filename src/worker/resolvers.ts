@@ -48,6 +48,8 @@ export const resolvers = {
     channelTags: (_, { id }, context) => context.source.channelTags(id),
     communityPosts: (_, { channelId, cursor }, context) =>
       context.source.communityPosts(channelId, cursor ?? undefined),
+    channelCommunity: (_, { channelId, sort, cursor }, context) =>
+      context.source.channelCommunity(channelId, sort ?? undefined, cursor ?? undefined),
     post: (_, { id }, context) => context.source.post(id).then((post) => post ?? null),
     watch: (_, { id, playlistId, playlistIndex }, context) =>
       context.source.watch(id, playlistId ?? undefined, playlistIndex ?? undefined).then((meta) => meta ?? null),
@@ -82,6 +84,7 @@ export const resolvers = {
     voteLiveChatPoll: (_, { videoId, pollId, voteParams }, context) => context.source.voteLiveChatPoll(videoId, pollId, voteParams),
     replyToComment: (_, { actionsToken, text }, context) => context.source.replyToComment(actionsToken, text),
     rateComment: (_, { actionsToken, status }, context) => context.source.rateComment(actionsToken, status),
+    ratePost: (_, { actionsToken, status }, context) => context.source.ratePost(actionsToken, status),
     setSubscribed: (_, { channelId, subscribed }, context) => context.source.setSubscribed(channelId, subscribed),
     setNotificationLevel: (_, { channelId, level }, context) => context.source.setNotificationLevel(channelId, level),
     addToPlaylist: (_, { playlistId, videoIds }, context) => context.source.addToPlaylist(playlistId, videoIds),

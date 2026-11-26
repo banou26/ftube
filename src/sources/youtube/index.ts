@@ -1,10 +1,12 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatInputState, SourceLiveChatLeaderboardEntryPoint, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceLiveChatPoll, SourceLiveChatTickerItem, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceChatReplayView, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatInputState, SourceLiveChatLeaderboardEntryPoint, SourceLiveChatMessage, SourceLiveChatPage, SourceLiveChatPinnedMessage, SourceLiveChatPoll, SourceLiveChatTickerItem, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { ParsedCommunityPost, PostActionTokens } from './community'
 import type { EntityMutation } from './normalize'
 
 import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
 
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
+import { extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { applyPollPatch, liveChatToken, nextLiveChatDelayMs, parseLiveChatLeaderboard, parseLiveChatResponse, parseSendLiveChatResult } from './live-chat'
 import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
 import { base64Bytes, encodeHashtagParams, encodeLiveMessageParams, protoField } from './protobuf'
@@ -277,6 +279,8 @@ export type YoutubeClient = {
     execute(endpoint: '/reel/reel_item_watch', args: { params: string, inputType: string }): Promise<SeedlessReelResponse>
     execute(endpoint: '/account/accounts_list', args: { client: 'WEB', parse: true }): Promise<{ actions_memo?: { get(type: string): unknown[] | undefined } }>
     execute(endpoint: '/browse', args: { browseId: string, params?: string, parse: true }): Promise<{ header?: { item?: () => unknown }, contents_memo?: Map<string, unknown[]> }>
+    execute(endpoint: '/browse', args: { browseId?: string, params?: string, continuation?: string, parse: false }): Promise<{ data: unknown }>
+    execute(endpoint: '/comment/perform_comment_action', args: { actions: string[] }): Promise<unknown>
     execute(endpoint: 'live_chat/get_live_chat', args: { continuation: string, parse: false }): Promise<{ data: unknown }>
     execute(endpoint: '/live_chat/send_message', args: { richMessage: { textSegments: { text: string }[] }, clientMessageId: string, client: 'WEB', params: string, parse: false }): Promise<{ data: unknown }>
     execute(endpoint: 'live_chat/get_live_chat_replay', args: { continuation: string, currentPlayerState: { playerOffsetMs: string }, parse: true }): Promise<unknown>
@@ -407,13 +411,13 @@ type CommentActions = {
   reply?: EndpointNode
 }
 
-const createActionRegistry = () => {
-  const entries = new Map<string, { commentId: string, actions: CommentActions }>()
+const createActionRegistry = <T>(prefix: string, expiredMessage: string) => {
+  const entries = new Map<string, { id: string, actions: T, status?: SourceLikeStatus }>()
   let actionId = 0
 
-  const register = (commentId: string, actions: CommentActions) => {
-    const token = `youtube:comment:${++actionId}`
-    entries.set(token, { commentId, actions })
+  const register = (id: string, actions: T, status?: SourceLikeStatus) => {
+    const token = `${prefix}:${++actionId}`
+    entries.set(token, { id, actions, status })
     while (entries.size > ACTION_LIMIT) {
       const oldest = entries.keys().next().value
       if (oldest === undefined) break
@@ -425,7 +429,7 @@ const createActionRegistry = () => {
   const resolve = (token: string) => {
     const entry = entries.get(token)
     if (!entry) {
-      throw new Error('youtube: this comment is no longer available, reload the page and try again')
+      throw new Error(expiredMessage)
     }
     entries.delete(token)
     entries.set(token, entry)
@@ -654,7 +658,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const homeContinuations = createContinuations<SourceHomePage>()
   const shortsContinuations = createContinuations<SourceShortsPage>()
   const postContinuations = createContinuations<SourcePostPage>()
-  const commentActions = createActionRegistry()
+  const communityContinuations = createContinuations<SourceCommunityPage>()
+  const commentActions = createActionRegistry<CommentActions>(
+    'youtube:comment',
+    'youtube: this comment is no longer available, reload the page and try again',
+  )
+  const postActions = createActionRegistry<PostActionTokens>(
+    'youtube:post',
+    'youtube: this post is no longer available, reload the page and try again',
+  )
   const notificationContinuations = createContinuations<SourceNotificationPage>()
   const liveChatContinuations = createContinuations<SourceLiveChatPage>()
   const paceFeed = createPacer(FEED_INTERVAL_MS)
@@ -1332,9 +1344,49 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     })
   }
 
+  const withPostActionToken = (post: SourcePost, actions: PostActionTokens | undefined): SourcePost => {
+    if (!actions) return post
+    return {
+      ...post,
+      actionsToken: postActions.register(post.id, actions, post.likeStatus),
+    }
+  }
+
+  const buildCommunityPage = (
+    kind: string,
+    meta: { channelId?: string, title?: string, avatar?: string, sortOptions: string[], appliedSort?: string },
+    parsedPosts: ParsedCommunityPost[],
+    continuationToken?: string,
+  ): SourceCommunityPage => {
+    const posts: SourcePostPage = {
+      items: parsedPosts.map(({ post, actions }) => withPostActionToken(post, actions)),
+    }
+    const result: SourceCommunityPage = {
+      available: true,
+      ...(meta.channelId ? { channelId: meta.channelId } : {}),
+      ...(meta.title ? { title: meta.title } : {}),
+      ...(meta.avatar ? { avatar: meta.avatar } : {}),
+      sortOptions: meta.sortOptions,
+      ...(meta.appliedSort ? { appliedSort: meta.appliedSort } : {}),
+      posts,
+    }
+    if (continuationToken) {
+      posts.cursor = communityContinuations.register(kind, async () => {
+        const active = await client
+        const next = await active.actions.execute('/browse', { continuation: continuationToken, parse: false })
+        const cont = parseCommunityContinuationResponse(next.data, meta.channelId)
+        return buildCommunityPage(kind, meta, cont.posts, cont.continuationToken)
+      })
+    }
+    return result
+  }
+
   const postPage = (kind: string, feed: PostsFeed): SourcePostPage => {
     const result: SourcePostPage = {
-      items: [...(feed.posts ?? [])].map(normalizeCommunityPost).filter((post) => post !== undefined),
+      items: [...(feed.posts ?? [])].flatMap((node) => {
+        const post = normalizeCommunityPost(node)
+        return post ? [withPostActionToken(post, extractParsedPostActions(node))] : []
+      }),
     }
     if (feed.has_continuation) {
       result.cursor = postContinuations.register(
@@ -1711,6 +1763,80 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (result.has_community !== true || !result.getCommunity) return { items: [] }
       return postPage(kind, await result.getCommunity.call(result) as PostsFeed)
     },
+    channelCommunity: async (channelId, sort, cursor) => {
+      const kind = `channel-community:${channelId}:${sort ?? ''}`
+      if (cursor) return communityContinuations.resolve(kind, cursor)
+      const active = await client
+      const communityUrl = CHANNEL_PATH.test(channelId)
+        ? `https://www.youtube.com/${channelId}/community`
+        : `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/community`
+      const resolvedHostId = CHANNEL_PATH.test(channelId)
+        ? await resolveChannelPath(channelId).catch((error: unknown) => {
+          if (error instanceof Error && error.message === CHANNEL_NOT_FOUND) throw error
+          return undefined
+        })
+        : isChannelId(channelId) ? channelId : undefined
+      const endpoint = await active.resolveURL(communityUrl).catch((error: unknown) => {
+        if (String(error).includes('status code 404')) return undefined
+        throw error
+      })
+      const { browseId, params } = (endpoint as { payload?: { browseId?: string, params?: string } } | undefined)?.payload ?? {}
+      if (!browseId) {
+        return {
+          available: false,
+          ...(resolvedHostId ? { channelId: resolvedHostId } : {}),
+          sortOptions: [],
+          posts: { items: [] },
+        }
+      }
+      const raw = await active.actions.execute('/browse', {
+        browseId,
+        ...(params ? { params } : {}),
+        parse: false,
+      })
+      const parsed = parseCommunityBrowseResponse(raw.data, resolvedHostId)
+      if (!parsed.available) {
+        return {
+          available: false,
+          ...(resolvedHostId ? { channelId: resolvedHostId } : {}),
+          sortOptions: [],
+          posts: { items: [] },
+        }
+      }
+      const sortOptions = parsed.sortChips.map((chip) => chip.label)
+      const selectedChip = parsed.sortChips.find((chip) => chip.selected)
+      const targetChip = sort
+        ? parsed.sortChips.find((chip) => chip.label.toLowerCase() === sort.toLowerCase())
+        : undefined
+      if (targetChip && !targetChip.selected && targetChip.token) {
+        const sortedRaw = await active.actions.execute('/browse', { continuation: targetChip.token, parse: false })
+        const sorted = parseCommunityContinuationResponse(sortedRaw.data, resolvedHostId)
+        return buildCommunityPage(
+          kind,
+          {
+            channelId: parsed.channelId ?? resolvedHostId,
+            title: parsed.title,
+            avatar: parsed.avatar,
+            sortOptions,
+            appliedSort: targetChip.label,
+          },
+          sorted.posts,
+          sorted.continuationToken,
+        )
+      }
+      return buildCommunityPage(
+        kind,
+        {
+          channelId: parsed.channelId ?? resolvedHostId,
+          title: parsed.title,
+          avatar: parsed.avatar,
+          sortOptions,
+          appliedSort: selectedChip?.label ?? sortOptions[0],
+        },
+        parsed.posts,
+        parsed.continuationToken,
+      )
+    },
     post: async (id) => {
       const active = await client
       // a post's browse is keyed by its channel too, which only youtube.com's own address for it resolves
@@ -1722,7 +1848,9 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (!browseId) return undefined
       const memo = (await active.actions.execute('/browse', { browseId, params, parse: true })).contents_memo
       const nodes = [...(memo?.get('BackstagePost') ?? []), ...(memo?.get('Post') ?? [])] as { id?: string }[]
-      return normalizeCommunityPost(nodes.find((node) => node.id === id))
+      const match = nodes.find((node) => node.id === id)
+      const normalized = normalizeCommunityPost(match)
+      return normalized ? withPostActionToken(normalized, extractParsedPostActions(match)) : undefined
     },
     watch: async (id, playlistId, playlistIndex) => {
       const response = await (await client).actions.execute('/next', {
@@ -1987,7 +2115,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     rateComment: async (token, status) => {
       const active = await client
       requireSignIn(active, 'rate a comment')
-      const { commentId, actions } = commentActions.resolve(token)
+      const { id: commentId, actions } = commentActions.resolve(token)
       const endpoint = status === 'LIKE'
         ? actions.like
         : status === 'DISLIKE'
@@ -2002,6 +2130,22 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         isLiked: status === 'LIKE' ? true : undefined,
         isDisliked: status === 'DISLIKE' ? true : undefined,
       }
+    },
+    ratePost: async (token, status) => {
+      const active = await client
+      requireSignIn(active, 'rate a post')
+      const entry = postActions.resolve(token)
+      const action = status === 'LIKE'
+        ? entry.actions.like
+        : status === 'DISLIKE'
+          ? entry.actions.dislike
+          : entry.status === 'DISLIKE'
+            ? (entry.actions.undislike ?? entry.actions.unlike)
+            : (entry.actions.unlike ?? entry.actions.undislike)
+      if (!action) throw new Error('youtube: this post cannot be rated')
+      await active.actions.execute('/comment/perform_comment_action', { actions: [action] })
+      entry.status = status
+      return { id: entry.id, text: '', likeStatus: status }
     },
     setSubscribed: async (channelId, subscribed) => {
       const active = await client

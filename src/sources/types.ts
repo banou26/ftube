@@ -17,6 +17,7 @@ export type SourceChannel = {
   tags?: string[]
   isSubscribed?: boolean
   isOwnChannel?: boolean
+  hasCommunityPage?: boolean
   notificationLevel?: SourceNotificationLevel
   isVerified?: boolean
   // the music-note badge an official artist channel carries in place of the check
@@ -287,23 +288,50 @@ export type SourceChannelAbout = {
   links: SourceChannelLink[]
 }
 
+export type SourcePostPollChoice = {
+  text: string
+  votePercentage?: string
+  image?: string
+}
+
+export type SourcePostPoll = {
+  totalVotesText?: string
+  choices: SourcePostPollChoice[]
+}
+
 export type SourcePost = {
   id: string
   author?: SourceChannel
   text: string
+  runs?: SourceTextRun[]
   publishedText?: string
   voteCountText?: string
+  likeStatus?: SourceLikeStatus
+  actionsToken?: string
+  isCreator?: boolean
   // as the Posts tab shows it ("1K"); absent where youtube.com shows none, as on the post's own page
   commentCountText?: string
   // upstream's spoken form of the count ("1K comments")
   commentCountLabel?: string
   attachedVideo?: SourceVideo
   attachedImage?: string
+  attachedImages?: string[]
+  poll?: SourcePostPoll
 }
 
 export type SourcePostPage = {
   items: SourcePost[]
   cursor?: string
+}
+
+export type SourceCommunityPage = {
+  available: boolean
+  channelId?: string
+  title?: string
+  avatar?: string
+  sortOptions: string[]
+  appliedSort?: string
+  posts: SourcePostPage
 }
 
 // a game's own channel, which youtube.com pictures by the game's box art
@@ -781,6 +809,7 @@ export type Source = {
   channelAbout(id: string): Promise<SourceChannelAbout | undefined>
   channelTags(id: string): Promise<string[]>
   communityPosts(channelId: string, cursor?: string): Promise<SourcePostPage>
+  channelCommunity(channelId: string, sort?: string, cursor?: string): Promise<SourceCommunityPage>
   // undefined when youtube.com has no post under that id
   post(id: string): Promise<SourcePost | undefined>
   // `playlistIndex` is 0-based; the server corrects an out-of-range one, so the honoured position is the one on the result
@@ -819,6 +848,7 @@ export type Source = {
   voteLiveChatPoll(videoId: string, pollId: string, voteParams: string): Promise<boolean>
   replyToComment(actionsToken: string, text: string): Promise<boolean>
   rateComment(actionsToken: string, status: SourceLikeStatus): Promise<SourceComment>
+  ratePost(actionsToken: string, status: SourceLikeStatus): Promise<SourcePost>
   setSubscribed(channelId: string, subscribed: boolean): Promise<SourceChannel>
   setNotificationLevel(channelId: string, level: SourceNotificationLevel): Promise<SourceChannel>
   addToPlaylist(playlistId: string, videoIds: string[]): Promise<SourcePlaylist>
@@ -849,6 +879,7 @@ export const SOURCE_METHODS = [
   'channelAbout',
   'channelTags',
   'communityPosts',
+  'channelCommunity',
   'post',
   'watch',
   'transcript',
@@ -876,6 +907,7 @@ export const SOURCE_METHODS = [
   'voteLiveChatPoll',
   'replyToComment',
   'rateComment',
+  'ratePost',
   'setSubscribed',
   'setNotificationLevel',
   'addToPlaylist',
@@ -910,6 +942,7 @@ export const SOURCE_CURSOR_ARGUMENT = {
   liveChatReplay: 3,
   relatedVideos: 0,
   communityPosts: 1,
+  channelCommunity: 2,
   notifications: 0,
   playlists: 0,
   playlist: 1,
@@ -931,6 +964,7 @@ export const SOURCE_REPLAY = {
   channelAbout: 'always',
   channelTags: 'always',
   communityPosts: 'unless-cursor',
+  channelCommunity: 'unless-cursor',
   post: 'always',
   watch: 'always',
   transcript: 'always',
@@ -958,6 +992,7 @@ export const SOURCE_REPLAY = {
   voteLiveChatPoll: 'never',
   replyToComment: 'never',
   rateComment: 'never',
+  ratePost: 'never',
   setSubscribed: 'never',
   setNotificationLevel: 'never',
   addToPlaylist: 'never',

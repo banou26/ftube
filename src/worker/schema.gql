@@ -32,6 +32,8 @@ type Channel {
   isSubscribed: Boolean
   # True when the signed-in viewer owns this channel, read off its Studio header actions.
   isOwnChannel: Boolean
+  # True when the channel exposes YouTube Communities (/community) in its header actions.
+  hasCommunityPage: Boolean
   notificationLevel: NotificationLevel
   isVerified: Boolean
   # An official artist channel, badged with a music note instead of the check.
@@ -405,6 +407,17 @@ type ChannelAbout {
   links: [ChannelLink!]!
 }
 
+type PostPollChoice {
+  text: String!
+  votePercentage: String
+  image: String
+}
+
+type PostPoll {
+  totalVotesText: String
+  choices: [PostPollChoice!]!
+}
+
 # A community post. `attachment` is deliberately reduced to the parts a card can
 # render: the node behind it is a whole union (poll, image, video, playlist) and
 # modelling all of it belongs with the surface that would show it.
@@ -412,8 +425,12 @@ type Post {
   id: ID!
   author: Channel
   text: String!
+  runs: [TextRun!]
   publishedText: String
   voteCountText: String
+  likeStatus: LikeStatus
+  actionsToken: String
+  isCreator: Boolean
   # As the Posts tab shows it ("1K"). Absent where youtube.com shows none, as
   # on the post's own page.
   commentCountText: String
@@ -421,11 +438,23 @@ type Post {
   commentCountLabel: String
   attachedVideo: Video
   attachedImage: String
+  attachedImages: [String!]
+  poll: PostPoll
 }
 
 type PostPage {
   items: [Post!]!
   cursor: String
+}
+
+type CommunityPage {
+  available: Boolean!
+  channelId: ID
+  title: String
+  avatar: String
+  sortOptions: [String!]!
+  appliedSort: String
+  posts: PostPage!
 }
 
 # A game's own channel, which youtube.com pictures by the game's box art.
@@ -1053,6 +1082,7 @@ type Query {
   channelAbout(id: ID!): ChannelAbout
   channelTags(id: ID!): [String!]!
   communityPosts(channelId: ID!, cursor: String): PostPage!
+  channelCommunity(channelId: ID!, sort: String, cursor: String): CommunityPage!
   # Null when youtube.com has no post under that id.
   post(id: ID!): Post
   # `playlistId` puts the video in a queue: the same /next call then also returns
@@ -1126,6 +1156,7 @@ type Mutation {
   voteLiveChatPoll(videoId: ID!, pollId: ID!, voteParams: String!): Boolean!
   replyToComment(actionsToken: String!, text: String!): Boolean!
   rateComment(actionsToken: String!, status: LikeStatus!): Comment!
+  ratePost(actionsToken: String!, status: LikeStatus!): Post!
   # Resolves to the notification id so the cache can mark just that row read.
   markNotificationRead(id: ID!): ID!
   setSubscribed(channelId: ID!, subscribed: Boolean!): Channel!
