@@ -83,6 +83,8 @@ const globalStyles = css`
        painted NOTHING: the preview's played fill and its playhead knob, the
        search filter dot and the notifications badge were all invisible. */
     --brand-red: #ff0033;
+    --brand-mark: #ff0000;
+    --brand-mark-ink: #ffffff;
     --bg-scrim: rgba(0, 0, 0, 0.5);
     --bg-badge: rgba(0, 0, 0, 0.8);
     --text-on-media: #ffffff;

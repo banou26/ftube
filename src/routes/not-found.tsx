@@ -39,12 +39,12 @@ const style = css`
   .lens {
     fill: var(--bg-base);
     fill-opacity: 0.6;
-    stroke: var(--brand);
+    stroke: var(--brand-mark, var(--brand));
     stroke-width: 8;
   }
 
   .handle {
-    stroke: var(--brand);
+    stroke: var(--brand-mark, var(--brand));
     stroke-width: 12;
     stroke-linecap: round;
   }

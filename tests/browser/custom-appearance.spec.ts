@@ -147,3 +147,90 @@ test('renders custom emoji and icon seek handles at rest inside Shorts stage', a
   const restBox = await defaultKnob.boundingBox()
   expect(restBox?.width ?? 0).toBe(0)
 })
+
+test('tints video card and compact card resume progress bars with the custom accent color', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto('/settings')
+  await page.locator('#custom-appearance').getByRole('button', { name: 'Emerald' }).click()
+
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const mod = await import('/tests/browser/fixtures/appearance-cards-harness.tsx') as { mountAppearanceCards: () => void }
+    mod.mountAppearanceCards()
+  })
+
+  const gridFill = page.locator('[data-appearance-cards-harness] [data-card="grid"] .progress span')
+  const compactFill = page.locator('[data-appearance-cards-harness] [data-card="compact"] .progress span')
+  await expect(gridFill).toBeVisible()
+  await expect(compactFill).toBeVisible()
+
+  const expectedBrandRed = await page.evaluate(() => {
+    const probe = document.createElement('div')
+    probe.style.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue('--brand-red').trim()
+    document.body.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+  expect(expectedBrandRed).not.toBe('rgb(255, 0, 0)')
+  await expect(gridFill).toHaveCSS('background-color', expectedBrandRed)
+  await expect(compactFill).toHaveCSS('background-color', expectedBrandRed)
+
+  await page.goto('/settings')
+  await page.locator('#custom-appearance').getByRole('button', { name: 'Reset to default' }).click()
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const mod = await import('/tests/browser/fixtures/appearance-cards-harness.tsx') as { mountAppearanceCards: () => void }
+    mod.mountAppearanceCards()
+  })
+  await expect(gridFill).toHaveCSS('background-color', 'rgb(255, 0, 51)')
+  await expect(compactFill).toHaveCSS('background-color', 'rgb(255, 0, 51)')
+})
+
+test('adapts inline SVG header logo colors to the selected custom accent with WCAG contrast', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto('/settings')
+  const custom = page.locator('#custom-appearance')
+  await expect(custom).toBeVisible()
+
+  const pill = page.locator('header svg.mark path').nth(0)
+  const playTriangle = page.locator('header svg.mark path').nth(1)
+  const chevron = page.locator('header svg.mark path').nth(2)
+
+  await expect(pill).toHaveCSS('fill', 'rgb(255, 0, 0)')
+  await expect(playTriangle).toHaveCSS('fill', 'rgb(255, 255, 255)')
+  await expect(chevron).toHaveCSS('stroke', 'rgb(255, 255, 255)')
+
+  await custom.getByRole('button', { name: 'Emerald' }).click()
+  await expect(pill).not.toHaveCSS('fill', 'rgb(255, 0, 0)')
+  const emeraldMark = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--brand-mark').trim())
+  expect(emeraldMark).not.toBe('')
+
+  await custom.getByLabel('Custom primary color hex').fill('#ffdd00')
+  for (const mode of ['Dark', 'Light'] as const) {
+    await page.getByRole('button', { name: mode, exact: true }).click()
+    const [pillFill, triangleFill, chevronStroke, bgRgb] = await page.evaluate(() => {
+      const mark = document.querySelectorAll('header svg.mark path')
+      const probe = document.createElement('div')
+      probe.style.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim()
+      document.body.append(probe)
+      const bg = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return [
+        getComputedStyle(mark[0]!).fill,
+        getComputedStyle(mark[1]!).fill,
+        getComputedStyle(mark[2]!).stroke,
+        bg,
+      ]
+    })
+    expect(contrastFromRgb(pillFill, bgRgb), `logo mark contrast in ${mode}`).toBeGreaterThanOrEqual(3.0)
+    expect(contrastFromRgb(triangleFill, pillFill), `logo ink contrast in ${mode}`).toBeGreaterThanOrEqual(3.0)
+    expect(chevronStroke, `chevron stroke matches ink in ${mode}`).toBe(triangleFill)
+    if (mode === 'Dark') expect(triangleFill).toBe('rgb(15, 15, 15)')
+  }
+
+  await custom.getByRole('button', { name: 'Reset to default' }).click()
+  await expect(pill).toHaveCSS('fill', 'rgb(255, 0, 0)')
+  await expect(playTriangle).toHaveCSS('fill', 'rgb(255, 255, 255)')
+  await expect(chevron).toHaveCSS('stroke', 'rgb(255, 255, 255)')
+})

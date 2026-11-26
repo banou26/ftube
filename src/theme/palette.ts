@@ -47,6 +47,8 @@ export const THEME_TOKEN_KEYS = [
   '--transcript-tint',
   '--transcript-tint-text',
   '--brand-red',
+  '--brand-mark',
+  '--brand-mark-ink',
 ] as const
 
 export type ThemeTokenKey = (typeof THEME_TOKEN_KEYS)[number]
@@ -141,6 +143,10 @@ export const contrastRatio = (fgHex: string, bgHex: string): number => {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
 }
 
+/** Picks pure white or FTube near-black ink for maximum WCAG contrast against a solid fill. */
+export const pickContrastingInk = (bgHex: string): string =>
+  contrastRatio('#ffffff', bgHex) >= contrastRatio('#0f0f0f', bgHex) ? '#ffffff' : '#0f0f0f'
+
 export const blendOver = (fg: string, bgHex: string): string => {
   const normalized = normalizeHexColor(fg)
   if (normalized) return normalized
@@ -231,6 +237,8 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
     const accentInverse = ensureContrast(h, neutral ? 0 : clamp(s, 0.65, 0.95), 0.42, [bgInverse], 4.5, 'darker')
     const borderStrong = ensureContrast(h, bgSat * 0.4, 0.46, [bgBase], 3.0, 'lighter')
     const brandRed = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.58, ['#181818'], 3.0, 'lighter')
+    const brandMark = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.56, [bgBase], 3.0, 'lighter')
+    const brandMarkInk = pickContrastingInk(brandMark)
 
     let tintAlpha = 0.2
     let accentTint = rgba(accent, tintAlpha)
@@ -269,6 +277,8 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
       '--transcript-tint': rgba(accent, 0.14),
       '--transcript-tint-text': accentHover,
       '--brand-red': brandRed,
+      '--brand-mark': brandMark,
+      '--brand-mark-ink': brandMarkInk,
     }
   }
 
@@ -297,6 +307,8 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
   const accentInverse = ensureContrast(h, neutral ? 0 : clamp(s, 0.65, 0.95), 0.72, [bgInverse], 4.5, 'lighter')
   const borderStrong = ensureContrast(h, bgSat * 0.5, 0.52, [bgBase], 3.0, 'darker')
   const brandRed = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.58, ['#181818'], 3.0, 'lighter')
+  const brandMark = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.46, [bgBase], 3.0, 'darker')
+  const brandMarkInk = pickContrastingInk(brandMark)
 
   let tintAlpha = 0.14
   let accentTint = rgba(accent, tintAlpha)
@@ -335,6 +347,8 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
     '--transcript-tint': rgba(accent, 0.1),
     '--transcript-tint-text': accentHover,
     '--brand-red': brandRed,
+    '--brand-mark': brandMark,
+    '--brand-mark-ink': brandMarkInk,
   }
 }
 

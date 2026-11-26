@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 
 import { APP_ICONS, buildAppIconSvg } from '../../../src/theme/app-icon'
-import { blendOver, contrastRatio, generateThemePalette, normalizeHexColor, THEME_PRESETS } from '../../../src/theme/palette'
+import { blendOver, contrastRatio, generateThemePalette, normalizeHexColor, pickContrastingInk, THEME_PRESETS } from '../../../src/theme/palette'
 
 const EDGE_COLORS = ['#ffff00', '#000000', '#ffffff', '#000044', '#00ff00', '#ff00ff', '#808080', '#ff0033']
 
@@ -42,6 +42,8 @@ describe('theme palette generator', () => {
         expect(contrastRatio(p['--accent-focus'], p['--bg-input']), `${hex} ${mode} focus vs input`).toBeGreaterThanOrEqual(3.0)
         expect(contrastRatio(p['--border-strong'], p['--bg-base']), `${hex} ${mode} border-strong`).toBeGreaterThanOrEqual(3.0)
         expect(contrastRatio(p['--brand-red'], '#181818'), `${hex} ${mode} brand-red on media`).toBeGreaterThanOrEqual(3.0)
+        expect(contrastRatio(p['--brand-mark'], p['--bg-base']), `${hex} ${mode} brand-mark vs base`).toBeGreaterThanOrEqual(3.0)
+        expect(contrastRatio(p['--brand-mark-ink'], p['--brand-mark']), `${hex} ${mode} brand-mark-ink vs mark`).toBeGreaterThanOrEqual(3.0)
 
         // Distinct interactive states
         expect(p['--bg-base']).not.toBe(p['--bg-elevated'])
@@ -59,6 +61,12 @@ describe('theme palette generator', () => {
       expect(generateThemePalette(preset.color, 'dark')).toEqual(generateThemePalette(normalizeHexColor(preset.color)!, 'dark'))
       expect(generateThemePalette(preset.color, 'light')).toEqual(generateThemePalette(normalizeHexColor(preset.color)!, 'light'))
     }
+  })
+
+  it('picks contrasting inner ink for bright and saturated mark fills', () => {
+    expect(pickContrastingInk('#ffdd00')).toBe('#0f0f0f')
+    expect(pickContrastingInk('#ff0000')).toBe('#0f0f0f')
+    expect(pickContrastingInk('#1d4ed8')).toBe('#ffffff')
   })
 })
 

@@ -1,6 +1,6 @@
 import type { ThemeMode } from './palette'
 
-import { contrastRatio, generateThemePalette, normalizeHexColor } from './palette'
+import { contrastRatio, generateThemePalette, normalizeHexColor, pickContrastingInk } from './palette'
 
 export type AppIconId = 'default' | 'theme' | 'dark' | 'light'
 
@@ -25,14 +25,11 @@ export const isAppIconId = (value: unknown): value is AppIconId =>
 export const coerceAppIcon = (value: unknown): AppIconId =>
   isAppIconId(value) ? value : 'default'
 
-const pickMarkColor = (bg: string): string =>
-  contrastRatio('#ffffff', bg) >= contrastRatio('#0f0f0f', bg) ? '#ffffff' : '#0f0f0f'
-
 export const buildAppIconSvg = (id: AppIconId, accentColor?: string): string => {
   const accent = normalizeHexColor(accentColor) ?? '#ff0000'
 
   if (id === 'theme') {
-    const markColor = pickMarkColor(accent)
+    const markColor = pickContrastingInk(accent)
     const pillOverlay = markColor === '#ffffff' ? '#0f0f0f' : '#ffffff'
     return [
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
@@ -47,7 +44,7 @@ export const buildAppIconSvg = (id: AppIconId, accentColor?: string): string => 
   if (id === 'dark') {
     const tileBg = '#0f0f0f'
     const pillFill = contrastRatio(accent, tileBg) >= 2.0 ? accent : generateThemePalette(accent, 'dark')['--brand-red']
-    const markColor = pickMarkColor(pillFill)
+    const markColor = pickContrastingInk(pillFill)
     return [
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
       `  <rect x="0" y="0" width="32" height="32" rx="7" fill="${tileBg}" />`,
@@ -61,7 +58,7 @@ export const buildAppIconSvg = (id: AppIconId, accentColor?: string): string => 
   if (id === 'light') {
     const tileBg = '#f9f9f9'
     const pillFill = contrastRatio(accent, tileBg) >= 2.0 ? accent : generateThemePalette(accent, 'light')['--accent']
-    const markColor = pickMarkColor(pillFill)
+    const markColor = pickContrastingInk(pillFill)
     return [
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
       `  <rect x="0" y="0" width="32" height="32" rx="7" fill="${tileBg}" />`,
