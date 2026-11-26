@@ -149,8 +149,12 @@ type ChannelDetails = {
     external_id?: string
     title?: string
     description?: string
+    keywords?: string
     avatar?: Thumbnail[]
     thumbnail?: Thumbnail[]
+  }
+  microformat?: {
+    tags?: string[]
   }
   subscribe_button?: {
     subscribed?: boolean
@@ -568,6 +572,41 @@ const headerIsOwnChannel = (channel: ChannelDetails) => {
     : undefined
 }
 
+const pushUniqueTag = (seen: Set<string>, out: string[], raw: string) => {
+  const cleaned = raw.trim().replace(/\s+/g, ' ')
+  if (!cleaned) return
+  const key = cleaned.toLowerCase()
+  if (seen.has(key)) return
+  seen.add(key)
+  out.push(cleaned)
+}
+
+/** Parses YouTube's whitespace-delimited quoted channel keywords into unique tags in source order. */
+export const parseChannelKeywords = (keywords: string | undefined): string[] => {
+  if (!keywords) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  // YouTube encodes multi-word tags in double quotes and single words bare
+  for (const match of keywords.matchAll(/"([^"]+)"|(\S+)/g)) {
+    const raw = (match[1] ?? match[2] ?? '').replace(/^"+|"+$/g, '')
+    pushUniqueTag(seen, out, raw)
+  }
+  return out
+}
+
+/** Extracts normalized channel tags from InnerTube `metadata.keywords` and `microformat.tags`. */
+export const normalizeChannelTags = (input: unknown): string[] => {
+  const channel = input as ChannelDetails | undefined
+  if (!channel) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const tag of parseChannelKeywords(channel.metadata?.keywords)) pushUniqueTag(seen, out, tag)
+  for (const tag of channel.microformat?.tags ?? []) {
+    if (typeof tag === 'string') pushUniqueTag(seen, out, tag)
+  }
+  return out
+}
+
 export const normalizeChannel = (input: unknown, fallbackId?: string): SourceChannel => {
   const channel = input as ChannelDetails
   const id = channel.metadata?.external_id ?? fallbackId
@@ -584,6 +623,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
   // a game's header "Grand Theft Auto V" where it says "Grand Theft Auto V - Topic", and Live's page header is all it has
   const topic = header?.contents?.find((node) => node.type === 'TopicChannelDetails')
   const isOwnChannel = headerIsOwnChannel(channel)
+  const tags = normalizeChannelTags(channel)
   return {
     id,
     name: presentText(topic?.title) ?? presentText(header?.title) ?? channel.metadata?.title ?? presentText(view?.title?.text) ?? id,
@@ -596,6 +636,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
     videoCountText: text(header?.videos_count) ?? details[1],
     banner: thumbnail(header?.banner) ?? thumbnail(view?.banner?.image),
     description: channel.metadata?.description ?? text(view?.description?.description),
+    ...(tags.length > 0 ? { tags } : {}),
     isSubscribed: headerSubscribed(channel) ?? channel.subscribe_button?.subscribed,
     ...(isOwnChannel ? { isOwnChannel } : {}),
     notificationLevel: notificationLevel(channel.subscribe_button?.notification_preference_button?.current_state_id),

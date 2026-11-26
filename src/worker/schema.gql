@@ -28,6 +28,7 @@ type Channel {
   videoCountText: String
   banner: String
   description: String
+  tags: [String!]
   isSubscribed: Boolean
   # True when the signed-in viewer owns this channel, read off its Studio header actions.
   isOwnChannel: Boolean
@@ -1050,6 +1051,7 @@ type Query {
   # rather than a failure: `ChannelPage.availableTabs` is what says whether to
   # ask at all.
   channelAbout(id: ID!): ChannelAbout
+  channelTags(id: ID!): [String!]!
   communityPosts(channelId: ID!, cursor: String): PostPage!
   # Null when youtube.com has no post under that id.
   post(id: ID!): Post

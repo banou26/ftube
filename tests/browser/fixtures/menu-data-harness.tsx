@@ -98,6 +98,7 @@ export const mountGroupPicker = () => {
   const pickerSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
     subscribedChannels: async () => channels,
+    channelTags: async () => [],
     channel: async (id: string) => {
       const found = channels.find(entry => entry.id === id) ?? channels[0]!
       return {
@@ -139,7 +140,7 @@ export const mountGroupPicker = () => {
 export const mountChannelsSurface = () => {
   const host = document.createElement('div')
   host.setAttribute('data-channels-harness', 'true')
-  host.style.cssText = 'position: fixed; inset: 0; z-index: 10000; background: var(--bg-base); overflow: auto; padding-left: 24rem'
+  host.style.cssText = 'position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding-left: 24rem'
   document.body.append(host)
   const now = Date.now()
   const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString()
@@ -177,6 +178,7 @@ export const mountChannelsSurface = () => {
   const channelsSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
     subscribedChannels: async () => channels,
+    channelTags: async (id: string) => id === 'UCbbbbbbbbbbbbbbbbbbbbbb' ? ['Music'] : [],
     subscriptions: async () => ({ items: [], playlists: [] }),
     channelUploads: async (channelId: string) => uploadsByChannel[channelId] ?? [],
     setSubscribed: async (id: string, isSubscribed: boolean) => ({
@@ -220,6 +222,7 @@ export const mountChannelHeader = (mode: 'own-flag' | 'own-handle' | 'other') =>
   }[mode]
   const channelSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@Viewer', accounts: [] }),
+    channelTags: async () => [],
     channel: async () => ({
       channel: channelByMode,
       videos: { items: [], playlists: [] },

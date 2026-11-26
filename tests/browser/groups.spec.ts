@@ -7,6 +7,59 @@ test.use({ viewport: { width: 1440, height: 900 } })
 
 const BLENDER = 'UCSMOQeBJ2RAnuFungnQOxLg'
 
+test('suggests creating a matching new group and adding to an existing matching group on top of the Groups menu', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.goto(`/channel/${BLENDER}`)
+  await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
+
+  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  const suggestedGroup = page.getByRole('group', { name: 'Suggested' })
+  await expect(suggestedGroup).toBeVisible()
+  const suggestedItem = suggestedGroup.getByRole('menuitem', { name: 'Create 3D' })
+  await expect(suggestedItem).toContainText('Create')
+  await suggestedItem.click()
+
+  const dialog = page.getByRole('dialog', { name: 'New group' })
+  await expect(dialog.getByLabel('Name')).toHaveValue('3D')
+  await expect(dialog.getByRole('radio', { name: '🎨' })).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('button', { name: 'Create' }).click()
+  await expect(page.getByText('Added to 3D')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await expect(page.getByRole('menuitemcheckbox', { name: '3D' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('group', { name: 'Suggested' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // When an existing matching group does not yet contain a channel, the top Suggested section offers one-click add
+  await page.evaluate(() => {
+    localStorage.setItem('yt-client:groups', JSON.stringify([{
+      id: 'g-music',
+      name: 'Music',
+      emoji: '🎵',
+      channels: [],
+      updatedAt: Date.now(),
+    }]))
+  })
+  await page.goto('/feed/channels')
+  await expect(async () => {
+    const host = page.locator('[data-channels-harness]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelsSurface()
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+  const harness = page.locator('[data-channels-harness]')
+  const betaRow = harness.locator('.list .row', { hasText: 'Beta Music' })
+  await betaRow.getByRole('button', { name: 'Groups', exact: true }).click()
+  const existingSuggested = page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Add to Music' })
+  await expect(existingSuggested).toBeVisible()
+  await existingSuggested.click()
+  await expect(page.getByText('Added to Music')).toBeVisible()
+})
+
 test('makes a group from a channel page and shows its uploads', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto(`/channel/${BLENDER}`)

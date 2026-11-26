@@ -474,7 +474,10 @@ const FeedChannelsPage = () => {
                 {channel.description ? <p className='description'>{channel.description}</p> : undefined}
               </div>
               <div className='actions'>
-                <GroupsButton channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }} />
+                <GroupsButton
+                  channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
+                  hints={{ handle: channel.handle, description: channel.description, isVerifiedArtist: channel.isVerifiedArtist }}
+                />
                 <SubscribeButton
                   channelId={channel.id}
                   subscribed={channel.isSubscribed ?? true}

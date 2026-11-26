@@ -72,6 +72,7 @@ const CHANNEL_VIEW_QUERY = gql(`
         videoCountText
         banner
         description
+        tags
         isSubscribed
         isOwnChannel
         notificationLevel
@@ -1034,7 +1035,10 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                         subscribed={channel.isSubscribed}
                         notificationLevel={channel.notificationLevel}
                       />
-                      <GroupsButton channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }} />
+                      <GroupsButton
+                        channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
+                        hints={{ handle: channel.handle, description: channel.description, tags: channel.tags, isVerifiedArtist: channel.isVerifiedArtist }}
+                      />
                     </>
                   )}
               </div>

@@ -353,10 +353,12 @@ const SubscriptionPicker = (
  * `onSaved` gets the group as stored, after the dialog has asked to close.
  */
 export const GroupDialog = (
-  { group, parentId: initialParentId, channels: initialChannels = [], onClose, onSaved }: {
+  { group, parentId: initialParentId, channels: initialChannels = [], initialName, initialEmoji, onClose, onSaved }: {
     group?: Group
     parentId?: string
     channels?: GroupChannel[]
+    initialName?: string
+    initialEmoji?: string
     onClose: () => void
     onSaved?: (group: Group) => void
   },
@@ -368,8 +370,8 @@ export const GroupDialog = (
   const latestClose = useRef(onClose)
   latestClose.current = onClose
   const close = useCallback(() => latestClose.current(), [])
-  const [name, setName] = useState(group?.name ?? '')
-  const [emoji, setEmoji] = useState(group?.emoji ?? DEFAULT_EMOJI)
+  const [name, setName] = useState(group?.name ?? initialName ?? '')
+  const [emoji, setEmoji] = useState(group?.emoji ?? initialEmoji ?? DEFAULT_EMOJI)
   const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
   const [choices] = useState(() => EMOJI.includes(emoji) ? EMOJI : [emoji, ...EMOJI])

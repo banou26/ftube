@@ -568,6 +568,7 @@ describe('youtube channel tabs', () => {
     await source.channel('c', 'PLAYLISTS')
     await source.channel('c', 'COMMUNITY')
     await source.channelAbout('c')
+    expect(await source.channelTags('c')).toEqual([])
     await source.communityPosts('c')
     expect(fetches).toBe(1)
   })

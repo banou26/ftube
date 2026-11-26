@@ -4,7 +4,7 @@ import { Parser, YTNodes } from 'youtubei.js'
 
 import type { AccountRowFixture } from '../../fixtures/accounts-list'
 
-import { normalizeChannel, normalizeChannelAbout, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist } from '../../../../src/sources/youtube/normalize'
+import { normalizeChannel, normalizeChannelAbout, normalizeChannelTags, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist, parseChannelKeywords } from '../../../../src/sources/youtube/normalize'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../../fixtures/accounts-list'
 
 // the AccountItem nodes youtubei.js parses out of a WEB accounts_list answer, as the source's session read takes them
@@ -437,6 +437,22 @@ describe('youtube normalization', () => {
       banner: 'banner',
       description: 'About the channel',
     })
+  })
+
+  it('parses quoted channel keywords and microformat tags case-insensitively', () => {
+    expect(parseChannelKeywords('IGN "Video Games"  game  "video games"')).toEqual(['IGN', 'Video Games', 'game'])
+    expect(parseChannelKeywords(undefined)).toEqual([])
+    expect(normalizeChannelTags({
+      metadata: { keywords: '3d "Free Software"' },
+      microformat: { tags: ['free software', 'Animation'] },
+    })).toEqual(['3d', 'Free Software', 'Animation'])
+    expect(normalizeChannel({
+      metadata: {
+        external_id: 'UC123',
+        title: 'Channel',
+        keywords: '3d "Free Software"',
+      },
+    }).tags).toEqual(['3d', 'Free Software'])
   })
 
   it('normalizes lockup watch-next items', () => {

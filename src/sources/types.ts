@@ -14,6 +14,7 @@ export type SourceChannel = {
   videoCountText?: string
   banner?: string
   description?: string
+  tags?: string[]
   isSubscribed?: boolean
   isOwnChannel?: boolean
   notificationLevel?: SourceNotificationLevel
@@ -778,6 +779,7 @@ export type Source = {
   // `id` is a UC id or a youtube.com channel path without its leading slash: `@handle`, `c/<name>` or `user/<name>`
   channel(id: string, tab?: SourceChannelTab, sort?: string, query?: string, cursor?: string, filter?: string): Promise<SourceChannelPage>
   channelAbout(id: string): Promise<SourceChannelAbout | undefined>
+  channelTags(id: string): Promise<string[]>
   communityPosts(channelId: string, cursor?: string): Promise<SourcePostPage>
   // undefined when youtube.com has no post under that id
   post(id: string): Promise<SourcePost | undefined>
@@ -845,6 +847,7 @@ export const SOURCE_METHODS = [
   'video',
   'channel',
   'channelAbout',
+  'channelTags',
   'communityPosts',
   'post',
   'watch',
@@ -926,6 +929,7 @@ export const SOURCE_REPLAY = {
   video: 'always',
   channel: 'unless-cursor',
   channelAbout: 'always',
+  channelTags: 'always',
   communityPosts: 'unless-cursor',
   post: 'always',
   watch: 'always',

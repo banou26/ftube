@@ -6,7 +6,7 @@ import { Innertube, Utils, YTNodes } from 'youtubei.js/web'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
 import { applyPollPatch, liveChatToken, nextLiveChatDelayMs, parseLiveChatLeaderboard, parseLiveChatResponse, parseSendLiveChatResult } from './live-chat'
-import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
+import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
 import { base64Bytes, encodeHashtagParams, encodeLiveMessageParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -1703,6 +1703,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (result.has_about !== true || !result.getAbout) return undefined
       return normalizeChannelAbout(await result.getAbout.call(result))
     },
+    channelTags: async (id) => normalizeChannelTags(await fetchChannel(id)),
     communityPosts: async (channelId, cursor) => {
       const kind = `community:${channelId}`
       if (cursor) return postContinuations.resolve(kind, cursor)
