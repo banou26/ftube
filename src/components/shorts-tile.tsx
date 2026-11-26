@@ -24,7 +24,36 @@ export const shortsSequenceIn = (state: unknown) => {
    a 2:3 still with 8px corners, a 16/22px title beside a 40px More actions button, and 14/20px views that step down
    to 12/18px below a 1024px window. Measured signed out on @MKBHD and a "rick astley" search, 2026-11-10. */
 export const shortsTileStyle = css`
+  position: relative;
+  isolation: isolate;
   min-width: 0;
+
+  &:not([aria-hidden='true'])::before {
+    content: '';
+    position: absolute;
+    inset: var(--card-hover-inset, -0.8rem);
+    z-index: -1;
+    border-radius: var(--card-hover-radius, 1.6rem);
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 0.15s ease;
+  }
+
+  @media (hover: hover) {
+    &:not([aria-hidden='true']):hover::before {
+      background: var(--card-hover-bg, var(--bg-hover));
+    }
+  }
+
+  &:not([aria-hidden='true']):has(:focus-visible)::before {
+    background: var(--card-hover-bg, var(--bg-hover));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:not([aria-hidden='true'])::before {
+      transition: none;
+    }
+  }
 
   .thumb {
     display: block;

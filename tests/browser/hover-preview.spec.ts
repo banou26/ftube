@@ -578,3 +578,60 @@ test('hovering a video card paints a stationary rounded backdrop without scaling
   await expect.poll(backdropColor).not.toBe('rgba(0, 0, 0, 0)')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
 })
+
+test('hovering or focusing a Shorts tile paints a stationary rounded backdrop without shifting layout or highlighting skeletons', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(answerPlaybackHere)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountShorts: () => void }
+    module.mountShorts()
+  })
+
+  const gridTile = page.locator('[data-previews="shorts-grid"] article.tile').first()
+  const gridThumb = gridTile.locator('a.thumb')
+  const shelfTile = page.locator('[data-previews="shorts-shelf"] article.tile').first()
+  const skeleton = page.locator('[data-previews="shorts-skeletons"] .tile').first()
+  const railTrack = page.locator('[data-previews="shorts-shelf"] .track')
+  await expect(gridThumb).toBeVisible({ timeout: 60_000 })
+
+  const beforeOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el, '::before').backgroundColor)
+  expect(await beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
+  expect(await beforeOf(shelfTile)).toBe('rgba(0, 0, 0, 0)')
+
+  const beforeBox = (await gridThumb.boundingBox())!
+  await gridTile.locator('.details').hover()
+  await expect.poll(() => beforeOf(gridTile)).not.toBe('rgba(0, 0, 0, 0)')
+  const afterBox = (await gridThumb.boundingBox())!
+  expect(afterBox.x).toBeCloseTo(beforeBox.x, 1)
+  expect(afterBox.y).toBeCloseTo(beforeBox.y, 1)
+  expect(afterBox.width).toBeCloseTo(beforeBox.width, 1)
+  expect(afterBox.height).toBeCloseTo(beforeBox.height, 1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+
+  await page.mouse.move(0, 0)
+  await expect.poll(() => beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
+
+  // Shelf tile sits inside <Rail>, which clips to 0 inset and 1.2rem radius without vertical scroll overflow.
+  await shelfTile.locator('.details').hover()
+  await expect.poll(() => beforeOf(shelfTile)).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0)
+
+  // Skeleton tiles reuse shortsTileStyle with aria-hidden="true" and must stay transparent on hover.
+  await skeleton.hover()
+  expect(await beforeOf(skeleton)).toBe('rgba(0, 0, 0, 0)')
+
+  // Keyboard focus inside the tile activates the backdrop via :focus-visible.
+  await page.mouse.move(0, 0)
+  await expect.poll(() => beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
+  await gridTile.locator('.title a').focus()
+  await expect.poll(() => beforeOf(gridTile)).not.toBe('rgba(0, 0, 0, 0)')
+
+  await page.setViewportSize({ width: 360, height: 800 })
+  await gridTile.locator('.details').hover()
+  await expect.poll(() => beforeOf(gridTile)).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+})

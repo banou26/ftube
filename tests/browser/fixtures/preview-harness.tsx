@@ -4,6 +4,8 @@ import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
 
+import { ShortsGrid } from '../../../src/components/shorts-grid'
+import { ShortsShelf } from '../../../src/components/shorts-shelf'
 import { VideoCard } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
 import { ChannelPage } from '../../../src/routes/channel'
@@ -208,4 +210,73 @@ export const mountHome = () => {
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
   })
   render(<Provider value={client}><HomePage /></Provider>, host)
+}
+
+/**
+ * Mounts ShortsGrid, ShortsGrid skeletons, and ShortsShelf inside one harness
+ * so Shorts hover backdrop, keyboard focus, rail clipping, and preview playback
+ * can be verified cleanly.
+ */
+export const mountShorts = () => {
+  document.getElementById('app')!.hidden = true
+  const host = document.createElement('div')
+  host.setAttribute('data-preview-harness', '')
+  host.style.width = '100%'
+  document.body.append(host)
+  const gridShorts = [
+    {
+      id: 'short-params-0',
+      title: 'A Short with params',
+      viewCount: '120K views',
+      isShort: true,
+      shortsSequence: 'shorts-seq-1',
+      inlinePlayerParams: CARD_PARAMS,
+      badges: [],
+    },
+    {
+      id: 'short-moving-0',
+      title: 'A Short with moving fallback',
+      viewCount: '84K views',
+      isShort: true,
+      animatedThumbnail: MOVING,
+      badges: [],
+    },
+    {
+      id: 'short-plain-0',
+      title: 'A plain Short',
+      viewCount: '12K views',
+      isShort: true,
+      badges: [],
+    },
+  ]
+  const shelfShorts = [
+    {
+      id: 'short-shelf-0',
+      title: 'A shelf Short',
+      viewCount: '42K views',
+      isShort: true,
+      shortsSequence: 'shelf-seq-1',
+      badges: [],
+    },
+  ]
+  const client = new Client({
+    url: '/preview-harness',
+    exchanges: [fetchExchange],
+    fetch: async () => new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } }),
+    preferGetMethod: false,
+  })
+  render(
+    <Provider value={client}>
+      <section data-previews='shorts-grid'>
+        <ShortsGrid shorts={gridShorts} />
+      </section>
+      <section data-previews='shorts-skeletons'>
+        <ShortsGrid shorts={[]} fetching />
+      </section>
+      <section data-previews='shorts-shelf'>
+        <ShortsShelf shorts={shelfShorts} />
+      </section>
+    </Provider>,
+    host,
+  )
 }
