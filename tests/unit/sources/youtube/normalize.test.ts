@@ -910,6 +910,7 @@ describe('youtube normalization', () => {
       ],
       chapters: [],
       cardTeasers: [],
+      relatedChips: [],
     })
   })
 

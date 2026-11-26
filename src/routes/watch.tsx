@@ -7,7 +7,7 @@ import type { VideoCardData } from '../components/video-card'
 import { css } from '@emotion/react'
 import { Download, Ellipsis, FolderPlus, ListPlus, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useQuery } from 'urql'
+import { useClient, useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
 
 import { useDocumentTitle, useMediaQuery } from '../app'
@@ -25,6 +25,7 @@ import LiveChat, { LiveChatTeaser } from '../components/live-chat'
 import { openDownloadDialog } from '../downloads/store'
 import PlaylistPanel from '../components/playlist-panel'
 import { QueuePanel } from '../components/queue-panel'
+import { Rail } from '../components/rail'
 import { MembersOnly } from '../components/row-marks'
 import SaveMenu, { SaveDialog } from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
@@ -120,8 +121,79 @@ const style = css`
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
+    min-width: 0;
     /* youtube.com's 62.5% of the row at every width: 200 of 320, 220 of 352, 330 of 528 */
     --compact-thumb-width: 62.5%;
+  }
+
+  .related-chips {
+    min-width: 0;
+    margin-bottom: 0.4rem;
+    --rail-gap: 0.8rem;
+    --rail-arrow-top: 0;
+    --rail-arrow-right: 0;
+  }
+
+  .related-chips .arrow {
+    width: 3.2rem;
+    height: 3.2rem;
+  }
+
+  .related-chips .arrow.left {
+    left: 0;
+  }
+
+  .related-chip {
+    flex: none;
+    height: 3.2rem;
+    padding: 0 1.2rem;
+    border: none;
+    border-radius: 0.8rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .related-chip:hover {
+    background: var(--bg-chip-hover);
+  }
+
+  .related-chip.active {
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+  }
+
+  .related-chip.active:hover {
+    background: var(--bg-inverse-hover);
+  }
+
+  .related-notice {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    margin: 1.2rem 0;
+    color: var(--text-secondary);
+    font-size: 1.4rem;
+  }
+
+  .related-retry {
+    height: 3.2rem;
+    padding: 0 1.4rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.6rem;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1.3rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .related-retry:hover {
+    background: var(--bg-hover);
   }
 
   /* One-column related cards matching youtube.com (measured 2026-11-11):
@@ -545,9 +617,29 @@ const WatchPage = () => {
     setPlayerTheater(updateSettings({ theater: !getSettings().theater }).theater)
   }, [])
 
+  const client = useClient()
+  const relatedRequestRef = useRef({ seq: 0, videoId })
+  const [activeChipId, setActiveChipId] = useState('')
+  const [relatedPages, setRelatedPages] = useState<RelatedPage[]>([])
+  const [filteredPages, setFilteredPages] = useState<RelatedPage[]>()
+  const [chipLoading, setChipLoading] = useState(false)
+  const [chipError, setChipError] = useState<string>()
+  const [moreLoading, setMoreLoading] = useState(false)
+  const [moreFailedCursor, setMoreFailedCursor] = useState<string>()
+
   useEffect(() => {
+    relatedRequestRef.current.seq += 1
+    relatedRequestRef.current.videoId = videoId
+    setActiveChipId('')
     setRelatedPages([])
-    setWantMoreRelated(false)
+    setFilteredPages(undefined)
+    setChipLoading(false)
+    setChipError(undefined)
+    setMoreLoading(false)
+    setMoreFailedCursor(undefined)
+    return () => {
+      relatedRequestRef.current.seq += 1
+    }
   }, [videoId])
   useEffect(() => {
     setSharing(false)
@@ -569,23 +661,82 @@ const WatchPage = () => {
     openPlayer({ videoId, startAt, title: watch?.title ?? undefined, list: listId, index: playlistIndex, playerParams })
   }, [videoId, startAt, watch?.title, listId, playlistIndex, unavailable, playerParams])
   // the sidebar pages from its own cursor: re-running /next would restart the whole watch
-  const [wantMoreRelated, setWantMoreRelated] = useState(false)
-  const [relatedPages, setRelatedPages] = useState<RelatedPage[]>([])
-  const relatedCursor = relatedPages[relatedPages.length - 1]?.cursor ?? watch?.relatedCursor
-  const [{ data: moreData, fetching: moreFetching }] = useQuery({
-    query: RELATED_MORE_QUERY,
-    variables: { cursor: relatedCursor ?? '' },
-    pause: !wantMoreRelated || !relatedCursor,
-  })
-  const morePage = moreData?.relatedVideos
+  const relatedChips = watch?.relatedChips ?? []
+  const relatedCursor = activeChipId !== ''
+    ? filteredPages?.[filteredPages.length - 1]?.cursor
+    : (relatedPages[relatedPages.length - 1]?.cursor ?? watch?.relatedCursor)
   const hideShorts = useSetting('hideShorts')
   const dismissed = useDismissed()
   const queue = useQueue()
-  const related: VideoCardData[] | undefined = watch?.related
-    ? [...watch.related, ...relatedPages.flatMap(entry => entry.items)]
+  const rawRelated = activeChipId !== ''
+    ? (chipLoading ? undefined : (filteredPages ?? []).flatMap(entry => entry.items))
+    : (watch?.related ? [...watch.related, ...relatedPages.flatMap(entry => entry.items)] : undefined)
+  const related: VideoCardData[] | undefined = rawRelated
+    ? rawRelated
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
       .filter(video => isAllowedWithHideShorts(video, hideShorts) && !isDismissedVideo(dismissed, video))
     : undefined
+
+  const selectChip = useCallback(async (chipId: string) => {
+    if (chipId === activeChipId && !chipError) return
+    const retryError = chipId === activeChipId && Boolean(chipError)
+    const seq = ++relatedRequestRef.current.seq
+    const targetVideo = videoId
+    setActiveChipId(chipId)
+    setChipError(undefined)
+    setMoreLoading(false)
+    setMoreFailedCursor(undefined)
+    if (chipId === '') {
+      setFilteredPages(undefined)
+      setChipLoading(false)
+      return
+    }
+    setFilteredPages([])
+    setChipLoading(true)
+    const result = await client.query(
+      RELATED_MORE_QUERY,
+      { cursor: chipId },
+      { requestPolicy: retryError ? 'network-only' : 'cache-first' },
+    ).toPromise()
+    if (relatedRequestRef.current.seq !== seq || relatedRequestRef.current.videoId !== targetVideo) return
+    setChipLoading(false)
+    if (result.error || !result.data?.relatedVideos) {
+      setChipError(result.error?.message ?? 'Could not load related videos.')
+      return
+    }
+    setFilteredPages([result.data.relatedVideos])
+  }, [activeChipId, chipError, client, videoId])
+
+  const loadMoreRelated = useCallback(async () => {
+    if (!relatedCursor || moreLoading || chipLoading) return
+    const seq = relatedRequestRef.current.seq
+    const targetVideo = videoId
+    const targetChip = activeChipId
+    const cursor = relatedCursor
+    const retryError = moreFailedCursor === cursor
+    setMoreLoading(true)
+    setMoreFailedCursor(undefined)
+    const result = await client.query(
+      RELATED_MORE_QUERY,
+      { cursor },
+      { requestPolicy: retryError ? 'network-only' : 'cache-first' },
+    ).toPromise()
+    if (relatedRequestRef.current.seq !== seq || relatedRequestRef.current.videoId !== targetVideo) return
+    setMoreLoading(false)
+    if (result.error || !result.data?.relatedVideos) {
+      setMoreFailedCursor(cursor)
+      return
+    }
+    const page = result.data.relatedVideos
+    if (targetChip === '') {
+      setRelatedPages(pages => pages[pages.length - 1] === page ? pages : [...pages, page])
+    } else {
+      setFilteredPages(pages => {
+        const existing = pages ?? []
+        return existing[existing.length - 1] === page ? existing : [...existing, page]
+      })
+    }
+  }, [activeChipId, chipLoading, client, moreFailedCursor, moreLoading, relatedCursor, videoId])
   // gated on the URL: WatchMeta is keyed by video id, so its one `playlist` slot can hold another queue's panel
   const playlist: PlaylistPanelData | undefined =
     listId === undefined || watch?.playlist?.id !== listId ? undefined : watch.playlist
@@ -868,14 +1019,47 @@ const WatchPage = () => {
             {watch?.hasChatReplay ? <ChatReplayTeaser open={replayOpen} onOpen={() => setReplayFor(videoId)} /> : undefined}
           </div>
         </div>
-        {watchFetching || playlist || queue.items.length > 0 || (watch?.isLive && !oneColumn) || replayOpen || (related && related.length > 0) || (!oneColumn && videoPanel)
+        {watchFetching || playlist || queue.items.length > 0 || (watch?.isLive && !oneColumn) || replayOpen || (related && related.length > 0) || relatedChips.length > 0 || chipLoading || Boolean(chipError) || (!oneColumn && videoPanel)
           ? (
             <aside className='secondary'>
               {oneColumn ? undefined : replay}
               {oneColumn ? undefined : liveChat}
               {oneColumn ? undefined : videoPanel}
               {playlist ? <PlaylistPanel playlist={playlist} /> : queue.items.length > 0 ? <QueuePanel /> : undefined}
-              {oneColumn
+              {relatedChips.length > 0
+                ? (
+                  <div className='related-chips' role='region' aria-label='Related video filters'>
+                    <Rail label='filters' count={relatedChips.length}>
+                      {relatedChips.map(chip => {
+                        const active = chip.id === activeChipId
+                        return (
+                          <button
+                            key={`${chip.id}:${chip.label}`}
+                            type='button'
+                            className={active ? 'related-chip active' : 'related-chip'}
+                            aria-pressed={active}
+                            onClick={() => void selectChip(chip.id)}
+                          >
+                            {chip.label}
+                          </button>
+                        )
+                      })}
+                    </Rail>
+                  </div>
+                )
+                : undefined}
+              {chipError
+                ? (
+                  <p className='related-notice'>
+                    <span>{chipError}</span>
+                    <button type='button' className='related-retry' onClick={() => void selectChip(activeChipId)}>
+                      Retry
+                    </button>
+                  </p>
+                )
+                : !chipLoading && activeChipId !== '' && related?.length === 0
+                ? <p className='related-notice'>No videos under this filter.</p>
+                : oneColumn
                 ? (
                   <div className='related-grid'>
                     {related
@@ -893,32 +1077,33 @@ const WatchPage = () => {
                 : related
                 ? related.map(item => <VideoCardCompact key={item.id} video={item} recommendable />)
                 : RELATED_SKELETON_KEYS.map(key => <VideoCardCompactSkeleton key={key} />)}
-              {relatedCursor
+              {relatedCursor && !chipError
                 ? oneColumn
                   ? (
                     <button
                       type='button'
                       className='show-more-related'
-                      disabled={moreFetching}
-                      onClick={() => {
-                        if (!wantMoreRelated) setWantMoreRelated(true)
-                        else if (morePage && !moreFetching) {
-                          setRelatedPages(pages => pages[pages.length - 1] === morePage ? pages : [...pages, morePage])
-                        }
-                      }}
+                      disabled={moreLoading || chipLoading}
+                      onClick={() => void loadMoreRelated()}
                     >
-                      {moreFetching ? 'Loading…' : 'Show more'}
+                      {moreLoading ? 'Loading…' : moreFailedCursor === relatedCursor ? 'Retry' : 'Show more'}
+                    </button>
+                  )
+                  : moreFailedCursor === relatedCursor
+                  ? (
+                    <button
+                      type='button'
+                      className='show-more-related'
+                      disabled={moreLoading || chipLoading}
+                      onClick={() => void loadMoreRelated()}
+                    >
+                      Retry
                     </button>
                   )
                   : (
                     <FeedSentinel
-                      onVisible={() => {
-                        if (!wantMoreRelated) setWantMoreRelated(true)
-                        else if (morePage && !moreFetching) {
-                          setRelatedPages(pages => pages[pages.length - 1] === morePage ? pages : [...pages, morePage])
-                        }
-                      }}
-                      disabled={moreFetching}
+                      onVisible={() => void loadMoreRelated()}
+                      disabled={moreLoading || chipLoading}
                     />
                   )
                 : undefined}

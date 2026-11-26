@@ -455,6 +455,7 @@ export type SourceWatchMeta = {
   collaborators?: SourceChannel[]
   related: SourceVideo[]
   relatedCursor?: string
+  relatedChips: SourceFeedChip[]
   /** The video youtube.com's own autoplay moves on to, often not the first related one. */
   autoplayId?: string
   playlist?: SourceWatchPlaylist

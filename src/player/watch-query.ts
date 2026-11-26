@@ -33,6 +33,7 @@ export const WATCH_META_QUERY = gql(`
       byline { text isVerified isVerifiedArtist }
       collaborators { id name avatar handle subscriberCountText isSubscribed notificationLevel isVerified isVerifiedArtist }
       relatedCursor
+      relatedChips { id label selected }
       autoplayId
       chapters { title startSeconds thumbnail }
       transcriptPanel { panelId params }

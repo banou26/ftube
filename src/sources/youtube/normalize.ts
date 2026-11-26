@@ -1,4 +1,4 @@
-import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
+import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceFeedChip, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
 
 type Thumbnail = {
   url?: string
@@ -1902,6 +1902,78 @@ export const normalizeTranscript = (input: unknown): SourceTranscript => {
   }
 }
 
+type RelatedChipNode = {
+  text?: string | Text
+  selected?: boolean
+  is_selected?: boolean
+  endpoint?: unknown
+  tap_command?: unknown
+  renderer_context?: { command_context?: { on_tap?: unknown } }
+}
+
+type RelatedChipContainer = {
+  type?: string
+  content?: RelatedChipContainer
+  header?: RelatedChipContainer
+  chips?: RelatedChipNode[]
+  contents?: RelatedChipNode[]
+}
+
+export type ExtractedRelatedChip = {
+  label: string
+  selected: boolean
+  endpoint?: unknown
+}
+
+const CHIP_CONTAINER_TYPES = new Set(['ChipCloud', 'ChipBarView', 'FeedFilterChipBar'])
+
+const collectChipsFromContainer = (node: unknown): ExtractedRelatedChip[] => {
+  if (!node || typeof node !== 'object') return []
+  const container = node as RelatedChipContainer
+  const target = container.content && typeof container.content === 'object' ? container.content : container
+  if (target.type && !CHIP_CONTAINER_TYPES.has(target.type)) return []
+  const rawChips = Array.isArray(target.chips)
+    ? target.chips
+    : target.type === 'FeedFilterChipBar' && Array.isArray(target.contents) ? target.contents : undefined
+  if (!rawChips) return []
+  const collected: ExtractedRelatedChip[] = []
+  for (const item of rawChips) {
+    if (!item || typeof item !== 'object') continue
+    const chip = item as RelatedChipNode
+    const label = presentText(chip.text)?.trim()
+    if (!label) continue
+    const selected = chip.selected === true || chip.is_selected === true
+    const endpoint = chip.endpoint ?? chip.tap_command ?? chip.renderer_context?.command_context?.on_tap
+    if (!selected && !endpoint) continue
+    collected.push({ label, selected, endpoint })
+  }
+  return collected.length >= 2 ? collected : []
+}
+
+/**
+ * Extracts filter chips shown above a watch page's related videos ("All", channel name, topic, etc.).
+ * Searches secondary_results first (direct nodes and ItemSection headers), then falls back to contents_memo.
+ */
+export const extractRelatedChips = (
+  secondaryResults?: readonly unknown[],
+  contentsMemo?: Map<string, unknown[]>,
+): ExtractedRelatedChip[] => {
+  for (const node of secondaryResults ?? []) {
+    const direct = collectChipsFromContainer(node)
+    if (direct.length >= 2) return direct
+    const header = (node as RelatedChipContainer | undefined)?.header
+    const fromHeader = collectChipsFromContainer(header)
+    if (fromHeader.length >= 2) return fromHeader
+  }
+  for (const type of ['RelatedChipCloud', 'ChipBarView', 'ChipCloud', 'FeedFilterChipBar']) {
+    for (const node of contentsMemo?.get(type) ?? []) {
+      const extracted = collectChipsFromContainer(node)
+      if (extracted.length >= 2) return extracted
+    }
+  }
+  return []
+}
+
 export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta | undefined => {
   const memo = (input as WatchNextResponse | undefined)?.contents_memo
   if (!memo) return undefined
@@ -2018,6 +2090,7 @@ export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta 
     byline: collaboration.byline,
     collaborators: collaboration.collaborators,
     related,
+    relatedChips: [] as SourceFeedChip[],
     autoplayId: watchNext?.autoplay?.sets?.[0]?.autoplay_video?.payload?.videoId || undefined,
     playlist: normalizeWatchPlaylist(watchNext?.playlist),
     chapters: normalizeChapters(input),

@@ -243,6 +243,7 @@ const answers: Record<string, unknown> = {
       byline: null,
       collaborators: null,
       relatedCursor: null,
+      relatedChips: [],
       autoplayId: 'watch-related-video',
       chapters: [],
       transcriptPanel: null,

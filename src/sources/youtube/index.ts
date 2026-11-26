@@ -1,4 +1,4 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceFeedChip, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { ParsedCommunityPost, PostActionTokens } from './community'
 import type { EntityMutation } from './normalize'
 
@@ -9,7 +9,7 @@ import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo
 import { extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
-import { approximateCount, chatReplayToken, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
+import { approximateCount, chatReplayToken, extractRelatedChips, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
 import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -991,7 +991,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     const kind = `related:${videoId}`
     return videoContinuations.register(kind, async () => {
       const response = await endpoint.call((await client).actions, { parse: true }) as ContinuationResponse
-      return relatedPage(kind, response.on_response_received_endpoints_memo)
+      return relatedPage(kind, continuationMemo(response))
     })
   }
 
@@ -1523,8 +1523,26 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const secondary = (watchNext as { secondary_results?: unknown[] } | undefined)?.secondary_results ?? []
       const nested = secondary.flatMap((node) => [...((node as { contents?: unknown[] })?.contents ?? [])])
       const continuation = findContinuation([...secondary, ...nested])
-      if (!continuation) return meta
-      return { ...meta, relatedCursor: registerRelated(id, continuation) }
+      const extractedChips = extractRelatedChips(
+        secondary,
+        (response as WatchNextContainer).contents_memo as Map<string, unknown[]> | undefined,
+      )
+      let selectedUsed = false
+      const mappedChips: SourceFeedChip[] = []
+      for (const chip of extractedChips) {
+        if (chip.selected && !selectedUsed) {
+          selectedUsed = true
+          mappedChips.push({ id: '', label: chip.label, selected: true })
+        } else if (typeof (chip.endpoint as EndpointNode | undefined)?.call === 'function') {
+          mappedChips.push({ id: registerRelated(id, chip.endpoint as EndpointNode), label: chip.label, selected: false })
+        }
+      }
+      const relatedChips = mappedChips.length >= 2 ? mappedChips : []
+      return {
+        ...meta,
+        ...(continuation ? { relatedCursor: registerRelated(id, continuation) } : {}),
+        relatedChips,
+      }
     },
     transcript: async (panelId, params) =>
       normalizeTranscript((await (await client).actions.execute('/get_panel', { panelId, params })).data),
@@ -1586,7 +1604,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const active = await client
       requireSignIn(active, 'rate a video')
       await active.actions.execute(LIKE_ENDPOINT[status], { target: { videoId: id } })
-      return { id, likeStatus: status, related: [], descriptionRuns: [], hashtags: [], chapters: [], cardTeasers: [] }
+      return { id, likeStatus: status, related: [], relatedChips: [], descriptionRuns: [], hashtags: [], chapters: [], cardTeasers: [] }
     },
     removeFromHistory: async (videoId) => {
       const active = await client

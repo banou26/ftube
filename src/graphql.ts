@@ -36,6 +36,7 @@ export const createCache = () => cacheExchange({
     // response wrappers, not entities: returning null embeds them, and without these graphcache refuses to cache the containing query
     VideoPage: () => null,
     HomeFeed: () => null,
+    FeedChip: () => null,
     // NOT keyed on its id: `title` is absent for most entries, so a title-less slide would overwrite the title another page supplied
     Short: () => null,
     ShortsPage: () => null,

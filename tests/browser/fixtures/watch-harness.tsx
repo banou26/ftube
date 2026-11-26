@@ -18,6 +18,7 @@ export type WatchHarnessOptions = {
   likeCountText?: string
   isLive?: boolean
   withChips?: boolean
+  chipDelays?: Record<string, number>
 }
 
 const makeRelatedVideo = (id: string, title: string, channelName = 'Creator') => ({
@@ -81,13 +82,28 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       },
       related: baseRelated,
       relatedCursor: withChips ? 'cursor:all:2' : undefined,
+      relatedChips: withChips
+        ? [
+            { id: '', label: 'All', selected: true },
+            { id: 'chip:music', label: 'Music', selected: false },
+            { id: 'chip:coding', label: 'Coding', selected: false },
+            { id: 'chip:recent', label: 'Recently uploaded', selected: false },
+            { id: 'chip:watched', label: 'Watched', selected: false },
+            { id: 'chip:channel', label: 'From Harness Creator Studio', selected: false },
+            { id: 'chip:live', label: 'Live', selected: false },
+            { id: 'chip:podcasts', label: 'Podcasts', selected: false },
+          ]
+        : [],
       chapters: [],
       cardTeasers: [],
     }),
     relatedVideos: async (cursor: string) => {
+      const delay = options.chipDelays?.[cursor] ?? 0
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
       if (cursor === 'chip:music') return { items: musicRelated, playlists: [], cursor: 'cursor:music:2' }
       if (cursor === 'cursor:music:2') return { items: musicNextRelated, playlists: [] }
       if (cursor === 'chip:coding') return { items: codeRelated, playlists: [] }
+      if (cursor.startsWith('chip:')) return { items: [], playlists: [] }
       if (cursor === 'cursor:all:2') {
         return { items: [makeRelatedVideo('rel-all-3', 'All Related Page 2')], playlists: [] }
       }
