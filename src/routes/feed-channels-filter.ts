@@ -4,7 +4,18 @@ import { groupChannelsWithDescendants } from '../groups/store'
 
 export type ChannelSort = 'default' | 'name-asc' | 'name-desc' | 'subscribers' | 'latest-upload' | 'oldest-upload'
 
-export type ActivityWindow = 'all' | '7d' | '30d' | '90d' | '365d' | 'inactive-365d'
+export type ActivityWindow = 'all' | '7d' | '30d' | '90d' | '365d' | 'inactive-365d' | 'custom'
+
+export type UploadDateRange = {
+  from?: string
+  to?: string
+}
+
+export type ParsedDateRange = {
+  fromMs?: number
+  toMs?: number
+  inverted: boolean
+}
 
 export type SubscribedChannelItem = {
   id: string
@@ -21,7 +32,7 @@ export type SubscribedChannelItem = {
 
 const DAY_MS = 86_400_000
 
-const WINDOW_DAYS: Record<Exclude<ActivityWindow, 'all' | 'inactive-365d'>, number> = {
+const WINDOW_DAYS: Record<Exclude<ActivityWindow, 'all' | 'inactive-365d' | 'custom'>, number> = {
   '7d': 7,
   '30d': 30,
   '90d': 90,
@@ -46,10 +57,60 @@ export type ChannelFilterOptions = {
   groupId: string
   groups: readonly Group[]
   activity: ActivityWindow
+  dateRange?: UploadDateRange
   sort: ChannelSort
   /** Channel id -> ISO timestamp of newest upload, or null when checked and empty. Undefined means not loaded yet. */
   lastUploadAt: Readonly<Record<string, string | null | undefined>>
   now?: number
+}
+
+const DATE_INPUT_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+const parseLocalDate = (raw?: string): { year: number, month: number, day: number } | undefined => {
+  if (!raw) return undefined
+  const match = DATE_INPUT_RE.exec(raw.trim())
+  if (!match) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const check = new Date(year, month - 1, day)
+  if (check.getFullYear() !== year || check.getMonth() !== month - 1 || check.getDate() !== day) return undefined
+  return { year, month, day }
+}
+
+/** Parses YYYY-MM-DD bounds into local day timestamps and flags inverted ranges. */
+export const parseDateRange = (range?: UploadDateRange): ParsedDateRange => {
+  const from = parseLocalDate(range?.from)
+  const to = parseLocalDate(range?.to)
+  const fromMs = from ? new Date(from.year, from.month - 1, from.day, 0, 0, 0, 0).getTime() : undefined
+  const toMs = to ? new Date(to.year, to.month - 1, to.day, 23, 59, 59, 999).getTime() : undefined
+  return {
+    fromMs,
+    toMs,
+    inverted: Boolean(fromMs !== undefined && toMs !== undefined && fromMs > toMs),
+  }
+}
+
+/** Formats an epoch timestamp as a local YYYY-MM-DD value for native date inputs. */
+export const formatLocalDateInput = (ms: number): string => {
+  const date = new Date(ms)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** Builds a local YYYY-MM-DD date range spanning `days` days up to today. */
+export const relativeDateRange = (days: number, now = Date.now()): UploadDateRange => ({
+  from: formatLocalDateInput(now - days * DAY_MS),
+  to: formatLocalDateInput(now),
+})
+
+/** Builds a calendar-year YYYY-MM-DD range for the current or previous year. */
+export const calendarYearRange = (offsetYears: 0 | -1, now = Date.now()): UploadDateRange => {
+  const year = new Date(now).getFullYear() + offsetYears
+  return {
+    from: `${year}-01-01`,
+    to: offsetYears === 0 ? formatLocalDateInput(now) : `${year}-12-31`,
+  }
 }
 
 const uploadMs = (iso: string | null | undefined) => {
@@ -61,7 +122,7 @@ const uploadMs = (iso: string | null | undefined) => {
 /** Filters subscribed channels by name/handle/description, group membership and last upload date, then sorts them. */
 export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
   channels: readonly Channel[],
-  { query, groupId, groups, activity, sort, lastUploadAt, now = Date.now() }: ChannelFilterOptions,
+  { query, groupId, groups, activity, dateRange, sort, lastUploadAt, now = Date.now() }: ChannelFilterOptions,
 ): Channel[] => {
   const needle = query.trim().toLowerCase()
   const groupedIds = groupId === 'ungrouped'
@@ -70,6 +131,7 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
   const selectedGroupIds = groupId !== 'all' && groupId !== 'ungrouped'
     ? new Set(groupChannelsWithDescendants(groups, groupId).map(channel => channel.id))
     : undefined
+  const customRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
 
   const filtered = channels.filter(channel => {
     if (needle) {
@@ -78,7 +140,17 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     }
     if (groupedIds && groupedIds.has(channel.id)) return false
     if (selectedGroupIds && !selectedGroupIds.has(channel.id)) return false
-    if (activity !== 'all') {
+    if (activity === 'custom') {
+      if (customRange?.inverted) return false
+      if (customRange && (customRange.fromMs !== undefined || customRange.toMs !== undefined)) {
+        const entry = lastUploadAt[channel.id]
+        if (entry === undefined) return false
+        const at = uploadMs(entry)
+        if (at === undefined) return false
+        if (customRange.fromMs !== undefined && at < customRange.fromMs) return false
+        if (customRange.toMs !== undefined && at > customRange.toMs) return false
+      }
+    } else if (activity !== 'all') {
       const entry = lastUploadAt[channel.id]
       if (entry === undefined) return false
       const at = uploadMs(entry)

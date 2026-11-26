@@ -3,7 +3,13 @@ import type { SubscribedChannelItem } from '../../../src/routes/feed-channels-fi
 
 import { describe, expect, it } from 'vite-plus/test'
 
-import { filterAndSortChannels, parseSubscribers } from '../../../src/routes/feed-channels-filter'
+import {
+  filterAndSortChannels,
+  formatLocalDateInput,
+  parseDateRange,
+  parseSubscribers,
+  relativeDateRange,
+} from '../../../src/routes/feed-channels-filter'
 
 const NOW = Date.parse('2026-11-22T00:00:00Z')
 const daysAgo = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
@@ -83,5 +89,73 @@ describe('filterAndSortChannels', () => {
     expect(filterAndSortChannels(channels, { ...base, sort: 'subscribers' }).map(c => c.id)).toEqual(['UC2', 'UC1', 'UC4', 'UC3'])
     expect(filterAndSortChannels(channels, { ...base, sort: 'latest-upload' }).map(c => c.id)).toEqual(['UC1', 'UC2', 'UC3', 'UC4'])
     expect(filterAndSortChannels(channels, { ...base, sort: 'oldest-upload' }).map(c => c.id)).toEqual(['UC4', 'UC3', 'UC2', 'UC1'])
+  })
+
+  it('parses and filters custom upload date ranges cleanly', () => {
+    const localDayIso = (y: number, m: number, d: number, hour = 12) => new Date(y, m - 1, d, hour, 0, 0, 0).toISOString()
+    const datedUploads = {
+      UC1: localDayIso(2026, 6, 15, 18),
+      UC2: localDayIso(2026, 5, 20, 9),
+      UC3: localDayIso(2026, 1, 10, 0),
+      UC4: null,
+    }
+
+    expect(parseDateRange({ from: '2026-05-01', to: '2026-06-30' })).toEqual({
+      fromMs: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+      toMs: new Date(2026, 5, 30, 23, 59, 59, 999).getTime(),
+      inverted: false,
+    })
+    expect(parseDateRange({ from: '2026-06-20', to: '2026-06-01' }).inverted).toBe(true)
+    expect(parseDateRange({ from: '2026-02-31', to: 'not-a-date' })).toEqual({
+      fromMs: undefined,
+      toMs: undefined,
+      inverted: false,
+    })
+
+    // Inclusive bounds match both boundary days in local time
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2026-05-20', to: '2026-06-15' },
+      lastUploadAt: datedUploads,
+    }).map(c => c.id)).toEqual(['UC1', 'UC2'])
+
+    // Open-ended start / end bounds
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2026-06-01' },
+      lastUploadAt: datedUploads,
+    }).map(c => c.id)).toEqual(['UC1'])
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { to: '2026-05-25' },
+      lastUploadAt: datedUploads,
+    }).map(c => c.id)).toEqual(['UC2', 'UC3'])
+
+    // Empty range leaves all channels visible; inverted range matches none; missing dates excluded when bounded
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: {},
+      lastUploadAt: { UC1: datedUploads.UC1 },
+    }).map(c => c.id)).toEqual(['UC1', 'UC2', 'UC3', 'UC4'])
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2026-06-20', to: '2026-06-01' },
+      lastUploadAt: datedUploads,
+    })).toEqual([])
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2025-01-01', to: '2027-01-01' },
+      lastUploadAt: { UC1: datedUploads.UC1, UC4: null },
+    }).map(c => c.id)).toEqual(['UC1'])
+
+    const refNow = new Date(2026, 5, 15, 12, 0, 0, 0).getTime()
+    expect(formatLocalDateInput(refNow)).toBe('2026-06-15')
+    expect(relativeDateRange(14, refNow)).toEqual({ from: '2026-06-01', to: '2026-06-15' })
   })
 })

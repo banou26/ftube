@@ -79,6 +79,31 @@ test('navigates to /feed/channels from Subscriptions feed and left guide categor
   await expect(rows.nth(0)).toContainText('Beta Music')
   await expect(rows.nth(1)).toContainText('Alpha Tech')
   await expect(rows.nth(2)).toContainText('Old Archive')
+
+  // 8. Custom upload date range picker filters channels, warns on inverted range, and clears cleanly
+  const ymdAgo = (days: number) => {
+    const d = new Date(Date.now() - days * 86_400_000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }
+  await harness.getByLabel('Filter by last video posted').selectOption('custom')
+  const fromInput = harness.getByLabel('Upload date from')
+  const toInput = harness.getByLabel('Upload date to')
+  await expect(fromInput).toBeVisible()
+  await expect(toInput).toBeVisible()
+
+  await fromInput.fill(ymdAgo(25))
+  await toInput.fill(ymdAgo(15))
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Beta Music')
+
+  await fromInput.fill(ymdAgo(5))
+  await toInput.fill(ymdAgo(25))
+  await expect(harness.getByRole('alert')).toContainText('Start date must be on or before end date')
+  await expect(rows).toHaveCount(0)
+
+  await harness.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(rows).toHaveCount(3)
 })
 
 test('own channel page hides Subscribe and shows Customize channel and Manage videos', async ({ page }) => {

@@ -1,6 +1,6 @@
 import type { TargetedEvent } from 'preact'
 
-import type { ActivityWindow, ChannelSort } from './feed-channels-filter'
+import type { ActivityWindow, ChannelSort, UploadDateRange } from './feed-channels-filter'
 
 import { css } from '@emotion/react'
 import { CircleUserRound } from 'lucide-react'
@@ -18,7 +18,13 @@ import { gql } from '../generated'
 import { groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
-import { filterAndSortChannels } from './feed-channels-filter'
+import {
+  calendarYearRange,
+  filterAndSortChannels,
+  formatLocalDateInput,
+  parseDateRange,
+  relativeDateRange,
+} from './feed-channels-filter'
 
 const ALL_SUBSCRIBED_CHANNELS_QUERY = gql(`
   query AllSubscribedChannels {
@@ -129,6 +135,76 @@ const style = css`
   .check-dates:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  .date-range-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem 1.2rem;
+    margin: -0.8rem 0 2rem;
+    padding: 1rem 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    background: var(--bg-subtle);
+  }
+
+  .date-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.3rem;
+    color: var(--text-secondary);
+  }
+
+  .date-input {
+    height: 3.2rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.6rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.3rem;
+  }
+
+  .date-input:focus {
+    outline: none;
+    border-color: var(--accent-focus);
+  }
+
+  .range-presets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .range-chip {
+    height: 3.2rem;
+    padding: 0 1.2rem;
+    border: none;
+    border-radius: 0.8rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .range-chip:hover {
+    background: var(--bg-chip-hover);
+  }
+
+  .range-chip.active {
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+  }
+
+  .range-error {
+    font-size: 1.2rem;
+    color: var(--danger);
   }
 
   .list {
@@ -298,6 +374,7 @@ const FeedChannelsPage = () => {
   const [query, setQuery] = useState('')
   const [groupId, setGroupId] = useState('all')
   const [activity, setActivity] = useState<ActivityWindow>('all')
+  const [dateRange, setDateRange] = useState<UploadDateRange>({})
   const [sort, setSort] = useState<ChannelSort>('default')
   const [loadDates, setLoadDates] = useState(false)
   const [lastUploadAt, setLastUploadAt] = useState<Record<string, string | null>>({})
@@ -361,7 +438,18 @@ const FeedChannelsPage = () => {
 
   const checkedCount = channels.filter(channel => channel.id in lastUploadAt).length
   const datesLoading = needsDates && checkedCount < channels.length
-  const shown = filterAndSortChannels(channels, { query, groupId, groups, activity, sort, lastUploadAt })
+  const parsedRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
+  const todayYmd = formatLocalDateInput(Date.now())
+  const datePresets: { label: string, range: UploadDateRange }[] = activity === 'custom'
+    ? [
+      { label: '14d', range: relativeDateRange(14) },
+      { label: '60d', range: relativeDateRange(60) },
+      { label: '6m', range: relativeDateRange(180) },
+      { label: 'This year', range: calendarYearRange(0) },
+      { label: 'Last year', range: calendarYearRange(-1) },
+    ]
+    : []
+  const shown = filterAndSortChannels(channels, { query, groupId, groups, activity, dateRange, sort, lastUploadAt })
 
   return (
     <main css={style}>
@@ -413,6 +501,7 @@ const FeedChannelsPage = () => {
           <option value='90d'>Posted in last 90 days</option>
           <option value='365d'>Posted in last year</option>
           <option value='inactive-365d'>Inactive (1+ year)</option>
+          <option value='custom'>Custom date range…</option>
         </select>
         <select
           className='select'
@@ -435,6 +524,67 @@ const FeedChannelsPage = () => {
           )
           : undefined}
       </div>
+      {activity === 'custom'
+        ? (
+          <div className='date-range-bar'>
+            <label className='date-field'>
+              <span>From</span>
+              <input
+                type='date'
+                className='date-input'
+                aria-label='Upload date from'
+                max={dateRange.to || todayYmd}
+                value={dateRange.from ?? ''}
+                onInput={(event: TargetedEvent<HTMLInputElement>) => {
+                  const next = event.currentTarget.value || undefined
+                  setDateRange(prev => ({ ...prev, from: next }))
+                }}
+              />
+            </label>
+            <label className='date-field'>
+              <span>To</span>
+              <input
+                type='date'
+                className='date-input'
+                aria-label='Upload date to'
+                min={dateRange.from || undefined}
+                max={todayYmd}
+                value={dateRange.to ?? ''}
+                onInput={(event: TargetedEvent<HTMLInputElement>) => {
+                  const next = event.currentTarget.value || undefined
+                  setDateRange(prev => ({ ...prev, to: next }))
+                }}
+              />
+            </label>
+            <div className='range-presets'>
+              {datePresets.map(preset => {
+                const active = dateRange.from === preset.range.from && dateRange.to === preset.range.to
+                return (
+                  <button
+                    key={preset.label}
+                    type='button'
+                    className={active ? 'range-chip active' : 'range-chip'}
+                    aria-pressed={active}
+                    onClick={() => setDateRange(preset.range)}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
+              {dateRange.from || dateRange.to
+                ? (
+                  <button type='button' className='range-chip' onClick={() => setDateRange({})}>
+                    Clear
+                  </button>
+                )
+                : undefined}
+            </div>
+            {parsedRange?.inverted
+              ? <span className='range-error' role='alert'>Start date must be on or before end date</span>
+              : undefined}
+          </div>
+        )
+        : undefined}
       {fetching && channels.length === 0 ? <p className='notice'>Loading…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {!fetching && !error && channels.length > 0 && shown.length === 0
