@@ -129,8 +129,8 @@ export const CaptionOverlay = ({
   docked: boolean
   sample?: number
   onDragStart?: () => void
-  onClick?: () => void
-  onDblClick?: () => void
+  onClick?: (event: MouseEvent) => void
+  onDblClick?: (event: MouseEvent) => void
 }) => {
   const storedPos = useSetting('captionPosition')
   const [lines, setLines] = useState<string[]>(() => extractCueLines(video.textTracks))
@@ -294,11 +294,11 @@ export const CaptionOverlay = ({
               const suppressed = suppressClickRef.current
               suppressClickRef.current = false
               if (suppressed) return
-              onClick?.()
+              onClick?.(event)
             }}
             onDblClick={(event: MouseEvent) => {
               event.stopPropagation()
-              onDblClick?.()
+              onDblClick?.(event)
             }}
           >
             {lines.map((line, index) => (

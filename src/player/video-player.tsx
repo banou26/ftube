@@ -55,6 +55,7 @@ import { PlayerMenu } from './player-menu'
 import { ShortcutsDialog } from './shortcuts'
 import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
+import { decideSurfaceClick, isTouchPointer, shouldIgnoreHoverPointer } from './surface-interaction'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
 import { stepVideoVolume, toggleVideoMute } from './volume'
@@ -358,6 +359,9 @@ const VideoPlayer = (
   const closeMenu = useCallback(() => setMenu(undefined), [])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const menuAtPress = useRef(false)
+  const lastPointerTypeRef = useRef('')
+  const activeAtPressRef = useRef(true)
+  const lastTouchAtRef = useRef(0)
   const flash = useCallback((icon: BezelCue['icon'], text?: string) => {
     setBezel(previous => ({ id: (previous?.id ?? 0) + 1, icon, text }))
   }, [])
@@ -744,7 +748,15 @@ const VideoPlayer = (
     idleTimer.current = setTimeout(() => setActive(false), IDLE_MS)
   }, [])
 
-  useEffect(() => () => clearTimeout(idleTimer.current), [])
+  const hideControls = useCallback(() => {
+    clearTimeout(idleTimer.current)
+    setActive(false)
+  }, [])
+
+  useEffect(() => {
+    wake()
+    return () => clearTimeout(idleTimer.current)
+  }, [videoId, wake])
 
   // the menu is drawn on the fullscreen element or the body, so a switch between the two would strand it
   useEffect(() => subscribeFullscreen(closeMenu, videoElement), [closeMenu, videoElement])
@@ -1007,17 +1019,58 @@ const VideoPlayer = (
       flash('pause')
     }
   }
-  const toggleFullscreen = docked ? undefined : () => requestPlayerFullscreen(videoRef.current)
+  const onSurfaceClick = (event: MouseEvent) => {
+    const pointerType = ('pointerType' in event && typeof event.pointerType === 'string' && event.pointerType)
+      || lastPointerTypeRef.current
+    lastPointerTypeRef.current = ''
+    const action = decideSurfaceClick({
+      pointerType,
+      activeAtPress: activeAtPressRef.current,
+      paused: Boolean(videoRef.current?.paused),
+      settingsOpen,
+      menuAtPress: menuAtPress.current,
+    })
+    if (action === 'ignore') return
+    if (action === 'show-controls') {
+      wake()
+      return
+    }
+    if (action === 'hide-controls') {
+      hideControls()
+      return
+    }
+    togglePlay()
+  }
+  const onSurfaceDoubleClick = docked ? undefined : () => {
+    if (Date.now() - lastTouchAtRef.current < 500) return
+    requestPlayerFullscreen(videoRef.current)
+  }
 
   return (
     <div
       css={[playerStyle, captionStyle(cueStyle)]}
       data-player-surface
       className={playerClasses}
-      onPointerMove={wake}
-      onPointerLeave={() => setActive(false)}
-      onPointerDown={() => {
+      onPointerMove={(event: PointerEvent) => {
+        if (!shouldIgnoreHoverPointer(event.pointerType)) wake()
+      }}
+      onPointerLeave={(event: PointerEvent) => {
+        if (!shouldIgnoreHoverPointer(event.pointerType)) setActive(false)
+      }}
+      onPointerDown={(event: PointerEvent) => {
         menuAtPress.current = menu !== undefined
+        lastPointerTypeRef.current = event.pointerType
+        activeAtPressRef.current = active
+        if (isTouchPointer(event.pointerType)) {
+          lastTouchAtRef.current = Date.now()
+          if (
+            active
+            && !(event.target instanceof HTMLVideoElement)
+            && !(event.target instanceof Element && event.target.closest('[data-caption-window]'))
+          ) {
+            wake()
+          }
+        }
       }}
       onContextMenu={onContextMenu}
     >
@@ -1053,8 +1106,8 @@ const VideoPlayer = (
         loop={loop}
         onLoadedData={() => setHasFrame(true)}
         onPlaying={() => setHasFrame(true)}
-        onClick={togglePlay}
-        onDblClick={toggleFullscreen}
+        onClick={onSurfaceClick}
+        onDblClick={onSurfaceDoubleClick}
       />
       {showSpinner ? <div className='spinner' /> : undefined}
       {video && !inPip && !status && !refusal
@@ -1067,8 +1120,8 @@ const VideoPlayer = (
             docked={docked}
             sample={sample}
             onDragStart={wake}
-            onClick={togglePlay}
-            onDblClick={toggleFullscreen}
+            onClick={onSurfaceClick}
+            onDblClick={onSurfaceDoubleClick}
           />
         )
         : undefined}

@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
-import { expect, test } from './test'
+import { answerLookups, dismissFknNotice, expect, test } from './test'
 
 /* The player bar against the live source: `dQw4w9WgXcQ` has captions and a related list, so every control is drawn,
    and no chapters; `jNQXAC9IVRw` is 19 s long with three chapters, Intro, The cool thing (from 5 s) and End (from 17 s). */
@@ -420,4 +420,49 @@ test('keeps MediaSession metadata and playbackState across track handler changes
   await miniPause.click()
   await page.waitForTimeout(250)
   expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
+})
+
+test('touch taps show and hide controls without pausing while mouse clicks toggle playback', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } })
+  await answerLookups(context)
+  const page = await context.newPage()
+  await dismissFknNotice(page)
+  try {
+    await page.goto(`/watch?v=${VIDEO_ID}`)
+    const video = await startPlayback(page)
+    const controls = player(page).locator('[aria-label="Seek"]').locator('..')
+    const surface = page.locator('[data-player-surface]')
+
+    // Let initial wake/pointer activity settle into idle so controls hide.
+    await expect(controls).not.toHaveClass(/visible/, { timeout: 10_000 })
+    await expect(surface).toHaveClass(/idle/)
+
+    // First off-center tap while playing and idle reveals controls without pausing.
+    const box = (await video.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width * 0.25, box.y + box.height * 0.35)
+    await expect(controls).toHaveClass(/visible/)
+    await page.waitForTimeout(250)
+    expect(await video.evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+
+    // Second tap while playing and controls visible hides controls without pausing.
+    await page.touchscreen.tap(box.x + box.width * 0.25, box.y + box.height * 0.35)
+    await expect(controls).not.toHaveClass(/visible/)
+    await page.waitForTimeout(250)
+    expect(await video.evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+
+    // Reveal controls again, then tap the Play/Pause button to pause explicitly.
+    await page.touchscreen.tap(box.x + box.width * 0.25, box.y + box.height * 0.35)
+    await expect(controls).toHaveClass(/visible/)
+    await player(page).getByRole('button', { name: 'Pause', exact: true }).tap()
+    await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).paused)).toBe(true)
+
+    // Mouse click on the video surface still resumes and pauses playback.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.4)
+    await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.4)
+    await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).paused)).toBe(true)
+  } finally {
+    await context.close()
+  }
 })
