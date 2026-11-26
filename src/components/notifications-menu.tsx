@@ -85,13 +85,22 @@ const style = css`
 `
 
 const panelStyle = css`
-  width: 40rem;
-  max-width: 90vw;
-  max-height: 70vh;
-  overflow-y: auto;
+  &,
+  &.anchored {
+    width: min(48rem, calc(100vw - 2.4rem));
+    max-height: min(64rem, calc(100vh - 8rem));
+  }
+
+  [role='menuitem'] {
+    height: auto;
+    padding: 1rem 1.6rem;
+    white-space: normal;
+    line-height: 1.4;
+  }
 
   .row {
     display: flex;
+    align-items: flex-start;
     gap: 1.2rem;
     width: 100%;
     text-align: left;
@@ -101,33 +110,45 @@ const panelStyle = css`
     flex: none;
     width: 4rem;
     height: 4rem;
+    margin-top: 0.2rem;
     border-radius: 50%;
     object-fit: cover;
     background: var(--bg-chip);
   }
 
   .row-body {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
   }
 
   .row-message {
-    font-size: 1.3rem;
-    line-height: 1.8rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    padding: 0;
+    font-size: 1.4rem;
+    line-height: 2rem;
     color: var(--text-primary);
+    word-break: break-word;
   }
 
   .row-time {
-    margin-top: 0.2rem;
+    display: block;
     font-size: 1.2rem;
+    line-height: 1.6rem;
     color: var(--text-secondary);
   }
 
   .row-thumb {
     flex: none;
-    width: 8rem;
+    width: 8.6rem;
     aspect-ratio: 16 / 9;
-    border-radius: 0.4rem;
+    height: auto;
+    border-radius: 0.6rem;
     object-fit: cover;
     background: var(--bg-chip);
   }
@@ -136,14 +157,14 @@ const panelStyle = css`
      is a menu, and a filled row would fight the focus highlight. */
   .unread {
     position: relative;
-    padding-left: 1rem;
+    padding-left: 1.2rem;
   }
 
   .unread::before {
     content: '';
     position: absolute;
     left: 0;
-    top: 1.6rem;
+    top: 1.7rem;
     width: 0.6rem;
     height: 0.6rem;
     border-radius: 50%;
@@ -203,7 +224,7 @@ export const NotificationsMenu = () => {
       <Menu
         label='Notifications'
         align='end'
-        panelClass={panelStyle.name}
+        panelCss={panelStyle}
         onOpenChange={setOpen}
         trigger={
           <button type='button' className='bell' aria-label='Notifications'>

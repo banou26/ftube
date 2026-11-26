@@ -1,3 +1,4 @@
+import type { SerializedStyles } from '@emotion/react'
 import type { ComponentChildren, FunctionComponent, RefObject, VNode } from 'preact'
 
 import type { Point } from './popup'
@@ -121,7 +122,7 @@ const rootStyle = css`
 `
 
 export const Menu = (
-  { trigger, children, label, align = 'end', side, class: className, panelClass, onOpenChange }: {
+  { trigger, children, label, align = 'end', side, class: className, panelClass, panelCss, onOpenChange }: {
     trigger: MenuTrigger
     children: ComponentChildren
     label: string
@@ -129,6 +130,7 @@ export const Menu = (
     side?: 'below' | 'above'
     class?: string
     panelClass?: string
+    panelCss?: SerializedStyles
     onOpenChange?: (open: boolean) => void
   },
 ) => {
@@ -196,7 +198,7 @@ export const Menu = (
       {open
         ? (
           <MenuContext.Provider value={controls}>
-            <Popup label={label} align={align} side={side} class={panelClass} anchor={triggerRef} panelRef={panelRef} onKeyDown={onKeyDown}>
+            <Popup label={label} align={align} side={side} class={panelClass} panelCss={panelCss} anchor={triggerRef} panelRef={panelRef} onKeyDown={onKeyDown}>
               {children}
             </Popup>
           </MenuContext.Provider>

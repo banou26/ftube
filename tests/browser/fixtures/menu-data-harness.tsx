@@ -33,12 +33,47 @@ const request = async <T,>(endpoint: string, answer: T) => {
 
 const lines = [{ startSeconds: 0, timestamp: '0:00', text: 'Line 1' }]
 
+const NOTIF_AVATAR = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#2563eb"/><circle cx="128" cy="128" r="76" fill="#ffffff"/></svg>')}`
+const NOTIF_THUMB = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#0f766e"/><rect x="40" y="40" width="560" height="280" fill="#14b8a6"/></svg>')}`
+
 const source = {
   session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
   unseenNotificationCount: async () => 0,
   notifications: (cursor?: string) => request('notification/get_notification_menu', cursor
-    ? { items: [{ id: 'notification-2', message: 'Channel 2 uploaded: Video 2', sentText: '2 days ago', read: true }] }
-    : { items: [{ id: 'notification-1', message: 'Channel 1 uploaded: Video 1', sentText: '1 hour ago', read: false }], cursor: 'notifications-2' }),
+    ? {
+        items: [{
+          id: 'notification-2',
+          message: 'Channel 2 uploaded: Video 2',
+          sentText: '2 days ago',
+          avatar: NOTIF_AVATAR,
+          thumbnail: NOTIF_THUMB,
+          videoId: 'dQw4w9WgXcQ',
+          read: true,
+        }],
+      }
+    : {
+        items: [
+          {
+            id: 'notification-1',
+            message: 'Channel 1 uploaded: Video 1',
+            sentText: '1 hour ago',
+            avatar: NOTIF_AVATAR,
+            thumbnail: NOTIF_THUMB,
+            videoId: 'dQw4w9WgXcQ',
+            read: false,
+          },
+          {
+            id: 'notification-long',
+            message: 'Le Monde a mis en ligne une nouvelle video: Comment la France reorganise son reseau ferroviaire et ses lignes a grande vitesse Magazine',
+            sentText: 'il y a 21 heures',
+            avatar: NOTIF_AVATAR,
+            thumbnail: NOTIF_THUMB,
+            videoId: 'dQw4w9WgXcQ',
+            read: false,
+          },
+        ],
+        cursor: 'notifications-2',
+      }),
   playlists: (cursor?: string) => request('browse', cursor
     ? { items: [{ id: 'PL-2', title: 'Playlist 2', videoCountText: '2 videos' }] }
     : { items: [{ id: 'PL-1', title: 'Playlist 1', videoCountText: '1 video' }], cursor: 'playlists-2' }),

@@ -1,3 +1,4 @@
+import type { SerializedStyles } from '@emotion/react'
 import type { ComponentChildren, FunctionComponent, RefObject } from 'preact'
 
 import { css } from '@emotion/react'
@@ -138,7 +139,7 @@ const placeAt = (panel: HTMLElement, { x, y }: Point) => {
  * `media` gives it youtube.com's player menu look.
  */
 export const Popup = (
-  { align = 'end', side = 'below', anchor, at, media = false, role = 'menu', panelRef, onKeyDown, label, children, class: className }: {
+  { align = 'end', side = 'below', anchor, at, media = false, role = 'menu', panelRef, onKeyDown, label, children, class: className, panelCss }: {
     align?: 'start' | 'end'
     side?: 'below' | 'above'
     anchor?: RefObject<HTMLElement | null>
@@ -150,6 +151,7 @@ export const Popup = (
     label: string
     children: ComponentChildren
     class?: string
+    panelCss?: SerializedStyles
   },
 ) => {
   const point = useRef(at)
@@ -188,7 +190,7 @@ export const Popup = (
 
   const panel = (
     <div
-      css={popupStyle}
+      css={panelCss ? [popupStyle, panelCss] : popupStyle}
       className={[floating ? 'anchored' : `align-${align}`, media ? 'media' : undefined, className].filter(part => part !== undefined).join(' ')}
       ref={panelRef}
       role={role}
