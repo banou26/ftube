@@ -397,7 +397,7 @@ const playsWithParams = (raw: Record<string, unknown>) => {
 
 const fetchPreviewPlayerResponse = async (
   videoId: string,
-  playerParams: string,
+  playerParams: string | undefined,
   client: Innertube,
 ): Promise<{ raw: Record<string, unknown>, player: Player } | undefined> => {
   if (!lastPlayerId) return undefined
@@ -408,7 +408,7 @@ const fetchPreviewPlayerResponse = async (
     if (!player.signature_timestamp) return undefined
     const payload = {
       videoId,
-      params: playerParams,
+      ...(playerParams ? { params: playerParams } : {}),
       racyCheckOk: true,
       contentCheckOk: true,
       playbackContext: { contentPlaybackContext: { signatureTimestamp: player.signature_timestamp } },
@@ -449,8 +449,8 @@ const fetchPreviewPlayerResponse = async (
  * not play is read again as the plain page without a visitor header. The plain page an intent prefetch read for the
  * click is neither used nor dropped.
  *
- * When `preview` is true and a warmed web player is already available, tries `/player` with `playerParams` first
- * (matching youtube.com's inline hover preview) and falls back to the watch page if `/player` cannot serve it.
+ * When `preview` is true and a warmed web player is already available, tries `/player` first when `playerParams` is
+ * given or a signed-in session is active, and falls back to the watch page if `/player` cannot serve it.
  */
 export const getSabrSource = async (
   videoId: string,
@@ -467,10 +467,10 @@ export const getSabrSource = async (
   const mintIdentifier = videoId
   warmPoTokenSession(mintIdentifier)
 
-  const previewClient = preview && playerParams && lastPlayerId
+  const previewClient = preview && lastPlayerId && (Boolean(playerParams) || hasSessionCookie())
     ? (catalogClient ?? await catalogInnertube())
     : undefined
-  const previewAnswer = previewClient && playerParams
+  const previewAnswer = previewClient
     ? await fetchPreviewPlayerResponse(videoId, playerParams, previewClient)
     : undefined
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import { Parser, YT } from 'youtubei.js'
 
 import { createYoutubeSource } from '../../../../src/sources/youtube'
+import { normalizeLockupVideo } from '../../../../src/sources/youtube/normalize'
 import channelVideos from '../../fixtures/channel-videos-blender.json'
 import home from '../../fixtures/home-inline-preview.json'
 import search from '../../fixtures/search-inline-preview.json'
@@ -41,5 +42,99 @@ describe("a card's inline playback params", () => {
     const page = await sourceFor({ getChannel: async () => tab }).channel('UCSMOQeBJ2RAnuFungnQOxLg', 'VIDEOS')
     expect(page.videos.items).toHaveLength(4)
     expect(page.videos.items.map((video) => video.inlinePlayerParams)).toEqual([undefined, undefined, undefined, undefined])
+  })
+
+  it('are read off GridVideo cards and moving thumbnails in a subscriptions feed', async () => {
+    const gridVideo = (videoId: string, inlinePlaybackEndpoint?: object, withMoving = false) => ({
+      gridVideoRenderer: {
+        videoId,
+        title: { runs: [{ text: `Video ${videoId}` }] },
+        thumbnail: { thumbnails: [{ url: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, width: 480 }] },
+        shortBylineText: { runs: [{ text: 'Channel 0', navigationEndpoint: { browseEndpoint: { browseId: 'UC0' } } }] },
+        publishedTimeText: { simpleText: '1h ago' },
+        shortViewCountText: { simpleText: '10K views' },
+        thumbnailOverlays: [{ thumbnailOverlayTimeStatusRenderer: { text: { simpleText: '3:00' }, style: 'DEFAULT' } }],
+        ...(inlinePlaybackEndpoint ? { inlinePlaybackEndpoint } : {}),
+        ...(withMoving
+          ? {
+              richThumbnail: {
+                movingThumbnailRenderer: {
+                  movingThumbnailDetails: {
+                    thumbnails: [{ url: `https://i.ytimg.com/an_webp/${videoId}/mqdefault_6s.webp`, width: 320 }],
+                  },
+                },
+              },
+            }
+          : {}),
+      },
+    })
+    const raw = {
+      contents: {
+        twoColumnBrowseResultsRenderer: {
+          tabs: [{
+            tabRenderer: {
+              selected: true,
+              content: {
+                sectionListRenderer: {
+                  contents: [{
+                    itemSectionRenderer: {
+                      contents: [{
+                        gridRenderer: {
+                          items: [
+                            gridVideo('grid-1', { watchEndpoint: { videoId: 'grid-1', playerParams: 'abc%3D' } }, true),
+                            gridVideo('grid-2', { commandMetadata: { webCommandMetadata: { url: '/watch?v=grid-2&pp=xyz%3D' } } }),
+                            gridVideo('grid-3'),
+                          ],
+                        },
+                      }],
+                    },
+                  }],
+                },
+              },
+            },
+          }],
+        },
+      },
+    }
+    const feed = new YT.HomeFeed({} as never, { data: raw } as never)
+    const { items } = await sourceFor({ session: { logged_in: true }, getSubscriptionsFeed: async () => feed }).subscriptions()
+    expect(items.map(({ id, inlinePlayerParams, animatedThumbnail }) => [id, inlinePlayerParams, animatedThumbnail])).toEqual([
+      ['grid-1', 'abc=', 'https://i.ytimg.com/an_webp/grid-1/mqdefault_6s.webp'],
+      ['grid-2', 'xyz=', undefined],
+      ['grid-3', undefined, undefined],
+    ])
+  })
+
+  it('are read off LockupView webCommandMetadata url pp when watchEndpoint.playerParams is absent', () => {
+    const parsed = Parser.parseItem({
+      lockupViewModel: {
+        contentId: 'lockup-url-pp',
+        contentType: 'LOCKUP_CONTENT_TYPE_VIDEO',
+        contentImage: {
+          thumbnailViewModel: {
+            image: { sources: [{ url: 'https://i.ytimg.com/vi/lockup-url-pp/hqdefault.jpg', width: 480 }] },
+          },
+        },
+        metadata: {
+          lockupMetadataViewModel: {
+            title: { content: 'Lockup with URL pp' },
+            metadata: {
+              contentMetadataViewModel: {
+                metadataRows: [{ metadataParts: [{ text: { content: 'Channel 0' } }] }],
+              },
+            },
+          },
+        },
+        inlinePlayerData: {
+          onVisible: {
+            innertubeCommand: {
+              commandMetadata: { webCommandMetadata: { url: '/watch?v=lockup-url-pp&pp=urlOnly%3D' } },
+              watchEndpoint: { videoId: 'lockup-url-pp' },
+            },
+          },
+        },
+      },
+    } as never)
+    expect(normalizeLockupVideo(parsed)?.inlinePlayerParams).toBe('urlOnly=')
   })
 })

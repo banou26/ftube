@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 
+const { playerExecute } = vi.hoisted(() => ({
+  playerExecute: vi.fn<(...args: unknown[]) => Promise<{ data: unknown }>>(),
+}))
+
 // the real youtubei.js parses the player response; only the sessions are faked
 vi.mock('youtubei.js/web', async (importOriginal) => {
   const actual = await importOriginal<typeof import('youtubei.js/web')>()
@@ -9,7 +13,10 @@ vi.mock('youtubei.js/web', async (importOriginal) => {
   return {
     ...actual,
     Innertube: {
-      create: async () => ({ session: { context, player: { decipher: async (url: string) => url } }, actions: { session: {} } }),
+      create: async () => ({
+        session: { context, player: { decipher: async (url: string) => url } },
+        actions: { session: {}, execute: (...args: unknown[]) => playerExecute(...args) },
+      }),
     },
     Player: {
       create: async () => ({ signature_timestamp: 20774, decipher: async (url: string) => url }),
@@ -49,6 +56,7 @@ let respond: (url: string) => Response | Promise<Response>
 beforeEach(() => {
   vi.resetModules()
   fetched = []
+  playerExecute.mockReset()
   const storage = new Map<string, string>()
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -231,4 +239,32 @@ it('trims VOD hover preview manifests using ManagedMediaSource when MediaSource 
   expect(preview.manifest).toContain('id="140"')
   expect(preview.manifest).not.toContain('id="399"')
   expect(preview.manifest).not.toContain('id="251"')
+})
+
+it('uses authenticated /player without params for signed-in hover previews once warmed, and falls back to /watch if /player refuses', async () => {
+  const { realm } = await import('../../../src/frame/realm')
+  realm.cookie = 'SAPISID=test'
+  const { getSabrSource, warmPlaybackResources } = await import('../../../src/frame/innertube')
+  const homePage = new Response('<script>ytcfg.set({"PLAYER_JS_URL":"/s/player/abc12345/base.js"});window.ytAtN({\'R\':\'{}\'});</script>')
+  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(playerResponse)
+
+  warmPlaybackResources()
+  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/')).toBe(true))
+  fetched.length = 0
+
+  playerExecute.mockResolvedValueOnce({ data: playerResponse })
+  const fast = await getSabrSource(VIDEO, undefined, true)
+  expect(fast.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([])
+  expect(playerExecute).toHaveBeenCalledWith('/player', {
+    videoId: VIDEO,
+    racyCheckOk: true,
+    contentCheckOk: true,
+    playbackContext: { contentPlaybackContext: { signatureTimestamp: 20774 } },
+  })
+
+  playerExecute.mockResolvedValueOnce({ data: { playabilityStatus: { status: 'UNPLAYABLE' } } })
+  const fallback = await getSabrSource(VIDEO, undefined, true)
+  expect(fallback.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([{ url: plain, visitor: null }])
 })

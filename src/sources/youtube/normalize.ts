@@ -58,6 +58,7 @@ type FeedVideo = {
   snippets?: { text?: Text }[]
   thumbnails?: Thumbnail[]
   best_thumbnail?: Thumbnail
+  rich_thumbnail?: Thumbnail[]
   duration?: { seconds?: number, text?: string }
   length_text?: Text
   view_count?: Text
@@ -938,6 +939,7 @@ export const normalizeFeedVideo = (input: unknown): SourceVideo | undefined => {
     snippetRuns: snippetRuns?.length ? snippetRuns : undefined,
     thumbnail: video.best_thumbnail?.url ?? thumbnail(video.thumbnails, STILL_WIDTH),
     thumbnailSrcset: srcset(video.thumbnails),
+    animatedThumbnail: Array.isArray(video.rich_thumbnail) ? thumbnail(video.rich_thumbnail) : undefined,
     durationSeconds: duration(video),
     isMusic: video.thumbnail_overlays?.some((overlay) => overlay.type === 'ThumbnailOverlayTimeStatus' && overlay.icon_type === 'MUSIC')
       ? true

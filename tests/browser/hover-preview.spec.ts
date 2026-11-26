@@ -465,3 +465,34 @@ for (const tab of ['HOME', 'VIDEOS'] as const) {
     expect(await page.evaluate(() => (window as unknown as Asked).asked.filter(({ method }) => method === 'openPlayback'))).toEqual([])
   })
 }
+
+test('subscriptions cards open hover previews with params when present and even when params are absent', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(answerPlaybackHere)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/privacy')
+  const cardParams = await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountSubscriptions: () => void, CARD_PARAMS: string }
+    module.mountSubscriptions()
+    return module.CARD_PARAMS
+  })
+  const cards = page.locator('[data-preview-harness] article')
+  const [withParams, withoutParams] = [cards.nth(0), cards.nth(1)]
+  const opened = () => page.evaluate(() =>
+    (window as unknown as Asked).asked
+      .filter(({ method }) => method === 'openPlayback')
+      .map(({ args }) => [args[0], args[2] ?? null]))
+
+  await expect(withParams.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+  await withParams.locator('a.thumb').hover()
+  await expect(withParams.locator('video')).toHaveCount(1)
+  await expect.poll(opened, { timeout: 60_000 }).toEqual([['sub-params-0', cardParams]])
+  await page.mouse.move(0, 0)
+  await expect(withParams.locator('video')).toHaveCount(0)
+
+  await withoutParams.locator('a.thumb').hover()
+  await expect(withoutParams.locator('video')).toHaveCount(1)
+  await expect.poll(opened, { timeout: 60_000 }).toEqual([['sub-params-0', cardParams], ['sub-no-params-0', null]])
+})

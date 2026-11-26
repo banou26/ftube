@@ -350,7 +350,7 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
       {channels.length === 0
         ? <p className='notice'>{subgroups.length > 0 ? 'No channels in this group or its subfolders' : 'No channels in this group'}</p>
         : undefined}
-      <VideoGrid videos={videos.slice(0, shown)} fetching={pending > 0 && videos.length <= shown} />
+      <VideoGrid videos={videos.slice(0, shown)} fetching={pending > 0 && videos.length <= shown} inlinePreview />
       <FeedSentinel onVisible={() => setShown(count => count + PAGE_SIZE)} disabled={videos.length <= shown} />
       {editing ? <GroupDialog group={group} onClose={() => setEditing(false)} /> : undefined}
       {creatingSubgroup ? <GroupDialog parentId={group.id} onClose={() => setCreatingSubgroup(false)} /> : undefined}

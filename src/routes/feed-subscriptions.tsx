@@ -282,7 +282,7 @@ const SubscriptionsFeedPage = () => {
             <h2>No new videos</h2>
           </div>
         )
-        : <VideoGrid videos={shown} fetching={fetching && shown.length === 0} />}
+        : <VideoGrid videos={shown} fetching={fetching && shown.length === 0} inlinePreview />}
       {fetching && shown.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {/* paging on its own stops after pages that held nothing to show, and goes on from here one page at a time */}
