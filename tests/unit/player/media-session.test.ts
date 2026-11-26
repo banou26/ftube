@@ -4,6 +4,7 @@ import type { MediaSessionLike, MediaSessionTarget } from '../../../src/player/m
 
 import {
   bindMediaSession,
+  setMediaSessionTrackHandlers,
   syncMediaSessionState,
   updateMediaSessionMetadata,
 } from '../../../src/player/media-session'
@@ -110,5 +111,81 @@ describe('media session integration helpers', () => {
     expect(handlers.get('play')).toBeNull()
     expect(handlers.get('pause')).toBeNull()
     expect(handlers.get('nexttrack')).toBeNull()
+  })
+
+  it('updates track handlers without clearing metadata or playbackState', () => {
+    const handlers = new Map<string, ((details: MediaSessionActionDetails) => void) | null>()
+    const metadata = { title: 'Video Title' }
+    const session: MediaSessionLike = {
+      metadata,
+      playbackState: 'none',
+      setActionHandler (action, handler) {
+        handlers.set(action, handler)
+      },
+    }
+    const target: MediaSessionTarget = {
+      paused: false,
+      currentTime: 10,
+      duration: 100,
+      playbackRate: 1,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(),
+    }
+    const firstNext = vi.fn()
+    const secondNext = vi.fn()
+    const onPrevious = vi.fn()
+
+    const cleanup = bindMediaSession(target, { onNext: firstNext, session })
+    expect(session.playbackState).toBe('playing')
+
+    setMediaSessionTrackHandlers({ onPrevious, onNext: secondNext }, session)
+    expect(session.metadata).toBe(metadata)
+    expect(session.playbackState).toBe('playing')
+
+    handlers.get('previoustrack')?.({ action: 'previoustrack' })
+    handlers.get('nexttrack')?.({ action: 'nexttrack' })
+    expect(onPrevious).toHaveBeenCalledTimes(1)
+    expect(secondNext).toHaveBeenCalledTimes(1)
+    expect(firstNext).not.toHaveBeenCalled()
+
+    setMediaSessionTrackHandlers({}, session)
+    expect(session.metadata).toBe(metadata)
+    expect(session.playbackState).toBe('playing')
+    expect(handlers.get('previoustrack')).toBeNull()
+    expect(handlers.get('nexttrack')).toBeNull()
+
+    cleanup()
+  })
+
+  it('runs onUserPause before target.pause when the pause action fires', () => {
+    const handlers = new Map<string, ((details: MediaSessionActionDetails) => void) | null>()
+    const order: string[] = []
+    const session: MediaSessionLike = {
+      metadata: null,
+      playbackState: 'none',
+      setActionHandler (action, handler) {
+        handlers.set(action, handler)
+      },
+    }
+    const target: MediaSessionTarget = {
+      paused: false,
+      currentTime: 10,
+      duration: 100,
+      playbackRate: 1,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(() => {
+        order.push('pause')
+      }),
+    }
+
+    const cleanup = bindMediaSession(target, {
+      onUserPause: () => order.push('onUserPause'),
+      session,
+    })
+
+    handlers.get('pause')?.({ action: 'pause' })
+    expect(order).toEqual(['onUserPause', 'pause'])
+
+    cleanup()
   })
 })

@@ -531,7 +531,7 @@ const style = css`
     }
   }
 
-  /* below 400 px, hide PiP and tighten gaps so an hour-long clock fits on 360 px phones */
+  /* below 400 px, tighten gaps so an hour-long clock and PiP fit on iPhone widths; below 375 px, hide PiP */
   @container player (max-width: 400px) {
     .next,
     .volume,
@@ -545,7 +545,9 @@ const style = css`
       width: 1.8rem;
       height: 1.8rem;
     }
+  }
 
+  @container player (max-width: 374px) {
     .pip {
       display: none;
     }
@@ -590,6 +592,8 @@ type ControlsProps = {
   sleepMenu?: number
   /** Closes the settings menu as the player docks into the miniplayer, as youtube.com does. */
   docked?: boolean
+  /** Called right before user controls pause playback explicitly. */
+  onUserPause?: () => void
 }
 
 export const PlayerControls = (
@@ -598,7 +602,7 @@ export const PlayerControls = (
     ambientMode = true, onAmbientMode,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
-    sleepTimer, sleepMenu = 0, docked = false,
+    sleepTimer, sleepMenu = 0, docked = false, onUserPause,
   }: ControlsProps,
 ) => {
   const [scrubbing, setScrubbing] = useState(false)
@@ -809,7 +813,19 @@ export const PlayerControls = (
       </div>
       <div className='bar'>
         <div className='left'>
-          <button type='button' className='control group play' aria-label={state.ended ? 'Replay' : state.paused ? 'Play' : 'Pause'} onClick={() => (state.paused ? void video.play().catch(() => {}) : video.pause())}>
+          <button
+            type='button'
+            className='control group play'
+            aria-label={state.ended ? 'Replay' : state.paused ? 'Play' : 'Pause'}
+            onClick={() => {
+              if (state.paused) {
+                void video.play().catch(() => {})
+                return
+              }
+              onUserPause?.()
+              video.pause()
+            }}
+          >
             {state.ended
               ? <RotateCcw size={22} strokeWidth={2} />
               : state.paused ? <Play size={22} fill='currentColor' strokeWidth={0} /> : <Pause size={22} fill='currentColor' strokeWidth={0} />}

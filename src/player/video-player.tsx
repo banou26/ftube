@@ -41,8 +41,11 @@ import { EndScreen, UpNextCountdown } from './end-screen'
 import { EndScreenElements } from './end-screen-elements'
 import { InfoCards } from './info-cards'
 import { pictureOf } from './end-screen-layout'
+import type { NativeTransitionController } from './ios-playback'
+
 import { getFullscreenElement, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
-import { bindMediaSession, syncMediaSessionState, updateMediaSessionMetadata } from './media-session'
+import { bindNativeTransitionResume } from './ios-playback'
+import { bindMediaSession, setMediaSessionTrackHandlers, syncMediaSessionState, updateMediaSessionMetadata } from './media-session'
 import { MiniplayerControls } from './miniplayer'
 import { isVideoInPip, subscribeVideoPip } from './pip'
 import { useFrame } from './player-frame'
@@ -335,8 +338,13 @@ const VideoPlayer = (
     setTimesUp(false)
     setSleepMenu(value => value + 1)
   }, [])
+  const nativeTransitionRef = useRef<NativeTransitionController | null>(null)
+  const markExplicitPause = useCallback(() => {
+    nativeTransitionRef.current?.markExplicitPause()
+  }, [])
   // youtube.com's miniplayer has no Time's up: a timer that runs out there says so in a toast
   const sleepTimer = useSleepTimer(() => {
+    markExplicitPause()
     videoRef.current?.pause()
     if (docked) showToast('Sleep timer has been turned off')
     else setTimesUp(true)
@@ -771,7 +779,17 @@ const VideoPlayer = (
 
   useEffect(() => {
     updateMediaSessionMetadata({ videoId, title, artist: channelName })
-  }, [videoId, title, channelName])
+  }, [videoElement, videoId, title, channelName])
+
+  useEffect(() => {
+    if (!videoElement) return
+    const controller = bindNativeTransitionResume({ video: videoElement, doc: document })
+    nativeTransitionRef.current = controller
+    return () => {
+      if (nativeTransitionRef.current === controller) nativeTransitionRef.current = null
+      controller.destroy()
+    }
+  }, [videoElement])
 
   const hasNext = Boolean(onNext)
   const hasPrevious = Boolean(onPrevious)
@@ -802,16 +820,23 @@ const VideoPlayer = (
       seekRange: () => seekWindow(videoElement, latest.current.player),
     }
     const unbind = bindMediaSession(target, {
-      onPrevious: hasPrevious ? () => latest.current.onPrevious?.() : undefined,
-      onNext: hasNext ? () => latest.current.onNext?.() : undefined,
+      onUserPause: markExplicitPause,
     })
     const sync = () => syncMediaSessionState(target)
-    const events = ['play', 'pause', 'ratechange', 'seeked', 'durationchange', 'loadedmetadata'] as const
+    const events = ['play', 'playing', 'pause', 'ratechange', 'seeked', 'durationchange', 'loadedmetadata'] as const
     for (const event of events) videoElement.addEventListener(event, sync)
     return () => {
       for (const event of events) videoElement.removeEventListener(event, sync)
       unbind()
     }
+  }, [videoElement, markExplicitPause])
+
+  useEffect(() => {
+    if (!videoElement) return
+    setMediaSessionTrackHandlers({
+      onPrevious: hasPrevious ? () => latest.current.onPrevious?.() : undefined,
+      onNext: hasNext ? () => latest.current.onNext?.() : undefined,
+    })
   }, [videoElement, hasNext, hasPrevious])
 
   useEffect(() => {
@@ -856,6 +881,7 @@ const VideoPlayer = (
             void video.play().catch(() => {})
             flash('play')
           } else {
+            markExplicitPause()
             video.pause()
             flash('pause')
           }
@@ -973,6 +999,7 @@ const VideoPlayer = (
       void current.play().catch(() => {})
       flash('play')
     } else {
+      markExplicitPause()
       current.pause()
       flash('pause')
     }
@@ -1115,7 +1142,7 @@ const VideoPlayer = (
       {video && !status && !refusal
         ? (
           <>
-            <PartyPlayback video={video} videoId={videoId} isLive={isLive} docked={docked} />
+            <PartyPlayback video={video} videoId={videoId} isLive={isLive} docked={docked} onUserPause={markExplicitPause} />
             <PlayerControls
             video={video}
             player={player}
@@ -1151,6 +1178,7 @@ const VideoPlayer = (
             docked={docked}
             visible={(active || state.paused) && !grid}
             onMenu={setSettingsOpen}
+            onUserPause={markExplicitPause}
             />
           </>
         )

@@ -222,7 +222,9 @@ test('every control keeps its label, and the bar fits a 1920, 1280, 640 and 400 
   await expect(page.getByRole('button', { name: 'Theater mode' })).toBeHidden()
 
   await expectCompactPhoneBar(page, 390, 844)
+  await expect(page.getByRole('button', { name: 'Picture in picture', exact: true })).toBeVisible()
   await expectCompactPhoneBar(page, 360, 740)
+  await expect(page.getByRole('button', { name: 'Picture in picture', exact: true })).toBeHidden()
 })
 
 test('names the chapter the playhead is in, beside the clock', async ({ page }) => {

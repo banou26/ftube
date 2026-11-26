@@ -130,4 +130,37 @@ describe('player picture-in-picture helpers', () => {
     target.emit('webkitpresentationmodechanged')
     expect(onChange).toHaveBeenCalledTimes(4)
   })
+
+  it('prefers synchronous WebKit presentation mode PiP over W3C requestPictureInPicture and falls back on error', async () => {
+    const requestPictureInPicture = vi.fn().mockResolvedValue({})
+    let mode: 'inline' | 'fullscreen' | 'picture-in-picture' = 'inline'
+    const setMode = vi.fn((next: 'inline' | 'fullscreen' | 'picture-in-picture') => {
+      mode = next
+    })
+    const doc = {
+      pictureInPictureEnabled: true,
+      pictureInPictureElement: null,
+    }
+    const video = {
+      disablePictureInPicture: false,
+      get webkitPresentationMode () {
+        return mode
+      },
+      webkitSupportsPresentationMode: (candidate: string) => candidate === 'picture-in-picture',
+      webkitSetPresentationMode: setMode,
+      requestPictureInPicture,
+    } as unknown as HTMLVideoElement
+
+    await toggleVideoPip(video, doc as unknown as Document)
+    expect(setMode).toHaveBeenCalledWith('picture-in-picture')
+    expect(requestPictureInPicture).not.toHaveBeenCalled()
+
+    mode = 'inline'
+    setMode.mockImplementationOnce(() => {
+      throw new Error('InvalidStateError')
+    })
+
+    await toggleVideoPip(video, doc as unknown as Document)
+    expect(requestPictureInPicture).toHaveBeenCalledTimes(1)
+  })
 })

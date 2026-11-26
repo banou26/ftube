@@ -100,12 +100,26 @@ export const syncMediaSessionState = (
   }
 }
 
+/** Updates Media Session previous/next track handlers without resetting metadata or playback state. */
+export const setMediaSessionTrackHandlers = (
+  actions: {
+    onPrevious?: () => void
+    onNext?: () => void
+  },
+  session = defaultMediaSession(),
+) => {
+  if (!session) return
+  setHandler(session, 'previoustrack', actions.onPrevious ? () => actions.onPrevious?.() : null)
+  setHandler(session, 'nexttrack', actions.onNext ? () => actions.onNext?.() : null)
+}
+
 /** Binds Media Session action handlers for playback, seeking, and track navigation. */
 export const bindMediaSession = (
   target: MediaSessionTarget,
   actions: {
     onPrevious?: () => void
     onNext?: () => void
+    onUserPause?: () => void
     session?: MediaSessionLike
   } = {},
 ): (() => void) => {
@@ -127,6 +141,7 @@ export const bindMediaSession = (
     void target.play().catch(() => {})
   })
   setHandler(session, 'pause', () => {
+    actions.onUserPause?.()
     target.pause()
   })
   setHandler(session, 'seekbackward', (details) => {
@@ -146,8 +161,7 @@ export const bindMediaSession = (
     }
     target.currentTime = clamped
   })
-  setHandler(session, 'previoustrack', actions.onPrevious ? () => actions.onPrevious?.() : null)
-  setHandler(session, 'nexttrack', actions.onNext ? () => actions.onNext?.() : null)
+  setMediaSessionTrackHandlers(actions, session)
 
   syncMediaSessionState(target, session)
 

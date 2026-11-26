@@ -21,7 +21,7 @@ const readVideoState = (video: HTMLVideoElement): PlaybackState => ({
  * Syncs `<video>` play/pause, position, and playback rate with the active Watch Together room.
  * Hosts publish only from the undocked watch page; followers stay synced on both the watch page and the docked miniplayer.
  */
-export const PartyPlayback = ({ video, videoId, isLive, docked }: { video: HTMLVideoElement, videoId: string, isLive: boolean, docked: boolean }) => {
+export const PartyPlayback = ({ video, videoId, isLive, docked, onUserPause }: { video: HTMLVideoElement, videoId: string, isLive: boolean, docked: boolean, onUserPause?: () => void }) => {
   const state = useParty()
   const role = state.status === 'active' ? state.role : undefined
   const invite = state.status === 'active' ? state.invite : undefined
@@ -72,7 +72,10 @@ export const PartyPlayback = ({ video, videoId, isLive, docked }: { video: HTMLV
       const limit = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : correction.seekTo
       video.currentTime = Math.max(0, Math.min(correction.seekTo, limit))
     }
-    if (correction.paused === true && !video.paused) video.pause()
+    if (correction.paused === true && !video.paused) {
+      onUserPause?.()
+      video.pause()
+    }
     if (correction.paused === false && video.paused) {
       void video.play().catch(() => {
         if (!video.muted) {

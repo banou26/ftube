@@ -56,15 +56,16 @@ export const toggleVideoPip = (
     return Promise.resolve()
   }
   if (video.disablePictureInPicture) return Promise.resolve()
-  if (hasStandardPip(video, doc)) {
-    return video.requestPictureInPicture().then(() => undefined, () => {})
-  }
   if (hasWebKitPip(video)) {
     try {
       webkit.webkitSetPresentationMode?.('picture-in-picture')
+      return Promise.resolve()
     } catch {
       // Ignore synchronous Safari InvalidStateError before media metadata is ready.
     }
+  }
+  if (hasStandardPip(video, doc)) {
+    return video.requestPictureInPicture().then(() => undefined, () => {})
   }
   return Promise.resolve()
 }
