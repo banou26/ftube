@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { Radio } from 'lucide-react'
 import { Link } from 'wouter'
 
+import { GroupsButton } from './groups-button'
 import { Rail } from './rail'
 import SubscribeButton from './subscribe-button'
 import { Thumbnail } from './thumbnail'
@@ -216,6 +217,10 @@ export const SearchCard = ({ card }: { card: SearchCardData }) => {
           {channel.description ? <p className='card-description'>{channel.description}</p> : undefined}
           <div className='card-actions'>
             <SubscribeButton channelId={channel.id} subscribed={channel.isSubscribed} notificationLevel={channel.notificationLevel} />
+            <GroupsButton
+              channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
+              hints={{ handle: channel.handle, description: channel.description, isVerifiedArtist: channel.isVerifiedArtist }}
+            />
             <Link href={channelHref} className='card-pill'>View Channel</Link>
             {mixHref
               ? (

@@ -235,3 +235,38 @@ test('nests subfolders, collapses in the guide, rolls up child uploads on the pa
   await confirm.getByRole('button', { name: 'Delete' }).click()
   await expect(main.locator('li[data-depth="0"]').getByRole('link', { name: /Blender3D/ })).toBeVisible()
 })
+
+test('shows group suggestions on channel pages with null tags, on watch pages, and on search channel cards', async ({ page }) => {
+  test.setTimeout(180_000)
+
+  await page.goto(`/channel/${BLENDER}`)
+  await expect(async () => {
+    const host = page.locator('[data-channel-header-harness="tags-fallback"]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelHeader('tags-fallback')
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+
+  const channelHost = page.locator('[data-channel-header-harness="tags-fallback"]')
+  await expect(channelHost.locator('h1')).toHaveText('Quiet Creator')
+  await channelHost.getByRole('button', { name: 'Groups', exact: true }).click()
+  await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create ASMR' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.goto('/watch?v=dQw4w9WgXcQ')
+  const watchGroups = page.locator('main').getByRole('button', { name: 'Groups', exact: true })
+  await expect(watchGroups).toBeVisible({ timeout: 90_000 })
+  await watchGroups.click()
+  await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create Music' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.goto('/results?search_query=Blender')
+  const searchGroups = page.locator('main').getByRole('button', { name: 'Groups', exact: true }).first()
+  await expect(searchGroups).toBeVisible({ timeout: 90_000 })
+  await searchGroups.click()
+  await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create 3D' })).toBeVisible()
+})

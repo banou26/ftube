@@ -403,6 +403,7 @@ describe('youtube normalization', () => {
       videoCountText: '425 videos',
       banner: 'banner-large',
       description: 'About the channel',
+      tags: [],
     })
   })
 
@@ -436,6 +437,7 @@ describe('youtube normalization', () => {
       videoCountText: '425 videos',
       banner: 'banner',
       description: 'About the channel',
+      tags: [],
     })
   })
 
@@ -453,6 +455,12 @@ describe('youtube normalization', () => {
         keywords: '3d "Free Software"',
       },
     }).tags).toEqual(['3d', 'Free Software'])
+    expect(normalizeChannel({
+      metadata: {
+        external_id: 'UC_no_tags',
+        title: 'Tagless Channel',
+      },
+    }).tags).toEqual([])
   })
 
   it('normalizes lockup watch-next items', () => {

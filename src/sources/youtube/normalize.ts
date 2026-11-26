@@ -636,7 +636,7 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
     videoCountText: text(header?.videos_count) ?? details[1],
     banner: thumbnail(header?.banner) ?? thumbnail(view?.banner?.image),
     description: channel.metadata?.description ?? text(view?.description?.description),
-    ...(tags.length > 0 ? { tags } : {}),
+    tags,
     isSubscribed: headerSubscribed(channel) ?? channel.subscribe_button?.subscribed,
     ...(isOwnChannel ? { isOwnChannel } : {}),
     notificationLevel: notificationLevel(channel.subscribe_button?.notification_preference_button?.current_state_id),

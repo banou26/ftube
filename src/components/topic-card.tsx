@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { Link } from 'wouter'
 
 import { formatDuration } from './format'
+import { GroupsButton } from './groups-button'
 import SubscribeButton from './subscribe-button'
 import { Thumbnail } from './thumbnail'
 import { VerifiedBadge } from './verified-badge'
@@ -74,6 +75,10 @@ const style = css`
   }
 
   .topic-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
     margin-top: 1.2rem;
   }
 
@@ -256,6 +261,14 @@ export const TopicCard = ({ topic, subscribed, notificationLevel }: {
                 subscribed={subscribed}
                 notificationLevel={notificationLevel}
               />
+              {topic.channelId
+                ? (
+                  <GroupsButton
+                    channel={{ id: topic.channelId, name: topic.title, avatar: topic.avatar ?? undefined }}
+                    hints={{ handle: topic.subtitle?.startsWith('@') ? topic.subtitle : undefined, isVerifiedArtist: topic.isVerifiedArtist }}
+                  />
+                )
+                : undefined}
             </div>
           )
           : undefined}

@@ -17,6 +17,7 @@ import { DataFailure } from '../components/data-failure'
 import DescriptionBox from '../components/description-box'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { parseStartSeconds } from '../components/format'
+import { GroupsButton } from '../components/groups-button'
 import { LikePill } from '../components/like-pill'
 import LiveChat, { LiveChatTeaser } from '../components/live-chat'
 import { openDownloadDialog } from '../downloads/store'
@@ -643,6 +644,10 @@ const WatchPage = () => {
                         channelId={channel.id}
                         subscribed={channel.isSubscribed}
                         notificationLevel={channel.notificationLevel}
+                      />
+                      <GroupsButton
+                        channel={{ id: channel.id, name: channel.name, avatar: channel.avatar ?? undefined }}
+                        hints={{ handle: channel.handle, isVerifiedArtist: channel.isVerifiedArtist }}
                       />
                     </>
                   )

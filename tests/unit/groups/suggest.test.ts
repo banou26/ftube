@@ -234,4 +234,54 @@ describe('suggestGroup', () => {
       tags: ['gaming', 'trailers'],
     }, joinedGamingWithTrailers)).toEqual({ kind: 'existing', group: joinedGamingWithTrailers[1] })
   })
+
+  it('matches French keywords and falls back to canonical topic names on tagless channels', () => {
+    expect(suggestGroup({
+      id: 'UC_canal_f1',
+      name: 'CANAL+ Sport',
+      tags: ['formule 1', 'grand prix'],
+    }, USER_GROUPS)).toEqual({ kind: 'existing', group: USER_GROUPS[5] })
+
+    expect(suggestGroup({
+      id: 'UC_fr_tech',
+      name: 'Underscore_',
+      description: 'Le talk show informatique et technologie hebdomadaire.',
+      tags: [],
+    }, USER_GROUPS)).toEqual({ kind: 'new', name: 'Tech', emoji: '💻' })
+
+    expect(suggestGroup({
+      id: 'UC_gibi_tagless',
+      name: 'Gibi ASMR',
+      handle: '@GibiASMR',
+      tags: [],
+    }, USER_GROUPS)).toEqual({ kind: 'existing', group: USER_GROUPS[0] })
+
+    expect(suggestGroup({
+      id: 'UC_f1_tagless',
+      name: 'Formula 1',
+      tags: [],
+    }, USER_GROUPS)).toEqual({ kind: 'existing', group: USER_GROUPS[5] })
+
+    // Generic or ambiguous channel names with no matching topic words must stay undefined
+    expect(suggestGroup({
+      id: 'UC_generic_name',
+      name: "John's Random Clips",
+      tags: [],
+    }, USER_GROUPS)).toBeUndefined()
+    expect(suggestGroup({
+      id: 'UC_human_nature',
+      name: 'Human Nature',
+      tags: [],
+    }, USER_GROUPS)).toBeUndefined()
+    expect(suggestGroup({
+      id: 'UC_state_art',
+      name: 'State of the Art',
+      tags: [],
+    }, USER_GROUPS)).toBeUndefined()
+    expect(suggestGroup({
+      id: 'UC_mind_games',
+      name: 'Mind Games',
+      tags: [],
+    }, USER_GROUPS)).toBeUndefined()
+  })
 })

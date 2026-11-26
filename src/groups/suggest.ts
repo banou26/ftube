@@ -26,19 +26,19 @@ type Topic = {
 
 // Ordered so more specific categories (F1, Mathematics, 3D, Programming) beat broad parents when equal
 const TOPICS: readonly Topic[] = [
-  { name: 'F1', emoji: '🚗', aliases: ['f1', 'formula 1', 'formula one', 'formula racing', 'grand prix', 'motorsport'] },
-  { name: 'Cars', emoji: '🚗', aliases: ['car', 'automotive', 'automobile', 'auto', 'voiture', 'jdm', 'drifting', 'drag racing', 'muscle car', 'tuner car', 'project car', 'engine swap', 'turbo', 'supercharger', 'truck', 'racing', 'rally', 'off road'], descriptionKeywords: ['automotive', 'car reviews', 'project cars', 'motorsport', 'car culture'] },
+  { name: 'F1', emoji: '🚗', aliases: ['f1', 'formula 1', 'formula one', 'formula racing', 'grand prix', 'motorsport', 'formule 1'] },
+  { name: 'Cars', emoji: '🚗', aliases: ['car', 'automotive', 'automobile', 'auto', 'voiture', 'jdm', 'drifting', 'drag racing', 'muscle car', 'tuner car', 'project car', 'engine swap', 'turbo', 'supercharger', 'truck', 'racing', 'rally', 'off road'], descriptionKeywords: ['automotive', 'car reviews', 'project cars', 'motorsport', 'car culture', 'voiture', 'automobile'] },
   { name: 'ASMR', emoji: '🎧', aliases: ['asmr', 'relaxation', 'relax', 'sleep', 'stress relief', 'whisper', 'tingle'] },
   { name: 'Mathematics', emoji: '🔬', aliases: ['mathematics', 'math', 'maths', 'mathematiques', 'calculus', 'linear algebra', 'algebra', 'geometry', 'topology', 'probability'], descriptionKeywords: ['mathematics', 'math', 'calculus', 'geometry'] },
   { name: '3D', emoji: '🎨', aliases: ['3d', '3d modeling', '3d animation', 'cgi', 'vfx', 'blender 3d', 'sculpture'], descriptionKeywords: ['3d creation', '3d modeling', '3d animation', 'cgi'] },
-  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rustlang', 'rust programming', 'golang', 'react', 'angular', 'firebase', 'linux', 'devops', 'computer science', 'developer'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials'] },
+  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rustlang', 'rust programming', 'golang', 'react', 'angular', 'firebase', 'linux', 'devops', 'computer science', 'developer', 'programmation', 'developpement'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials', 'programmation', 'developpement'] },
   { name: 'Trailers', emoji: '🎬', aliases: ['trailer', 'movie trailer', 'film trailer', 'game trailer', 'teaser'], descriptionKeywords: ['trailers'] },
-  { name: 'Gaming', emoji: '🎮', aliases: ['gaming', 'video game', 'videogame', 'videogaming', 'gamer', 'game', 'jeu video', 'jeux video', 'retrogaming', 'retro gaming', 'esport', 'console', 'playstation', 'xbox', 'nintendo', 'pc gaming', 'megadrive', 'speedrun', 'e3'], descriptionKeywords: ['gaming', 'video games', 'videogames', 'gamer', 'esports'] },
-  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'gadget review'], descriptionKeywords: ['consumer electronics', 'tech videos', 'tech reviews', 'computer hardware', 'smartphones'] },
-  { name: 'Music', emoji: '🎵', aliases: ['music', 'musician', 'singer', 'song', 'album', 'band', 'rock', 'pop', 'hip hop', 'rap', 'jazz', 'electronic music', 'classical music', 'dj', 'soundtrack', 'musique'], descriptionKeywords: ['official music', 'music video', 'singer', 'songwriter', 'musician', 'album', 'discography', 'record label'] },
+  { name: 'Gaming', emoji: '🎮', aliases: ['gaming', 'video game', 'videogame', 'videogaming', 'gamer', 'game', 'jeu video', 'jeux video', 'retrogaming', 'retro gaming', 'esport', 'console', 'playstation', 'xbox', 'nintendo', 'pc gaming', 'megadrive', 'speedrun', 'e3'], descriptionKeywords: ['gaming', 'video games', 'videogames', 'gamer', 'esports', 'jeux video', 'jeu video'] },
+  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'gadget review', 'technologie', 'informatique'], descriptionKeywords: ['consumer electronics', 'tech videos', 'tech reviews', 'computer hardware', 'smartphones', 'technologie', 'informatique'] },
+  { name: 'Music', emoji: '🎵', aliases: ['music', 'musician', 'singer', 'song', 'album', 'band', 'rock', 'pop', 'hip hop', 'rap', 'jazz', 'electronic music', 'classical music', 'dj', 'soundtrack', 'musique'], descriptionKeywords: ['official music', 'music video', 'singer', 'songwriter', 'musician', 'album', 'discography', 'record label', 'musique'] },
   { name: 'Movies', emoji: '🎬', aliases: ['movie', 'film', 'cinema', 'series', 'television', 'anime', 'documentary'], descriptionKeywords: ['movie reviews', 'film analysis', 'cinema', 'filmmaker'] },
-  { name: 'Cooking', emoji: '🍳', aliases: ['cooking', 'food', 'recipe', 'culinary', 'baking', 'chef', 'cuisine', 'kitchen'], descriptionKeywords: ['cooking', 'recipes', 'culinary', 'baking'] },
-  { name: 'Science', emoji: '🔬', aliases: ['science', 'physics', 'chemistry', 'biology', 'astronomy', 'astrophysics', 'space science', 'outer space', 'engineering', 'scientific'], descriptionKeywords: ['science', 'physics', 'astronomy', 'biology', 'chemistry'] },
+  { name: 'Cooking', emoji: '🍳', aliases: ['cooking', 'food', 'recipe', 'culinary', 'baking', 'chef', 'cuisine', 'kitchen'], descriptionKeywords: ['cooking', 'recipes', 'culinary', 'baking', 'recettes', 'cuisine'] },
+  { name: 'Science', emoji: '🔬', aliases: ['science', 'physics', 'chemistry', 'biology', 'astronomy', 'astrophysics', 'space science', 'outer space', 'engineering', 'scientific'], descriptionKeywords: ['science', 'physics', 'astronomy', 'biology', 'chemistry', 'sciences', 'physique', 'astronomie'] },
   { name: 'News', emoji: '📰', aliases: ['news', 'journalism', 'politics', 'current events', 'world news', 'actualites'], descriptionKeywords: ['journalism', 'breaking news', 'world news', 'current events'] },
   { name: 'Sports', emoji: '⚽', aliases: ['sport', 'football', 'soccer', 'basketball', 'nba', 'nfl', 'tennis', 'baseball', 'hockey', 'ufc', 'mma', 'athletics'], descriptionKeywords: ['sports', 'football', 'soccer', 'basketball'] },
   { name: 'Fitness', emoji: '🏋️', aliases: ['fitness', 'workout', 'gym', 'bodybuilding', 'exercise', 'strength training', 'weight training', 'health', 'nutrition'], descriptionKeywords: ['fitness', 'workout', 'bodybuilding'] },
@@ -55,6 +55,35 @@ const TOPICS: readonly Topic[] = [
 ]
 
 const UPPERCASE_TERMS = new Set(['3d', 'ai', 'asmr', 'diy', 'f1', 'fx', 'irl', 'jdm', 'mma', 'nba', 'nfl', 'pc', 'rpg', 'tech', 'tv', 'ufc', 'uk', 'us', 'usa', 'vfx', 'vr'])
+
+const AMBIGUOUS_NAME_TOPICS = new Set(['art', 'car', 'pet', 'nature', 'business', 'education'])
+const UNAMBIGUOUS_NAME_ALIASES = new Set([
+  'asmr',
+  'f1',
+  'motorsport',
+  'retrogaming',
+  'esport',
+  'videogame',
+  'musician',
+  'musique',
+  'technologie',
+  'informatique',
+  'programmation',
+  'mathematique',
+  'calculus',
+  'physic',
+  'chemistry',
+  'astronomy',
+  'biology',
+  'woodworking',
+  'filmmaking',
+  'cinematography',
+  'gardening',
+  'bodybuilding',
+  'culinary',
+  'baking',
+  'anime',
+])
 
 const BOILERPLATE_TAGS = new Set([
   '1080p',
@@ -258,6 +287,24 @@ const topicScoresFromSignals = (cleanTags: readonly string[], channel: ChannelGr
         if (containsWholePhrase(normDesc, normalizePhrase(kw))) descHits += 1
       }
       if (descHits > 0) add(topic, 42 + descHits * 10)
+    }
+  }
+
+  // Fallback for tagless channels whose own name explicitly states an unambiguous topic (e.g. "Gibi ASMR", "Formula 1")
+  if (scores.size === 0 && channel.name) {
+    const normChannelName = normalizePhrase(channel.name)
+    for (const topic of TOPICS) {
+      const normTopicName = normalizePhrase(topic.name)
+      const topicMatch = !AMBIGUOUS_NAME_TOPICS.has(normTopicName) && containsWholePhrase(normChannelName, normTopicName)
+      const aliasMatch = topic.aliases.some((alias) => {
+        const normAlias = normalizePhrase(alias)
+        return (normAlias.includes(' ') || UNAMBIGUOUS_NAME_ALIASES.has(normAlias))
+          && containsWholePhrase(normChannelName, normAlias)
+      })
+      if (topicMatch || aliasMatch) {
+        add(topic, 50)
+        break
+      }
     }
   }
 

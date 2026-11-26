@@ -13,6 +13,7 @@ import { AvatarStack, BylineNames, CollaboratorsButton } from '../components/byl
 import { ChapterStrip } from '../components/chapters'
 import { DataFailure } from '../components/data-failure'
 import { formatDuration, formatMeta, rowByline } from '../components/format'
+import { GroupsButton } from '../components/groups-button'
 import { playlistHrefFor } from '../components/playlist'
 import { Rail } from '../components/rail'
 import { MusicNote } from '../components/row-marks'
@@ -593,6 +594,10 @@ const style = css`
 
   .channel-actions {
     flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
   }
 
   .playlist-stack {
@@ -1014,6 +1019,10 @@ const SearchPage = () => {
                       channelId={row.id}
                       subscribed={row.isSubscribed}
                       notificationLevel={row.notificationLevel}
+                    />
+                    <GroupsButton
+                      channel={{ id: row.id, name: row.name, avatar: row.avatar ?? undefined }}
+                      hints={{ handle: row.handle, description: row.description, isVerifiedArtist: row.isVerifiedArtist }}
                     />
                   </div>
                 </article>
