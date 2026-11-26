@@ -280,3 +280,68 @@ describe('the Hide Shorts setting', () => {
     expect((await load(JSON.parse(written.at(-1)!))).getSettings().hideShorts).toBe(true)
   })
 })
+
+describe('custom appearance settings', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('coerces customThemeColor, seekHandle, and appIcon safely and persists valid choices', async () => {
+    expect((await load()).getSettings()).toMatchObject({
+      customThemeColor: undefined,
+      seekHandle: { kind: 'default' },
+      appIcon: 'default',
+    })
+
+    const invalid = (await load({
+      customThemeColor: 'not-hex',
+      seekHandle: { kind: 'icon', value: 'DoesNotExistIcon' },
+      appIcon: 'unknown-icon',
+    })).getSettings()
+    expect(invalid.customThemeColor).toBeUndefined()
+    expect(invalid.seekHandle).toEqual({ kind: 'default' })
+    expect(invalid.appIcon).toBe('default')
+
+    expect((await load({ customThemeColor: '#ABC', seekHandle: { kind: 'emoji', value: '🚀' }, appIcon: 'theme' })).getSettings()).toMatchObject({
+      customThemeColor: '#aabbcc',
+      seekHandle: { kind: 'emoji', value: '🚀' },
+      appIcon: 'theme',
+    })
+
+    expect((await load({ seekHandle: { kind: 'icon', value: 'Star' } })).getSettings().seekHandle).toEqual({
+      kind: 'icon',
+      value: 'Star',
+    })
+  })
+
+  it('resetCustomAppearance restores default theme, palette, seekHandle, and appIcon', async () => {
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', {
+      getItem: () => JSON.stringify({
+        theme: 'light',
+        themeChosen: true,
+        customThemeColor: '#10b981',
+        seekHandle: { kind: 'icon', value: 'Rocket' },
+        appIcon: 'dark',
+      }),
+      setItem: (_key: string, value: string) => written.push(value),
+    })
+    const { getSettings, resetCustomAppearance } = await import('../../src/settings')
+    expect(getSettings()).toMatchObject({
+      theme: 'light',
+      customThemeColor: '#10b981',
+      seekHandle: { kind: 'icon', value: 'Rocket' },
+      appIcon: 'dark',
+    })
+    const reset = resetCustomAppearance()
+    expect(reset).toMatchObject({
+      theme: 'device',
+      customThemeColor: undefined,
+      seekHandle: { kind: 'default' },
+      appIcon: 'default',
+    })
+    expect(reset.themeChosen).toBeUndefined()
+    expect(JSON.parse(written.at(-1)!).customThemeColor).toBeUndefined()
+  })
+})

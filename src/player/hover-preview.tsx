@@ -9,10 +9,11 @@ import { preferredTrack } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { startEngine } from '../engine/client'
-import { getSettings } from '../settings'
+import { getSettings, useSetting } from '../settings'
 import { cardState } from './card-params'
 import { clock } from './controls'
 import { warmShaka } from './prefetch'
+import { SeekKnob } from './seek-knob'
 
 import type { startShakaPlayback } from './shaka'
 
@@ -152,14 +153,11 @@ const style = css`
   /* hidden at rest, as youtube.com's playhead dot is */
   .knob {
     position: absolute;
-    bottom: -0.3rem;
-    width: 1.2rem;
-    height: 1.2rem;
-    margin-left: -0.6rem;
-    border-radius: 50%;
-    background: var(--brand-red);
+    top: 50%;
+    transform: translate(-50%, -50%);
     pointer-events: none;
     opacity: 0;
+    transition: opacity 0.12s ease;
   }
 
   .scrubber:hover .knob,
@@ -295,6 +293,7 @@ export const HoverPreview = (
   { videoId, href, playerParams, onFail }: { videoId: string, href: string, playerParams?: string, onFail?: () => void },
 ) => {
   const [, navigate] = useLocation()
+  const seekHandle = useSetting('seekHandle')
   const videoRef = useRef<HTMLVideoElement>(null)
   const onFailRef = useRef(onFail)
   onFailRef.current = onFail
@@ -552,7 +551,7 @@ export const HoverPreview = (
             <div className='track'>
               <div className='buffered' style={{ width: `${Math.round(buffered * 100)}%` }} />
               <div className='fill' style={{ width: `${position * 100}%` }} />
-              <div className='knob' style={{ left: `${position * 100}%` }} />
+              <SeekKnob handle={seekHandle} style={{ left: `${position * 100}%` }} size={14} />
             </div>
             {hover && !scrub
               ? (

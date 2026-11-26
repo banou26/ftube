@@ -22,6 +22,7 @@ import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from 
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
+import { SeekKnob } from './seek-knob'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
 import { SpeedPicker } from './speed-picker'
 import { VolumeControl } from './volume-control'
@@ -120,18 +121,14 @@ const style = css`
   .knob {
     position: absolute;
     top: 50%;
-    width: 1.2rem;
-    height: 1.2rem;
-    margin-left: -0.6rem;
-    border-radius: 50%;
-    background: var(--brand-red);
-    transform: translateY(-50%);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
     transition: transform 0.1s ease;
   }
 
   .scrubber:hover .knob,
   .scrubber.scrubbing .knob {
-    transform: translateY(-50%) scale(1.3);
+    transform: translate(-50%, -50%) scale(1.3);
   }
 
   .preview {
@@ -785,7 +782,7 @@ export const PlayerControls = (
               />
             ))
             : undefined}
-          <div className='knob' style={{ left: offset(position) }} />
+          <SeekKnob handle={settings.seekHandle} style={{ left: offset(position) }} />
         </div>
         {hover
           ? (

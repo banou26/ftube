@@ -12,13 +12,14 @@ import { showToast } from '../components/ui/toast'
 import { startEngine } from '../engine/client'
 import { defaultTrack, startingCaption } from '../frame/captions'
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
-import { getSettings, subscribeSettings, updateSettings } from '../settings'
+import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { AudioPermissionPrompt } from './audio-prompt'
 import { captionDeclarations } from './caption-style'
 import { isTypingTarget } from './controls'
 import { pictureOf } from './end-screen-layout'
 import { getFullscreenElement, isVideoFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { warmShaka } from './prefetch'
+import { SeekKnob } from './seek-knob'
 
 const playerStyle = css`
   position: relative;
@@ -275,25 +276,20 @@ const playerStyle = css`
   .scrubber .fill {
     position: relative;
     height: 100%;
-    background: var(--brand, #f00);
+    background: var(--brand-red);
   }
 
-  .scrubber .fill::after {
-    content: '';
+  .scrubber .knob {
     position: absolute;
-    right: -0.6rem;
     top: 50%;
-    width: 1.2rem;
-    height: 1.2rem;
-    border-radius: 50%;
-    background: var(--brand, #f00);
-    transform: translateY(-50%) scale(0);
+    transform: translate(-50%, -50%) scale(0);
+    pointer-events: none;
     transition: transform 0.12s ease;
   }
 
-  .scrubber:hover .fill::after,
-  .scrubber.scrubbing .fill::after {
-    transform: translateY(-50%) scale(1);
+  .scrubber:hover .knob,
+  .scrubber.scrubbing .knob {
+    transform: translate(-50%, -50%) scale(1);
   }
 
   @media (max-width: 600px) {
@@ -377,6 +373,7 @@ const ShortsPlayer = (
   const [autoMuted, setAutoMuted] = useState(false)
   const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
   const [paused, setPaused] = useState(false)
+  const seekHandle = useSetting('seekHandle')
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
   const [fullscreen, setFullscreen] = useState(false)
@@ -872,6 +869,7 @@ const ShortsPlayer = (
           >
             <div className='track'>
               <div className='fill' style={{ width: `${progress * 100}%` }} />
+              <SeekKnob handle={seekHandle} style={{ left: `${progress * 100}%` }} />
             </div>
           </div>
         )

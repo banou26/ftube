@@ -10,7 +10,7 @@ const EXTENSION_PRIVACY_URL = 'https://fkn.app/extension/privacy'
 const KEPT: { title: string, what: string }[] = [
   {
     title: 'Settings',
-    what: 'Your theme, autoplay, volume and mute, quality, speed, captions, their language, look and position, theater mode, ambient mode, whether to show dislike counts and skip sponsors, whether to hide Shorts, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
+    what: 'Your theme, custom theme color, seek bar handle, web app icon, autoplay, volume and mute, quality, speed, captions, their language, look and position, theater mode, ambient mode, whether to show dislike counts and skip sponsors, whether to hide Shorts, whether the guide is collapsed, whether to offer the FKN extension, and whether it was there on your last visit. Kept until you change them.',
   },
   {
     title: 'Hidden recommendations',

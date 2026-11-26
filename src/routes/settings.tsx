@@ -6,6 +6,7 @@ import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
+import { CustomAppearance } from '../components/custom-appearance'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
@@ -161,6 +162,7 @@ export const SettingsPage = () => {
           ))}
         </div>
       </section>
+      <CustomAppearance settings={settings} onUpdate={set} />
 
       <section className='section'>
         <h2 className='section-title'>Playback</h2>

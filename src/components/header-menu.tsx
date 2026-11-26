@@ -96,6 +96,12 @@ const HeaderMenuPanel = ({ onShortcuts }: { onShortcuts: () => void }) => {
             }}
           />
         ))}
+        <MenuSeparator />
+        <MenuItem
+          icon={Settings}
+          label='Custom appearance'
+          onSelect={() => navigate('/settings#custom-appearance')}
+        />
       </div>
     )
   }

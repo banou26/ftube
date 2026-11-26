@@ -29,7 +29,7 @@ export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   'Objects',
 ]
 
-const EMOJIS: readonly EmojiEntry[] = [
+export const EMOJIS: readonly EmojiEntry[] = [
   { emoji: '😀', name: 'Grinning face', category: 'Smileys', keywords: ['smile', 'happy', 'grin'] },
   { emoji: '😃', name: 'Grinning face with big eyes', category: 'Smileys', keywords: ['smile', 'happy'] },
   { emoji: '😄', name: 'Grinning face with smiling eyes', category: 'Smileys', keywords: ['happy', 'laugh'] },

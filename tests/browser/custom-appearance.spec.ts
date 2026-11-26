@@ -1,0 +1,90 @@
+import { expect, test } from './test'
+
+test.use({ viewport: { width: 1440, height: 900 } })
+
+const srgbChannel = (v: number) => {
+  const s = v / 255
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+}
+
+const contrastFromRgb = (fg: string, bg: string) => {
+  const parse = (str: string) => {
+    const m = str.match(/\d+/g) ?? ['0', '0', '0']
+    const [r = 0, g = 0, b = 0] = m.map(Number)
+    return 0.2126 * srgbChannel(r) + 0.7152 * srgbChannel(g) + 0.0722 * srgbChannel(b)
+  }
+  const l1 = parse(fg)
+  const l2 = parse(bg)
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
+}
+
+test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web app icon, and Reset to default', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/settings')
+  const custom = page.locator('#custom-appearance')
+  await expect(custom).toBeVisible()
+
+  // 1. Preset selection applies CSS tokens and persists across reload
+  await custom.getByRole('button', { name: 'Emerald' }).click()
+  const accentSet = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent').trim())
+  expect(accentSet).not.toBe('')
+
+  await page.reload()
+  await expect(page.locator('#custom-appearance').getByRole('button', { name: 'Emerald' })).toHaveAttribute('aria-pressed', 'true')
+  const persistedAccent = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent').trim())
+  expect(persistedAccent).toBe(accentSet)
+
+  // 2. Adversarial bright yellow custom hex meets WCAG AA contrast (>= 4.5) in both dark and light modes
+  const hexInput = custom.getByLabel('Custom primary color hex')
+  await hexInput.fill('#ffdd00')
+  for (const mode of ['Dark', 'Light'] as const) {
+    await page.getByRole('button', { name: mode, exact: true }).click()
+    const colors = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement)
+      return {
+        bg: style.getPropertyValue('--bg-base').trim(),
+        text: style.getPropertyValue('--text-primary').trim(),
+        accent: style.getPropertyValue('--accent').trim(),
+      }
+    })
+    const probe = await page.evaluate(([accent, text, bg]) => {
+      const el = document.createElement('div')
+      el.style.color = accent
+      el.style.backgroundColor = bg
+      el.style.borderColor = text
+      document.body.append(el)
+      const cs = getComputedStyle(el)
+      const result = { accent: cs.color, bg: cs.backgroundColor, text: cs.borderColor }
+      el.remove()
+      return result
+    }, [colors.accent, colors.text, colors.bg] as const)
+    expect(contrastFromRgb(probe.accent, probe.bg), `accent AA in ${mode}`).toBeGreaterThanOrEqual(4.5)
+    expect(contrastFromRgb(probe.text, probe.bg), `text AAA in ${mode}`).toBeGreaterThanOrEqual(7.0)
+  }
+
+  // 3. Custom seek handle: Emoji then Lucide icon updates preview and Watch page knob
+  await custom.getByRole('tab', { name: 'Emoji' }).click()
+  await custom.getByRole('button', { name: 'Rocket', exact: false }).click()
+  await expect(custom.locator('[data-seek-handle="emoji"]')).toContainText('🚀')
+
+  await custom.getByRole('tab', { name: 'Icon' }).click()
+  await custom.getByRole('button', { name: 'Star', exact: true }).click()
+  await expect(custom.locator('[data-seek-handle="icon"] svg')).toBeVisible()
+
+  // 4. Mobile web app icon updates favicon & webmanifest cleanly
+  await custom.getByRole('button', { name: 'Theme icon' }).click()
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', /^data:image\/svg\+xml/)
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', /^blob:/)
+
+  // Verify watch page player renders the custom seek handle
+  await page.goto('/watch?v=dQw4w9WgXcQ')
+  await expect(page.locator('.scrubber [data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+
+  // 5. Reset to default clears custom tokens, restores seek handle & original favicon/manifest
+  await page.goto('/settings')
+  await page.locator('#custom-appearance').getByRole('button', { name: 'Reset to default' }).click()
+  const clearedAccent = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))
+  expect(clearedAccent).toBe('')
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', '/favicon.svg')
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
+})

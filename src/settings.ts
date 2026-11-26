@@ -1,9 +1,14 @@
 import type { CaptionLook } from './player/caption-style'
+import type { AppIconId } from './theme/app-icon'
+import type { SeekHandle } from './theme/seek-handle'
 
 import { useEffect, useState } from 'preact/hooks'
 
 import { CAPTION_OPTIONS } from './player/caption-style'
 import { toRate } from './player/rates'
+import { applyAppIcon, coerceAppIcon } from './theme/app-icon'
+import { applyCustomPalette, normalizeHexColor } from './theme/palette'
+import { coerceSeekHandle } from './theme/seek-handle'
 
 export type ThemePreference = 'device' | 'light' | 'dark'
 
@@ -46,6 +51,9 @@ export type Settings = {
   extensionSeen?: boolean
   // set when a person picks a theme; before 2026-11-05 the first visit saved the old Dark default as if chosen
   themeChosen?: boolean
+  customThemeColor?: string
+  seekHandle: SeekHandle
+  appIcon: AppIconId
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -71,6 +79,9 @@ export const DEFAULT_SETTINGS: Settings = {
   guideCollapsed: false,
   hideShorts: false,
   suggestExtension: true,
+  customThemeColor: undefined,
+  seekHandle: { kind: 'default' },
+  appIcon: 'default',
 }
 
 const STORAGE_KEY = 'yt-client:settings'
@@ -118,6 +129,9 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     suggestExtension: typeof stored.suggestExtension === 'boolean' ? stored.suggestExtension : DEFAULT_SETTINGS.suggestExtension,
     extensionSeen: typeof stored.extensionSeen === 'boolean' ? stored.extensionSeen : undefined,
     themeChosen: stored.themeChosen === true ? true : undefined,
+    customThemeColor: normalizeHexColor(stored.customThemeColor),
+    seekHandle: coerceSeekHandle(stored.seekHandle),
+    appIcon: coerceAppIcon(stored.appIcon),
   }
 }
 
@@ -157,10 +171,16 @@ export const useSetting = <Key extends keyof Settings>(key: Key): Settings[Key] 
 }
 
 export const updateSettings = (patch: Partial<Settings>) => {
-  const next = {
-    ...current,
+  const normalizedPatch: Partial<Settings> = {
     ...patch,
-    ...('theme' in patch ? { themeChosen: true } : {}),
+    ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
+    ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),
+    ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
+  }
+  const next: Settings = {
+    ...current,
+    ...normalizedPatch,
+    ...('theme' in patch ? { themeChosen: 'themeChosen' in patch ? patch.themeChosen : true } : {}),
     ...('captionsEnabled' in patch ? { captionsChosen: true } : {}),
   }
   current = next
@@ -172,6 +192,15 @@ export const updateSettings = (patch: Partial<Settings>) => {
   for (const listener of listeners) listener(next)
   return next
 }
+
+export const resetCustomAppearance = () =>
+  updateSettings({
+    theme: DEFAULT_SETTINGS.theme,
+    themeChosen: undefined,
+    customThemeColor: undefined,
+    seekHandle: { ...DEFAULT_SETTINGS.seekHandle },
+    appIcon: DEFAULT_SETTINGS.appIcon,
+  })
 
 const prefersLight = () => {
   try {
@@ -188,8 +217,11 @@ const THEME_COLOR = { dark: '#0f0f0f', light: '#f9f9f9' }
 
 export const applyTheme = (preference: ThemePreference = current.theme) => {
   const resolved = resolveTheme(preference)
+  if (typeof document === 'undefined') return resolved
   document.documentElement.dataset.theme = resolved
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved])
+  const palette = applyCustomPalette(current.customThemeColor, resolved)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', palette?.['--bg-base'] ?? THEME_COLOR[resolved])
+  applyAppIcon(current.appIcon, current.customThemeColor, resolved)
   return resolved
 }
 
