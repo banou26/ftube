@@ -406,9 +406,9 @@ const style = css`
   &::before {
     content: '';
     position: absolute;
-    inset: -0.8rem;
+    inset: var(--card-hover-inset, -0.8rem);
     z-index: -1;
-    border-radius: 1.6rem;
+    border-radius: var(--card-hover-radius, 1.6rem);
     background: transparent;
     pointer-events: none;
     transition: background-color 0.15s ease;
@@ -445,8 +445,7 @@ const style = css`
     background: var(--bg-elevated);
   }
 
-  /* The card stays stationary on hover (no scale jump under the pointer), while
-     ::before paints a soft rounded backdrop behind thumbnail and details. */
+  /* Stationary on hover: no scale lift under the pointer. */
 
   /* Shorts are vertical, and a 16/9 box would letterbox one into a slot mostly
      made of background. The card keeps its grid column and only the thumbnail

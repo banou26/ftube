@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import { Parser, YT } from 'youtubei.js'
 
 import { createYoutubeSource } from '../../../../src/sources/youtube'
-import { normalizeLockupVideo } from '../../../../src/sources/youtube/normalize'
+import { normalizeFeedVideo, normalizeLockupVideo } from '../../../../src/sources/youtube/normalize'
 import channelVideos from '../../fixtures/channel-videos-blender.json'
 import home from '../../fixtures/home-inline-preview.json'
 import search from '../../fixtures/search-inline-preview.json'
@@ -136,5 +136,20 @@ describe("a card's inline playback params", () => {
       },
     } as never)
     expect(normalizeLockupVideo(parsed)?.inlinePlayerParams).toBe('urlOnly=')
+  })
+
+  it('are read off Video webCommandMetadata url pp and strip trailing fragments', () => {
+    const parsed = Parser.parseItem({
+      videoRenderer: {
+        videoId: 'video-url-pp',
+        title: { runs: [{ text: 'Video with URL pp' }] },
+        thumbnail: { thumbnails: [{ url: 'https://i.ytimg.com/vi/video-url-pp/hqdefault.jpg', width: 480 }] },
+        inlinePlaybackEndpoint: {
+          commandMetadata: { webCommandMetadata: { url: '/watch?v=video-url-pp&pp=vidUrl%3D#frag' } },
+          watchEndpoint: { videoId: 'video-url-pp' },
+        },
+      },
+    } as never)
+    expect(normalizeFeedVideo(parsed)?.inlinePlayerParams).toBe('vidUrl=')
   })
 })

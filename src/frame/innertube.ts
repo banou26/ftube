@@ -543,12 +543,14 @@ export const getSabrSource = async (
     pagePlayerOf(raw),
     startedPlayer ?? (rawPromise ? prefetchedPlayerFor.get(rawPromise)?.() : undefined),
   )
-  void Promise.resolve().then(async () => {
-    const client = catalogClient ?? await catalogReady
-    const clientContext = client.session.context as unknown as InnertubeContext
-    const answer = await trackingAnswer(videoId, raw, client, () => playerPromise.then((player) => player.signature_timestamp))
-    return registerPlayback(answer, nonce, beaconFormats(raw), clientContext.client.visitorData)
-  }).catch(() => {})
+  if (!preview || playerParams) {
+    void Promise.resolve().then(async () => {
+      const client = catalogClient ?? await catalogReady
+      const clientContext = client.session.context as unknown as InnertubeContext
+      const answer = await trackingAnswer(videoId, raw, client, () => playerPromise.then((player) => player.signature_timestamp))
+      return registerPlayback(answer, nonce, beaconFormats(raw), clientContext.client.visitorData)
+    }).catch(() => {})
+  }
   const [manifest, decipheredUrl] = await Promise.all([
     isLive ? Promise.resolve('') : info.toDash({
       format_filter: (format: YoutubeFormat) => {

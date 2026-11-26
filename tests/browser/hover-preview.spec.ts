@@ -458,7 +458,18 @@ for (const tab of ['HOME', 'VIDEOS'] as const) {
     }, tab)
     const card = page.locator('[data-preview-harness] article').filter({ has: page.locator('a.thumb[href="/watch?v=moving-0"]') })
     await expect(card.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+    const railTrack = page.locator('[data-preview-harness] .track')
+    if (tab === 'HOME') {
+      const restOverflow = await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)
+      expect(restOverflow, 'channel Home rail has vertical scroll overflow at rest').toBe(0)
+    }
     await card.locator('a.thumb').hover()
+    if (tab === 'HOME') {
+      const hoverOverflow = await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)
+      expect(hoverOverflow, 'channel Home rail has vertical scroll overflow on hover').toBe(0)
+      await expect.poll(() => card.evaluate((el) => getComputedStyle(el, '::before').backgroundColor))
+        .not.toBe('rgba(0, 0, 0, 0)')
+    }
     await expect(card.locator('img.moving')).toHaveAttribute('src', moving)
     await page.waitForTimeout(1_500)
     await expect(card.locator('video')).toHaveCount(0)

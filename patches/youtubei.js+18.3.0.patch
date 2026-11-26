@@ -68,7 +68,7 @@ index 6e9c132..5ac1c67 100644
              })),
              badges: Parser.parseArray(row.badges, BadgeView)
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/GridVideo.js b/node_modules/youtubei.js/dist/src/parser/classes/GridVideo.js
-index a46eb2f..2e1e6ab 100644
+index a46eb2f..72e93f5 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/GridVideo.js
 +++ b/node_modules/youtubei.js/dist/src/parser/classes/GridVideo.js
 @@ -23,6 +23,7 @@ export default class GridVideo extends YTNode {
@@ -90,7 +90,7 @@ index a46eb2f..2e1e6ab 100644
          this.endpoint = new NavigationEndpoint(data.navigationEndpoint);
          this.menu = Parser.parseItem(data.menu, Menu);
 +        const inlineUrl = data.inlinePlaybackEndpoint?.commandMetadata?.webCommandMetadata?.url;
-+        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&]+)/.exec(inlineUrl)?.[1] : undefined;
++        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&#]+)/.exec(inlineUrl)?.[1] : undefined;
 +        this.inline_player_params = data.inlinePlaybackEndpoint?.watchEndpoint?.playerParams ?? inlineUrlPp;
          if (Reflect.has(data, 'buttons')) {
              this.buttons = Parser.parseArray(data.buttons);
@@ -139,7 +139,7 @@ index 0000000..9d30210
 +    }
 +}
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/LockupView.js b/node_modules/youtubei.js/dist/src/parser/classes/LockupView.js
-index a0cc03a..082e35d 100644
+index a0cc03a..be54a18 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/LockupView.js
 +++ b/node_modules/youtubei.js/dist/src/parser/classes/LockupView.js
 @@ -15,6 +15,7 @@ export default class LockupView extends YTNode {
@@ -156,7 +156,7 @@ index a0cc03a..082e35d 100644
          this.renderer_context = new RendererContext(data.rendererContext);
 +        const inlineCmd = (data.itemPlayback?.inlinePlayerData ?? data.inlinePlayerData)?.onVisible?.innertubeCommand;
 +        const inlineUrl = inlineCmd?.commandMetadata?.webCommandMetadata?.url;
-+        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&]+)/.exec(inlineUrl)?.[1] : undefined;
++        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&#]+)/.exec(inlineUrl)?.[1] : undefined;
 +        this.inline_player_params = inlineCmd?.watchEndpoint?.playerParams ?? inlineUrlPp;
      }
      /**
@@ -209,7 +209,7 @@ index 3346601..87c442b 100644
  //# sourceMappingURL=Tab.js.map
 \ No newline at end of file
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/Video.js b/node_modules/youtubei.js/dist/src/parser/classes/Video.js
-index 1de24ef..a635a6d 100644
+index 1de24ef..7ce6f3e 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/Video.js
 +++ b/node_modules/youtubei.js/dist/src/parser/classes/Video.js
 @@ -37,6 +37,7 @@ export default class Video extends YTNode {
@@ -225,7 +225,7 @@ index 1de24ef..a635a6d 100644
          if ('style' in data)
              this.style = data.style;
 +        const inlineUrl = data.inlinePlaybackEndpoint?.commandMetadata?.webCommandMetadata?.url;
-+        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&]+)/.exec(inlineUrl)?.[1] : undefined;
++        const inlineUrlPp = typeof inlineUrl === 'string' ? /[?&]pp=([^&#]+)/.exec(inlineUrl)?.[1] : undefined;
 +        this.inline_player_params = data.inlinePlaybackEndpoint?.watchEndpoint?.playerParams ?? inlineUrlPp;
      }
      /**

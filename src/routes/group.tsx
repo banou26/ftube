@@ -15,6 +15,7 @@ import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { directSubgroups, groupAncestors, groupChannelsWithDescendants, groupHrefFor, useGroups } from '../groups/store'
 import { mergeUploads } from '../groups/uploads'
+import { useSession } from '../session'
 
 // the feed has no live state or avatar, and Video is keyed by id: selecting those would write nulls over other views
 const CHANNEL_UPLOADS_QUERY = gql(`
@@ -245,6 +246,7 @@ const failedLine = (names: string[]) => {
 }
 
 const GroupPage = ({ params }: { params: { id: string } }) => {
+  const { signedIn } = useSession()
   const groups = useGroups()
   const group = groups.find(candidate => candidate.id === safeDecode(params.id))
   useDocumentTitle(group?.name ?? 'Group')
@@ -350,7 +352,7 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
       {channels.length === 0
         ? <p className='notice'>{subgroups.length > 0 ? 'No channels in this group or its subfolders' : 'No channels in this group'}</p>
         : undefined}
-      <VideoGrid videos={videos.slice(0, shown)} fetching={pending > 0 && videos.length <= shown} inlinePreview />
+      <VideoGrid videos={videos.slice(0, shown)} fetching={pending > 0 && videos.length <= shown} inlinePreview={signedIn} />
       <FeedSentinel onVisible={() => setShown(count => count + PAGE_SIZE)} disabled={videos.length <= shown} />
       {editing ? <GroupDialog group={group} onClose={() => setEditing(false)} /> : undefined}
       {creatingSubgroup ? <GroupDialog parentId={group.id} onClose={() => setCreatingSubgroup(false)} /> : undefined}

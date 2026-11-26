@@ -165,5 +165,10 @@ export const mountSubscriptions = () => {
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
   })
   document.documentElement.dataset.engine = 'ready'
+  // Mount VideoCard first so its Emotion CSS lands in <head> before SubscriptionsFeedPage (matching Home -> Subscriptions).
+  const probe = document.createElement('div')
+  render(<Provider value={client}><VideoCard video={homeCard} /></Provider>, probe)
+  render(null, probe)
+  probe.remove()
   render(<Provider value={client}><SubscriptionsFeedPage /></Provider>, host)
 }

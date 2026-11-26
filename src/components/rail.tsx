@@ -8,6 +8,8 @@ const style = css`
   position: relative;
 
   .track {
+    --card-hover-inset: 0;
+    --card-hover-radius: 1.2rem;
     display: flex;
     gap: var(--rail-gap, 0.8rem);
     overflow-x: auto;

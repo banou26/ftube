@@ -241,30 +241,42 @@ it('trims VOD hover preview manifests using ManagedMediaSource when MediaSource 
   expect(preview.manifest).not.toContain('id="251"')
 })
 
-it('uses authenticated /player without params for signed-in hover previews once warmed, and falls back to /watch if /player refuses', async () => {
+it('uses authenticated /player without params and skips playback stats for signed-in no-params previews, falling back to /watch if refused', async () => {
   const { realm } = await import('../../../src/frame/realm')
   realm.cookie = 'SAPISID=test'
   const { getSabrSource, warmPlaybackResources } = await import('../../../src/frame/innertube')
+  const trackedPlayerResponse = {
+    ...playerResponse,
+    playbackTracking: {
+      videostatsPlaybackUrl: { baseUrl: 'https://s.youtube.com/api/stats/playback?docid=preview' },
+      videostatsWatchtimeUrl: { baseUrl: 'https://s.youtube.com/api/stats/watchtime?docid=preview' },
+    },
+  }
   const homePage = new Response('<script>ytcfg.set({"PLAYER_JS_URL":"/s/player/abc12345/base.js"});window.ytAtN({\'R\':\'{}\'});</script>')
-  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(playerResponse)
+  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(trackedPlayerResponse)
 
   warmPlaybackResources()
   await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/')).toBe(true))
   fetched.length = 0
 
-  playerExecute.mockResolvedValueOnce({ data: playerResponse })
+  playerExecute.mockResolvedValueOnce({ data: trackedPlayerResponse })
   const fast = await getSabrSource(VIDEO, undefined, true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(fast.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([])
+  expect(fetched.filter(({ url }) => url.includes('/api/stats/'))).toEqual([])
   expect(playerExecute).toHaveBeenCalledWith('/player', {
     videoId: VIDEO,
     racyCheckOk: true,
     contentCheckOk: true,
     playbackContext: { contentPlaybackContext: { signatureTimestamp: 20774 } },
   })
+  expect('params' in (playerExecute.mock.calls[0]![1] as Record<string, unknown>)).toBe(false)
 
   playerExecute.mockResolvedValueOnce({ data: { playabilityStatus: { status: 'UNPLAYABLE' } } })
   const fallback = await getSabrSource(VIDEO, undefined, true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(fallback.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([{ url: plain, visitor: null }])
+  expect(fetched.filter(({ url }) => url.includes('/api/stats/'))).toEqual([])
 })
