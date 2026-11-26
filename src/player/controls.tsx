@@ -1,7 +1,7 @@
 import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
-import { Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward } from 'lucide-react'
+import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
@@ -405,9 +405,19 @@ const style = css`
   .settings-menu {
     bottom: calc(100% + 0.8rem);
     top: auto;
+    min-width: 26rem;
     width: max-content;
     max-width: calc(100cqi - 2.4rem);
     max-height: min(41.3rem, (var(--player-height, 100vh) - 7rem) * 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    --bg-menu: rgba(28, 28, 28, 0.92);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.72);
+    --bg-hover: rgba(255, 255, 255, 0.1);
+    --border-subtle: rgba(255, 255, 255, 0.12);
+    background: var(--bg-menu);
+    backdrop-filter: blur(12px);
+    color: var(--text-primary);
   }
 
   /* youtube.com's Playback speed panel, measured 2026-11-10: a 57 px header of a 48 px back button and the title in
@@ -896,12 +906,28 @@ export const PlayerControls = (
             {menu === 'root'
               ? (
                 <Popup label='Player settings' class='settings-menu'>
+                  {hasDrc && onStableVolume
+                    ? (
+                      <MenuItem
+                        icon={AudioLines}
+                        role='menuitemcheckbox'
+                        selected={stableVolume}
+                        detail={stableVolume ? 'On' : 'Off'}
+                        toggle
+                        onSelect={() => onStableVolume(!stableVolume)}
+                      >
+                        Stable Volume
+                      </MenuItem>
+                    )
+                    : undefined}
                   {onAmbientMode
                     ? (
                       <MenuItem
+                        icon={Tv}
                         role='menuitemcheckbox'
                         selected={ambientMode}
                         detail={ambientMode ? 'On' : 'Off'}
+                        toggle
                         onSelect={onAmbientMode}
                       >
                         Ambient mode
@@ -911,33 +937,25 @@ export const PlayerControls = (
                   {onAnnotations
                     ? (
                       <MenuItem
+                        icon={MessageSquareQuote}
                         role='menuitemcheckbox'
                         selected={annotations}
                         detail={annotations ? 'On' : 'Off'}
+                        toggle
                         onSelect={onAnnotations}
                       >
                         Annotations
                       </MenuItem>
                     )
                     : undefined}
-                  {hasDrc && onStableVolume
-                    ? (
-                      <MenuItem
-                        role='menuitemcheckbox'
-                        selected={stableVolume}
-                        detail={stableVolume ? 'On' : 'Off'}
-                        onSelect={() => onStableVolume(!stableVolume)}
-                      >
-                        Stable Volume
-                      </MenuItem>
-                    )
-                    : undefined}
                   {pipSupported
                     ? (
                       <MenuItem
+                        icon={PictureInPicture2}
                         role='menuitemcheckbox'
                         selected={pip}
                         detail={pip ? 'On' : 'Off'}
+                        toggle
                         onSelect={() => {
                           togglePip()
                           setMenu(undefined)
@@ -948,8 +966,10 @@ export const PlayerControls = (
                     )
                     : undefined}
                   <MenuItem
+                    icon={Captions}
                     detail={activeCaptionLabel ?? 'Off'}
                     disabled={captionTracks.length === 0}
+                    submenu
                     onSelect={() => setMenu('captions')}
                   >
                     Subtitles
@@ -957,22 +977,26 @@ export const PlayerControls = (
                   {audioTracks.length > 1 && onAudioTrack
                     ? (
                       <MenuItem
+                        icon={Languages}
                         detail={activeAudioTrack?.label}
+                        submenu
                         onSelect={() => setMenu('audio')}
                       >
                         Audio track
                       </MenuItem>
                     )
                     : undefined}
-                  <MenuItem detail={sleepDetail(sleepTimer, videoLeft)} onSelect={() => setMenu('sleep')}>
+                  <MenuItem icon={Moon} detail={sleepDetail(sleepTimer, videoLeft)} submenu onSelect={() => setMenu('sleep')}>
                     Sleep timer
                   </MenuItem>
-                  <MenuItem detail={rateDetail(rate)} onSelect={() => setMenu('speed')}>
+                  <MenuItem icon={Gauge} detail={rateDetail(rate)} submenu onSelect={() => setMenu('speed')}>
                     Playback speed
                   </MenuItem>
                   <MenuItem
+                    icon={SlidersHorizontal}
                     detail={quality === 'auto' ? `Auto${activeLabel ? ` (${activeLabel})` : ''}` : `${quality}p`}
                     disabled={heights.length === 0}
+                    submenu
                     onSelect={() => setMenu('quality')}
                   >
                     Quality

@@ -2,6 +2,7 @@ import type { SerializedStyles } from '@emotion/react'
 import type { ComponentChildren, FunctionComponent, RefObject } from 'preact'
 
 import { css } from '@emotion/react'
+import { ChevronRight } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useLayoutEffect, useRef } from 'preact/hooks'
 
@@ -228,6 +229,10 @@ const itemStyle = css`
     cursor: default;
   }
 
+  > svg {
+    flex: none;
+  }
+
   .label {
     flex: 1;
     min-width: 0;
@@ -235,15 +240,67 @@ const itemStyle = css`
 
   .detail {
     color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .menu-switch {
+    position: relative;
+    flex: none;
+    width: 3.6rem;
+    height: 2rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.25);
+    transition: background 0.15s ease;
+  }
+
+  .menu-switch.on {
+    background: #ffffff;
+  }
+
+  .menu-switch-thumb {
+    position: absolute;
+    top: 0.2rem;
+    left: 0.2rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+
+  .menu-switch.on .menu-switch-thumb {
+    transform: translateX(1.6rem);
+    background: #0f0f0f;
+  }
+
+  .menu-chevron {
+    flex: none;
+    margin-left: -0.6rem;
+    opacity: 0.85;
   }
 `
 
 export const MenuItem = (
-  { icon: Icon, detail, disabled, selected, role = 'menuitem', onSelect, children }: {
+  { icon: Icon, detail, disabled, selected, toggle, submenu, role = 'menuitem', onSelect, children }: {
     icon?: FunctionComponent<{ size?: number, strokeWidth?: number }>
     detail?: string
     disabled?: boolean
     selected?: boolean
+    toggle?: boolean
+    submenu?: boolean
     role?: 'menuitem' | 'menuitemcheckbox'
     onSelect?: () => void
     children: ComponentChildren
@@ -259,7 +316,15 @@ export const MenuItem = (
   >
     {Icon ? <Icon size={20} strokeWidth={1.5} /> : undefined}
     <span className='label'>{children}</span>
-    {detail ? <span className='detail'>{detail}</span> : undefined}
+    {detail ? <span className={toggle ? 'detail sr-only' : 'detail'}>{detail}</span> : undefined}
+    {toggle
+      ? (
+        <span className={selected ? 'menu-switch on' : 'menu-switch'} aria-hidden='true'>
+          <span className='menu-switch-thumb' />
+        </span>
+      )
+      : undefined}
+    {submenu ? <ChevronRight size={16} strokeWidth={1.8} className='menu-chevron' aria-hidden='true' /> : undefined}
   </button>
 )
 
