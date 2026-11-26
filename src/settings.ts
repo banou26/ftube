@@ -5,6 +5,7 @@ import type { SeekHandle } from './theme/seek-handle'
 import { useEffect, useState } from 'preact/hooks'
 
 import { CAPTION_OPTIONS } from './player/caption-style'
+import { coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
 import { applyAppIcon, coerceAppIcon } from './theme/app-icon'
 import { applyCustomPalette, normalizeHexColor } from './theme/palette'
@@ -41,6 +42,7 @@ export type Settings = {
   captionPosition?: CaptionPosition
   theater: boolean
   ambientMode: boolean
+  miniplayerWidth?: number
   showDislikes: boolean
   skipSponsors: boolean
   guideCollapsed: boolean
@@ -74,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionOpacity: 1,
   theater: false,
   ambientMode: true,
+  miniplayerWidth: undefined,
   showDislikes: true,
   skipSponsors: true,
   guideCollapsed: false,
@@ -122,6 +125,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     captionPosition,
     theater: typeof stored.theater === 'boolean' ? stored.theater : DEFAULT_SETTINGS.theater,
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
+    miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,
     guideCollapsed: typeof stored.guideCollapsed === 'boolean' ? stored.guideCollapsed : DEFAULT_SETTINGS.guideCollapsed,
@@ -174,6 +178,7 @@ export const updateSettings = (patch: Partial<Settings>) => {
   const normalizedPatch: Partial<Settings> = {
     ...patch,
     ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
+    ...('miniplayerWidth' in patch ? { miniplayerWidth: coerceMiniplayerWidth(patch.miniplayerWidth) } : {}),
     ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),
     ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
   }

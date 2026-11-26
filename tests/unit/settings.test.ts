@@ -94,6 +94,30 @@ describe('the Ambient mode setting', () => {
   })
 })
 
+describe('the miniplayer width setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to undefined, clamps valid widths, drops malformed values, and clears on reset', async () => {
+    expect((await load()).getSettings().miniplayerWidth).toBeUndefined()
+    expect((await load({ miniplayerWidth: '500' })).getSettings().miniplayerWidth).toBeUndefined()
+    expect((await load({ miniplayerWidth: Number.NaN })).getSettings().miniplayerWidth).toBeUndefined()
+    expect((await load({ miniplayerWidth: 520.4 })).getSettings().miniplayerWidth).toBe(520)
+    expect((await load({ miniplayerWidth: 100 })).getSettings().miniplayerWidth).toBe(280)
+    expect((await load({ miniplayerWidth: 2500 })).getSettings().miniplayerWidth).toBe(1200)
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ miniplayerWidth: 640 })
+    expect(JSON.parse(written.at(-1)!).miniplayerWidth).toBe(640)
+    updateSettings({ miniplayerWidth: undefined })
+    expect(JSON.parse(written.at(-1)!).miniplayerWidth).toBeUndefined()
+  })
+})
+
 describe('the caption size setting', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

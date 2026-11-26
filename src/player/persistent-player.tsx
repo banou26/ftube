@@ -1,13 +1,15 @@
+import type { MiniplayerResizeEdge } from './miniplayer-size'
 import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { isAllowedWithHideShorts } from '../shorts-filter'
+import { clampMiniplayerWidth, draggedMiniplayerWidth, miniplayerWidthBounds, stepMiniplayerWidth } from './miniplayer-size'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
@@ -123,7 +125,117 @@ const style = css`
     content: '•';
     margin: 0 0.4rem;
   }
+
+  &.resizing .dock-slot,
+  &.resizing .dock-meta {
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .resize-handle {
+    position: absolute;
+    touch-action: none;
+  }
+
+  .resize-left {
+    top: 1.4rem;
+    left: 0;
+    bottom: 0;
+    width: 0.8rem;
+    z-index: 3;
+    cursor: ew-resize;
+  }
+
+  /* leave the top-right 4rem clear for the Close miniplayer button */
+  .resize-top {
+    top: 0;
+    left: 1.4rem;
+    right: 4rem;
+    height: 0.8rem;
+    z-index: 3;
+    cursor: ns-resize;
+  }
+
+  .resize-corner {
+    top: 0;
+    left: 0;
+    width: 1.4rem;
+    height: 1.4rem;
+    z-index: 4;
+    cursor: nwse-resize;
+  }
+
+  .resize-corner:focus-visible {
+    outline: none;
+  }
+
+  .resize-corner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-top-left-radius: 1.2rem;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  &:hover .resize-corner::after {
+    opacity: 0.65;
+  }
+
+  .resize-corner:hover::after,
+  .resize-corner:focus-visible::after,
+  &.resizing[data-resize-edge='top-left'] .resize-corner::after {
+    opacity: 1;
+    border-color: var(--accent);
+  }
+
+  .resize-left::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  .resize-left:hover::after,
+  &.resizing[data-resize-edge='left'] .resize-left::after {
+    opacity: 0.9;
+  }
+
+  .resize-top::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  .resize-top:hover::after,
+  &.resizing[data-resize-edge='top'] .resize-top::after {
+    opacity: 0.9;
+  }
 `
+
+const readViewport = () => (typeof document === 'undefined'
+  ? { width: 1280, height: 800 }
+  : {
+      width: document.documentElement.clientWidth || window.innerWidth || 1280,
+      height: document.documentElement.clientHeight || window.innerHeight || 800,
+    })
 
 /**
  * The one player instance, mounted above the router.
@@ -144,8 +256,148 @@ const PersistentPlayer = () => {
   const [autoplay, setAutoplay] = useState(() => getSettings().autoplay)
   useEffect(() => subscribeSettings(settings => setAutoplay(settings.autoplay)), [])
   const ambientMode = useSetting('ambientMode')
+  const storedMiniplayerWidth = useSetting('miniplayerWidth')
+  const asideRef = useRef<HTMLElement>(null)
+  const [viewport, setViewport] = useState(readViewport)
+  const [drag, setDrag] = useState<{ edge: MiniplayerResizeEdge, width: number } | undefined>(undefined)
+  const stopDragRef = useRef<(() => void) | undefined>(undefined)
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    if (!docked) {
+      stopDragRef.current?.()
+      return
+    }
+    const update = () => setViewport(readViewport())
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [docked])
+
+  useEffect(() => () => {
+    stopDragRef.current?.()
+  }, [])
+
+  const bounds = miniplayerWidthBounds(viewport.width, viewport.height)
+  const renderedWidth = drag
+    ? drag.width
+    : clampMiniplayerWidth(storedMiniplayerWidth, viewport.width, viewport.height)
+
+  const startResize = useCallback((edge: MiniplayerResizeEdge) => (event: PointerEvent) => {
+    if (event.button !== 0 || !docked) return
+    event.preventDefault()
+    event.stopPropagation()
+    stopDragRef.current?.()
+
+    const handle = event.currentTarget as HTMLElement
+    const pointerId = event.pointerId
+    const startX = event.clientX
+    const startY = event.clientY
+    const liveViewport = readViewport()
+    setViewport(liveViewport)
+    const startWidth = Math.round(asideRef.current?.getBoundingClientRect().width ?? renderedWidth)
+    let lastWidth = startWidth
+    let moved = false
+
+    try {
+      handle.setPointerCapture?.(pointerId)
+    } catch {
+      // ignore synthetic events that cannot capture pointers
+    }
+
+    const computeWidth = (point: PointerEvent) => {
+      const nextViewport = readViewport()
+      return draggedMiniplayerWidth({
+        edge,
+        startWidth,
+        dx: startX - point.clientX,
+        dy: startY - point.clientY,
+        viewportWidth: nextViewport.width,
+        viewportHeight: nextViewport.height,
+      })
+    }
+
+    let finished = false
+    const finish = (commit: boolean, finalEvent?: PointerEvent) => {
+      if (finished) return
+      finished = true
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('blur', onBlur)
+      stopDragRef.current = undefined
+      if (finalEvent && (finalEvent.clientX !== startX || finalEvent.clientY !== startY)) {
+        moved = true
+        lastWidth = computeWidth(finalEvent)
+      }
+      setDrag(undefined)
+      try {
+        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // ignore if capture was already released
+      }
+      if (commit && moved) updateSettings({ miniplayerWidth: lastWidth })
+    }
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return
+      if (moveEvent.clientX !== startX || moveEvent.clientY !== startY) moved = true
+      lastWidth = computeWidth(moveEvent)
+      setDrag({ edge, width: lastWidth })
+    }
+
+    const onUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return
+      finish(true, upEvent)
+    }
+
+    const onCancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId !== pointerId) return
+      finish(false)
+    }
+
+    const onBlur = () => finish(false)
+
+    stopDragRef.current = () => finish(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('blur', onBlur)
+    setDrag({ edge, width: startWidth })
+  }, [docked, renderedWidth])
+
+  const resetMiniplayerWidth = useCallback((event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    stopDragRef.current?.()
+    updateSettings({ miniplayerWidth: undefined })
+  }, [])
+
+  const stopHandleClick = useCallback((event: MouseEvent) => {
+    event.stopPropagation()
+  }, [])
+
+  const onCornerKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      event.stopPropagation()
+      updateSettings({ miniplayerWidth: stepMiniplayerWidth(renderedWidth, 1, event.shiftKey, viewport.width, viewport.height) })
+      return
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      updateSettings({ miniplayerWidth: stepMiniplayerWidth(renderedWidth, -1, event.shiftKey, viewport.width, viewport.height) })
+      return
+    }
+    if (event.key === 'Home' || event.key === '0') {
+      event.preventDefault()
+      event.stopPropagation()
+      updateSettings({ miniplayerWidth: undefined })
+    }
+  }, [renderedWidth, viewport.width, viewport.height])
 
   const videoId = session.videoId
   // the same document and variables as the watch route, so on the watch page both share its one /next
@@ -255,33 +507,76 @@ const PersistentPlayer = () => {
 
   return (
     <>
-      <aside css={style} className={docked ? undefined : 'hidden'} aria-label='Miniplayer' aria-hidden={!docked}>
+      <aside
+        ref={asideRef}
+        css={style}
+        className={[!docked && 'hidden', drag && 'resizing'].filter(Boolean).join(' ') || undefined}
+        data-resize-edge={drag?.edge}
+        style={docked ? { width: `${renderedWidth}px` } : undefined}
+        aria-label='Miniplayer'
+        aria-hidden={!docked}
+      >
         <div className='dock-slot' ref={registerPlayerDock} />
         {docked
           ? (
-            <div className='dock-meta'>
-              <Link
-                className='dock-title'
-                href={upNextHref({ id: session.videoId!, list: session.list, index: session.index })}
-              >
-                {watch?.title ?? session.title ?? 'Now playing'}
-              </Link>
-              {/* youtube.com names the playlist and the place in it where it would name the channel */}
-              {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
-                ? (
-                  <div className='dock-byline'>
-                    <span className='dock-name'>
-                      {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
-                    </span>
-                    {playlist && count > 0
-                      ? <span className='dock-index'>{current + 1} / {count}</span>
-                      : !playlist && localQueue.currentIndex >= 0
-                        ? <span className='dock-index'>{localQueue.currentIndex + 1} / {localQueue.items.length}</span>
-                        : undefined}
-                  </div>
-                )
-                : undefined}
-            </div>
+            <>
+              <div className='dock-meta'>
+                <Link
+                  className='dock-title'
+                  href={upNextHref({ id: session.videoId!, list: session.list, index: session.index })}
+                >
+                  {watch?.title ?? session.title ?? 'Now playing'}
+                </Link>
+                {/* youtube.com names the playlist and the place in it where it would name the channel */}
+                {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
+                  ? (
+                    <div className='dock-byline'>
+                      <span className='dock-name'>
+                        {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
+                      </span>
+                      {playlist && count > 0
+                        ? <span className='dock-index'>{current + 1} / {count}</span>
+                        : !playlist && localQueue.currentIndex >= 0
+                          ? <span className='dock-index'>{localQueue.currentIndex + 1} / {localQueue.items.length}</span>
+                          : undefined}
+                    </div>
+                  )
+                  : undefined}
+              </div>
+              <div
+                className='resize-handle resize-left'
+                data-resize='left'
+                aria-hidden='true'
+                onPointerDown={startResize('left')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
+              />
+              <div
+                className='resize-handle resize-top'
+                data-resize='top'
+                aria-hidden='true'
+                onPointerDown={startResize('top')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
+              />
+              <div
+                className='resize-handle resize-corner'
+                data-resize='top-left'
+                role='separator'
+                aria-label='Resize miniplayer'
+                aria-orientation='horizontal'
+                aria-valuemin={bounds.min}
+                aria-valuemax={bounds.max}
+                aria-valuenow={renderedWidth}
+                aria-valuetext={`${renderedWidth}px`}
+                tabIndex={0}
+                title='Drag to resize miniplayer (double-click to reset)'
+                onPointerDown={startResize('top-left')}
+                onClick={stopHandleClick}
+                onDoubleClick={resetMiniplayerWidth}
+                onKeyDown={onCornerKeyDown}
+              />
+            </>
           )
           : undefined}
       </aside>

@@ -336,6 +336,45 @@ test('in a playlist it names the playlist and the place in it, Shift+P plays the
   await expect(page.locator('video')).toHaveCount(0)
 })
 
+test('resizes while playing, adjusts controls with width, does not seek on corner keys, and persists size across dock cycles', async ({ page }) => {
+  test.setTimeout(300_000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto(`/watch?v=${VIDEO_ID}`)
+  const video = await startPlayback(page)
+  await leaveForSettings(page)
+
+  const mini = dock(page)
+  const left = mini.locator('[data-resize="left"]')
+  const leftBox = (await left.boundingBox())!
+  await page.mouse.move(leftBox.x + leftBox.width / 2, leftBox.y + leftBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(leftBox.x + leftBox.width / 2 - 160, leftBox.y + leftBox.height / 2)
+  await page.mouse.up()
+
+  await expect.poll(async () => Math.round((await box(mini)).width)).toBe(560)
+  expect(await box(video)).toMatchObject({ width: 560, height: 315 })
+
+  const beforeKeyTime = await video.evaluate(element => (element as HTMLVideoElement).currentTime)
+  const corner = mini.getByRole('separator', { name: 'Resize miniplayer', exact: true })
+  await corner.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(async () => Math.round((await box(mini)).width)).toBe(600)
+  const afterKeyTime = await video.evaluate(element => (element as HTMLVideoElement).currentTime)
+  expect(afterKeyTime).toBeGreaterThanOrEqual(beforeKeyTime)
+
+  // Expand takes playback back to watch; leaving again restores the resized 600 px dock
+  await mini.getByRole('button', { name: 'Expand', exact: true }).click()
+  await expect(dock(page)).toHaveCount(0)
+  await expect.poll(() => videoIdOf(page.url())).toBe(VIDEO_ID)
+  await leaveForSettings(page)
+  await expect.poll(async () => Math.round((await box(mini)).width)).toBe(600)
+
+  await mini.locator('[data-resize="top-left"]').dblclick()
+  await expect.poll(async () => Math.round((await box(mini)).width)).toBe(400)
+  await mini.getByRole('button', { name: 'Close miniplayer', exact: true }).click()
+  await expect(dock(page)).toHaveCount(0)
+})
+
 type EngineFailure = { armed: boolean, port?: MessagePort }
 
 declare global {
