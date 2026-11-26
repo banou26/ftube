@@ -17,6 +17,7 @@ import { cardParamsIn } from './player/card-params'
 import { prefetchPlayback, warmShaka } from './player/prefetch'
 import { applyTheme, getSettings, watchDeviceTheme } from './settings'
 import { setSource } from './sources/runtime'
+import { bindUndoShortcut } from './undo'
 import { lazyCodeList, warmLazyCode } from './warm-code'
 
 const globalStyles = css`
@@ -193,6 +194,7 @@ const globalStyles = css`
 if (!document.title || document.title === 'FKN Sandbox') document.title = 'FTube'
 applyTheme()
 watchDeviceTheme()
+bindUndoShortcut()
 
 const root = document.createElement('div')
 root.id = 'app'

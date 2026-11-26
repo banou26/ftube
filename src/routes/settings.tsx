@@ -5,12 +5,12 @@ import { useEffect, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
-import { clearDismissed, useDismissed } from '../components/dismissed-videos'
+import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
-import { showToast } from '../components/ui/toast'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
+import { showUndoableToast } from '../undo'
 
 const THEMES: { value: ThemePreference, label: string }[] = [
   { value: 'device', label: 'Device theme' },
@@ -322,8 +322,13 @@ export const SettingsPage = () => {
             className='choice'
             disabled={dismissedCount === 0}
             onClick={() => {
+              const snapshot = getDismissed()
               clearDismissed()
-              showToast('Hidden recommendations reset')
+              showUndoableToast('Hidden recommendations reset', {
+                label: 'Reset hidden recommendations',
+                undo: () => restoreDismissed(snapshot),
+                undoneMessage: 'Hidden recommendations restored',
+              })
             }}
           >
             Reset hidden recommendations

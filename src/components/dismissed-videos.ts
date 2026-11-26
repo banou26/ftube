@@ -101,6 +101,14 @@ export const clearDismissed = () => {
   publish({ videos: new Set(), channels: new Set() })
 }
 
+/** Restores a previously snapshotted set of dismissed videos and channels. */
+export const restoreDismissed = (snapshot: DismissedState) => {
+  publish({
+    videos: new Set(snapshot.videos),
+    channels: new Set(snapshot.channels),
+  })
+}
+
 /** Returns true when either the video or its channel has been dismissed. */
 export const isDismissedVideo = (
   current: DismissedState,

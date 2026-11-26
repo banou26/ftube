@@ -17,9 +17,10 @@ import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor, shortsLink } from '../player/links'
 import { usePrefetchOnIntent } from '../player/prefetch'
-import { appendQueueEntry } from '../player/queue'
+import { appendQueueEntry, removeFromQueueById } from '../player/queue'
 import { getPlayerSession, openPlayer } from '../player/session'
 import { useSession } from '../session'
+import { showUndoableToast } from '../undo'
 import { AvatarStack, BylineNames, CollaboratorsButton } from './byline'
 import { lineFor, MenuDataFailure } from './data-failure'
 import { dismissChannel, dismissVideo, undismissChannel, undismissVideo } from './dismissed-videos'
@@ -209,7 +210,15 @@ const CardMenuPanel = (
     })
     const idle = !getPlayerSession().videoId
     if (idle) openPlayer({ videoId, title, poster: thumbnail ?? undefined })
-    showToast(added ? 'Added to queue' : idle ? 'Playing from queue' : 'Already in queue')
+    if (added) {
+      showUndoableToast('Added to queue', {
+        label: `Add ${title} to queue`,
+        undo: () => removeFromQueueById(videoId),
+        undoneMessage: 'Removed from queue',
+      })
+    } else {
+      showToast(idle ? 'Playing from queue' : 'Already in queue')
+    }
   }
 
   const onNotInterested = () => {
@@ -219,7 +228,11 @@ const CardMenuPanel = (
         if (result.error) showToast(lineFor(result.error))
       })
     }
-    showToast('Video removed', { label: 'Undo', onAction: () => undismissVideo(videoId) })
+    showUndoableToast('Video removed', {
+      label: `Remove ${title}`,
+      undo: () => undismissVideo(videoId),
+      undoneMessage: 'Video restored',
+    })
   }
 
   const onDontRecommend = () => {
@@ -231,10 +244,15 @@ const CardMenuPanel = (
       })
     }
     const message = channel?.name ? `We won't recommend ${channel.name}` : "We won't recommend this channel"
-    showToast(
-      message,
-      channelId ? { label: 'Undo', onAction: () => undismissChannel(channelId) } : undefined,
-    )
+    if (channelId) {
+      showUndoableToast(message, {
+        label: message,
+        undo: () => undismissChannel(channelId),
+        undoneMessage: channel?.name ? `Restored ${channel.name}` : 'Channel restored',
+      })
+    } else {
+      showToast(message)
+    }
   }
 
   const savedWatchLater = saved.includes(WATCH_LATER_ID)

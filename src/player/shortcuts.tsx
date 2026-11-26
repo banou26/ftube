@@ -32,6 +32,7 @@ const SECTIONS: { title: string, rows: [string, string][] }[] = [
       ['Toggle theater mode', 't'],
       ['Toggle miniplayer', 'i'],
       ['Go to search box', '/'],
+      ['Undo last action', 'Ctrl+Z'],
       ['Show keyboard shortcuts', 'Shift+?'],
     ],
   },

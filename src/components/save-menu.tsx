@@ -17,6 +17,7 @@ import { Menu, MenuItem, MenuSection, MenuSeparator } from './ui/menu'
 import { showToast } from './ui/toast'
 import { useInfiniteFeed } from './use-infinite-feed'
 import { signIn } from '../sign-in'
+import { showUndoableToast } from '../undo'
 
 // no `privacy`: the library feed carries no visibility, and Playlist is keyed by id in graphcache, so it would overwrite what a /playlist read stored
 const SAVE_PLAYLISTS_QUERY = gql(`
@@ -48,6 +49,12 @@ const CREATE_PLAYLIST = gql(`
       videoCountText
       privacy
     }
+  }
+`)
+
+const DELETE_CREATED_PLAYLIST = gql(`
+  mutation DeleteCreatedPlaylist($id: ID!) {
+    deletePlaylist(id: $id)
   }
 `)
 
@@ -205,6 +212,7 @@ export const SaveMenu = (
   })
   const [, addToPlaylist] = useMutation(ADD_TO_PLAYLIST)
   const [createState, createPlaylist] = useMutation(CREATE_PLAYLIST)
+  const [, deletePlaylist] = useMutation(DELETE_CREATED_PLAYLIST)
 
   const page = data?.playlists
   const { items, cursor } = useInfiniteFeed({
@@ -258,7 +266,20 @@ export const SaveMenu = (
       }
       setCreating(false)
       setName('')
-      showToast(`Saved to ${title}`)
+      if (playlist) {
+        showUndoableToast(`Saved to ${title}`, {
+          label: `Create playlist ${title}`,
+          undo: async () => {
+            const removed = await deletePlaylist({ id: playlist.id })
+            if (removed.error) throw removed.error
+            setCreated(rows => rows.filter(row => row.id !== playlist.id))
+            setSaved(ids => ids.filter(id => id !== playlist.id))
+          },
+          undoneMessage: `Deleted ${title}`,
+        })
+      } else {
+        showToast(`Saved to ${title}`)
+      }
     })
   }
 

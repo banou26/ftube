@@ -3,7 +3,8 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ListVideo, X } from 'lucide
 import { useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
-import { clearQueue, moveInQueue, removeFromQueue, setQueueIndex, useQueue } from '../player/queue'
+import { clearQueue, getQueue, moveInQueue, removeFromQueue, restoreQueue, setQueueIndex, useQueue } from '../player/queue'
+import { showUndoableToast } from '../undo'
 import { formatDuration } from './format'
 import { Thumbnail } from './thumbnail'
 import { watchHrefFor } from './video-card'
@@ -225,7 +226,20 @@ export const QueuePanel = () => {
           </h2>
           <div className='panel-sub'>{position}</div>
         </div>
-        <button type='button' className='clear' aria-label='Clear queue' onClick={clearQueue}>
+        <button
+          type='button'
+          className='clear'
+          aria-label='Clear queue'
+          onClick={() => {
+            const snapshot = getQueue()
+            clearQueue()
+            showUndoableToast('Queue cleared', {
+              label: 'Clear queue',
+              undo: () => restoreQueue(snapshot),
+              undoneMessage: 'Queue restored',
+            })
+          }}
+        >
           Clear
         </button>
         <button
@@ -284,7 +298,15 @@ export const QueuePanel = () => {
                       type='button'
                       className='icon-btn'
                       aria-label={`Remove ${item.title} from queue`}
-                      onClick={() => removeFromQueue(index)}
+                      onClick={() => {
+                        const snapshot = getQueue()
+                        removeFromQueue(index)
+                        showUndoableToast('Removed from queue', {
+                          label: `Remove ${item.title} from queue`,
+                          undo: () => restoreQueue(snapshot),
+                          undoneMessage: 'Restored to queue',
+                        })
+                      }}
                     >
                       <X size={14} strokeWidth={1.5} />
                     </button>

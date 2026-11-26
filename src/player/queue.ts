@@ -126,6 +126,21 @@ export const clearQueue = () => {
   publish({ items: [], currentIndex: -1, resumeIndex: 0 })
 }
 
+/** Removes an entry matching `id` from the queue if present. */
+export const removeFromQueueById = (id: string) => {
+  const index = state.items.findIndex(item => item.id === id)
+  if (index !== -1) removeFromQueue(index)
+}
+
+/** Restores a previously captured playback queue snapshot. */
+export const restoreQueue = (snapshot: QueueState) => {
+  publish({
+    items: [...snapshot.items],
+    currentIndex: snapshot.currentIndex,
+    resumeIndex: snapshot.resumeIndex,
+  })
+}
+
 /** Subscribes a component to the session playback queue. */
 export const useQueue = () => {
   const [value, setValue] = useState(state)

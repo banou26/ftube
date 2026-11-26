@@ -10,6 +10,7 @@ import { formatCount } from '../components/format'
 import GroupDialog from '../components/group-dialog'
 import Dialog from '../components/ui/dialog'
 import { directSubgroups, groupChannelsWithDescendants, groupHrefFor, groupStore, groupTreeOrder, useGroups } from '../groups/store'
+import { showUndoableToast } from '../undo'
 
 const style = css`
   max-width: 96rem;
@@ -182,8 +183,16 @@ const FeedGroupsPage = () => {
   const [deleting, setDeleting] = useState<Group | undefined>(undefined)
 
   const onDelete = () => {
-    if (deleting) groupStore.deleteGroup(deleting.id)
+    if (!deleting) return
+    const gone = deleting
+    const childIds = directSubgroups(groups, gone.id).map(child => child.id)
+    groupStore.deleteGroup(gone.id)
     setDeleting(undefined)
+    showUndoableToast(`Deleted ${gone.name}`, {
+      label: `Delete ${gone.name}`,
+      undo: () => groupStore.restoreGroup(gone, childIds),
+      undoneMessage: `Restored ${gone.name}`,
+    })
   }
 
   const deletingChildren = deleting ? directSubgroups(groups, deleting.id).length : 0

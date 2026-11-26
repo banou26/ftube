@@ -10,6 +10,7 @@ import { Link } from 'wouter'
 import { gql } from '../generated'
 import { DEFAULT_EMOJI, groupStore, groupTreeOrder, isDescendant, NAME_LIMIT, useGroups } from '../groups/store'
 import { useSession } from '../session'
+import { showUndoableToast } from '../undo'
 import { ChannelPreviewCard } from './channel-preview'
 import { DataFailure } from './data-failure'
 import Dialog from './ui/dialog'
@@ -413,6 +414,9 @@ export const GroupDialog = (
     event.preventDefault()
     if (name.trim().length === 0) return
     const fields = { name, emoji, channels, parentId: parentId || undefined }
+    const previous = group
+      ? { name: group.name, emoji: group.emoji, channels: [...group.channels], parentId: group.parentId }
+      : undefined
     let saved: Group | undefined
     if (group) {
       groupStore.updateGroup(group.id, fields)
@@ -421,7 +425,25 @@ export const GroupDialog = (
       saved = groupStore.createGroup(fields)
     }
     close()
-    if (saved) onSaved?.(saved)
+    if (saved && onSaved) {
+      onSaved(saved)
+    } else if (saved && previous && group) {
+      const groupId = group.id
+      const savedName = saved.name
+      showUndoableToast(`Updated ${savedName}`, {
+        label: `Update ${savedName}`,
+        undo: () => groupStore.updateGroup(groupId, previous),
+        undoneMessage: `Restored ${previous.name}`,
+      })
+    } else if (saved) {
+      const groupId = saved.id
+      const savedName = saved.name
+      showUndoableToast(`Created ${savedName}`, {
+        label: `Create ${savedName}`,
+        undo: () => groupStore.deleteGroup(groupId),
+        undoneMessage: `Deleted ${savedName}`,
+      })
+    }
   }
 
   // portalled: it opens from the guide and the channel header, whose own `.avatar` and `.item` rules would reach into it

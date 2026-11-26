@@ -10,6 +10,7 @@ import { lineFor } from './data-failure'
 import { MenuItem, Popup, useDismiss } from './ui/popup'
 import { showToast } from './ui/toast'
 import { signIn } from '../sign-in'
+import { showUndoableToast } from '../undo'
 
 // The mutation does not refetch the channel, so anything else would come back null
 const SET_SUBSCRIBED = gql(`
@@ -88,7 +89,14 @@ export const useToggleSubscription = () => {
       showToast(lineFor(result.error))
       return undefined
     }
-    showToast(subscribed ? 'Unsubscribed' : 'Subscribed')
+    showUndoableToast(subscribed ? 'Unsubscribed' : 'Subscribed', {
+      label: subscribed ? 'Unsubscribe' : 'Subscribe',
+      undo: async () => {
+        const reverted = await setSubscribed({ channelId, subscribed })
+        if (reverted.error) throw reverted.error
+      },
+      undoneMessage: subscribed ? 'Subscribed' : 'Unsubscribed',
+    })
     return result.data?.setSubscribed.isSubscribed === true
   }
   return { fetching: state.fetching, toggle }

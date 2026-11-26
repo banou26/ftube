@@ -274,6 +274,25 @@ export const createGroupStore = (storage?: Storage, events?: EventTarget) => {
         ? [...group.channels.filter(kept => kept.id !== channel.id), channel]
         : group.channels.filter(kept => kept.id !== channel.id),
     })),
+    /** Restores a previously deleted group, re-attaches promoted direct subfolders, and clears its tombstone. */
+    restoreGroup: (group: Group, childIds: readonly string[] = []) => {
+      if (current.some(kept => kept.id === group.id)) return
+      const tombstone = sync.deleted[group.id] ?? 0
+      const restoredAt = stamp(Math.max(group.updatedAt, tombstone))
+      const validParent = group.parentId && current.some(kept => kept.id === group.parentId) ? group.parentId : undefined
+      const restored = coerceGroup({ ...group, parentId: validParent, updatedAt: restoredAt })
+      if (!restored) return
+      const nextGroups = [...current, restored]
+      const childSet = new Set(childIds)
+      const relinked = childSet.size === 0
+        ? nextGroups
+        : nextGroups.map(entry => {
+          if (!childSet.has(entry.id) || entry.id === restored.id || isDescendant(nextGroups, restored.id, entry.id)) return entry
+          return coerceGroup({ ...entry, parentId: restored.id, updatedAt: stamp(entry.updatedAt) }) ?? entry
+        })
+      const { [group.id]: _dropped, ...remainingDeleted } = sync.deleted
+      edit(relinked, { ...sync, deleted: remainingDeleted })
+    },
     persists: () => persists,
     /** What src/groups/sync.ts merges, read from storage so that another tab's change is in it. */
     snapshot: () => ({ groups: readGroups(), ...readSync() }),

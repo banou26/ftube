@@ -216,4 +216,29 @@ describe('group store', () => {
       ['orphan', 0],
     ])
   })
+
+  it('restores a deleted group, re-parents its children, and clears its tombstone cleanly', () => {
+    const store = createGroupStore(memoryStorage().storage)
+    const root = store.createGroup({ name: 'Gaming', emoji: '🎮', channels: [ALPHA] })
+    const child = store.createGroup({ name: 'Trailers', emoji: '🎬', parentId: root.id, channels: [BETA] })
+    const childIds = directSubgroups(store.getGroups(), root.id).map(group => group.id)
+    const deletedAtBefore = root.updatedAt
+
+    store.deleteGroup(root.id)
+    expect(store.getGroups().find(group => group.id === root.id)).toBeUndefined()
+    expect(store.getGroups().find(group => group.id === child.id)?.parentId).toBeUndefined()
+    expect(store.snapshot().deleted[root.id]).toBeDefined()
+
+    const tombstoneTime = store.snapshot().deleted[root.id]!
+    store.restoreGroup(root, childIds)
+
+    const restored = store.getGroups().find(group => group.id === root.id)
+    expect(restored).toBeDefined()
+    expect(restored?.name).toBe('Gaming')
+    expect(restored?.channels).toEqual([ALPHA])
+    expect(restored?.updatedAt).toBeGreaterThan(tombstoneTime)
+    expect(restored?.updatedAt).toBeGreaterThan(deletedAtBefore)
+    expect(store.getGroups().find(group => group.id === child.id)?.parentId).toBe(root.id)
+    expect(store.snapshot().deleted[root.id]).toBeUndefined()
+  })
 })

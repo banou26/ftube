@@ -18,8 +18,10 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { watchHrefFor } from '../components/video-card'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
 import { gql } from '../generated'
+import { AddToPlaylistDocument } from '../generated/graphql'
 import { signIn } from '../sign-in'
 import { PLAYLIST_UNAVAILABLE } from '../sources/types'
+import { showUndoableToast } from '../undo'
 
 const PLAYLIST_VIEW_QUERY = gql(`
   query PlaylistView($id: ID!, $cursor: String) {
@@ -639,6 +641,7 @@ const PlaylistPage = () => {
     pause: listId.length === 0 || (accountScoped && (!ready || !signedIn))
   })
   const [, removeFromPlaylist] = useMutation(REMOVE_FROM_PLAYLIST)
+  const [, addToPlaylist] = useMutation(AddToPlaylistDocument)
   const [removed, setRemoved] = useState<Set<string>>(() => new Set())
   const [removing, setRemoving] = useState<string[]>([])
 
@@ -665,6 +668,7 @@ const PlaylistPage = () => {
 
   const onRemove = (setVideoId: string) => {
     if (removing.includes(setVideoId)) return
+    const targetVideoId = rows.find(item => item.setVideoId === setVideoId)?.video.id
     setRemoving(previous => [...previous, setVideoId])
     void removeFromPlaylist({ playlistId: listId, setVideoIds: [setVideoId] }).then((result) => {
       setRemoving(previous => previous.filter(value => value !== setVideoId))
@@ -673,7 +677,24 @@ const PlaylistPage = () => {
         return
       }
       setRemoved(previous => new Set(previous).add(setVideoId))
-      showToast('Removed from playlist')
+      if (targetVideoId) {
+        showUndoableToast('Removed from playlist', {
+          label: 'Remove from playlist',
+          undo: async () => {
+            const added = await addToPlaylist({ playlistId: listId, videoIds: [targetVideoId] })
+            if (added.error) throw added.error
+            setRemoved(previous => {
+              const next = new Set(previous)
+              next.delete(setVideoId)
+              return next
+            })
+            reexecute({ requestPolicy: 'network-only' })
+          },
+          undoneMessage: 'Restored to playlist',
+        })
+      } else {
+        showToast('Removed from playlist')
+      }
     })
   }
 

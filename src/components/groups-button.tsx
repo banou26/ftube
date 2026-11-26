@@ -9,9 +9,9 @@ import { useQuery } from 'urql'
 import { gql } from '../generated'
 import { groupStore, groupTreeOrder, useGroups } from '../groups/store'
 import { suggestGroup } from '../groups/suggest'
+import { showUndoableToast } from '../undo'
 import GroupDialog from './group-dialog'
 import { Menu, MenuItem, MenuSection, MenuSeparator } from './ui/menu'
-import { showToast } from './ui/toast'
 
 const CHANNEL_TAGS_QUERY = gql(`
   query ChannelTags($id: ID!) {
@@ -87,9 +87,17 @@ export const GroupsButton = (
   const Icon = inAny ? FolderCheck : FolderPlus
 
   const onToggle = (group: Group) => {
-    const included = !includes(group, channel.id)
+    const wasIncluded = includes(group, channel.id)
+    const included = !wasIncluded
     groupStore.setChannel(group.id, channel, included)
-    showToast(included ? `Added to ${group.name}` : `Removed from ${group.name}`)
+    showUndoableToast(
+      included ? `Added to ${group.name}` : `Removed from ${group.name}`,
+      {
+        label: included ? `Add ${channel.name} to ${group.name}` : `Remove ${channel.name} from ${group.name}`,
+        undo: () => groupStore.setChannel(group.id, channel, wasIncluded),
+        undoneMessage: wasIncluded ? `Added back to ${group.name}` : `Removed from ${group.name}`,
+      },
+    )
   }
 
   return (
@@ -128,7 +136,11 @@ export const GroupsButton = (
                         ariaLabel={`Add to ${suggestion.group.name}`}
                         onSelect={() => {
                           groupStore.setChannel(suggestion.group.id, channel, true)
-                          showToast(`Added to ${suggestion.group.name}`)
+                          showUndoableToast(`Added to ${suggestion.group.name}`, {
+                            label: `Add ${channel.name} to ${suggestion.group.name}`,
+                            undo: () => groupStore.setChannel(suggestion.group.id, channel, false),
+                            undoneMessage: `Removed from ${suggestion.group.name}`,
+                          })
                         }}
                       />
                     )
@@ -176,7 +188,11 @@ export const GroupsButton = (
             initialName={draft.name}
             initialEmoji={draft.emoji}
             onClose={() => setDraft(undefined)}
-            onSaved={(group: Group) => showToast(`Added to ${group.name}`)}
+            onSaved={(group: Group) => showUndoableToast(`Added to ${group.name}`, {
+              label: `Create ${group.name}`,
+              undo: () => groupStore.deleteGroup(group.id),
+              undoneMessage: `Deleted ${group.name}`,
+            })}
           />
         )
         : undefined}
