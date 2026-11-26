@@ -17,9 +17,11 @@ declare global {
       sent: string[]
       votes: { videoId: string, pollId: string, voteParams: string }[]
       leaderboardRequests: { panelId: string, params: string }[]
+      closedVideoIds: string[]
       clearPin: () => void
       pushPage: (extra: Record<string, unknown>) => void
       setRestricted: (restricted: boolean) => void
+      unmount: () => void
     }
   }
 }
@@ -44,9 +46,11 @@ export const mountLiveChatHarness = () => {
     sent: [] as string[],
     votes: [] as { videoId: string, pollId: string, voteParams: string }[],
     leaderboardRequests: [] as { panelId: string, params: string }[],
+    closedVideoIds: [] as string[],
     clearPin: () => {},
     pushPage: (_extra: Record<string, unknown>) => {},
     setRestricted: (_restricted: boolean) => {},
+    unmount: () => {},
   }
   window.__liveChatHarness = state
 
@@ -334,6 +338,11 @@ export const mountLiveChatHarness = () => {
       }
       return true
     },
+    closeLiveChat: async (videoId: string) => {
+      state.closedVideoIds.push(videoId)
+      if (pendingPush) pendingPush({})
+      return true
+    },
   } as unknown as SourceApi
 
   const host = document.createElement('div')
@@ -351,6 +360,11 @@ export const mountLiveChatHarness = () => {
     exchanges: [createCache(), fetchExchange],
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
   })
+
+  state.unmount = () => {
+    render(null, host)
+    host.remove()
+  }
 
   document.documentElement.dataset.engine = 'ready'
   render(

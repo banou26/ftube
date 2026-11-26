@@ -143,8 +143,12 @@ test('supports hide/show toggle, Top/Live view switching, pinned banner, emojis,
 
   await chat.getByRole('button', { name: 'Hide chat' }).click()
   await expect(chat).toBeHidden()
+  await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.closedVideoIds ?? [])).toEqual(['live-1'])
   const showBtn = harness.getByRole('button', { name: 'Show chat' })
   await expect(showBtn).toBeVisible()
   await showBtn.click()
   await expect(harness.getByRole('region', { name: 'Live chat' })).toBeVisible()
+
+  await page.evaluate(() => window.__liveChatHarness?.unmount())
+  await expect.poll(() => page.evaluate(() => window.__liveChatHarness?.closedVideoIds ?? [])).toEqual(['live-1', 'live-1'])
 })

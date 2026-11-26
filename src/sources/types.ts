@@ -846,6 +846,7 @@ export type Source = {
   commentOnPost(postId: string, channelId: string, text: string): Promise<boolean>
   sendLiveChatMessage(videoId: string, text: string): Promise<boolean>
   voteLiveChatPoll(videoId: string, pollId: string, voteParams: string): Promise<boolean>
+  closeLiveChat(videoId: string): Promise<boolean>
   replyToComment(actionsToken: string, text: string): Promise<boolean>
   rateComment(actionsToken: string, status: SourceLikeStatus): Promise<SourceComment>
   ratePost(actionsToken: string, status: SourceLikeStatus): Promise<SourcePost>
@@ -905,6 +906,7 @@ export const SOURCE_METHODS = [
   'commentOnPost',
   'sendLiveChatMessage',
   'voteLiveChatPoll',
+  'closeLiveChat',
   'replyToComment',
   'rateComment',
   'ratePost',
@@ -990,6 +992,7 @@ export const SOURCE_REPLAY = {
   commentOnPost: 'never',
   sendLiveChatMessage: 'never',
   voteLiveChatPoll: 'never',
+  closeLiveChat: 'never',
   replyToComment: 'never',
   rateComment: 'never',
   ratePost: 'never',

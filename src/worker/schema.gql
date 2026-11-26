@@ -1154,6 +1154,7 @@ type Mutation {
   # rather than silently opening a second poll of the same stream.
   sendLiveChatMessage(videoId: ID!, text: String!): Boolean!
   voteLiveChatPoll(videoId: ID!, pollId: ID!, voteParams: String!): Boolean!
+  closeLiveChat(videoId: ID!): Boolean!
   replyToComment(actionsToken: String!, text: String!): Boolean!
   rateComment(actionsToken: String!, status: LikeStatus!): Comment!
   ratePost(actionsToken: String!, status: LikeStatus!): Post!

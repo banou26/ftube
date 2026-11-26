@@ -82,6 +82,7 @@ export const resolvers = {
       context.source.commentOnPost(postId, channelId, text),
     sendLiveChatMessage: (_, { videoId, text }, context) => context.source.sendLiveChatMessage(videoId, text),
     voteLiveChatPoll: (_, { videoId, pollId, voteParams }, context) => context.source.voteLiveChatPoll(videoId, pollId, voteParams),
+    closeLiveChat: (_, { videoId }, context) => context.source.closeLiveChat(videoId),
     replyToComment: (_, { actionsToken, text }, context) => context.source.replyToComment(actionsToken, text),
     rateComment: (_, { actionsToken, status }, context) => context.source.rateComment(actionsToken, status),
     ratePost: (_, { actionsToken, status }, context) => context.source.ratePost(actionsToken, status),
