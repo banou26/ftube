@@ -138,3 +138,48 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
   expect(posted.comments).toEqual(['Hi🔥 there'])
   expect(posted.replies).toEqual([{ actionsToken: 'tok-1', text: 'Great👏' }])
 })
+
+test('opens mini profile card when clicking top-level or reply commenter avatar', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+
+  const root = page.locator('[data-comments-harness="true"]')
+  await expect(async () => {
+    if (await root.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/comments-harness')
+        harness.mountCommentsHarness()
+      }, HARNESS)
+    }
+    await expect(root.locator('.comment')).toHaveCount(2, { timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const firstComment = root.locator('.comment').nth(0)
+  await firstComment.getByRole('button', { name: 'View @fan profile', exact: true }).click()
+  const card = page.locator('[data-comment-profile-card="UC1"]')
+  await expect(card).toBeVisible()
+  expect(page.url()).toContain('/privacy')
+  await expect(card).toContainText('Fan Commenter')
+  await expect(card).toContainText('@fan')
+  await expect(card).toContainText('Joined Mar 15, 2016')
+  await expect(card).toContainText('52 subscribers')
+  await expect(card.getByRole('link', { name: 'View channel', exact: true })).toHaveAttribute('href', '/channel/UC1')
+
+  const subBtn = card.getByRole('button', { name: 'Subscribe', exact: true })
+  await subBtn.click()
+  await expect(card.getByRole('button', { name: 'Subscribed', exact: true })).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(card).toHaveCount(0)
+
+  await firstComment.getByRole('button', { name: '2 replies', exact: true }).click()
+  await firstComment.getByRole('button', { name: 'View @reply1 profile', exact: true }).click()
+  const replyCard = page.locator('[data-comment-profile-card="UC2"]')
+  await expect(replyCard).toBeVisible()
+  await expect(replyCard).toContainText('Reply Author')
+
+  await page.mouse.click(8, 8)
+  await expect(replyCard).toHaveCount(0)
+})

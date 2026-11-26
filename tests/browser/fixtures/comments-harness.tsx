@@ -8,6 +8,7 @@ const AVATAR_SVG = 'data:image/svg+xml,' + encodeURIComponent(
 )
 
 export const mountCommentsHarness = () => {
+  document.documentElement.dataset.engine = 'ready'
   document.querySelector('[data-comments-harness]')?.remove()
   const container = document.createElement('div')
   container.setAttribute('data-comments-harness', 'true')
@@ -17,11 +18,12 @@ export const mountCommentsHarness = () => {
 
   const postedComments: string[] = []
   const postedReplies: { actionsToken: string, text: string }[] = []
+  const subscribedState: Record<string, boolean> = { UC1: false, UC2: false, UCcreator: true }
 
   const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
     const { operationName, variables } = JSON.parse(init?.body as string) as {
       operationName: string
-      variables?: Record<string, string>
+      variables?: Record<string, unknown>
     }
     if (operationName === 'Session') {
       return new Response(JSON.stringify({
@@ -118,13 +120,90 @@ export const mountCommentsHarness = () => {
         },
       }), { headers: { 'content-type': 'application/json' } })
     }
+    const str = (value: unknown) => typeof value === 'string' ? value : ''
     if (operationName === 'PostComment') {
-      postedComments.push(variables?.text ?? '')
+      postedComments.push(str(variables?.text))
       return new Response(JSON.stringify({ data: { postComment: true } }), { headers: { 'content-type': 'application/json' } })
     }
     if (operationName === 'ReplyToComment') {
-      postedReplies.push({ actionsToken: variables?.actionsToken ?? '', text: variables?.text ?? '' })
+      postedReplies.push({ actionsToken: str(variables?.actionsToken), text: str(variables?.text) })
       return new Response(JSON.stringify({ data: { replyToComment: true } }), { headers: { 'content-type': 'application/json' } })
+    }
+    if (operationName === 'CommentProfileCard') {
+      const id = str(variables?.id)
+      const profiles: Record<string, {
+        name: string
+        avatar: string | null
+        handle: string
+        subscriberCountText: string
+        videoCountText: string
+        description: string
+        joinedDateText: string
+        isVerified: boolean
+      }> = {
+        UC1: {
+          name: 'Fan Commenter',
+          avatar: AVATAR_SVG,
+          handle: '@fan',
+          subscriberCountText: '52 subscribers',
+          videoCountText: '4 videos',
+          description: 'Music and teardown fan.',
+          joinedDateText: 'Joined Mar 15, 2016',
+          isVerified: false,
+        },
+        UC2: {
+          name: 'Reply Author',
+          avatar: null,
+          handle: '@reply1',
+          subscriberCountText: '12 subscribers',
+          videoCountText: '2 videos',
+          description: 'Replying in the thread.',
+          joinedDateText: 'Joined Jan 4, 2020',
+          isVerified: false,
+        },
+        UCcreator: {
+          name: 'Creator',
+          avatar: AVATAR_SVG,
+          handle: '@Creator',
+          subscriberCountText: '10K subscribers',
+          videoCountText: '80 videos',
+          description: 'Official channel.',
+          joinedDateText: 'Joined May 1, 2014',
+          isVerified: true,
+        },
+      }
+      const profile = profiles[id] ?? profiles.UC1!
+      return new Response(JSON.stringify({
+        data: {
+          channel: {
+            channel: {
+              id,
+              name: profile.name,
+              avatar: profile.avatar,
+              handle: profile.handle,
+              subscriberCountText: profile.subscriberCountText,
+              videoCountText: profile.videoCountText,
+              banner: null,
+              description: profile.description,
+              isSubscribed: subscribedState[id] ?? false,
+              isVerified: profile.isVerified,
+              isVerifiedArtist: false,
+            },
+            videos: { items: [] },
+          },
+          channelAbout: {
+            joinedDateText: profile.joinedDateText,
+          },
+        },
+      }), { headers: { 'content-type': 'application/json' } })
+    }
+    if (operationName === 'SetSubscribed') {
+      const channelId = str(variables?.channelId)
+      const subscribed = Boolean(variables?.subscribed)
+      subscribedState[channelId] = subscribed
+      return new Response(JSON.stringify({
+        data: { setSubscribed: { id: channelId, isSubscribed: subscribed } },
+      }), { headers: { 'content-type': 'application/json' } })
     }
     return new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } })
   }

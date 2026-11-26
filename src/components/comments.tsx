@@ -14,6 +14,8 @@ import { gql } from '../generated'
 import { fetchRydComments, fetchRydReplies } from '../ryd-comments'
 import { useSession } from '../session'
 import { getSettings, subscribeSettings } from '../settings'
+import type { CommentProfileAuthor } from './comment-profile-card'
+import { CommentProfileCard } from './comment-profile-card'
 import { DataFailure, lineFor } from './data-failure'
 import { EmojiButton, insertAtCursor } from './emoji-picker'
 import { formatAgo, formatCompact } from './format'
@@ -167,6 +169,20 @@ const style = css`
     color: var(--text-primary);
     font-size: 1.6rem;
     font-weight: 500;
+  }
+
+  .avatar-btn {
+    padding: 0;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .avatar-btn:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: 2px;
   }
 
   .body {
@@ -537,6 +553,15 @@ const style = css`
     font-size: 1.1rem;
   }
 
+  .reply-row .name {
+    display: inline-flex;
+    align-items: center;
+    font-size: 1.3rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
   .author.creator,
   .name.creator {
     padding: 0.2rem 0.6rem;
@@ -835,7 +860,13 @@ const REPLIES_QUERY = gql(`
  * for rows nobody opened.
  */
 const Replies = (
-  { cursor, count, videoId }: { cursor: string, count?: number | null, videoId?: string },
+  { cursor, count, videoId, activeProfileKey, onOpenProfile }: {
+    cursor: string
+    count?: number | null
+    videoId?: string
+    activeProfileKey: string | null
+    onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
+  },
 ) => {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState<RepliesPage[]>([])
@@ -881,33 +912,38 @@ const Replies = (
                     title='Collapse replies'
                     onClick={collapse}
                   />
-                  {items.map(reply => (
-                    <div className='reply-row' key={reply.id}>
-                      {reply.author
-                        ? (
-                          <Link
-                            href={`/channel/${reply.author.id}`}
-                            className={reply.author.avatar ? 'avatar' : 'avatar fallback'}
-                            aria-label={reply.author.name}
-                          >
-                            {reply.author.avatar
-                              ? <img src={reply.author.avatar} alt='' loading='lazy' />
-                              : reply.author.name.slice(0, 1).toUpperCase()}
-                          </Link>
-                        )
-                        : <span className='avatar fallback'>?</span>}
-                      <div className='body'>
-                        <div className='byline'>
-                          {reply.author
-                            ? (
-                              <span className={reply.isCreator ? 'name creator' : 'name'}>
-                                {reply.author.name}
-                                <VerifiedBadge channel={reply.author} size={12} />
-                              </span>
-                            )
-                            : undefined}
-                          {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
-                        </div>
+                  {items.map(reply => {
+                    const replyAuthor = reply.author
+                    return (
+                      <div className='reply-row' key={reply.id}>
+                        {replyAuthor
+                          ? (
+                            <button
+                              type='button'
+                              className={replyAuthor.avatar ? 'avatar avatar-btn' : 'avatar avatar-btn fallback'}
+                              aria-label={`View ${replyAuthor.name} profile`}
+                              aria-haspopup='dialog'
+                              aria-expanded={activeProfileKey === reply.id}
+                              onClick={(event: TargetedEvent<HTMLButtonElement>) => onOpenProfile(reply.id, replyAuthor, event.currentTarget)}
+                            >
+                              {replyAuthor.avatar
+                                ? <img src={replyAuthor.avatar} alt='' loading='lazy' />
+                                : replyAuthor.name.slice(0, 1).toUpperCase()}
+                            </button>
+                          )
+                          : <span className='avatar fallback'>?</span>}
+                        <div className='body'>
+                          <div className='byline'>
+                            {replyAuthor
+                              ? (
+                                <Link href={`/channel/${replyAuthor.id}`} className={reply.isCreator ? 'name creator' : 'name'}>
+                                  {replyAuthor.name}
+                                  <VerifiedBadge channel={replyAuthor} size={12} />
+                                </Link>
+                              )
+                              : undefined}
+                            {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
+                          </div>
                         <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
                         {reply.likeCountText || reply.isHearted
                           ? (
@@ -919,7 +955,8 @@ const Replies = (
                           : undefined}
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )
               : undefined}
@@ -1161,6 +1198,10 @@ export const Comments = ({ videoId, post, commentCountText }: {
   const [sort, setSort] = useState<CommentSort>('TOP')
   // pages carry the sort they came from: without it the accumulator dedupes a reorder into a drop
   const [loaded, setLoaded] = useState<{ sort: CommentSort, pages: CommentPage[] }>({ sort, pages: [] })
+  const [activeProfile, setActiveProfile] = useState<{ key: string, author: CommentProfileAuthor, anchor: HTMLElement } | null>(null)
+  const toggleProfile = (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => {
+    setActiveProfile(current => current?.key === key && current.anchor === anchor ? null : { key, author, anchor })
+  }
   const loadedPages = loaded.sort === sort ? loaded.pages : []
   const cursor = loadedPages[loadedPages.length - 1]?.cursor ?? null
   const [videoComments, reexecuteVideoComments] = useQuery({
@@ -1229,52 +1270,75 @@ export const Comments = ({ videoId, post, commentCountText }: {
       </div>
       <Composer videoId={videoId} post={post} />
       <div className='list'>
-        {items.map(comment => (
-          <div className='comment' key={comment.id}>
-            {comment.author
-              ? (
-                <Link
-                  href={`/channel/${comment.author.id}`}
-                  className={comment.author.avatar ? 'avatar' : 'avatar fallback'}
-                  aria-label={comment.author.name}
-                >
-                  {comment.author.avatar
-                    ? <img src={comment.author.avatar} alt='' loading='lazy' />
-                    : comment.author.name.slice(0, 1).toUpperCase()}
-                </Link>
-              )
-              : <span className='avatar fallback'>?</span>}
-            <div className='body'>
-              {comment.isPinned
+        {items.map(comment => {
+          const author = comment.author
+          return (
+            <div className='comment' key={comment.id}>
+              {author
                 ? (
-                  <div className='pinned' data-pinned-comment='true'>
-                    <Pin size={13} strokeWidth={1.75} aria-hidden='true' />
-                    <span>{comment.pinnedText || 'Pinned'}</span>
-                  </div>
+                  <button
+                    type='button'
+                    className={author.avatar ? 'avatar avatar-btn' : 'avatar avatar-btn fallback'}
+                    aria-label={`View ${author.name} profile`}
+                    aria-haspopup='dialog'
+                    aria-expanded={activeProfile?.key === comment.id}
+                    onClick={(event: TargetedEvent<HTMLButtonElement>) => toggleProfile(comment.id, author, event.currentTarget)}
+                  >
+                    {author.avatar
+                      ? <img src={author.avatar} alt='' loading='lazy' />
+                      : author.name.slice(0, 1).toUpperCase()}
+                  </button>
                 )
-                : undefined}
-              <div className='byline'>
-                {comment.author
+                : <span className='avatar fallback'>?</span>}
+              <div className='body'>
+                {comment.isPinned
                   ? (
-                    <Link href={`/channel/${comment.author.id}`} className={comment.isCreator ? 'author creator' : 'author'}>
-                      {comment.author.name}
-                      <VerifiedBadge channel={comment.author} size={12} />
-                    </Link>
+                    <div className='pinned' data-pinned-comment='true'>
+                      <Pin size={13} strokeWidth={1.75} aria-hidden='true' />
+                      <span>{comment.pinnedText || 'Pinned'}</span>
+                    </div>
                   )
                   : undefined}
-                {comment.publishedText ? <span className='age'>{comment.publishedText}</span> : undefined}
+                <div className='byline'>
+                  {author
+                    ? (
+                      <Link href={`/channel/${author.id}`} className={comment.isCreator ? 'author creator' : 'author'}>
+                        {author.name}
+                        <VerifiedBadge channel={author} size={12} />
+                      </Link>
+                    )
+                    : undefined}
+                  {comment.publishedText ? <span className='age'>{comment.publishedText}</span> : undefined}
+                </div>
+                <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
+                <CommentActions comment={comment} />
+                {comment.repliesCursor
+                  ? (
+                    <Replies
+                      cursor={comment.repliesCursor}
+                      count={comment.replyCount}
+                      videoId={videoId}
+                      activeProfileKey={activeProfile?.key ?? null}
+                      onOpenProfile={toggleProfile}
+                    />
+                  )
+                  : comment.replyCount
+                    ? <div className='replies'>{comment.replyCount === 1 ? '1 reply' : `${comment.replyCount} replies`}</div>
+                    : undefined}
               </div>
-              <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
-              <CommentActions comment={comment} />
-              {comment.repliesCursor
-                ? <Replies cursor={comment.repliesCursor} count={comment.replyCount} videoId={videoId} />
-                : comment.replyCount
-                  ? <div className='replies'>{comment.replyCount === 1 ? '1 reply' : `${comment.replyCount} replies`}</div>
-                  : undefined}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
+      {activeProfile
+        ? (
+          <CommentProfileCard
+            author={activeProfile.author}
+            anchor={activeProfile.anchor}
+            onClose={() => setActiveProfile(null)}
+          />
+        )
+        : undefined}
       {error && !fetching
         ? <DataFailure error={error} reexecute={reexecute} />
         : page?.cursor
