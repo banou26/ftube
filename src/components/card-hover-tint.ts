@@ -1,15 +1,18 @@
+import type { TargetedPointerEvent } from 'preact'
+
 import type { Rgb } from '../theme/palette'
 
-import { useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useState } from 'preact/hooks'
 
+import { usePrefetchOnIntent } from '../player/prefetch'
 import { hslToRgb, rgbToHsl } from '../theme/palette'
 
 export const CARD_HOVER_ALPHA_DARK = 0.22
 export const CARD_HOVER_ALPHA_LIGHT = 0.13
+export const CARD_HOVER_CACHE_LIMIT = 256
 
 const SAMPLE_SIZE = 16
 const HUE_BINS = 24
-const CACHE_LIMIT = 256
 
 const tintCache = new Map<string, string | null>()
 const inFlight = new Map<string, Promise<string | null>>()
@@ -28,7 +31,7 @@ const sampleCanvasContext = () => {
 const setCachedTint = (src: string, value: string | null) => {
   if (tintCache.has(src)) tintCache.delete(src)
   tintCache.set(src, value)
-  if (tintCache.size > CACHE_LIMIT) {
+  if (tintCache.size > CARD_HOVER_CACHE_LIMIT) {
     const oldest = tintCache.keys().next().value
     if (oldest !== undefined) tintCache.delete(oldest)
   }
@@ -139,20 +142,21 @@ const loadImage = (src: string): Promise<HTMLImageElement | undefined> =>
  */
 export const sampleThumbnailHoverTint = (src: string): Promise<string | null> => {
   if (!src) return Promise.resolve(null)
-  if (tintCache.has(src)) return Promise.resolve(tintCache.get(src) ?? null)
+  if (tintCache.has(src)) {
+    const cached = tintCache.get(src) ?? null
+    setCachedTint(src, cached)
+    return Promise.resolve(cached)
+  }
   const pending = inFlight.get(src)
   if (pending) return pending
 
   const promise = (async (): Promise<string | null> => {
-    if (typeof Image === 'undefined') return null
-    const ctx = sampleCanvasContext()
-    if (!ctx) return null
-    const image = await loadImage(src)
-    if (!image || image.naturalWidth === 0 || image.naturalHeight === 0) {
-      setCachedTint(src, null)
-      return null
-    }
     try {
+      if (typeof Image === 'undefined') return null
+      const ctx = sampleCanvasContext()
+      if (!ctx) return null
+      const image = await loadImage(src)
+      if (!image || image.naturalWidth === 0 || image.naturalHeight === 0) return null
       ctx.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE)
       // Trim outer letterbox margins (e.g. hqdefault.jpg 4:3 black bars) on natural bitmaps.
       const crop = image.naturalWidth >= 16 && image.naturalHeight >= 16
@@ -205,4 +209,46 @@ export const useCardHoverTint = (src: string | null | undefined, active: boolean
   }, [src, active])
 
   return tint
+}
+
+/**
+ * Coordinates card hover preview state, playback intent prefetching, animated thumbnail
+ * fallback, and lazy thumbnail-adaptive hover backdrop tinting for VideoCard and ShortsTile.
+ */
+export const useCardHover = ({ id, thumbnail, playerParams, canPreview, animatedThumbnail }: {
+  id: string
+  thumbnail?: string | null
+  playerParams?: string
+  canPreview: boolean
+  animatedThumbnail?: string | null
+}) => {
+  const prefetch = usePrefetchOnIntent(id, playerParams)
+  const [hovered, setHovered] = useState(false)
+  const [tintRequested, setTintRequested] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
+  useEffect(() => setPreviewFailed(false), [id, playerParams, canPreview])
+  useEffect(() => setTintRequested(false), [thumbnail])
+  const tintRgb = useCardHoverTint(thumbnail, hovered || tintRequested)
+  const moving = hovered && (!canPreview || previewFailed) ? animatedThumbnail ?? undefined : undefined
+  return {
+    hovered,
+    moving,
+    tintStyle: cardHoverStyle(tintRgb),
+    handlePreviewFail,
+    handlers: {
+      onPointerEnter: (event: TargetedPointerEvent<HTMLElement>) => {
+        if (!canPreview) prefetch.onPointerEnter()
+        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
+        if (event.pointerType === 'mouse') setHovered(true)
+      },
+      onPointerLeave: () => {
+        if (!canPreview) prefetch.onPointerLeave()
+        setHovered(false)
+        setPreviewFailed(false)
+      },
+      onPointerDown: prefetch.onPointerDown,
+      onFocusCapture: () => setTintRequested(true),
+    },
+  }
 }

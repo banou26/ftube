@@ -620,8 +620,9 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   await expect.poll(() => beforeOf(shelfTile)).not.toBe('rgba(0, 0, 0, 0)')
   expect(await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0)
 
-  // Skeleton tiles reuse shortsTileStyle with aria-hidden="true" and must stay transparent on hover.
+  // Skeleton tiles reuse shortsTileStyle with aria-hidden="true" and must stay transparent even after transition duration.
   await skeleton.hover()
+  await page.waitForTimeout(300)
   expect(await beforeOf(skeleton)).toBe('rgba(0, 0, 0, 0)')
 
   // Keyboard focus inside the tile activates the backdrop via :focus-visible.
@@ -730,9 +731,17 @@ test('video and Shorts cards adapt hover backdrop tint to their thumbnails in da
   const blueCard = page.locator('[data-previews="tinted-cards"] article').nth(0)
   const orangeCard = page.locator('[data-previews="tinted-cards"] article').nth(1)
   const grayCard = page.locator('[data-previews="tinted-cards"] article').nth(2)
+  const crimsonCard = page.locator('[data-previews="tinted-cards"] article').nth(3)
   const emeraldShort = page.locator('[data-previews="tinted-shorts"] article.tile').nth(0)
   const violetShort = page.locator('[data-previews="tinted-shorts"] article.tile').nth(1)
+  const searchCardVideo = page.locator('[data-previews="tinted-search-card"] article').first()
   await expect(blueCard.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+
+  // Lazy sampling check: before any hover or focus, no card should precompute or attach --card-hover-bg.
+  await page.waitForTimeout(200)
+  const inlineTintsAtRest = await page.locator('[data-preview-harness] article').evaluateAll((els) =>
+    els.map((el) => (el as HTMLElement).style.getPropertyValue('--card-hover-bg')))
+  expect(inlineTintsAtRest.every((v) => v === '')).toBe(true)
 
   const beforeBg = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el, '::before').backgroundColor)
   const hoverTint = async (loc: Locator, predicate?: (c: NonNullable<ReturnType<typeof parseRgba>>) => boolean) => {
@@ -766,7 +775,18 @@ test('video and Shorts cards adapt hover backdrop tint to their thumbnails in da
   expect(darkViolet.rgba.b).toBeGreaterThan(darkViolet.rgba.g)
   expect(darkEmerald.raw).not.toBe(darkViolet.raw)
 
-  // Light mode uses lighter alpha tint while preserving distinct per-card hues.
+  // Keyboard focus (:focus-visible) on an unhovered crimson card triggers sampling and activates its tint.
+  await page.mouse.move(0, 0)
+  await expect.poll(() => beforeBg(crimsonCard)).toBe('rgba(0, 0, 0, 0)')
+  await expect.poll(() => crimsonCard.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--card-hover-bg'))).toBe('')
+  await crimsonCard.locator('a.thumb').focus()
+  await page.keyboard.press('Tab')
+  await expect.poll(async () => {
+    const c = parseRgba(await beforeBg(crimsonCard))
+    return c ? c.r > c.b && c.a >= 0.2 : false
+  }).toBe(true)
+
+  // Light mode uses lighter alpha tint while SearchCard keeps its dark-pinned 0.22 alpha.
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
   const lightBlue = await hoverTint(blueCard, (c) => c.b > c.r && c.a > 0.11 && c.a < 0.15)
   const lightOrange = await hoverTint(orangeCard, (c) => c.r > c.b && c.a > 0.11 && c.a < 0.15)
@@ -774,18 +794,11 @@ test('video and Shorts cards adapt hover backdrop tint to their thumbnails in da
   expect(lightOrange.rgba.r).toBeGreaterThan(lightOrange.rgba.b)
   expect(lightBlue.rgba.a).toBeLessThan(darkBlue.rgba.a)
 
-  // Keyboard focus (:focus-visible) activates the thumbnail tint without hover.
-  await page.evaluate(() => document.documentElement.removeAttribute('data-theme'))
-  await page.mouse.move(0, 0)
-  await expect.poll(() => beforeBg(orangeCard)).toBe('rgba(0, 0, 0, 0)')
-  await orangeCard.locator('a.thumb').focus()
-  await page.keyboard.press('Tab')
-  await expect.poll(async () => {
-    const c = parseRgba(await beforeBg(orangeCard))
-    return c ? c.r > c.b && c.a >= 0.2 : false
-  }).toBe(true)
+  const searchCardTint = await hoverTint(searchCardVideo, (c) => c.b > c.r && c.a >= 0.2)
+  expect(searchCardTint.rgba.a).toBeGreaterThanOrEqual(0.2)
 
   // prefers-reduced-motion keeps tinting active with zero transition duration.
+  await page.evaluate(() => document.documentElement.removeAttribute('data-theme'))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await blueCard.locator('.details').hover()
   const reduced = await blueCard.evaluate((el) => {

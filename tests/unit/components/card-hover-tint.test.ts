@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 
 import {
   CARD_HOVER_ALPHA_DARK,
   CARD_HOVER_ALPHA_LIGHT,
+  CARD_HOVER_CACHE_LIMIT,
   cardHoverStyle,
   cardHoverTintRgb,
+  clearCardHoverTintCache,
   extractDominantColor,
+  sampleThumbnailHoverTint,
 } from '../../../src/components/card-hover-tint'
 import { blendOver, contrastRatio, generateThemePalette, hslToRgb, THEME_PRESETS } from '../../../src/theme/palette'
 
@@ -21,7 +24,78 @@ const fillPixels = (count: number, colorAt: (index: number) => [number, number, 
   return pixels
 }
 
+const installDomSampler = (onLoad: (img: { src: string, crossOrigin: string | null }) => { ok: boolean, rgba: [number, number, number, number] }) => {
+  const prevImage = globalThis.Image
+  const prevDocument = globalThis.document
+  const created: { src: string, crossOrigin: string | null }[] = []
+
+  class MockImage {
+    crossOrigin: string | null = null
+    decoding = ''
+    naturalWidth = 160
+    naturalHeight = 90
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    #src = ''
+
+    get src() {
+      return this.#src
+    }
+
+    set src(value: string) {
+      this.#src = value
+      const record = { src: value, crossOrigin: this.crossOrigin }
+      created.push(record)
+      queueMicrotask(() => {
+        const outcome = onLoad(record)
+        if (outcome.ok) this.onload?.()
+        else this.onerror?.()
+      })
+    }
+  }
+
+  globalThis.Image = MockImage as unknown as typeof Image
+  globalThis.document = {
+    createElement: (tag: string) => {
+      if (tag !== 'canvas') return {}
+      return {
+        width: 16,
+        height: 16,
+        getContext: () => ({
+          clearRect: () => {},
+          drawImage: () => {},
+          getImageData: () => {
+            const latest = created[created.length - 1]
+            const rgba = latest ? onLoad(latest).rgba : ([29, 78, 216, 255] as [number, number, number, number])
+            return { data: fillPixels(16 * 16, () => rgba) }
+          },
+        }),
+      }
+    },
+  } as unknown as Document
+
+  return {
+    created,
+    restore: () => {
+      globalThis.Image = prevImage
+      globalThis.document = prevDocument
+    },
+  }
+}
+
 describe('card hover thumbnail tinting', () => {
+  let cleanupDom: (() => void) | undefined
+
+  beforeEach(() => {
+    clearCardHoverTintCache()
+  })
+
+  afterEach(() => {
+    cleanupDom?.()
+    cleanupDom = undefined
+    clearCardHoverTintCache()
+  })
+
   it('extracts distinct dominant colors from chromatic pixel buffers', () => {
     const blue = extractDominantColor(fillPixels(64, () => [29, 78, 216, 255]))
     const orange = extractDominantColor(fillPixels(64, () => [216, 108, 29, 255]))
@@ -70,6 +144,54 @@ describe('card hover thumbnail tinting', () => {
     expect(cardHoverStyle(blueRgb)).toEqual({
       '--card-hover-bg': `rgba(${blueRgb}, var(--card-hover-alpha, ${CARD_HOVER_ALPHA_DARK}))`,
     })
+  })
+
+  it('sets crossOrigin anonymous for remote URLs, omits it for data/blob URLs, and retries transient failures', async () => {
+    let failRemote = true
+    const env = installDomSampler(({ src }) => {
+      if (src.startsWith('https://') && failRemote) return { ok: false, rgba: [0, 0, 0, 255] }
+      return { ok: true, rgba: [29, 78, 216, 255] }
+    })
+    cleanupDom = env.restore
+
+    const remoteUrl = 'https://remote.invalid/thumb.jpg'
+    expect(await sampleThumbnailHoverTint(remoteUrl)).toBeNull()
+    expect(env.created[0]).toEqual({ src: remoteUrl, crossOrigin: 'anonymous' })
+
+    // A transient load failure clears inFlight and does not lock null in the cache, so a retry succeeds.
+    failRemote = false
+    const retried = await sampleThumbnailHoverTint(remoteUrl)
+    expect(retried).toBe(cardHoverTintRgb({ r: 29, g: 78, b: 216 }))
+    expect(env.created).toHaveLength(2)
+
+    await sampleThumbnailHoverTint('data:image/png;base64,AAAA')
+    await sampleThumbnailHoverTint('blob:local-preview')
+    expect(env.created[2]?.crossOrigin).toBeNull()
+    expect(env.created[3]?.crossOrigin).toBeNull()
+  })
+
+  it('evicts the least recently used entry beyond CARD_HOVER_CACHE_LIMIT', async () => {
+    const env = installDomSampler(() => ({ ok: true, rgba: [216, 108, 29, 255] }))
+    cleanupDom = env.restore
+
+    for (let i = 0; i < CARD_HOVER_CACHE_LIMIT; i += 1) {
+      await sampleThumbnailHoverTint(`https://thumb.invalid/${i}.jpg`)
+    }
+    expect(env.created).toHaveLength(CARD_HOVER_CACHE_LIMIT)
+
+    // Re-read entry 0 to mark it recently used, so entry 1 becomes the oldest.
+    await sampleThumbnailHoverTint('https://thumb.invalid/0.jpg')
+    expect(env.created).toHaveLength(CARD_HOVER_CACHE_LIMIT)
+
+    // Inserting one more URL evicts entry 1 while keeping entry 0 warm.
+    await sampleThumbnailHoverTint(`https://thumb.invalid/${CARD_HOVER_CACHE_LIMIT}.jpg`)
+    expect(env.created).toHaveLength(CARD_HOVER_CACHE_LIMIT + 1)
+
+    await sampleThumbnailHoverTint('https://thumb.invalid/0.jpg')
+    expect(env.created).toHaveLength(CARD_HOVER_CACHE_LIMIT + 1)
+
+    await sampleThumbnailHoverTint('https://thumb.invalid/1.jpg')
+    expect(env.created).toHaveLength(CARD_HOVER_CACHE_LIMIT + 2)
   })
 
   it('keeps WCAG AA contrast for primary and secondary text across all hues and theme presets', () => {

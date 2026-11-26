@@ -1,11 +1,9 @@
-import type { TargetedPointerEvent } from 'preact'
-
 import type { Channel, SavePlaylistsQuery, Video } from '../generated/graphql'
 import type { CollaborationData } from './byline'
 
 import { css } from '@emotion/react'
 import { Ban, Check, ChevronLeft, CircleMinus, Clock, Download, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -16,13 +14,12 @@ import { openDownloadDialog } from '../downloads/store'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor, shortsLink } from '../player/links'
-import { usePrefetchOnIntent } from '../player/prefetch'
 import { appendQueueEntry, removeFromQueueById } from '../player/queue'
 import { getPlayerSession, openPlayer } from '../player/session'
 import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
 import { AvatarStack, BylineNames, CollaboratorsButton } from './byline'
-import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
+import { useCardHover } from './card-hover-tint'
 import { lineFor, MenuDataFailure } from './data-failure'
 import { dismissChannel, dismissVideo, undismissChannel, undismissVideo } from './dismissed-videos'
 import { formatDuration, rowByline } from './format'
@@ -700,61 +697,45 @@ export const VideoCard = (
   const progress = resumePercent(video.progressPercent)
   const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
   const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)
-  const prefetch = usePrefetchOnIntent(video.id, playerParams)
-  const [hovered, setHovered] = useState(false)
-  const [tintRequested, setTintRequested] = useState(false)
-  const [previewFailed, setPreviewFailed] = useState(false)
-  const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
-  useEffect(() => setPreviewFailed(false), [video.id, playerParams, inlinePreview])
-  useEffect(() => setTintRequested(false), [video.thumbnail])
-  const tintRgb = useCardHoverTint(video.thumbnail, hovered || tintRequested)
+  const hover = useCardHover({
+    id: video.id,
+    thumbnail: video.thumbnail,
+    playerParams,
+    canPreview,
+    animatedThumbnail: video.animatedThumbnail,
+  })
   const classes = [variant, video.isShort && !carouselShort ? 'short' : undefined]
     .filter(Boolean)
     .join(' ')
-  // youtube.com mounts a player on a card with inline playback params or on signed-in subscriptions/Home feeds, and
-  // plays the moving thumbnail on the rest (or as fallback if inline playback setup fails)
-  const moving = hovered && (!canPreview || previewFailed) ? video.animatedThumbnail ?? undefined : undefined
   const state = carouselShort ? undefined : cardState(playerParams)
   const avatar = variant === undefined || variant === 'carousel'
   return (
     <article
       css={style}
       className={classes || undefined}
-      style={cardHoverStyle(tintRgb)}
-      /* Called through rather than spread: `{...prefetch}` lets the handlers below overwrite the hook's own. */
-      onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
-        if (!canPreview) prefetch.onPointerEnter()
-        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
-        if (event.pointerType === 'mouse') setHovered(true)
-      }}
-      onPointerLeave={() => {
-        if (!canPreview) prefetch.onPointerLeave()
-        setHovered(false)
-        setPreviewFailed(false)
-      }}
-      onPointerDown={prefetch.onPointerDown}
-      onFocusCapture={() => setTintRequested(true)}
+      style={hover.tintStyle}
+      {...hover.handlers}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {video.thumbnail
           ? <Thumbnail src={video.thumbnail} srcSet={video.thumbnailSrcset} sizes='(max-width: 500px) 100vw, 38rem' />
           : undefined}
-        {hovered && canPreview
+        {hover.hovered && canPreview
           ? (
             <HoverPreview
               videoId={video.id}
               href={watchHref}
               playerParams={playerParams}
               carryTime={!carouselShort}
-              onFail={video.animatedThumbnail ? handlePreviewFail : undefined}
+              onFail={video.animatedThumbnail ? hover.handlePreviewFail : undefined}
             />
           )
           : undefined}
-        {moving ? <img className='moving' src={moving} alt='' /> : undefined}
+        {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
         {video.thumbnailBadge ? <CornerBadge label={video.thumbnailBadge} /> : undefined}
         {video.isLive
           ? <span className='badge live'>LIVE</span>
-          : moving
+          : hover.moving
           ? undefined
           : duration
           ? <span className='badge'>{video.isMusic ? <MusicNote /> : undefined}{duration}</span>

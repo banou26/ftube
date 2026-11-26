@@ -1,15 +1,11 @@
-import type { TargetedPointerEvent } from 'preact'
-
 import type { VideoCardData } from './video-card'
 
 import { css } from '@emotion/react'
-import { useCallback, useEffect, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor } from '../player/links'
-import { usePrefetchOnIntent } from '../player/prefetch'
-import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
+import { useCardHover } from './card-hover-tint'
 import { formatViews } from './format'
 import { Thumbnail } from './thumbnail'
 import { VideoCardMenu } from './video-card'
@@ -146,47 +142,34 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
   const views = formatViews(short.viewCount)
   const playerParams = short.isUpcoming !== true ? short.inlinePlayerParams ?? undefined : undefined
   const canPreview = short.isUpcoming !== true
-  const prefetch = usePrefetchOnIntent(short.id, playerParams)
-  const [hovered, setHovered] = useState(false)
-  const [tintRequested, setTintRequested] = useState(false)
-  const [previewFailed, setPreviewFailed] = useState(false)
-  const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
-  useEffect(() => setPreviewFailed(false), [short.id, playerParams])
-  useEffect(() => setTintRequested(false), [short.thumbnail])
-  const tintRgb = useCardHoverTint(short.thumbnail, hovered || tintRequested)
-  const moving = hovered && (!canPreview || previewFailed) ? short.animatedThumbnail ?? undefined : undefined
+  const hover = useCardHover({
+    id: short.id,
+    thumbnail: short.thumbnail,
+    playerParams,
+    canPreview,
+    animatedThumbnail: short.animatedThumbnail,
+  })
   return (
     <article
       css={shortsTileStyle}
       className='tile'
-      style={cardHoverStyle(tintRgb)}
-      onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
-        if (!canPreview) prefetch.onPointerEnter()
-        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
-        if (event.pointerType === 'mouse') setHovered(true)
-      }}
-      onPointerLeave={() => {
-        if (!canPreview) prefetch.onPointerLeave()
-        setHovered(false)
-        setPreviewFailed(false)
-      }}
-      onPointerDown={prefetch.onPointerDown}
-      onFocusCapture={() => setTintRequested(true)}
+      style={hover.tintStyle}
+      {...hover.handlers}
     >
       <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}
-        {hovered && canPreview
+        {hover.hovered && canPreview
           ? (
             <HoverPreview
               videoId={short.id}
               href={href}
               playerParams={playerParams}
               carryTime={false}
-              onFail={short.animatedThumbnail ? handlePreviewFail : undefined}
+              onFail={short.animatedThumbnail ? hover.handlePreviewFail : undefined}
             />
           )
           : undefined}
-        {moving ? <img className='moving' src={moving} alt='' /> : undefined}
+        {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
       </Link>
       <div className='details'>
         <h3 className='title'>

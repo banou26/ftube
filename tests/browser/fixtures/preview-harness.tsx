@@ -1,9 +1,11 @@
+import type { SearchCardData } from '../../../src/components/search-card'
 import type { SourceApi, SourceChannelPage, SourceVideoPage } from '../../../src/sources/types'
 
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
 
+import { SearchCard } from '../../../src/components/search-card'
 import { ShortsGrid } from '../../../src/components/shorts-grid'
 import { ShortsShelf } from '../../../src/components/shorts-shelf'
 import { VideoCard } from '../../../src/components/video-card'
@@ -311,11 +313,40 @@ export const mountHoverTints = () => {
     { id: 'tint-blue-0', title: 'Blue video', thumbnail: solidSvgThumb('#1d4ed8', 160, 90), durationSeconds: 180, channel, badges: [] },
     { id: 'tint-orange-0', title: 'Orange video', thumbnail: solidSvgThumb('#c2410c', 160, 90), durationSeconds: 180, channel, badges: [] },
     { id: 'tint-gray-0', title: 'Gray video', thumbnail: solidSvgThumb('#808080', 160, 90), durationSeconds: 180, channel, badges: [] },
+    { id: 'tint-crimson-0', title: 'Crimson video', thumbnail: solidSvgThumb('#dc2626', 160, 90), durationSeconds: 180, channel, badges: [] },
   ]
   const tintedShorts = [
     { id: 'tint-emerald-0', title: 'Emerald short', thumbnail: solidSvgThumb('#059669', 120, 180), viewCount: '10K views', isShort: true, badges: [] },
     { id: 'tint-violet-0', title: 'Violet short', thumbnail: solidSvgThumb('#7c3aed', 120, 180), viewCount: '10K views', isShort: true, badges: [] },
   ]
+  const tintedSearchCard: SearchCardData = {
+    __typename: 'SearchCard',
+    cardChannel: {
+      __typename: 'Channel',
+      id: 'search-tint-channel',
+      name: 'Search Channel',
+      avatar: null,
+      handle: '@searchchannel',
+      subscriberCountText: '100K subscribers',
+      videoCountText: '50 videos',
+      description: 'Search card dark-pinned hover tint check',
+      isSubscribed: false,
+      notificationLevel: null,
+      isVerified: false,
+      isVerifiedArtist: false,
+    },
+    mix: null,
+    videos: [
+      {
+        ...searchRow,
+        __typename: 'Video' as const,
+        id: 'search-tint-blue-0',
+        title: 'Search card blue video',
+        thumbnail: solidSvgThumb('#1d4ed8', 160, 90),
+        inlinePlayerParams: null,
+      },
+    ],
+  }
   const client = new Client({
     url: '/preview-harness',
     exchanges: [fetchExchange],
@@ -324,11 +355,14 @@ export const mountHoverTints = () => {
   })
   render(
     <Provider value={client}>
-      <section data-previews='tinted-cards' style={{ display: 'grid', gridTemplateColumns: '360px 360px 360px', gap: '24px' }}>
+      <section data-previews='tinted-cards' style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 280px)', gap: '20px' }}>
         {tintedVideos.map(video => <VideoCard key={video.id} video={video} />)}
       </section>
       <section data-previews='tinted-shorts' style={{ marginTop: '24px' }}>
         <ShortsGrid shorts={tintedShorts} />
+      </section>
+      <section data-previews='tinted-search-card' style={{ marginTop: '24px' }}>
+        <SearchCard card={tintedSearchCard} />
       </section>
     </Provider>,
     host,
