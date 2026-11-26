@@ -35,11 +35,10 @@ test('navigates to /feed/channels from Subscriptions feed and left guide categor
   await expect(page).toHaveURL('/feed/channels')
   await expect(harness.getByRole('heading', { name: 'All subscriptions' })).toBeVisible()
 
-  // 2. Left "Subscriptions" category heading links to /feed/channels
+  // 2. Left "Subscriptions" category heading links to /feed/subscriptions
   const guide = harness.getByRole('navigation', { name: 'Guide' })
   const categoryLink = guide.locator('a.section-link', { hasText: 'Subscriptions' })
-  await expect(categoryLink).toHaveAttribute('href', '/feed/channels')
-  await expect(categoryLink).toHaveAttribute('aria-current', 'page')
+  await expect(categoryLink).toHaveAttribute('href', '/feed/subscriptions')
 
   // 3. All 3 channels render with metadata
   const rows = harness.locator('.list .row')

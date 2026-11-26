@@ -41,21 +41,25 @@ test('signed in, the guide keeps its You section and asks no one to sign in, eve
   await page.setViewportSize({ width: 1600, height: 900 })
   await engineReady(page)
   await mountHarness(page, '/tests/browser/fixtures/guide-harness.tsx', 'mountGuide', true)
-  await mountHarness(page, '/tests/browser/fixtures/guide-harness.tsx', 'mountGuide', false)
-  await mountHarness(page, '/tests/browser/fixtures/guide-harness.tsx', 'mountPendingGuide', false)
-
   const signedIn = page.locator('[data-guide-harness="signed-in"]')
-  await expect(signedIn.getByRole('link', { name: 'Liked videos', exact: true })).toBeVisible()
-  for (const label of ['You', 'History', 'Playlists', 'Watch later']) {
+  for (const label of ['You', 'Groups', 'History', 'Watch later', 'Downloads']) {
     await expect(signedIn.getByRole('link', { name: label, exact: true })).toBeVisible()
   }
+  await expect(signedIn.getByRole('link', { name: 'Liked videos', exact: true })).toHaveCount(0)
+  await signedIn.getByRole('button', { name: 'Show more', exact: true }).click()
+  await expect(signedIn.getByRole('link', { name: 'Liked videos', exact: true })).toBeVisible()
+  await expect(signedIn.getByRole('link', { name: 'Playlists', exact: true })).toBeVisible()
   await expect(signedIn.getByRole('button', { name: 'Sign in' })).toHaveCount(0)
 
+  await mountHarness(page, '/tests/browser/fixtures/guide-harness.tsx', 'mountGuide', false)
   const signedOut = page.locator('[data-guide-harness="signed-out"]')
   await expect(signedOut.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(signedOut.getByRole('link', { name: 'Watch later', exact: true })).toHaveCount(0)
 
+  await mountHarness(page, '/tests/browser/fixtures/guide-harness.tsx', 'mountPendingGuide', false)
   const pending = page.locator('[data-guide-harness="pending"]')
+  await expect(pending.getByRole('link', { name: 'Watch later', exact: true })).toBeVisible()
+  await pending.getByRole('button', { name: 'Show more', exact: true }).click()
   await expect(pending.getByRole('link', { name: 'Liked videos', exact: true })).toBeVisible()
   await expect(pending.getByRole('button', { name: 'Sign in' })).toHaveCount(0)
 })

@@ -33,6 +33,7 @@ export const resolvers = {
       context.source.shorts(seed ?? undefined, cursor ?? undefined, sequence ?? undefined),
     subscriptions: (_, { cursor }, context) => context.source.subscriptions(cursor ?? undefined),
     history: (_, { query, cursor }, context) => context.source.history(cursor ?? undefined, query ?? undefined),
+    clips: (_, { cursor }, context) => context.source.clips(cursor ?? undefined),
     subscribedChannels: (_, { all }, context) => context.source.subscribedChannels(all ?? undefined),
     channelUploads: (_, { channelId }, context) => context.source.channelUploads(channelId),
     search: (_, { query, filters, cursor }, context) =>

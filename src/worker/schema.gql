@@ -1062,6 +1062,7 @@ type Query {
   # request that cannot succeed.
   subscriptions(cursor: String): VideoPage!
   history(query: String, cursor: String): SectionedVideoPage!
+  clips(cursor: String): VideoPage!
   # Only the first page of the list unless `all` is set, which follows it to
   # the end at one request per page (capped at 20 pages).
   subscribedChannels(all: Boolean): [Channel!]!

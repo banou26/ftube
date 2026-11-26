@@ -45,7 +45,9 @@ test('the More menu offers Sign in to FKN once FKN answered, and groups work sig
 
   await page.reload()
   await expect(main.getByRole('link', { name: /Songs/ })).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('navigation', { name: 'Guide' }).getByRole('link', { name: 'Songs' })).toBeVisible()
+  const guide = page.getByRole('navigation', { name: 'Guide' })
+  await guide.getByRole('button', { name: 'Groups', exact: true }).click()
+  await expect(guide.getByRole('link', { name: 'Songs' })).toBeVisible()
   await expect(main.getByRole('link', { name: /Old/ })).toHaveCount(0)
   expect(await syncState()).toBe('{"deleted":{}}')
 })

@@ -25,7 +25,7 @@ test('suggests creating a matching new group and adding to an existing matching 
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByText('Added to 3D')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
   await expect(page.getByRole('menuitemcheckbox', { name: '3D' })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByRole('group', { name: 'Suggested' })).toHaveCount(0)
   await page.keyboard.press('Escape')
@@ -74,11 +74,12 @@ test('makes a group from a channel page and shows its uploads', async ({ page })
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByText('Added to 3D')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
   await expect(page.getByRole('menuitemcheckbox', { name: '3D' })).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('Escape')
 
   const guide = page.getByRole('navigation', { name: 'Guide' })
+  await guide.getByRole('button', { name: 'Groups', exact: true }).click()
   await guide.getByRole('link', { name: '3D' }).click()
   await expect(page).toHaveURL(/\/feed\/groups\/[\w-]+$/)
   await expect(page.locator('h1')).toHaveText('3D')
@@ -104,7 +105,9 @@ test('creates, renames and deletes a group from the manager, and keeps it across
   await created.getByRole('radio', { name: '🎵' }).click()
   await created.getByRole('button', { name: 'Create' }).click()
   await expect(main.getByRole('link', { name: /Songs/ })).toContainText('0 channels')
-  await expect(page.getByRole('navigation', { name: 'Guide' }).getByRole('link', { name: 'Songs' })).toBeVisible()
+  const guide = page.getByRole('navigation', { name: 'Guide' })
+  await guide.getByRole('button', { name: 'Groups', exact: true }).click()
+  await expect(guide.getByRole('link', { name: 'Songs' })).toBeVisible()
 
   await main.getByRole('button', { name: 'Edit Songs' }).click()
   const edited = page.getByRole('dialog', { name: 'Edit group' })
@@ -201,6 +204,7 @@ test('nests subfolders, collapses in the guide, rolls up child uploads on the pa
 
   // guide shows nested row and collapses/expands child folder
   const guide = page.getByRole('navigation', { name: 'Guide' })
+  await guide.getByRole('button', { name: 'Groups', exact: true }).click()
   await expect(guide.locator('[data-depth="1"]').getByRole('link', { name: 'Blender3D' })).toBeVisible()
   await guide.getByRole('button', { name: 'Collapse Graphics' }).click()
   await expect(guide.getByRole('link', { name: 'Blender3D' })).toHaveCount(0)
@@ -210,7 +214,7 @@ test('nests subfolders, collapses in the guide, rolls up child uploads on the pa
   // add Blender channel to the subfolder from the channel page
   await page.goto(`/channel/${BLENDER}`)
   await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
-  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Blender3D' }).click()
   await expect(page.getByText('Added to Blender3D')).toBeVisible()
   await page.keyboard.press('Escape')

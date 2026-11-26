@@ -1,9 +1,7 @@
 import type { FunctionComponent } from 'preact'
 
-import type { Group } from '../groups/store'
-
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Layers, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Radio, Scissors, SquarePlay, SquareUser, ThumbsUp, Trophy } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -12,10 +10,9 @@ import { gql } from '../generated'
 import { groupHrefFor, groupTreeOrder, useGroups } from '../groups/store'
 import { checkGroups, useGroupSyncStatus } from '../groups/sync-live'
 import { warmShaka } from '../player/prefetch'
-import { useSession } from '../session'
+import { atHandle, useSession } from '../session'
 import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
-import GroupDialog from './group-dialog'
 import { Logo } from './header'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from './playlist'
 
@@ -36,13 +33,14 @@ type GuideEntry = {
   href: string
   Icon: FunctionComponent<{ size?: number, strokeWidth?: number }>
   match?: string
+  exact?: boolean
 }
 
-const MAIN_ENTRIES: GuideEntry[] = [
-  { label: 'Home', href: '/', Icon: House, match: '/' },
-  { label: 'Shorts', href: '/shorts', Icon: Clapperboard },
-  { label: 'Subscriptions', href: '/feed/subscriptions', Icon: ListVideo, match: '/feed/subscriptions' }
-]
+const HOME_ENTRY: GuideEntry = { label: 'Home', href: '/', Icon: House, match: '/' }
+const SHORTS_ENTRY: GuideEntry = { label: 'Shorts', href: '/shorts', Icon: Clapperboard }
+const SUBSCRIPTIONS_ENTRY: GuideEntry = { label: 'Subscriptions', href: '/feed/subscriptions', Icon: ListVideo, match: '/feed/subscriptions' }
+
+const MAIN_ENTRIES: GuideEntry[] = [HOME_ENTRY, SHORTS_ENTRY, SUBSCRIPTIONS_ENTRY]
 
 const YOU_ENTRY: GuideEntry = { label: 'You', href: '/feed/you', Icon: CircleUserRound, match: '/feed/you' }
 
@@ -52,14 +50,6 @@ const DOWNLOADS_ENTRY: GuideEntry = { label: 'Downloads', href: '/downloads', Ic
 
 // youtube.com signed out keeps these two in its first section and puts a Sign in button where the rest of You would be
 const SIGNED_OUT_ENTRIES: GuideEntry[] = [YOU_ENTRY, HISTORY_ENTRY, DOWNLOADS_ENTRY]
-
-const YOU_ENTRIES: GuideEntry[] = [
-  HISTORY_ENTRY,
-  { label: 'Playlists', href: '/feed/playlists', Icon: Library, match: '/feed/playlists' },
-  { label: 'Watch later', href: playlistHrefFor(WATCH_LATER_ID), Icon: Clock, match: playlistHrefFor(WATCH_LATER_ID) },
-  DOWNLOADS_ENTRY,
-  { label: 'Liked videos', href: playlistHrefFor(LIKED_VIDEOS_ID), Icon: ThumbsUp, match: playlistHrefFor(LIKED_VIDEOS_ID) }
-]
 
 const topicEntry = (label: string, channelId: string, Icon: GuideEntry['Icon']): GuideEntry =>
   ({ label, href: `/channel/${channelId}`, Icon, match: `/channel/${channelId}` })
@@ -76,18 +66,18 @@ const EXPLORE_ENTRIES: GuideEntry[] = [
 const MINI_ENTRIES: GuideEntry[] = [...MAIN_ENTRIES, YOU_ENTRY]
 
 // prefix rather than equality, so a nested route keeps its entry lit; Home's prefix is every path, so it only ever matches exactly
-const isActive = (match: string | undefined, path: string, search: string) => {
+const isActive = (match: string | undefined, path: string, search: string, exact = false) => {
   if (match === undefined) return false
   // wouter's useSearch keeps the leading '?', so it is stripped before joining or the result is '/results??search_query=...' and never matches
   const query = search.startsWith('?') ? search.slice(1) : search
   const current = match.includes('?') && query ? `${path}?${query}` : path
-  return current === match || current.startsWith(`${match}/`)
+  return exact ? current === match : current === match || current.startsWith(`${match}/`)
 }
 
 const GuideLink = ({ entry }: { entry: GuideEntry }) => {
   const [path] = useLocation()
   const search = useSearch()
-  const active = isActive(entry.match, path, search)
+  const active = isActive(entry.match, path, search, entry.exact)
   return (
     <Link
       href={entry.href}
@@ -122,18 +112,16 @@ const SubscriptionRail = () => {
   const [{ data }] = useQuery({ query: GUIDE_SUBSCRIPTIONS_QUERY, pause: !signedIn })
   const channels = data?.subscribedChannels ?? []
 
-  if (!signedIn || channels.length === 0) return null
-
   const sorted = sortSubscriptions(channels)
   const visible = expanded ? sorted : sorted.slice(0, SUBSCRIPTIONS_COLLAPSED_LIMIT)
-  const channelsActive = isActive('/feed/channels', path, '')
+  const subscriptionsActive = isActive('/feed/subscriptions', path, '')
 
   return (
     <div className='section'>
       <Link
-        href='/feed/channels'
-        className={channelsActive ? 'section-title section-link active' : 'section-title section-link'}
-        aria-current={channelsActive ? 'page' : undefined}
+        href='/feed/subscriptions'
+        className={subscriptionsActive ? 'section-title section-link active' : 'section-title section-link'}
+        aria-current={subscriptionsActive ? 'page' : undefined}
       >
         Subscriptions
         <ChevronRight size={20} strokeWidth={1.5} />
@@ -186,9 +174,11 @@ const SubscriptionRail = () => {
 const GroupsSection = () => {
   const groups = useGroups()
   const sync = useGroupSyncStatus()
-  const [path, navigate] = useLocation()
-  const [creating, setCreating] = useState(false)
+  const [path] = useLocation()
+  const [expanded, setExpanded] = useState(false)
   const [collapsed, setCollapsed] = useState<string[]>([])
+
+  if (groups.length === 0 && sync.state !== 'locked') return null
 
   const collapsedSet = new Set(collapsed)
   const tree = groupTreeOrder(groups)
@@ -209,84 +199,115 @@ const GroupsSection = () => {
 
   return (
     <div className='section'>
-      <Link href='/feed/groups' className='section-title section-link'>
+      <button
+        type='button'
+        className='section-title section-link section-toggle'
+        aria-expanded={expanded}
+        onClick={() => setExpanded(value => !value)}
+      >
         Groups
-        <ChevronRight size={20} strokeWidth={1.5} />
-      </Link>
-      {visible.map(({ group, depth, hasChildren }) => {
-        const href = groupHrefFor(group.id)
-        const active = path === href
-        const isCollapsed = collapsedSet.has(group.id)
-        return (
-          <div
-            key={group.id}
-            className={depth > 0 ? 'group-row nested' : 'group-row'}
-            data-depth={depth}
-            style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.6}rem` } : undefined}
-          >
-            <Link
-              href={href}
-              className={active ? 'item active' : 'item'}
-              aria-current={active ? 'page' : undefined}
-            >
-              <span className='emoji' aria-hidden='true'>{group.emoji}</span>
-              <span className='label channel-name'>{group.name}</span>
-            </Link>
-            {hasChildren
+        {expanded ? <ChevronUp size={20} strokeWidth={1.5} /> : <ChevronDown size={20} strokeWidth={1.5} />}
+      </button>
+      {expanded
+        ? (
+          <>
+            {visible.map(({ group, depth, hasChildren }) => {
+              const href = groupHrefFor(group.id)
+              const active = path === href
+              const isCollapsed = collapsedSet.has(group.id)
+              return (
+                <div
+                  key={group.id}
+                  className={depth > 0 ? 'group-row nested' : 'group-row'}
+                  data-depth={depth}
+                  style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.6}rem` } : undefined}
+                >
+                  <Link
+                    href={href}
+                    className={active ? 'item active' : 'item'}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <span className='emoji' aria-hidden='true'>{group.emoji}</span>
+                    <span className='label channel-name'>{group.name}</span>
+                  </Link>
+                  {hasChildren
+                    ? (
+                      <button
+                        type='button'
+                        className='folder-toggle'
+                        aria-label={isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
+                        aria-expanded={!isCollapsed}
+                        onClick={() => toggleCollapse(group.id)}
+                      >
+                        {isCollapsed ? <ChevronRight size={16} strokeWidth={1.5} /> : <ChevronDown size={16} strokeWidth={1.5} />}
+                      </button>
+                    )
+                    : undefined}
+                </div>
+              )
+            })}
+            {sync.state === 'locked' && sync.lib
               ? (
                 <button
                   type='button'
-                  className='folder-toggle'
-                  aria-label={isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
-                  aria-expanded={!isCollapsed}
-                  onClick={() => toggleCollapse(group.id)}
+                  className='item'
+                  onClick={() => void sync.lib!.fs.unlock().then(() => void checkGroups().catch(() => {}), () => {})}
                 >
-                  {isCollapsed ? <ChevronRight size={16} strokeWidth={1.5} /> : <ChevronDown size={16} strokeWidth={1.5} />}
+                  <LockKeyholeOpen size={24} strokeWidth={1.5} />
+                  <span className='label'>Unlock to sync groups</span>
                 </button>
               )
               : undefined}
-          </div>
+          </>
         )
-      })}
-      {groups.length === 0
-        ? (
-          <button type='button' className='item' onClick={() => setCreating(true)}>
-            <Plus size={24} strokeWidth={1.5} />
-            <span className='label'>New group</span>
-          </button>
-        )
-        : undefined}
-      {sync.state === 'locked' && sync.lib
-        ? (
-          <button
-            type='button'
-            className='item'
-            onClick={() => void sync.lib!.fs.unlock().then(() => void checkGroups().catch(() => {}), () => {})}
-          >
-            <LockKeyholeOpen size={24} strokeWidth={1.5} />
-            <span className='label'>Unlock to sync groups</span>
-          </button>
-        )
-        : undefined}
-      {creating
-        ? <GroupDialog onClose={() => setCreating(false)} onSaved={(group: Group) => navigate(groupHrefFor(group.id))} />
         : undefined}
     </div>
   )
 }
 
-const YouSectionLink = () => {
+type YouGuideEntry = GuideEntry & { collapsible: boolean }
+
+const YouSection = ({ handle }: { handle?: string }) => {
   const [path] = useLocation()
+  const [expanded, setExpanded] = useState(false)
   const active = isActive(YOU_ENTRY.match, path, '')
+  const channelBase = handle ? `/channel/${atHandle(handle)}` : '/account'
+  const entries: YouGuideEntry[] = [
+    { label: 'Your channel', href: channelBase, Icon: SquareUser, match: channelBase, exact: true, collapsible: true },
+    { label: 'Groups', href: '/feed/groups', Icon: Layers, match: '/feed/groups', collapsible: false },
+    { label: 'History', href: '/feed/history', Icon: History, match: '/feed/history', collapsible: false },
+    { label: 'Playlists', href: '/feed/playlists', Icon: ListVideo, match: '/feed/playlists', collapsible: true },
+    { label: 'Watch later', href: playlistHrefFor(WATCH_LATER_ID), Icon: Clock, match: playlistHrefFor(WATCH_LATER_ID), collapsible: false },
+    { label: 'Liked videos', href: playlistHrefFor(LIKED_VIDEOS_ID), Icon: ThumbsUp, match: playlistHrefFor(LIKED_VIDEOS_ID), collapsible: true },
+    { label: 'Your videos', href: handle ? `${channelBase}/videos` : '/account', Icon: SquarePlay, match: handle ? `${channelBase}/videos` : '/account', collapsible: true },
+    { label: 'Downloads', href: '/downloads', Icon: Download, match: '/downloads', collapsible: false },
+    { label: 'Clips', href: '/feed/clips', Icon: Scissors, match: '/feed/clips', collapsible: true },
+  ]
+  const visible = expanded ? entries : entries.filter(entry => !entry.collapsible)
+
   return (
-    <Link
-      href={YOU_ENTRY.href}
-      className={active ? 'section-title section-link active' : 'section-title section-link'}
-      aria-current={active ? 'page' : undefined}
-    >
-      You
-      <ChevronRight size={20} strokeWidth={1.5} />
-    </Link>
+    <div className='section'>
+      <Link
+        href={YOU_ENTRY.href}
+        className={active ? 'section-title section-link active' : 'section-title section-link'}
+        aria-current={active ? 'page' : undefined}
+      >
+        You
+        <ChevronRight size={20} strokeWidth={1.5} />
+      </Link>
+      {visible.map(entry => <GuideLink key={entry.label} entry={entry} />)}
+      <button
+        type='button'
+        className='item show-toggle'
+        aria-expanded={expanded}
+        onClick={() => setExpanded(value => !value)}
+      >
+        {expanded
+          ? <ChevronUp size={20} strokeWidth={1.5} aria-hidden='true' />
+          : <ChevronDown size={20} strokeWidth={1.5} aria-hidden='true' />}
+        <span className='label'>{expanded ? 'Show less' : 'Show more'}</span>
+      </button>
+    </div>
   )
 }
 
@@ -315,6 +336,13 @@ const sectionsStyle = css`
     width: fit-content;
     border-radius: 1rem;
     transition: background 0.15s ease;
+  }
+
+  .section-toggle {
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
   }
 
   .section-link:hover {
@@ -507,15 +535,16 @@ const sectionsStyle = css`
 `
 
 const GuideSections = () => {
-  const { ready, signedIn } = useSession()
+  const { handle, ready, signedIn } = useSession()
   const hideShorts = useSetting('hideShorts')
   const mainEntries = hideShorts ? MAIN_ENTRIES.filter(entry => entry.href !== '/shorts') : MAIN_ENTRIES
   // until the session answers, keep the signed-in layout, so a signed-in guide never rearranges itself on load
   const signedOut = ready && !signedIn
+  const topEntries = signedOut ? mainEntries : mainEntries.filter(entry => entry !== SUBSCRIPTIONS_ENTRY)
   return (
     <div css={sectionsStyle}>
       <div className='section'>
-        {mainEntries.map(entry => <GuideLink key={entry.label} entry={entry} />)}
+        {topEntries.map(entry => <GuideLink key={entry.label} entry={entry} />)}
         {signedOut ? SIGNED_OUT_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />) : undefined}
       </div>
       {signedOut
@@ -528,21 +557,13 @@ const GuideSections = () => {
             </button>
           </div>
         )
-        : undefined}
+        : <SubscriptionRail />}
       <GroupsSection />
-      {signedOut
-        ? undefined
-        : (
-          <div className='section'>
-            <YouSectionLink />
-            {YOU_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />)}
-          </div>
-        )}
+      {signedOut ? undefined : <YouSection handle={handle} />}
       <div className='section'>
         <div className='section-title'>Explore</div>
         {EXPLORE_ENTRIES.map(entry => <GuideLink key={entry.label} entry={entry} />)}
       </div>
-      <SubscriptionRail />
       <div className='footer'>
         <div className='footer-links'>
           <Link href='/privacy'>Privacy</Link>

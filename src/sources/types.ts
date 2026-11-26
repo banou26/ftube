@@ -805,6 +805,7 @@ export type Source = {
   shorts(seed?: string, cursor?: string, sequence?: string): Promise<SourceShortsPage>
   subscriptions(cursor?: string): Promise<SourceVideoPage>
   history(cursor?: string, query?: string): Promise<SourceSectionedVideoPage>
+  clips(cursor?: string): Promise<SourceVideoPage>
   // `all` follows the list past its first page, at a cost of one request per page
   subscribedChannels(all?: boolean): Promise<SourceChannel[]>
   // A channel's newest long uploads, read off its public feed, or its Videos tab when the feed fails; a channel id that is not of the `UC` form is refused
@@ -880,6 +881,7 @@ export const SOURCE_METHODS = [
   'shorts',
   'subscriptions',
   'history',
+  'clips',
   'subscribedChannels',
   'channelUploads',
   'search',
@@ -944,6 +946,7 @@ export const SOURCE_CURSOR_ARGUMENT = {
   shorts: 1,
   subscriptions: 0,
   history: 0,
+  clips: 0,
   search: 2,
   hashtag: 2,
   channel: 4,
@@ -966,6 +969,7 @@ export const SOURCE_REPLAY = {
   shorts: 'unless-cursor',
   subscriptions: 'unless-cursor',
   history: 'unless-cursor',
+  clips: 'unless-cursor',
   subscribedChannels: 'always',
   channelUploads: 'always',
   search: 'unless-cursor',

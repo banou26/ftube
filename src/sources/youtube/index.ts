@@ -835,6 +835,35 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     return result
   }
 
+  const browseFeedPage = (kind: string, response: { contents_memo?: Map<string, unknown[]> }): SourceVideoPage => {
+    const memo = response.contents_memo
+    const seen = new Set<string>()
+    const items: SourceVideo[] = []
+    for (const node of [
+      ...(memo?.get('Video') ?? []),
+      ...(memo?.get('GridVideo') ?? []),
+      ...(memo?.get('LockupView') ?? []),
+    ]) {
+      const video = normalizeFeedVideo(node) ?? normalizeLockupVideo(node, { own: true })
+      if (video && !seen.has(video.id)) {
+        seen.add(video.id)
+        items.push(video)
+      }
+    }
+    const continuation = findContinuation(memo?.get('ContinuationItem') ?? [])
+    const result: SourceVideoPage = { items, playlists: [] }
+    if (continuation) {
+      result.cursor = videoContinuations.register(kind, async () => {
+        const next = await continuation.call((await client).actions, { parse: true }) as {
+          contents_memo?: Map<string, unknown[]>
+          continuation_contents_memo?: Map<string, unknown[]>
+        }
+        return browseFeedPage(kind, { contents_memo: next.continuation_contents_memo ?? next.contents_memo })
+      })
+    }
+    return result
+  }
+
   // Search rows are read off `results` rather than the `videos` getter, which emits only videos and would drop channel and playlist hits.
   const searchPage = (kind: string, feed: SearchFeed, unwatchedChip: boolean): SourceSearchPage => {
     const results: SourceSearchResult[] = []
@@ -1350,6 +1379,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const feed = await active.getHistory()
       if (term && !feed.search) throw new Error('youtube: this history feed cannot be searched')
       return sectionedPage(kind, term ? await feed.search!(term) : feed)
+    },
+    clips: async (cursor) => {
+      if (cursor) return videoContinuations.resolve('clips', cursor)
+      const active = await client
+      requireSignIn(active, 'see your clips')
+      const response = await active.actions.execute('/browse', { browseId: 'FEclips', parse: true }) as {
+        contents_memo?: Map<string, unknown[]>
+      }
+      return browseFeedPage('clips', response)
     },
     subscribedChannels: async (all) => {
       const active = await client

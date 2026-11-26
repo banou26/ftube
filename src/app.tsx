@@ -24,6 +24,7 @@ const ChannelPage = lazyRoute(() => import('./routes/channel'))
 const ChannelCommunityPage = lazyRoute(() => import('./routes/channel-community'))
 const DownloadsPage = lazyRoute(() => import('./routes/downloads'))
 const FeedChannelsPage = lazyRoute(() => import('./routes/feed-channels'))
+const FeedClipsPage = lazyRoute(() => import('./routes/feed-clips'))
 const FeedGroupsPage = lazyRoute(() => import('./routes/feed-groups'))
 const FeedHistoryPage = lazyRoute(() => import('./routes/feed-history'))
 const FeedPlaylistsPage = lazyRoute(() => import('./routes/feed-playlists'))
@@ -250,6 +251,7 @@ export const App = () => {
               <Route path='/feed/channels' component={FeedChannelsPage} />
               <Route path='/feed/history' component={FeedHistoryPage} />
               <Route path='/feed/playlists' component={FeedPlaylistsPage} />
+              <Route path='/feed/clips' component={FeedClipsPage} />
               <Route path='/feed/you' component={FeedYouPage} />
               {/* before the generic two-segment route below, which would answer /feed/groups with Not found */}
               <Route path='/feed/groups' component={FeedGroupsPage} />

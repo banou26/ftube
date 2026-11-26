@@ -6,7 +6,7 @@ import { Guide } from '../../../src/components/guide'
 type HarnessSession = 'signed-in' | 'signed-out' | 'pending'
 
 const answer = (operationName: string, signedIn: boolean) => {
-  if (operationName === 'Session') return { session: { signedIn, name: signedIn ? 'Viewer' : null, avatar: null, handle: null, accounts: [] } }
+  if (operationName === 'Session') return { session: { signedIn, name: signedIn ? 'Viewer' : null, avatar: null, handle: signedIn ? '@viewer' : null, accounts: [] } }
   if (operationName === 'GuideSubscriptions') return { subscribedChannels: [] }
   return null
 }
@@ -50,7 +50,7 @@ export const mountGuideWithSubscriptions = (channels: GuideSubscriptionFixture[]
     const { operationName } = JSON.parse(init?.body as string) as { operationName: string }
     if (operationName === 'Session') {
       return new Response(
-        JSON.stringify({ data: { session: { signedIn: true, name: 'Viewer', avatar: null, handle: null, accounts: [] } } }),
+        JSON.stringify({ data: { session: { signedIn: true, name: 'Viewer', avatar: null, handle: '@viewer', accounts: [] } } }),
         { headers: { 'content-type': 'application/json' } },
       )
     }

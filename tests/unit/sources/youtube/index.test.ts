@@ -1470,6 +1470,7 @@ describe('youtube source', () => {
     shorts: [undefined as unknown as string],
     subscriptions: [],
     history: [],
+    clips: [],
     search: ['query', undefined as unknown as string],
     hashtag: ['asmr', undefined as unknown as string],
     channel: ['c', undefined as unknown as string, undefined as unknown as string, undefined as unknown as string],
