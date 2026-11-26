@@ -14,6 +14,7 @@ import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
+import { isAllowedWithHideShorts } from '../shorts-filter'
 import { homeFeedPages } from './home-feed'
 
 const HOME_FEED_QUERY = gql(`
@@ -212,7 +213,7 @@ const HomePage = () => {
   const hideShorts = useSetting('hideShorts')
   const dismissed = useDismissed()
   const visibleShorts = shorts.filter(short => !isDismissedVideo(dismissed, short))
-  const visibleItems = items.filter(video => (!hideShorts || !video.isShort) && !isDismissedVideo(dismissed, video))
+  const visibleItems = items.filter(video => isAllowedWithHideShorts(video, hideShorts) && !isDismissedVideo(dismissed, video))
 
   useEffect(() => {
     const chips = page?.chips

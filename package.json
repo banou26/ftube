@@ -53,7 +53,8 @@
     "postinstall": "patch-package",
     "store-art": "node scripts/store-art.mjs",
     "test": "npm run build:agent && vp test run tests/unit",
-    "test:browser": "playwright test",
+    "test:browser": "playwright test --project=chromium",
+    "test:browser:webkit": "playwright test --project=webkit tests/browser/muxer-playback.spec.ts tests/browser/undo.spec.ts",
     "type-check": "npm run generate && tsc --noEmit"
   },
   "dependencies": {

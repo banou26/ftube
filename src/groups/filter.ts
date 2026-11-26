@@ -1,3 +1,5 @@
+import { isAllowedWithHideShorts } from '../shorts-filter'
+
 type FeedItem = {
   channel?: { id: string } | null
   isLive?: boolean | null
@@ -23,7 +25,7 @@ export const matchesFilter = (item: FeedItem, { channelIds, hideLive, hideWatche
   (!channelIds || (item.channel != null && channelIds.has(item.channel.id)))
   && !(hideLive && item.isLive === true)
   && !(hideWatched && (item.progressPercent ?? 0) >= WATCHED_PERCENT)
-  && !(hideShorts && item.isShort === true)
+  && isAllowedWithHideShorts(item, hideShorts)
 
 /** How many of the newest pages, counted back from the last one, hold nothing the filter keeps. */
 export const emptyPagesInARow = (pages: { items: FeedItem[] }[], filter: FeedFilter) => {

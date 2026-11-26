@@ -7,6 +7,7 @@ import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
+import { isAllowedWithHideShorts } from '../shorts-filter'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
@@ -175,7 +176,7 @@ const PersistentPlayer = () => {
 
   const hideShorts = useSetting('hideShorts')
   const suggestions = useMemo(
-    () => (watch?.related ?? []).filter(video => video.id !== videoId && (!hideShorts || video.isShort !== true)),
+    () => (watch?.related ?? []).filter(video => video.id !== videoId && isAllowedWithHideShorts(video, hideShorts)),
     [watch, videoId, hideShorts],
   )
   const preferred = watch?.autoplayId

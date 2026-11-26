@@ -1,3 +1,5 @@
+import { filterOutShorts } from '../shorts-filter'
+
 /**
  * Whether a channel Home row draws as youtube.com's grid of full-size cards that Show more opens. Only an expandable
  * row of videos, playlists or posts does: the grid has no card for a channel or a game, so a row of those keeps the rail.
@@ -19,7 +21,7 @@ export const visibleChannelShelves = <Shelf extends {
     .map(shelf => ({
       ...shelf,
       shorts: [],
-      videos: shelf.videos.filter(video => !video.isShort),
+      videos: filterOutShorts(shelf.videos, hideShorts),
     }))
     .filter(shelf =>
       shelf.videos.length + shelf.playlists.length + shelf.channels.length + shelf.games.length + shelf.posts.length > 0,

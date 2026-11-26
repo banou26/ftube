@@ -18,7 +18,7 @@ const contrastFromRgb = (fg: string, bg: string) => {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
 }
 
-test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web app icon, and Reset to default', async ({ page }) => {
+test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web app icon, and Reset to default', async ({ page, browserName }) => {
   test.setTimeout(120_000)
   await page.goto('/settings')
   const custom = page.locator('#custom-appearance')
@@ -75,6 +75,23 @@ test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web ap
   await custom.getByRole('button', { name: 'Theme icon' }).click()
   await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', /^data:image\/svg\+xml/)
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', /^blob:/)
+  if (browserName === 'chromium') {
+    const cdp = await page.context().newCDPSession(page)
+    try {
+      const manifest = await cdp.send('Page.getAppManifest')
+      expect(manifest.errors).toEqual([])
+      expect(manifest.url).toMatch(/^blob:/)
+      const parsed = manifest.data ? JSON.parse(manifest.data) as { icons?: { src?: string }[] } : undefined
+      expect(parsed?.icons?.length ?? 0).toBeGreaterThan(0)
+      expect(parsed?.icons?.some(icon => icon.src?.startsWith('data:image/'))).toBe(true)
+
+      const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors')
+      const manifestErrors = installabilityErrors.filter(entry => /manifest|icon|start-url/i.test(entry.errorId))
+      expect(manifestErrors).toEqual([])
+    } finally {
+      await cdp.detach()
+    }
+  }
 
   // Verify watch page player renders the custom seek handle
   await page.goto('/watch?v=dQw4w9WgXcQ')

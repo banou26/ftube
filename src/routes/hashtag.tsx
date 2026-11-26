@@ -12,6 +12,7 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
+import { filterOutShorts } from '../shorts-filter'
 
 const HASHTAG_PAGE_QUERY = gql(`
   query HashtagPage($tag: String!, $tab: HashtagTab, $cursor: String) {
@@ -150,7 +151,7 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
     key: video => video.id,
   })
   const hideShorts = useSetting('hideShorts')
-  const visibleItems = tab === 'ALL' && hideShorts ? items.filter(video => !video.isShort) : items
+  const visibleItems = tab === 'ALL' ? filterOutShorts(items, hideShorts) : items
   const heading = page?.title ?? `#${tag.toLowerCase()}`
   useDocumentTitle(heading)
 

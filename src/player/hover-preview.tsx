@@ -12,6 +12,7 @@ import { startEngine } from '../engine/client'
 import { getSettings, useSetting } from '../settings'
 import { cardState } from './card-params'
 import { clock } from './controls'
+import { computeHoverDwellMs } from './hover-dwell'
 import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
 
@@ -20,8 +21,6 @@ import type { startShakaPlayback } from './shaka'
 // only ONE preview can be live at a time: module scope because no single card can know about the others
 let activeToken = 0
 
-// youtube.com asks its inline preview player ~150 ms after hover (measured 2026-11-11)
-const DWELL_MS = 150
 // previews render inside small cards, so capping height avoids 720p segments on HiDPI displays
 const PREVIEW_MAX_HEIGHT = 360
 const PREVIEW_BUFFER_GOAL = 10
@@ -329,15 +328,16 @@ export const HoverPreview = (
       failed = true
       onFailRef.current?.()
     }
+    const dwellMs = computeHoverDwellMs()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
-    // Start importing the local Shaka chunk during the dwell window so it never delays openPlayback on first hover.
-    const shakaModule = warmShaka()
-    void shakaModule.catch(() => {})
 
     const timer = setTimeout(() => {
       void (async () => {
+        // Start importing the local Shaka chunk only once the pointer settles past the dwell window.
+        const shakaModule = warmShaka()
+        void shakaModule.catch(() => {})
         const api = await startEngine()
         if (abort.signal.aborted || token !== activeToken) return
         const maxHeight = Math.min(PREVIEW_MAX_HEIGHT, Math.max(240, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio)))
@@ -375,7 +375,7 @@ export const HoverPreview = (
         // silent: the thumbnail underneath is still the right thing to show, or animatedThumbnail when provided
         notifyFailed()
       })
-    }, DWELL_MS)
+    }, dwellMs)
 
     const onTime = () => {
       setTime(video.currentTime)

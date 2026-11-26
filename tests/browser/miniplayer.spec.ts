@@ -196,7 +196,7 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
     muted: (element as HTMLVideoElement).muted,
   }))).toEqual({ volume: 0.55, muted: false })
-  expect(await page.evaluate(() => {
+  await expect.poll(() => page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('yt-client:settings') || '{}') as { volume?: number, muted?: boolean }
     return { volume: raw.volume, muted: raw.muted }
   })).toEqual({ volume: 0.55, muted: false })

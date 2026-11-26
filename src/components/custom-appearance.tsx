@@ -27,12 +27,6 @@ const style = css`
     margin: 0 0 0.8rem;
   }
 
-  .hint {
-    margin: 0.6rem 0 0;
-    font-size: 1.25rem;
-    color: var(--text-secondary);
-  }
-
   .error-text {
     margin: 0.6rem 0 0;
     font-size: 1.25rem;
@@ -424,7 +418,7 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
         </div>
         {invalidHex
           ? <p className='error-text'>Enter a valid 3-digit or 6-digit hex color such as #10b981.</p>
-          : <p className='hint'>Generated dark and light surfaces adjust contrast automatically to meet WCAG AA.</p>}
+          : undefined}
       </div>
 
       <div>
@@ -596,7 +590,6 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
             )
           })}
         </div>
-        <p className='hint'>Updates the browser tab icon and the icon used when installing FTube on mobile.</p>
       </div>
 
       <div className='actions-row'>

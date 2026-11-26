@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vite-plus/test'
 
 import {
   applyVideoVolume,
+  createWheelVolumeAccumulator,
   effectiveVolumeOf,
   stepVideoVolume,
   toggleVideoMute,
   VOLUME_STEP,
+  WHEEL_RESET_MS,
+  WHEEL_STEP_PX,
   wheelVolumeDelta,
 } from '../../../src/player/volume'
 
@@ -76,5 +79,40 @@ describe('player volume helpers', () => {
 
     const mutedDown = { volume: 0.6, muted: true }
     expect(stepVideoVolume(mutedDown, -1)).toStrictEqual({ volume: 0, muted: true })
+  })
+
+  it('accumulates trackpad pixel wheel deltas and handles discrete notches, reversals, and resets', () => {
+    let clockMs = 1_000
+    const acc = createWheelVolumeAccumulator({ now: () => clockMs })
+
+    // Smooth trackpad micro-deltas integrate across events until crossing 100px
+    expect(acc.consume(-40)).toBe(0)
+    expect(acc.consume(-40)).toBe(0)
+    expect(acc.consume(-40)).toBe(1) // -120 -> +1 step, -20 remainder kept
+    expect(acc.consume(-80)).toBe(1) // -20 + -80 = -100 -> +1 step
+
+    // Multi-step burst works cleanly too
+    expect(acc.consume(250)).toBe(-1) // discrete notch resets buffer
+
+    // Reversing direction clears stale opposite remainder
+    expect(acc.consume(-60)).toBe(0)
+    expect(acc.consume(50)).toBe(0)
+    expect(acc.consume(50)).toBe(-1)
+
+    // Idle gap > WHEEL_RESET_MS clears partial accumulation
+    expect(acc.consume(-(WHEEL_STEP_PX - 10))).toBe(0)
+    clockMs += WHEEL_RESET_MS + 1
+    expect(acc.consume(-20)).toBe(0)
+
+    // Line/page deltaMode bypasses pixel accumulation cleanly
+    expect(acc.consume(-3, 1)).toBe(1)
+    expect(acc.consume(3, 2)).toBe(-1)
+
+    // Mouse notches >= 100px produce single step immediately
+    expect(acc.consume(-120)).toBe(1)
+    expect(acc.consume(120)).toBe(-1)
+    acc.reset()
+    expect(acc.consume(0)).toBe(0)
+    expect(acc.consume(Number.NaN)).toBe(0)
   })
 })

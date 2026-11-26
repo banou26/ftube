@@ -2,6 +2,10 @@ import { expect, test } from './test'
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
+test.beforeEach(async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+})
+
 test('undoes adding a channel to a group via toast Undo button and Ctrl+Z, while ignoring inputs', async ({ page }) => {
   test.setTimeout(120_000)
   await page.addInitScript(() => {

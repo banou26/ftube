@@ -15,6 +15,7 @@ import { VideoCard } from '../components/video-card'
 import { gql } from '../generated'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
+import { filterOutShorts } from '../shorts-filter'
 
 const YOU_HISTORY_QUERY = gql(`
   query YouHistory {
@@ -173,7 +174,7 @@ const SignedInYou = () => {
   const hideShorts = useSetting('hideShorts')
   const [{ data: history, fetching: historyFetching }] = useQuery({ query: YOU_HISTORY_QUERY })
   const [{ data: library, fetching: libraryFetching }] = useQuery({ query: YOU_PLAYLISTS_QUERY })
-  const watched = (history?.history.sections ?? []).flatMap(section => section.items).filter(video => !hideShorts || video.isShort !== true)
+  const watched = filterOutShorts((history?.history.sections ?? []).flatMap(section => section.items), hideShorts)
   const playlists = (library?.playlists.items ?? [])
     .filter(playlist => playlist.id !== WATCH_LATER_ID && playlist.id !== LIKED_VIDEOS_ID)
     .slice(0, SHELF_SIZE)

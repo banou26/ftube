@@ -16,6 +16,7 @@ import Comments from '../components/comments'
 import { DataFailure } from '../components/data-failure'
 import DescriptionBox from '../components/description-box'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
+import { isAllowedWithHideShorts } from '../shorts-filter'
 import { parseStartSeconds } from '../components/format'
 import { GroupsButton } from '../components/groups-button'
 import { LikePill } from '../components/like-pill'
@@ -539,7 +540,7 @@ const WatchPage = () => {
   const related: VideoCardData[] | undefined = watch?.related
     ? [...watch.related, ...relatedPages.flatMap(entry => entry.items)]
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
-      .filter(video => (!hideShorts || video.isShort !== true) && !isDismissedVideo(dismissed, video))
+      .filter(video => isAllowedWithHideShorts(video, hideShorts) && !isDismissedVideo(dismissed, video))
     : undefined
   // gated on the URL: WatchMeta is keyed by video id, so its one `playlist` slot can hold another queue's panel
   const playlist: PlaylistPanelData | undefined =

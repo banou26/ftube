@@ -347,6 +347,7 @@ describe('handleEmbedRequest and onRequest', () => {
     })
     expect(next).not.toHaveBeenCalled()
     expect(getResp.status).toBe(200)
+    expect(getResp.headers.get('cache-control')).toBe('no-store')
     expect(await getResp.json()).toMatchObject({ provider_name: 'FTube', author_name: 'Muaxh03' })
 
     const headResp = await onRequest({
@@ -354,6 +355,7 @@ describe('handleEmbedRequest and onRequest', () => {
       next,
     })
     expect(headResp.status).toBe(200)
+    expect(headResp.headers.get('cache-control')).toBe('no-store')
     expect(await headResp.text()).toBe('')
 
     const postResp = await onRequest({

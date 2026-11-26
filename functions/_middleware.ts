@@ -370,7 +370,7 @@ export const handleOembedRequest = (url: URL): Response => {
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'public, max-age=3600',
+      'cache-control': 'no-store',
     },
   })
 }
@@ -487,7 +487,7 @@ export const handleEmbedRequest = async (
         status: 200,
         headers: {
           'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'public, max-age=3600',
+          'cache-control': 'no-store',
         },
       })
     }

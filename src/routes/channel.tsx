@@ -22,6 +22,7 @@ import { VideoGrid } from '../components/video-grid'
 import { gql } from '../generated'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
+import { filterOutShorts } from '../shorts-filter'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE } from '../sources/types'
 import { CHANNEL_ABOUT_QUERY, ChannelAboutDialog } from './channel-about'
 import { ChannelHome } from './channel-home'
@@ -991,7 +992,7 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   const hideShorts = useSetting('hideShorts')
   const expectsSorts = tab !== undefined && SORTABLE_TABS.has(tab)
   const isPlaylistTab = displayTab !== undefined && PLAYLIST_TABS.has(displayTab)
-  const visibleItems = hideShorts ? items.filter(video => !video.isShort) : items
+  const visibleItems = filterOutShorts(items, hideShorts)
   const visibleHome = data?.channel.home
     ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts) }
     : undefined

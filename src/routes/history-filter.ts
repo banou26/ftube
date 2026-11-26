@@ -1,3 +1,5 @@
+import { isAllowedWithHideShorts, isShortVideo } from '../shorts-filter'
+
 export type HistoryTypeFilter = 'all' | 'videos' | 'shorts'
 
 export type FilterableHistoryItem = {
@@ -20,9 +22,9 @@ export const EMPTY_HISTORY_PAGES_LIMIT = 5
  * Checks whether a history item passes the type, group, query, and hideShorts filters.
  */
 export const matchesHistoryFilter = (item: FilterableHistoryItem, filter: HistoryFilter): boolean => {
-  if (filter.hideShorts && item.isShort === true) return false
-  if (filter.type === 'videos' && item.isShort === true) return false
-  if (filter.type === 'shorts' && item.isShort !== true) return false
+  if (!isAllowedWithHideShorts(item, filter.hideShorts)) return false
+  if (filter.type === 'videos' && isShortVideo(item)) return false
+  if (filter.type === 'shorts' && !isShortVideo(item)) return false
   if (filter.channelIds !== undefined) {
     if (!item.channel || !filter.channelIds.has(item.channel.id)) return false
   }

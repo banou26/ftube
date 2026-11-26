@@ -1,3 +1,5 @@
+import { filterOutShorts, isShortVideo } from '../shorts-filter'
+
 type SearchVideoLike = {
   __typename?: 'Video'
   isShort?: boolean | null
@@ -26,17 +28,17 @@ export const visibleSearchRows = <Row extends FilterableSearchRow>(rows: readonl
   const kept: Row[] = []
   for (const row of rows) {
     if (isSearchVideo(row)) {
-      if (!row.isShort) kept.push(row)
+      if (!isShortVideo(row)) kept.push(row)
       continue
     }
     if (isSearchShelf(row)) {
       if (row.shorts.length > 0) continue
-      const videos = row.videos.filter(video => !video.isShort)
+      const videos = filterOutShorts(row.videos, hideShorts)
       if (videos.length > 0) kept.push({ ...row, videos } as Row)
       continue
     }
     if (isSearchCard(row)) {
-      kept.push({ ...row, videos: row.videos.filter(video => !video.isShort) } as Row)
+      kept.push({ ...row, videos: filterOutShorts(row.videos, hideShorts) } as Row)
       continue
     }
     kept.push(row)
