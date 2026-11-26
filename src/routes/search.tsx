@@ -398,6 +398,7 @@ const style = css`
     width: 4rem;
     height: 4rem;
     margin-top: -0.7rem;
+    padding: 0;
     border: none;
     border-radius: 50%;
     background: transparent;

@@ -73,6 +73,8 @@ export const shortsTileStyle = css`
   .more {
     width: 4rem;
     height: 4rem;
+    margin: 0;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;

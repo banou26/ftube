@@ -1,4 +1,4 @@
-import type { SourceApi, SourceChannelPage } from '../../../src/sources/types'
+import type { SourceApi, SourceChannelPage, SourceVideoPage } from '../../../src/sources/types'
 
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
@@ -7,6 +7,7 @@ import { Client, fetchExchange, Provider } from 'urql'
 import { VideoCard } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
 import { ChannelPage } from '../../../src/routes/channel'
+import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
 import SearchPage from '../../../src/routes/search'
 import { createYoutubeSource } from '../../../src/sources/youtube'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -129,4 +130,39 @@ export const mountChannel = (tab: 'HOME' | 'VIDEOS') => {
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
   })
   render(<Provider value={client}><ChannelPage id={CHANNEL_ID} base={`/channel/${CHANNEL_ID}`} tab={tab} /></Provider>, host)
+}
+
+/**
+ * Mounts SubscriptionsFeedPage backed by the local Yoga GraphQL server with two
+ * sample subscription cards: one carrying `inlinePlayerParams` and one without.
+ */
+export const mountSubscriptions = () => {
+  document.getElementById('app')!.hidden = true
+  const host = document.createElement('div')
+  host.setAttribute('data-preview-harness', '')
+  host.style.width = '100%'
+  document.body.append(host)
+  const page: SourceVideoPage = {
+    items: [
+      { id: 'sub-params-0', title: 'Subscription card with params', durationSeconds: 320, inlinePlayerParams: CARD_PARAMS, channel, badges: [] },
+      { id: 'sub-no-params-0', title: 'Subscription card without params', durationSeconds: 240, channel, badges: [] },
+    ],
+  }
+  const source = {
+    ...createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => ({}) as never }),
+    session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
+    subscriptions: async () => page,
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: 'http://preview-harness.local/graphql',
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
+  })
+  document.documentElement.dataset.engine = 'ready'
+  render(<Provider value={client}><SubscriptionsFeedPage /></Provider>, host)
 }

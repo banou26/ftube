@@ -374,7 +374,7 @@ export const VideoCardMenu = (
       align='start'
       trigger={
         <button type='button' className='more' aria-label={`More actions for ${title}`}>
-          <EllipsisVertical size={iconSize} strokeWidth={1.5} />
+          <EllipsisVertical size={iconSize} fill='currentColor' strokeWidth={2} />
         </button>
       }
     >
@@ -612,6 +612,8 @@ const style = css`
     flex: none;
     width: 3.6rem;
     height: 3.6rem;
+    margin: 0;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -623,7 +625,8 @@ const style = css`
     transition: background 0.15s ease;
   }
 
-  .more:hover {
+  .more:hover,
+  .more-menu[data-open] .more {
     background: var(--bg-hover);
   }
 `

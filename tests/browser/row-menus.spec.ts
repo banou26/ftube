@@ -138,3 +138,48 @@ test('at phone width a row menu stays inside the window', async ({ page }) => {
   expect(panel!.x).toBeGreaterThanOrEqual(8)
   expect(panel!.x + panel!.width).toBeLessThanOrEqual(390 - 8)
 })
+
+test('subscriptions card overflow buttons have no outline, zero padding offset, and solid bold dots', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountSubscriptions: () => void }
+    module.mountSubscriptions()
+  })
+
+  const more = page.locator('[data-preview-harness] article button.more').first()
+  await expect(more).toBeVisible({ timeout: 60_000 })
+
+  const metrics = await more.evaluate((button) => {
+    const style = getComputedStyle(button)
+    const root = getComputedStyle(document.documentElement)
+    const probe = document.createElement('span')
+    probe.style.color = root.getPropertyValue('--text-primary')
+    document.body.append(probe)
+    const expectedColor = getComputedStyle(probe).color
+    probe.remove()
+    const svg = button.querySelector('svg')
+    return {
+      borderTopWidth: style.borderTopWidth,
+      borderTopStyle: style.borderTopStyle,
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight,
+      marginTop: style.marginTop,
+      color: style.color,
+      expectedColor,
+      svgFill: svg?.getAttribute('fill') ?? null,
+      strokeWidth: Number(svg?.getAttribute('stroke-width') ?? '0'),
+    }
+  })
+
+  expect(metrics.borderTopWidth).toBe('0px')
+  expect(metrics.borderTopStyle).toBe('none')
+  expect(metrics.paddingLeft).toBe('0px')
+  expect(metrics.paddingRight).toBe('0px')
+  expect(metrics.marginTop).toBe('0px')
+  expect(metrics.color).toBe(metrics.expectedColor)
+  expect(metrics.svgFill).toBe('currentColor')
+  expect(metrics.strokeWidth).toBeGreaterThanOrEqual(2)
+})

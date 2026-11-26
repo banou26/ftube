@@ -276,7 +276,7 @@ const style = css`
     cursor: default;
   }
 
-  .more {
+  .load-more {
     display: block;
     height: 3.6rem;
     margin: 2.4rem auto 0;
@@ -290,7 +290,7 @@ const style = css`
     cursor: pointer;
   }
 
-  .more:hover {
+  .load-more:hover {
     background: var(--accent-hover);
     border-color: transparent;
   }
@@ -679,7 +679,7 @@ const HistoryFeedPage = () => {
       {fetching && items.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {stalled && cursor && !fetching && !error
-        ? <button type='button' className='more' onClick={onMore}>Load more</button>
+        ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
         : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
       {clearOpen
