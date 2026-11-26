@@ -292,6 +292,22 @@ const playerStyle = css`
     transform: translate(-50%, -50%) scale(1);
   }
 
+  /* Custom emoji/icon handles stay visible above the bottom-flush track (rather than hover-only) inside overflow: hidden. */
+  .scrubber .knob[data-seek-handle='emoji'],
+  .scrubber .knob[data-seek-handle='icon'] {
+    top: auto;
+    bottom: 0.35rem;
+    transform: translateX(-50%) scale(1);
+    transform-origin: center bottom;
+  }
+
+  .scrubber:hover .knob[data-seek-handle='emoji'],
+  .scrubber.scrubbing .knob[data-seek-handle='emoji'],
+  .scrubber:hover .knob[data-seek-handle='icon'],
+  .scrubber.scrubbing .knob[data-seek-handle='icon'] {
+    transform: translateX(-50%) scale(1.15);
+  }
+
   @media (max-width: 600px) {
     .control-btn {
       width: 4rem;
@@ -869,7 +885,14 @@ const ShortsPlayer = (
           >
             <div className='track'>
               <div className='fill' style={{ width: `${progress * 100}%` }} />
-              <SeekKnob handle={seekHandle} style={{ left: `${progress * 100}%` }} />
+              <SeekKnob
+                handle={seekHandle}
+                style={{
+                  left: seekHandle.kind === 'default'
+                    ? `${progress * 100}%`
+                    : `clamp(1.4rem, ${progress * 100}%, calc(100% - 1.4rem))`,
+                }}
+              />
             </div>
           </div>
         )

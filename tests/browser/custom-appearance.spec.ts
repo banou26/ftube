@@ -88,3 +88,62 @@ test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web ap
   await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', '/favicon.svg')
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
 })
+
+test('renders custom emoji and icon seek handles at rest inside Shorts stage', async ({ page }) => {
+  test.setTimeout(180_000)
+  const shortUrl = '/shorts/y2Vqj-59Hqc'
+
+  await page.goto('/settings')
+  const custom = page.locator('#custom-appearance')
+  await expect(custom).toBeVisible()
+
+  await custom.getByRole('tab', { name: 'Emoji' }).click()
+  await custom.getByRole('button', { name: 'Rocket', exact: false }).click()
+  await expect(custom.locator('[data-seek-handle="emoji"]')).toContainText('🚀')
+
+  await page.goto(shortUrl)
+  const stage = page.locator('[data-short-id="y2Vqj-59Hqc"] .stage')
+  const emojiKnob = stage.locator('.scrubber [data-seek-handle="emoji"]')
+  await expect(emojiKnob).toBeAttached({ timeout: 90_000 })
+  await expect(emojiKnob).toBeVisible()
+  await expect(emojiKnob).toContainText('🚀')
+  // Wait long enough for any 0.12s transition to settle at rest without hovering
+  await page.waitForTimeout(200)
+  const [stageBox, emojiBox] = [await stage.boundingBox(), await emojiKnob.boundingBox()]
+  expect(stageBox).toBeTruthy()
+  expect(emojiBox).toBeTruthy()
+  expect(emojiBox!.width).toBeGreaterThanOrEqual(12)
+  expect(emojiBox!.height).toBeGreaterThanOrEqual(12)
+  expect(emojiBox!.x).toBeGreaterThanOrEqual(stageBox!.x)
+  expect(emojiBox!.x + emojiBox!.width).toBeLessThanOrEqual(stageBox!.x + stageBox!.width)
+  expect(emojiBox!.y).toBeGreaterThanOrEqual(stageBox!.y)
+  expect(emojiBox!.y + emojiBox!.height).toBeLessThanOrEqual(stageBox!.y + stageBox!.height)
+
+  await page.goto('/settings')
+  await custom.getByRole('tab', { name: 'Icon' }).click()
+  await custom.getByRole('button', { name: 'Star', exact: true }).click()
+  await expect(custom.locator('[data-seek-handle="icon"] svg')).toBeVisible()
+
+  await page.goto(shortUrl)
+  const iconKnob = stage.locator('.scrubber [data-seek-handle="icon"]')
+  await expect(iconKnob.locator('svg')).toBeVisible({ timeout: 90_000 })
+  await page.waitForTimeout(200)
+  const [iconStageBox, iconBox] = [await stage.boundingBox(), await iconKnob.boundingBox()]
+  expect(iconBox).toBeTruthy()
+  expect(iconBox!.width).toBeGreaterThanOrEqual(12)
+  expect(iconBox!.height).toBeGreaterThanOrEqual(12)
+  expect(iconBox!.x).toBeGreaterThanOrEqual(iconStageBox!.x)
+  expect(iconBox!.x + iconBox!.width).toBeLessThanOrEqual(iconStageBox!.x + iconStageBox!.width)
+  expect(iconBox!.y).toBeGreaterThanOrEqual(iconStageBox!.y)
+  expect(iconBox!.y + iconBox!.height).toBeLessThanOrEqual(iconStageBox!.y + iconStageBox!.height)
+
+  // Default dot stays hidden at rest until hover
+  await page.goto('/settings')
+  await custom.getByRole('button', { name: 'Reset to default' }).click()
+  await page.goto(shortUrl)
+  const defaultKnob = stage.locator('.scrubber [data-seek-handle="default"]')
+  await expect(defaultKnob).toBeAttached({ timeout: 90_000 })
+  await page.waitForTimeout(200)
+  const restBox = await defaultKnob.boundingBox()
+  expect(restBox?.width ?? 0).toBe(0)
+})
