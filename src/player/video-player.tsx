@@ -256,7 +256,7 @@ const captionBase = (video: HTMLVideoElement) => {
 const VideoPlayer = (
   {
     videoId, playerParams, list, title, channelName, startAt, docked = false, theater = false, onTheater, onMiniplayer, upNext,
-    chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, onVideoElement,
+    chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
@@ -275,6 +275,8 @@ const VideoPlayer = (
     cardsAvatar?: string | null
     ambientMode?: boolean
     onAmbientMode?: () => void
+    annotations?: boolean
+    onAnnotations?: () => void
     onVideoElement?: (video: HTMLVideoElement | null) => void
   },
 ) => {
@@ -372,6 +374,7 @@ const VideoPlayer = (
   useEffect(() => setPlayingChapter(chapterIndex), [chapterIndex])
   const frame = useFrame()
   const grid = frame?.grid ?? false
+  const annotationsEnabled = annotations !== false
   // in full screen youtube.com opens the description beside the video, and on the page it expands the one under it
   const openCards = () => {
     if (frame?.fullscreen) frame.setAside('description')
@@ -1154,7 +1157,7 @@ const VideoPlayer = (
       {video && autoMuted && !docked && !status && !refusal
         ? <AudioPermissionPrompt video={video} onDismiss={dismissAutoMuted} />
         : undefined}
-      {video && player && !status && !refusal && endScreen.length > 0
+      {video && player && !status && !refusal && annotationsEnabled && endScreen.length > 0
         ? (
           <EndScreenElements
             elements={endScreen}
@@ -1167,7 +1170,7 @@ const VideoPlayer = (
           />
         )
         : undefined}
-      {video && player && !status && !refusal && !docked && teasers.length > 0
+      {video && player && !status && !refusal && !docked && annotationsEnabled && teasers.length > 0
         ? (
           <InfoCards
             teasers={teasers}
@@ -1219,6 +1222,8 @@ const VideoPlayer = (
             onStableVolume={applyStableVolume}
             ambientMode={ambientMode}
             onAmbientMode={onAmbientMode}
+            annotations={annotationsEnabled}
+            onAnnotations={onAnnotations}
             captionTracks={captionTracks}
             translationLanguages={translationLanguages}
             caption={caption}

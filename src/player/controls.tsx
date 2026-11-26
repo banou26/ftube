@@ -559,6 +559,8 @@ type ControlsProps = {
   onStableVolume?: (value: boolean) => void
   ambientMode?: boolean
   onAmbientMode?: () => void
+  annotations?: boolean
+  onAnnotations?: () => void
   captionTracks: CaptionTrack[]
   translationLanguages?: TranslationLanguage[]
   caption: CaptionPick | undefined
@@ -588,7 +590,7 @@ type ControlsProps = {
 export const PlayerControls = (
   {
     video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
-    ambientMode = true, onAmbientMode,
+    ambientMode = true, onAmbientMode, annotations = true, onAnnotations,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false, onUserPause,
@@ -903,6 +905,18 @@ export const PlayerControls = (
                         onSelect={onAmbientMode}
                       >
                         Ambient mode
+                      </MenuItem>
+                    )
+                    : undefined}
+                  {onAnnotations
+                    ? (
+                      <MenuItem
+                        role='menuitemcheckbox'
+                        selected={annotations}
+                        detail={annotations ? 'On' : 'Off'}
+                        onSelect={onAnnotations}
+                      >
+                        Annotations
                       </MenuItem>
                     )
                     : undefined}

@@ -42,6 +42,7 @@ export type Settings = {
   captionPosition?: CaptionPosition
   theater: boolean
   ambientMode: boolean
+  annotations: boolean
   miniplayerWidth?: number
   showDislikes: boolean
   skipSponsors: boolean
@@ -76,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionOpacity: 1,
   theater: false,
   ambientMode: true,
+  annotations: true,
   miniplayerWidth: undefined,
   showDislikes: true,
   skipSponsors: true,
@@ -125,6 +127,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     captionPosition,
     theater: typeof stored.theater === 'boolean' ? stored.theater : DEFAULT_SETTINGS.theater,
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
+    annotations: typeof stored.annotations === 'boolean' ? stored.annotations : DEFAULT_SETTINGS.annotations,
     miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,

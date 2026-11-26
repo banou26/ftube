@@ -235,6 +235,16 @@ export const SettingsPage = () => {
           />
         </div>
         <div className='row'>
+          <div className='row-label'>Annotations</div>
+          <input
+            type='checkbox'
+            className='toggle'
+            aria-label='Annotations'
+            checked={settings.annotations}
+            onChange={() => set({ annotations: !settings.annotations })}
+          />
+        </div>
+        <div className='row'>
           <div className='row-label'>
             Skip sponsors{' '}
             <span className='credit'>

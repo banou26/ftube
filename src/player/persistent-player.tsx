@@ -256,6 +256,7 @@ const PersistentPlayer = () => {
   const [autoplay, setAutoplay] = useState(() => getSettings().autoplay)
   useEffect(() => subscribeSettings(settings => setAutoplay(settings.autoplay)), [])
   const ambientMode = useSetting('ambientMode')
+  const annotations = useSetting('annotations')
   const storedMiniplayerWidth = useSetting('miniplayerWidth')
   const asideRef = useRef<HTMLElement>(null)
   const [viewport, setViewport] = useState(readViewport)
@@ -622,6 +623,8 @@ const PersistentPlayer = () => {
                   onMiniplayer={toggleMiniplayer}
                   ambientMode={ambientMode}
                   onAmbientMode={() => updateSettings({ ambientMode: !ambientMode })}
+                  annotations={annotations}
+                  onAnnotations={() => updateSettings({ annotations: !annotations })}
                   onVideoElement={setAmbientVideo}
                   chapters={watch?.chapters}
                   segments={segments}

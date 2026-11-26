@@ -94,6 +94,27 @@ describe('the Ambient mode setting', () => {
   })
 })
 
+describe('the Annotations setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is on until turned off and ignores non-boolean values', async () => {
+    expect((await load()).getSettings().annotations).toBe(true)
+    expect((await load({ annotations: 'no' })).getSettings().annotations).toBe(true)
+    expect((await load({ annotations: 0 })).getSettings().annotations).toBe(true)
+    expect((await load({ annotations: false })).getSettings().annotations).toBe(false)
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ annotations: false })
+    expect(JSON.parse(written.at(-1)!).annotations).toBe(false)
+    expect((await load(JSON.parse(written.at(-1)!))).getSettings().annotations).toBe(false)
+  })
+})
+
 describe('the miniplayer width setting', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
