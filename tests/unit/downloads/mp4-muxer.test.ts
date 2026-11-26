@@ -812,10 +812,35 @@ describe('muxMp4', () => {
     expect(listBoxes(fullM4a).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
     expect(listBoxes(croppedM4a).map((b) => b.type)).toEqual(['ftyp', 'moov', 'mdat'])
 
-    // Even before external decoding, video and audio in croppedMp4 must keep symmetric pre-roll counts
+    // Verify symmetric aligned A/V pre-roll and raw sample durations purely from MP4 boxes (works without ffmpeg too).
     const cMoov = listBoxes(croppedMp4).find((b) => b.type === 'moov')!
     const cTraks = listBoxes(cMoov.data, 8).filter((b) => b.type === 'trak')
     expect(cTraks).toHaveLength(2)
+
+    const trackTiming = (trak: Uint8Array) => {
+      const children = listBoxes(trak, 8)
+      const mdia = children.find((b) => b.type === 'mdia')!
+      const mdiaBoxes = listBoxes(mdia.data, 8)
+      const mdhd = mdiaBoxes.find((b) => b.type === 'mdhd')!
+      const mdhdVersion = mdhd.data[8]!
+      const timescale = readUint32(mdhd.data, mdhdVersion === 1 ? 28 : 20)
+      const minf = mdiaBoxes.find((b) => b.type === 'minf')!
+      const stbl = listBoxes(minf.data, 8).find((b) => b.type === 'stbl')!
+      const stts = parseStts(listBoxes(stbl.data, 8).find((b) => b.type === 'stts')!.data)
+      const totalTicks = stts.reduce((sum, entry) => sum + entry.sampleCount * entry.sampleDelta, 0)
+      const edts = children.find((b) => b.type === 'edts')
+      const elst = edts ? listBoxes(edts.data, 8).find((b) => b.type === 'elst') : undefined
+      const mediaTimeTicks = elst && readUint32(elst.data, 12) > 0
+        ? (elst.data[8] === 1 ? Number(new DataView(elst.data.buffer, elst.data.byteOffset + 24, 8).getBigInt64(0)) : readInt32(elst.data, 20))
+        : 0
+      return {
+        preRollSec: mediaTimeTicks / timescale,
+        rawDurationSec: totalTicks / timescale,
+      }
+    }
+    const [videoTiming, audioTiming] = cTraks.map((trak) => trackTiming(trak.data))
+    expect(Math.abs(videoTiming!.preRollSec - audioTiming!.preRollSec)).toBeLessThan(0.15)
+    expect(Math.abs(videoTiming!.rawDurationSec - audioTiming!.rawDurationSec)).toBeLessThan(0.15)
 
     const hasFfmpeg = childProcess.spawnSync('ffprobe', ['-version']).status === 0
       && childProcess.spawnSync('ffmpeg', ['-version']).status === 0

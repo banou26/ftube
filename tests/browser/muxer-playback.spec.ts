@@ -46,6 +46,7 @@ test('remuxes and trims real MP4, M4A, and WebM fixtures into playable and seeka
   })
 
   await page.goto('/privacy')
+  await expect(page.locator('main')).toBeVisible()
   const report = await page.evaluate(async ([mp4Path, webmPath]): Promise<MuxerPlaybackReport> => {
     const [{ muxMp4, muxMp4Audio }, { trimWebmAudio }] = await Promise.all([
       import(mp4Path) as Promise<typeof import('../../src/downloads/mp4-muxer')>,

@@ -592,6 +592,7 @@ describe('download store history and flow', () => {
     expect(preflight.error).toContain('1 GB')
 
     const cancelled: string[] = []
+    let polls = 0
     const streamed = await startVideoDownload({
       target: { videoId: 'vid-big-stream', title: 'Overrun' },
       mode: 'audio',
@@ -606,7 +607,7 @@ describe('download store history and flow', () => {
           videoChunks: [],
           audioChunks: [new ArrayBuffer(16)],
           loadedBytes: MAX_DOWNLOAD_BYTES + 1024,
-          done: false,
+          done: ++polls >= 3,
         }),
         cancelDownload: async (id) => { cancelled.push(id) },
       }),

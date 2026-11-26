@@ -25,5 +25,5 @@ export const toStandaloneBuffer = (chunk: Uint8Array): ArrayBuffer => {
   if (chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength && chunk.buffer instanceof ArrayBuffer) {
     return chunk.buffer
   }
-  return Uint8Array.from(chunk).buffer
+  return chunk.slice().buffer
 }

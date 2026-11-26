@@ -240,6 +240,7 @@ describe('undo stack and shortcut', () => {
         onCommit: () => { committed.push('commit-d') },
       })
       targetWindow.dispatch('pagehide')
+      expect(committed).toEqual(['commit-d'])
       flushPendingUndoCommits()
       expect(committed).toEqual(['commit-d'])
       expect(canUndo()).toBe(false)

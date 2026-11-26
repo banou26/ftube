@@ -200,6 +200,7 @@ export const bindUndoShortcut = (target: Window = window): (() => void) => {
     void runUndo()
   }
   const onPageHide = () => {
+    // Best effort: worker-backed onCommit mutations may abort if the tab finishes unloading mid-flight.
     flushPendingUndoCommits()
   }
   target.addEventListener('keydown', onKeyDown)
