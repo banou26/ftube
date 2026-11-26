@@ -71,6 +71,7 @@ export const mountSignedInPostComments = () => {
               repliesCursor: null,
               actionsToken: null,
               isPinned: false,
+              pinnedText: null,
               isHearted: false,
               heartAvatar: null,
               heartTooltip: null,

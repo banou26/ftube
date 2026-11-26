@@ -320,6 +320,38 @@ index 4cd6a65..c5f213e 100644
  }
  //# sourceMappingURL=WatchCardHeroVideo.js.map
 \ No newline at end of file
+diff --git a/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.d.ts b/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.d.ts
+index 9efc0ef..0894860 100644
+--- a/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.d.ts
++++ b/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.d.ts
+@@ -29,6 +29,7 @@ export default class CommentView extends YTNode {
+     prepare_account_command?: NavigationEndpoint;
+     comment_id: string;
+     is_pinned: boolean;
++    pinned_text?: string;
+     keys: CommentKeys;
+     content?: Text;
+     image_attachment?: CommentImageAttachmentView | null;
+diff --git a/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.js b/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.js
+index 68fe9c6..4cc1983 100644
+--- a/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.js
++++ b/node_modules/youtubei.js/dist/src/parser/classes/comments/CommentView.js
+@@ -19,6 +19,7 @@ export default class CommentView extends YTNode {
+     prepare_account_command;
+     comment_id;
+     is_pinned;
++    pinned_text;
+     keys;
+     content;
+     image_attachment;
+@@ -49,6 +50,7 @@ export default class CommentView extends YTNode {
+         super();
+         this.comment_id = data.commentId;
+         this.is_pinned = !!data.pinnedText;
++        this.pinned_text = data.pinnedText;
+         this.keys = {
+             comment: data.commentKey,
+             comment_surface: data.commentSurfaceKey,
 diff --git a/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js b/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js
 index 996db9d..bcef28c 100644
 --- a/node_modules/youtubei.js/dist/src/parser/classes/misc/Text.js

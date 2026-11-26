@@ -290,6 +290,7 @@ type CommentViewNode = {
   like_count?: string
   reply_count?: string
   is_pinned?: boolean
+  pinned_text?: string | Text
   is_hearted?: boolean
   creator_thumbnail_url?: string
   heart_active_tooltip?: string
@@ -2067,6 +2068,7 @@ export const normalizeCommentView = (input: unknown): SourceComment | undefined 
     likeCountText: comment.like_count,
     replyCount: approximateCount(comment.reply_count),
     isPinned: comment.is_pinned === true ? true : undefined,
+    pinnedText: comment.is_pinned === true ? presentText(comment.pinned_text) : undefined,
     isHearted: comment.is_hearted === true ? true : undefined,
     heartAvatar: comment.is_hearted === true && comment.creator_thumbnail_url ? httpsUrl(comment.creator_thumbnail_url) : undefined,
     heartTooltip: comment.is_hearted === true && comment.heart_active_tooltip ? comment.heart_active_tooltip : undefined,

@@ -772,6 +772,7 @@ type Comment {
   likeCountText: String
   replyCount: Int
   isPinned: Boolean
+  pinnedText: String
   isHearted: Boolean
   heartAvatar: String
   heartTooltip: String

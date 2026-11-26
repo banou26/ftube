@@ -5,7 +5,7 @@ import type { CommentRepliesQuery, CommentSort, CommentsQuery } from '../generat
 import type { RydComment, RydCommentSort } from '../ryd-comments'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, Heart, ListFilter, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Heart, ListFilter, Pin, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
@@ -41,6 +41,7 @@ gql(`
       repliesCursor
       actionsToken
       isPinned
+      pinnedText
       isHearted
       heartAvatar
       heartTooltip
@@ -175,8 +176,17 @@ const style = css`
   }
 
   .pinned {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
     font-size: 1.2rem;
+    line-height: 1.6rem;
     color: var(--text-secondary);
+  }
+
+  .pinned svg {
+    flex: none;
   }
 
   .byline {
@@ -446,6 +456,34 @@ const style = css`
     padding-left: 2.4rem;
   }
 
+  .reply-rows {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .reply-rows + :not(.reply-rows) {
+    margin-top: 1.6rem;
+  }
+
+  .thread-line {
+    position: absolute;
+    top: -0.4rem;
+    bottom: 0;
+    left: -2.4rem;
+    width: 2.2rem;
+    padding: 0;
+    border: none;
+    border-radius: 0.4rem;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .thread-line:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: -2px;
+  }
+
   .reply-row {
     position: relative;
     display: flex;
@@ -454,10 +492,6 @@ const style = css`
 
   .reply-row:has(+ .reply-row) {
     padding-bottom: 1.6rem;
-  }
-
-  .reply-row + :not(.reply-row) {
-    margin-top: 1.6rem;
   }
 
   .reply-row::before {
@@ -471,6 +505,7 @@ const style = css`
     border-bottom: 1.5px solid var(--border);
     border-bottom-left-radius: 0.8rem;
     pointer-events: none;
+    transition: border-color 0.15s ease;
   }
 
   .reply-row:first-of-type::before {
@@ -486,6 +521,14 @@ const style = css`
     bottom: 0;
     border-left: 1.5px solid var(--border);
     pointer-events: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .reply-rows:has(> .thread-line:hover) .reply-row::before,
+  .reply-rows:has(> .thread-line:hover) .reply-row:has(+ .reply-row)::after,
+  .reply-rows:has(> .thread-line:focus-visible) .reply-row::before,
+  .reply-rows:has(> .thread-line:focus-visible) .reply-row:has(+ .reply-row)::after {
+    border-color: var(--text-primary);
   }
 
   .reply-row .avatar {
@@ -796,6 +839,7 @@ const Replies = (
 ) => {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState<RepliesPage[]>([])
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: REPLIES_QUERY,
     variables: { cursor: loaded[loaded.length - 1]?.cursor ?? cursor },
@@ -807,10 +851,15 @@ const Replies = (
     key: reply => reply.id,
   })
   const label = count === 1 ? '1 reply' : `${count ?? ''} replies`.trim()
+  const collapse = () => {
+    setOpen(false)
+    toggleRef.current?.focus()
+  }
 
   return (
     <div className='replies-block'>
       <button
+        ref={toggleRef}
         type='button'
         className='replies'
         aria-expanded={open}
@@ -822,45 +871,58 @@ const Replies = (
       {open
         ? (
           <div className='reply-list'>
-            {items.map(reply => (
-              <div className='reply-row' key={reply.id}>
-                {reply.author
-                  ? (
-                    <Link
-                      href={`/channel/${reply.author.id}`}
-                      className={reply.author.avatar ? 'avatar' : 'avatar fallback'}
-                      aria-label={reply.author.name}
-                    >
-                      {reply.author.avatar
-                        ? <img src={reply.author.avatar} alt='' loading='lazy' />
-                        : reply.author.name.slice(0, 1).toUpperCase()}
-                    </Link>
-                  )
-                  : <span className='avatar fallback'>?</span>}
-                <div className='body'>
-                  <div className='byline'>
-                    {reply.author
-                      ? (
-                        <span className={reply.isCreator ? 'name creator' : 'name'}>
-                          {reply.author.name}
-                          <VerifiedBadge channel={reply.author} size={12} />
-                        </span>
-                      )
-                      : undefined}
-                    {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
-                  </div>
-                  <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
-                  {reply.likeCountText || reply.isHearted
-                    ? (
-                      <div className='reply-meta'>
-                        {reply.likeCountText ? <span className='age'>{reply.likeCountText}</span> : undefined}
-                        {reply.isHearted ? <CreatorHeart avatar={reply.heartAvatar} tooltip={reply.heartTooltip} /> : undefined}
+            {items.length > 0
+              ? (
+                <div className='reply-rows'>
+                  <button
+                    type='button'
+                    className='thread-line'
+                    aria-label='Collapse replies'
+                    title='Collapse replies'
+                    onClick={collapse}
+                  />
+                  {items.map(reply => (
+                    <div className='reply-row' key={reply.id}>
+                      {reply.author
+                        ? (
+                          <Link
+                            href={`/channel/${reply.author.id}`}
+                            className={reply.author.avatar ? 'avatar' : 'avatar fallback'}
+                            aria-label={reply.author.name}
+                          >
+                            {reply.author.avatar
+                              ? <img src={reply.author.avatar} alt='' loading='lazy' />
+                              : reply.author.name.slice(0, 1).toUpperCase()}
+                          </Link>
+                        )
+                        : <span className='avatar fallback'>?</span>}
+                      <div className='body'>
+                        <div className='byline'>
+                          {reply.author
+                            ? (
+                              <span className={reply.isCreator ? 'name creator' : 'name'}>
+                                {reply.author.name}
+                                <VerifiedBadge channel={reply.author} size={12} />
+                              </span>
+                            )
+                            : undefined}
+                          {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
+                        </div>
+                        <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
+                        {reply.likeCountText || reply.isHearted
+                          ? (
+                            <div className='reply-meta'>
+                              {reply.likeCountText ? <span className='age'>{reply.likeCountText}</span> : undefined}
+                              {reply.isHearted ? <CreatorHeart avatar={reply.heartAvatar} tooltip={reply.heartTooltip} /> : undefined}
+                            </div>
+                          )
+                          : undefined}
                       </div>
-                    )
-                    : undefined}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
+              )
+              : undefined}
             {fetching ? <div className='age'>Loading replies…</div> : undefined}
             {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
             {next && !fetching && !error
@@ -892,6 +954,7 @@ const RydReplies = ({ rootId, count }: { rootId: string, count: number }) => {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
 
   const load = async (nextCursor?: string) => {
     setLoading(true)
@@ -912,39 +975,57 @@ const RydReplies = ({ rootId, count }: { rootId: string, count: number }) => {
     if (next && !loaded && !loading) void load()
   }
 
+  const collapse = () => {
+    setOpen(false)
+    toggleRef.current?.focus()
+  }
+
   const label = count === 1 ? '1 reply' : `${count} replies`
 
   return (
     <div className='replies-block'>
-      <button type='button' className='replies' aria-expanded={open} onClick={toggle}>
+      <button ref={toggleRef} type='button' className='replies' aria-expanded={open} onClick={toggle}>
         {label}
         {open ? <ChevronUp size={20} strokeWidth={1.5} /> : <ChevronDown size={20} strokeWidth={1.5} />}
       </button>
       {open
         ? (
           <div className='reply-list'>
-            {items.map(reply => (
-              <div className='reply-row' key={reply.id}>
-                <span className='avatar fallback' aria-hidden='true'>{reply.authorName.slice(0, 1).toUpperCase()}</span>
-                <div className='body'>
-                  <div className='byline'>
-                    <span className='name'>{reply.authorName}</span>
-                    {reply.createdAt ? <span className='age'>{formatAgo(reply.createdAt)}{reply.edited ? ' (edited)' : ''}</span> : undefined}
-                  </div>
-                  <div className='comment-text'>
-                    <ReadMore>{reply.text}</ReadMore>
-                  </div>
-                  {reply.likes > 0 || reply.dislikes > 0
-                    ? (
-                      <div className='actions'>
-                        {reply.likes > 0 ? <span className='age'><ThumbsUp size={14} strokeWidth={1.5} /> {formatCompact(reply.likes)}</span> : undefined}
-                        {reply.dislikes > 0 ? <span className='age'><ThumbsDown size={14} strokeWidth={1.5} /> {formatCompact(reply.dislikes)}</span> : undefined}
+            {items.length > 0
+              ? (
+                <div className='reply-rows'>
+                  <button
+                    type='button'
+                    className='thread-line'
+                    aria-label='Collapse replies'
+                    title='Collapse replies'
+                    onClick={collapse}
+                  />
+                  {items.map(reply => (
+                    <div className='reply-row' key={reply.id}>
+                      <span className='avatar fallback' aria-hidden='true'>{reply.authorName.slice(0, 1).toUpperCase()}</span>
+                      <div className='body'>
+                        <div className='byline'>
+                          <span className='name'>{reply.authorName}</span>
+                          {reply.createdAt ? <span className='age'>{formatAgo(reply.createdAt)}{reply.edited ? ' (edited)' : ''}</span> : undefined}
+                        </div>
+                        <div className='comment-text'>
+                          <ReadMore>{reply.text}</ReadMore>
+                        </div>
+                        {reply.likes > 0 || reply.dislikes > 0
+                          ? (
+                            <div className='actions'>
+                              {reply.likes > 0 ? <span className='age'><ThumbsUp size={14} strokeWidth={1.5} /> {formatCompact(reply.likes)}</span> : undefined}
+                              {reply.dislikes > 0 ? <span className='age'><ThumbsDown size={14} strokeWidth={1.5} /> {formatCompact(reply.dislikes)}</span> : undefined}
+                            </div>
+                          )
+                          : undefined}
                       </div>
-                    )
-                    : undefined}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
+              )
+              : undefined}
             {loading ? <div className='age'>Loading replies…</div> : undefined}
             {cursor && !loading
               ? <button type='button' className='replies' onClick={() => void load(cursor)}>Show more replies</button>
@@ -1164,7 +1245,14 @@ export const Comments = ({ videoId, post, commentCountText }: {
               )
               : <span className='avatar fallback'>?</span>}
             <div className='body'>
-              {comment.isPinned ? <div className='pinned'>Pinned</div> : undefined}
+              {comment.isPinned
+                ? (
+                  <div className='pinned' data-pinned-comment='true'>
+                    <Pin size={13} strokeWidth={1.75} aria-hidden='true' />
+                    <span>{comment.pinnedText || 'Pinned'}</span>
+                  </div>
+                )
+                : undefined}
               <div className='byline'>
                 {comment.author
                   ? (

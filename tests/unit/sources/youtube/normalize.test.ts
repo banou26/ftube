@@ -4,7 +4,7 @@ import { Parser, YTNodes } from 'youtubei.js'
 
 import type { AccountRowFixture } from '../../fixtures/accounts-list'
 
-import { normalizeChannel, normalizeChannelAbout, normalizeChannelTags, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist, parseChannelKeywords } from '../../../../src/sources/youtube/normalize'
+import { normalizeChannel, normalizeChannelAbout, normalizeChannelTags, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommentView, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist, parseChannelKeywords } from '../../../../src/sources/youtube/normalize'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../../fixtures/accounts-list'
 
 // the AccountItem nodes youtubei.js parses out of a WEB accounts_list answer, as the source's session read takes them
@@ -1099,6 +1099,7 @@ describe('youtube normalization', () => {
         like_count: '1.2K',
         reply_count: '24',
         is_pinned: true,
+        pinned_text: 'Pinned by @Mrwhosetheboss',
         is_hearted: true,
         creator_thumbnail_url: '//yt3.ggpht.com/creator-avatar',
         heart_active_tooltip: 'Loved by Creator',
@@ -1117,6 +1118,7 @@ describe('youtube normalization', () => {
       likeCountText: '1.2K',
       replyCount: 24,
       isPinned: true,
+      pinnedText: 'Pinned by @Mrwhosetheboss',
       isHearted: true,
       heartAvatar: 'https://yt3.ggpht.com/creator-avatar',
       heartTooltip: 'Loved by Creator',
@@ -1130,6 +1132,54 @@ describe('youtube normalization', () => {
         heart_active_tooltip: 'Ignored',
       },
     })).toMatchObject({ id: 'UgxPlain', heartAvatar: undefined, heartTooltip: undefined })
+
+    const view = new YTNodes.CommentView({
+      commentId: 'UgxPatchedPin',
+      pinnedText: 'Pinned by @Creator',
+      commentKey: 'c-key',
+      commentSurfaceKey: 'cs-key',
+      toolbarStateKey: 'ts-key',
+      toolbarSurfaceKey: 'tsu-key',
+      sharedKey: 'sh-key',
+    } as never)
+    expect(view.is_pinned).toBe(true)
+    expect(view.pinned_text).toBe('Pinned by @Creator')
+    view.content = { text: 'Hello' } as never
+    expect(normalizeCommentView(view)).toMatchObject({
+      id: 'UgxPatchedPin',
+      isPinned: true,
+      pinnedText: 'Pinned by @Creator',
+    })
+    expect(normalizeCommentView({
+      comment_id: 'UgxNotPinned',
+      content: { text: 'Hello' },
+      is_pinned: false,
+      pinned_text: 'Pinned by @Ignored',
+    })).toMatchObject({
+      id: 'UgxNotPinned',
+      isPinned: undefined,
+      pinnedText: undefined,
+    })
+    expect(normalizeCommentView({
+      comment_id: 'UgxNaPin',
+      content: { text: 'Hello' },
+      is_pinned: true,
+      pinned_text: { text: 'Pinned by @TextObj' },
+    })).toMatchObject({
+      id: 'UgxNaPin',
+      isPinned: true,
+      pinnedText: 'Pinned by @TextObj',
+    })
+    expect(normalizeCommentView({
+      comment_id: 'UgxEmptyPin',
+      content: { text: 'Hello' },
+      is_pinned: true,
+      pinned_text: 'N/A',
+    })).toMatchObject({
+      id: 'UgxEmptyPin',
+      isPinned: true,
+      pinnedText: undefined,
+    })
   })
 
   it("lists every channel of WEB's accounts_list with the page ID only a brand channel's row carries", () => {

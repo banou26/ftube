@@ -18,6 +18,7 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
   }).toPass({ timeout: 120_000 })
 
   const firstComment = root.locator('.comment').nth(0)
+  await expect(firstComment.locator('[data-pinned-comment="true"]')).toHaveCount(0)
   const firstHeart = firstComment.locator('.actions [data-creator-heart="true"]')
   await expect(firstHeart).toHaveAttribute('aria-label', 'Loved by Creator')
   await expect(firstHeart).toHaveAttribute('title', 'Loved by Creator')
@@ -26,13 +27,24 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
   expect(heartImgWidth).toBeGreaterThan(0)
 
   const secondComment = root.locator('.comment').nth(1)
+  const pinnedBadge = secondComment.locator('[data-pinned-comment="true"]')
+  await expect(pinnedBadge).toBeVisible()
+  await expect(pinnedBadge).toHaveText('Pinned by @Creator')
+  await expect(pinnedBadge.locator('svg')).toBeVisible()
+  const pinnedBelowByline = await secondComment.evaluate((el) => {
+    const pin = el.querySelector('[data-pinned-comment="true"]')!.getBoundingClientRect()
+    const byline = el.querySelector('.byline')!.getBoundingClientRect()
+    return pin.bottom <= byline.top + 1
+  })
+  expect(pinnedBelowByline).toBe(true)
   await expect(secondComment.locator('.author.creator')).toBeVisible()
   const fallbackHeart = secondComment.locator('.actions [data-creator-heart="true"]')
   await expect(fallbackHeart).toHaveAttribute('aria-label', 'Loved by creator')
   await expect(fallbackHeart.locator('img')).toHaveCount(0)
   await expect(fallbackHeart.locator('svg')).toBeVisible()
 
-  await firstComment.getByRole('button', { name: '2 replies', exact: true }).click()
+  const repliesToggle = firstComment.getByRole('button', { name: '2 replies', exact: true })
+  await repliesToggle.click()
   const replyRows = firstComment.locator('.reply-list .reply-row')
   await expect(replyRows).toHaveCount(2)
   await expect(replyRows.nth(0).locator('[data-creator-heart="true"]')).toBeVisible()
@@ -46,6 +58,7 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
       return {
         beforeLeft: Number.parseFloat(before.borderLeftWidth),
         beforeBottom: Number.parseFloat(before.borderBottomWidth),
+        beforeColor: before.borderLeftColor,
         beforeContent: before.content,
         afterLeft: Number.parseFloat(after.borderLeftWidth),
         afterContent: after.content,
@@ -60,6 +73,29 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
   expect(connectorMetrics[1]!.beforeContent).not.toBe('none')
   expect(connectorMetrics[1]!.beforeLeft).toBeGreaterThan(0)
   expect(connectorMetrics[1]!.afterContent).toBe('none')
+
+  const threadLine = firstComment.locator('.reply-rows button.thread-line')
+  await expect(threadLine).toBeVisible()
+  await expect(threadLine).toHaveAttribute('aria-label', 'Collapse replies')
+  const railGeometry = await firstComment.evaluate(() => {
+    const rail = document.querySelector('.reply-rows button.thread-line')!.getBoundingClientRect()
+    const avatar = document.querySelector('.reply-rows .reply-row .avatar')!.getBoundingClientRect()
+    return { railRight: rail.right, railHeight: rail.height, avatarLeft: avatar.left }
+  })
+  expect(railGeometry.railHeight).toBeGreaterThan(40)
+  expect(railGeometry.railRight).toBeLessThanOrEqual(railGeometry.avatarLeft + 0.5)
+
+  await threadLine.hover()
+  await expect.poll(() =>
+    replyRows.nth(0).evaluate((row) => getComputedStyle(row, '::before').borderLeftColor),
+  ).not.toBe(connectorMetrics[0]!.beforeColor)
+
+  await threadLine.click()
+  await expect(replyRows).toHaveCount(0)
+  await expect(repliesToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(repliesToggle).toBeFocused()
+  await repliesToggle.click()
+  await expect(replyRows).toHaveCount(2)
 
   const topComposer = root.locator('.composer.top')
   const topInput = topComposer.getByRole('textbox', { name: 'Add a comment', exact: true })
