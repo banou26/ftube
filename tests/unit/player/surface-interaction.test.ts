@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { decideSurfaceClick, isTouchPointer, shouldIgnoreHoverPointer } from '../../../src/player/surface-interaction'
+import { decideSurfaceClick, isTouchPointer, shouldAutoHideControlsOnLoad, shouldIgnoreHoverPointer } from '../../../src/player/surface-interaction'
 
 describe('player surface interaction', () => {
   it('identifies touch pointers and suppresses hover wake/leave only on touch', () => {
@@ -12,6 +12,11 @@ describe('player surface interaction', () => {
     expect(shouldIgnoreHoverPointer('touch')).toBe(true)
     expect(shouldIgnoreHoverPointer('mouse')).toBe(false)
     expect(shouldIgnoreHoverPointer('pen')).toBe(false)
+
+    expect(shouldAutoHideControlsOnLoad(query => ({ matches: query === '(pointer: coarse)' }))).toBe(true)
+    expect(shouldAutoHideControlsOnLoad(query => ({ matches: query === '(hover: none)' }))).toBe(true)
+    expect(shouldAutoHideControlsOnLoad(() => ({ matches: false }))).toBe(false)
+    expect(shouldAutoHideControlsOnLoad(undefined)).toBe(false)
   })
 
   it('reveals or hides controls on touch taps without toggling playback', () => {

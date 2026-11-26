@@ -424,7 +424,7 @@ test('keeps MediaSession metadata and playbackState across track handler changes
 
 test('touch taps show and hide controls without pausing while mouse clicks toggle playback', async ({ browser }) => {
   test.setTimeout(240_000)
-  const context = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } })
+  const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
   await answerLookups(context)
   const page = await context.newPage()
   await dismissFknNotice(page)

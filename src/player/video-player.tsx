@@ -55,7 +55,7 @@ import { PlayerMenu } from './player-menu'
 import { ShortcutsDialog } from './shortcuts'
 import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
-import { decideSurfaceClick, isTouchPointer, shouldIgnoreHoverPointer } from './surface-interaction'
+import { decideSurfaceClick, isTouchPointer, shouldAutoHideControlsOnLoad, shouldIgnoreHoverPointer } from './surface-interaction'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
 import { stepVideoVolume, toggleVideoMute } from './volume'
@@ -754,7 +754,7 @@ const VideoPlayer = (
   }, [])
 
   useEffect(() => {
-    wake()
+    if (shouldAutoHideControlsOnLoad(typeof window === 'undefined' ? undefined : window.matchMedia?.bind(window))) wake()
     return () => clearTimeout(idleTimer.current)
   }, [videoId, wake])
 
@@ -1056,6 +1056,9 @@ const VideoPlayer = (
       }}
       onPointerLeave={(event: PointerEvent) => {
         if (!shouldIgnoreHoverPointer(event.pointerType)) setActive(false)
+      }}
+      onPointerCancel={() => {
+        lastPointerTypeRef.current = ''
       }}
       onPointerDown={(event: PointerEvent) => {
         menuAtPress.current = menu !== undefined
