@@ -52,7 +52,7 @@ export const THEME_TOKEN_KEYS = [
 export type ThemeTokenKey = (typeof THEME_TOKEN_KEYS)[number]
 export type ThemePalette = Record<ThemeTokenKey, string>
 
-type Rgb = { r: number, g: number, b: number }
+export type Rgb = { r: number, g: number, b: number }
 type Hsl = { h: number, s: number, l: number }
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value))
@@ -81,7 +81,7 @@ const rgbToHex = ({ r, g, b }: Rgb): string => {
   return `#${part(r)}${part(g)}${part(b)}`
 }
 
-const rgbToHsl = ({ r, g, b }: Rgb): Hsl => {
+export const rgbToHsl = ({ r, g, b }: Rgb): Hsl => {
   const rn = r / 255
   const gn = g / 255
   const bn = b / 255
@@ -100,7 +100,7 @@ const rgbToHsl = ({ r, g, b }: Rgb): Hsl => {
   return { h, s, l }
 }
 
-const hslToHex = (h: number, s: number, l: number): string => {
+export const hslToRgb = (h: number, s: number, l: number): Rgb => {
   const sn = clamp(s, 0, 1)
   const ln = clamp(l, 0, 1)
   const c = (1 - Math.abs(2 * ln - 1)) * sn
@@ -116,12 +116,14 @@ const hslToHex = (h: number, s: number, l: number): string => {
   else if (hp < 5) [r1, g1, b1] = [x, 0, c]
   else [r1, g1, b1] = [c, 0, x]
   const m = ln - c / 2
-  return rgbToHex({
-    r: (r1 + m) * 255,
-    g: (g1 + m) * 255,
-    b: (b1 + m) * 255,
-  })
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255),
+  }
 }
+
+const hslToHex = (h: number, s: number, l: number): string => rgbToHex(hslToRgb(h, s, l))
 
 const srgbLuminance = (channel: number) => {
   const s = channel / 255

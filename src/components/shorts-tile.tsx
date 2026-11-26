@@ -9,6 +9,7 @@ import { Link } from 'wouter'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor } from '../player/links'
 import { usePrefetchOnIntent } from '../player/prefetch'
+import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
 import { formatViews } from './format'
 import { Thumbnail } from './thumbnail'
 import { VideoCardMenu } from './video-card'
@@ -147,16 +148,21 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
   const canPreview = short.isUpcoming !== true
   const prefetch = usePrefetchOnIntent(short.id, playerParams)
   const [hovered, setHovered] = useState(false)
+  const [tintRequested, setTintRequested] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
   useEffect(() => setPreviewFailed(false), [short.id, playerParams])
+  useEffect(() => setTintRequested(false), [short.thumbnail])
+  const tintRgb = useCardHoverTint(short.thumbnail, hovered || tintRequested)
   const moving = hovered && (!canPreview || previewFailed) ? short.animatedThumbnail ?? undefined : undefined
   return (
     <article
       css={shortsTileStyle}
       className='tile'
+      style={cardHoverStyle(tintRgb)}
       onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
         if (!canPreview) prefetch.onPointerEnter()
+        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
         if (event.pointerType === 'mouse') setHovered(true)
       }}
       onPointerLeave={() => {
@@ -165,6 +171,7 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
         setPreviewFailed(false)
       }}
       onPointerDown={prefetch.onPointerDown}
+      onFocusCapture={() => setTintRequested(true)}
     >
       <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}

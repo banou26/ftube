@@ -291,3 +291,46 @@ export const mountShorts = () => {
     host,
   )
 }
+
+const solidSvgThumb = (hex: string, width: number, height: number) =>
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'><rect width='${width}' height='${height}' fill='${hex}'/></svg>`,
+  )}`
+
+/**
+ * Mounts VideoCard and ShortsTile items with distinct solid-color thumbnails
+ * (and a neutral gray control) for verifying thumbnail-adaptive hover tints.
+ */
+export const mountHoverTints = () => {
+  document.getElementById('app')!.hidden = true
+  const host = document.createElement('div')
+  host.setAttribute('data-preview-harness', '')
+  host.style.width = '1200px'
+  document.body.append(host)
+  const tintedVideos = [
+    { id: 'tint-blue-0', title: 'Blue video', thumbnail: solidSvgThumb('#1d4ed8', 160, 90), durationSeconds: 180, channel, badges: [] },
+    { id: 'tint-orange-0', title: 'Orange video', thumbnail: solidSvgThumb('#c2410c', 160, 90), durationSeconds: 180, channel, badges: [] },
+    { id: 'tint-gray-0', title: 'Gray video', thumbnail: solidSvgThumb('#808080', 160, 90), durationSeconds: 180, channel, badges: [] },
+  ]
+  const tintedShorts = [
+    { id: 'tint-emerald-0', title: 'Emerald short', thumbnail: solidSvgThumb('#059669', 120, 180), viewCount: '10K views', isShort: true, badges: [] },
+    { id: 'tint-violet-0', title: 'Violet short', thumbnail: solidSvgThumb('#7c3aed', 120, 180), viewCount: '10K views', isShort: true, badges: [] },
+  ]
+  const client = new Client({
+    url: '/preview-harness',
+    exchanges: [fetchExchange],
+    fetch: async () => new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } }),
+    preferGetMethod: false,
+  })
+  render(
+    <Provider value={client}>
+      <section data-previews='tinted-cards' style={{ display: 'grid', gridTemplateColumns: '360px 360px 360px', gap: '24px' }}>
+        {tintedVideos.map(video => <VideoCard key={video.id} video={video} />)}
+      </section>
+      <section data-previews='tinted-shorts' style={{ marginTop: '24px' }}>
+        <ShortsGrid shorts={tintedShorts} />
+      </section>
+    </Provider>,
+    host,
+  )
+}

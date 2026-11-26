@@ -22,6 +22,7 @@ import { getPlayerSession, openPlayer } from '../player/session'
 import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
 import { AvatarStack, BylineNames, CollaboratorsButton } from './byline'
+import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
 import { lineFor, MenuDataFailure } from './data-failure'
 import { dismissChannel, dismissVideo, undismissChannel, undismissVideo } from './dismissed-videos'
 import { formatDuration, rowByline } from './format'
@@ -440,12 +441,12 @@ const style = css`
 
   @media (hover: hover) {
     &:hover::before {
-      background: var(--bg-hover);
+      background: var(--card-hover-bg, var(--bg-hover));
     }
   }
 
   &:has(:focus-visible)::before {
-    background: var(--bg-hover);
+    background: var(--card-hover-bg, var(--bg-hover));
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -701,9 +702,12 @@ export const VideoCard = (
   const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)
   const prefetch = usePrefetchOnIntent(video.id, playerParams)
   const [hovered, setHovered] = useState(false)
+  const [tintRequested, setTintRequested] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
   useEffect(() => setPreviewFailed(false), [video.id, playerParams, inlinePreview])
+  useEffect(() => setTintRequested(false), [video.thumbnail])
+  const tintRgb = useCardHoverTint(video.thumbnail, hovered || tintRequested)
   const classes = [variant, video.isShort && !carouselShort ? 'short' : undefined]
     .filter(Boolean)
     .join(' ')
@@ -716,9 +720,11 @@ export const VideoCard = (
     <article
       css={style}
       className={classes || undefined}
+      style={cardHoverStyle(tintRgb)}
       /* Called through rather than spread: `{...prefetch}` lets the handlers below overwrite the hook's own. */
       onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
         if (!canPreview) prefetch.onPointerEnter()
+        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
         if (event.pointerType === 'mouse') setHovered(true)
       }}
       onPointerLeave={() => {
@@ -727,6 +733,7 @@ export const VideoCard = (
         setPreviewFailed(false)
       }}
       onPointerDown={prefetch.onPointerDown}
+      onFocusCapture={() => setTintRequested(true)}
     >
       <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
         {video.thumbnail

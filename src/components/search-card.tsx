@@ -24,6 +24,7 @@ const style = css`
   --bg-chip: rgba(255, 255, 255, 0.1);
   --bg-chip-hover: rgba(255, 255, 255, 0.2);
   --bg-hover: rgba(255, 255, 255, 0.1);
+  --card-hover-alpha: 0.22;
   --bg-elevated: #212121;
   --bg-menu: #282828;
   --border-subtle: rgba(255, 255, 255, 0.2);

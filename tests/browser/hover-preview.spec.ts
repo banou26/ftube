@@ -706,3 +706,93 @@ test('Shorts tiles open hover previews, fall back to animatedThumbnail, and pres
   await expect(page).toHaveURL(/\/shorts\/short-params-0$/)
   expect(await page.evaluate(() => (history.state as { sequence?: string } | null)?.sequence)).toBe('shorts-seq-1')
 })
+
+const parseRgba = (value: string) => {
+  const match = value.match(/rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\s*\)/)
+  if (!match) return undefined
+  return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] === undefined ? 1 : Number(match[4]) }
+}
+
+test('video and Shorts cards adapt hover backdrop tint to their thumbnails in dark, light, focus, and reduced-motion modes', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(answerPlaybackHere)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    document.documentElement.removeAttribute('data-theme')
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountHoverTints: () => void }
+    module.mountHoverTints()
+  })
+
+  const blueCard = page.locator('[data-previews="tinted-cards"] article').nth(0)
+  const orangeCard = page.locator('[data-previews="tinted-cards"] article').nth(1)
+  const grayCard = page.locator('[data-previews="tinted-cards"] article').nth(2)
+  const emeraldShort = page.locator('[data-previews="tinted-shorts"] article.tile').nth(0)
+  const violetShort = page.locator('[data-previews="tinted-shorts"] article.tile').nth(1)
+  await expect(blueCard.locator('a.thumb')).toBeVisible({ timeout: 60_000 })
+
+  const beforeBg = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el, '::before').backgroundColor)
+  const hoverTint = async (loc: Locator, predicate?: (c: NonNullable<ReturnType<typeof parseRgba>>) => boolean) => {
+    await loc.locator('.details').hover()
+    await expect.poll(async () => {
+      const parsed = parseRgba(await beforeBg(loc))
+      if (!parsed || parsed.a === 0) return false
+      return predicate ? predicate(parsed) : true
+    }).toBe(true)
+    // Wait briefly so the 150ms background-color transition settles before comparing exact values.
+    await page.waitForTimeout(200)
+    const raw = await beforeBg(loc)
+    return { raw, rgba: parseRgba(raw)! }
+  }
+
+  // Dark mode: blue card leans blue (b > r), orange card leans warm (r > b), gray falls back to flat --bg-hover.
+  const darkBlue = await hoverTint(blueCard, (c) => c.b > c.r && c.a >= 0.2)
+  expect(darkBlue.rgba.b).toBeGreaterThan(darkBlue.rgba.r)
+  const darkOrange = await hoverTint(orangeCard, (c) => c.r > c.b && c.a >= 0.2)
+  expect(darkOrange.rgba.r).toBeGreaterThan(darkOrange.rgba.b)
+  expect(darkBlue.raw).not.toBe(darkOrange.raw)
+
+  const darkGray = await hoverTint(grayCard, (c) => Math.abs(c.a - 0.1) < 0.01)
+  expect(darkGray.raw).toBe('rgba(255, 255, 255, 0.1)')
+
+  // Shorts tiles also adapt: emerald leans green, violet leans violet/blue.
+  const darkEmerald = await hoverTint(emeraldShort, (c) => c.g > c.r && c.g > c.b && c.a >= 0.2)
+  expect(darkEmerald.rgba.g).toBeGreaterThan(darkEmerald.rgba.r)
+  expect(darkEmerald.rgba.g).toBeGreaterThan(darkEmerald.rgba.b)
+  const darkViolet = await hoverTint(violetShort, (c) => c.b > c.g && c.a >= 0.2)
+  expect(darkViolet.rgba.b).toBeGreaterThan(darkViolet.rgba.g)
+  expect(darkEmerald.raw).not.toBe(darkViolet.raw)
+
+  // Light mode uses lighter alpha tint while preserving distinct per-card hues.
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
+  const lightBlue = await hoverTint(blueCard, (c) => c.b > c.r && c.a > 0.11 && c.a < 0.15)
+  const lightOrange = await hoverTint(orangeCard, (c) => c.r > c.b && c.a > 0.11 && c.a < 0.15)
+  expect(lightBlue.rgba.b).toBeGreaterThan(lightBlue.rgba.r)
+  expect(lightOrange.rgba.r).toBeGreaterThan(lightOrange.rgba.b)
+  expect(lightBlue.rgba.a).toBeLessThan(darkBlue.rgba.a)
+
+  // Keyboard focus (:focus-visible) activates the thumbnail tint without hover.
+  await page.evaluate(() => document.documentElement.removeAttribute('data-theme'))
+  await page.mouse.move(0, 0)
+  await expect.poll(() => beforeBg(orangeCard)).toBe('rgba(0, 0, 0, 0)')
+  await orangeCard.locator('a.thumb').focus()
+  await page.keyboard.press('Tab')
+  await expect.poll(async () => {
+    const c = parseRgba(await beforeBg(orangeCard))
+    return c ? c.r > c.b && c.a >= 0.2 : false
+  }).toBe(true)
+
+  // prefers-reduced-motion keeps tinting active with zero transition duration.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await blueCard.locator('.details').hover()
+  const reduced = await blueCard.evaluate((el) => {
+    const cs = getComputedStyle(el, '::before')
+    return { bg: cs.backgroundColor, transitionDuration: cs.transitionDuration }
+  })
+  const reducedRgba = parseRgba(reduced.bg)!
+  expect(reducedRgba.b).toBeGreaterThan(reducedRgba.r)
+  expect(reduced.transitionDuration).toBe('0s')
+})

@@ -39,6 +39,7 @@ const globalStyles = css`
     --bg-selected: #272727;
     --bg-hover: rgba(255, 255, 255, 0.1);
     --bg-hover-strong: rgba(255, 255, 255, 0.15);
+    --card-hover-alpha: 0.22;
     --bg-input: #121212;
     --bg-input-button: #222222;
     --bg-inverse: #f1f1f1;
@@ -116,6 +117,7 @@ const globalStyles = css`
     --bg-selected: #e5e5e5;
     --bg-hover: rgba(0, 0, 0, 0.05);
     --bg-hover-strong: rgba(0, 0, 0, 0.1);
+    --card-hover-alpha: 0.13;
     --bg-input: #ffffff;
     --bg-input-button: #f8f8f8;
     --bg-inverse: #0f0f0f;
