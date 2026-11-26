@@ -62,7 +62,7 @@
     "@banou/social": "^0.0.6",
     "@bufbuild/protobuf": "2.12.1",
     "@emotion/react": "^11.14.0",
-    "@fkn/lib": "^0.9.87",
+    "@fkn/lib": "^0.9.88",
     "@urql/exchange-graphcache": "^9.0.1",
     "bgutils-js": "3.2.0",
     "googlevideo": "4.0.4",
