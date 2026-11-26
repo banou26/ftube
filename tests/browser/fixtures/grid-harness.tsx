@@ -7,12 +7,14 @@ const videos = (count: number, prefix: string) =>
   Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index}`, title: `Video ${index}` }))
 
 // served by the dev server and imported from a spec, to lay out the real home grid with no feed behind it
-export const mountGrid = (width: number) => {
+export const mountGrid = (width: number, variant?: 'channel') => {
   const host = document.createElement('div')
   host.setAttribute('data-grid-harness', '')
   host.style.width = `${width}px`
+  host.style.boxSizing = 'border-box'
+  if (width <= 500) host.style.padding = '0 1.6rem'
   document.body.append(host)
   // one self-closing tag per line: tests/unit/launch-points.test.ts reads the slashes of two on one line as a regex
-  const shelf = <ShortsShelf shorts={videos(6, 'short-')} />
-  render(<VideoGrid videos={videos(14, 'video-')} shelf={shelf} />, host)
+  const shelf = variant === 'channel' ? undefined : <ShortsShelf shorts={videos(6, 'short-')} />
+  render(<VideoGrid videos={videos(14, 'video-')} variant={variant} shelf={shelf} />, host)
 }

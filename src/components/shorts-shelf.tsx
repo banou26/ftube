@@ -11,6 +11,8 @@ const style = css`
      whatever column count the width gives and continue below the shelf. */
   grid-row: 2;
   grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
   margin: 1.6rem 0 2.4rem;
 
   .shelf-head {

@@ -159,7 +159,7 @@ const style = css`
 
   @media (max-width: 500px) {
     .grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 `

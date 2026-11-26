@@ -179,6 +179,54 @@ test('puts the home Shorts shelf after the first full row at any width', async (
   }
 })
 
+test('fits home video cards and the Shorts shelf within phone widths without blowing out', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.goto('/settings')
+  for (const width of [360, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 })
+    const layout = await page.evaluate(async (width) => {
+      document.querySelector('[data-grid-harness]')?.remove()
+      const harness = '/tests/browser/fixtures/grid-harness.tsx'
+      const { mountGrid } = await import(harness) as { mountGrid: (width: number) => void }
+      mountGrid(width)
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const grid = document.querySelector('[data-grid-harness]')!.firstElementChild!
+      const card = grid.querySelector(':scope > article')!
+      const thumb = card.querySelector('.thumb')!
+      const shelf = grid.querySelector(':scope > section[aria-label="Shorts"]')!
+      const track = shelf.querySelector('.track')!
+      return {
+        columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+        cardWidth: card.getBoundingClientRect().width,
+        thumbHeight: thumb.getBoundingClientRect().height,
+        shelfWidth: shelf.getBoundingClientRect().width,
+        trackScrollWidth: track.scrollWidth,
+        trackClientWidth: track.clientWidth,
+        docOverflow: document.documentElement.scrollWidth - window.innerWidth,
+      }
+    }, width)
+    const expectedWidth = width - 32
+    expect(layout.columns, `expected 1 column at ${width}px`).toBe(1)
+    expect(layout.cardWidth, `card blew out at ${width}px`).toBeLessThanOrEqual(expectedWidth + 0.5)
+    expect(layout.cardWidth, `card shrunk past grid at ${width}px`).toBeGreaterThanOrEqual(expectedWidth - 2)
+    expect(layout.thumbHeight, `thumb height exceeded 16:9 at ${width}px`).toBeLessThanOrEqual((expectedWidth * 9) / 16 + 2)
+    expect(layout.shelfWidth, `shelf blew out at ${width}px`).toBeLessThanOrEqual(expectedWidth + 0.5)
+    expect(layout.trackScrollWidth, `Shorts rail stopped overflowing horizontally at ${width}px`).toBeGreaterThan(layout.trackClientWidth)
+    expect(layout.docOverflow, `page scrolled horizontally at ${width}px`).toBeLessThanOrEqual(0)
+
+    const channelColumns = await page.evaluate(async (width) => {
+      document.querySelector('[data-grid-harness]')?.remove()
+      const harness = '/tests/browser/fixtures/grid-harness.tsx'
+      const { mountGrid } = await import(harness) as { mountGrid: (width: number, variant?: 'channel') => void }
+      mountGrid(width, 'channel')
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const grid = document.querySelector('[data-grid-harness]')!.firstElementChild!
+      return getComputedStyle(grid).gridTemplateColumns.split(' ').length
+    }, width)
+    expect(channelColumns, `channel grid should stay single-column at ${width}px`).toBe(1)
+  }
+})
+
 test('plays Shorts signed out, with the comment count, the pager and the ⋮ menu', async ({ page }) => {
   test.setTimeout(240_000)
   await page.setViewportSize({ width: 1280, height: 900 })

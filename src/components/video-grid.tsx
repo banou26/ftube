@@ -9,19 +9,22 @@ import { VideoCard, VideoCardSkeleton } from './video-card'
 // 38rem is the smallest minimum that lands on three across at a 1650px viewport, where upstream lands on three
 const style = css`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(38rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 38rem), 1fr));
   column-gap: 1.6rem;
   row-gap: 4rem;
 
   /* The channel column is 642, 856, 1070 or 1284px wide, and youtube.com puts
      two, two, three and three cards across them: 31rem is a minimum that does. */
   &.channel {
-    grid-template-columns: repeat(auto-fill, minmax(31rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 31rem), 1fr));
     row-gap: 2.4rem;
   }
 
   @media (max-width: 500px) {
-    grid-template-columns: 1fr;
+    &,
+    &.channel {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 `
 

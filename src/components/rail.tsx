@@ -6,6 +6,8 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 const style = css`
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 
   .track {
     --card-hover-inset: 0;
