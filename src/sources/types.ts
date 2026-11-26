@@ -729,6 +729,7 @@ export type SourceComment = {
   isCreator?: boolean
   isMember?: boolean
   repliesCursor?: string
+  replies?: SourceComment[]
   // Opaque handle for this comment's like, dislike and reply endpoints, which cannot be rebuilt from the id
   actionsToken?: string
 }

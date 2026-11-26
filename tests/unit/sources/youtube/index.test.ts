@@ -2027,6 +2027,111 @@ describe('youtube source', () => {
     expect(client.payloads.at(-1)?.args).toMatchObject({ continuation: 'REPLY_TOKEN' })
   })
 
+  it('preserves nested comment replies and nested cursors inside commentReplies', async () => {
+    const client = createFakeClient()
+    const baseExecute = client.actions.execute
+    client.actions.execute = async (endpoint: string, args?: Record<string, unknown>) => {
+      if ((endpoint === 'next' || endpoint.endsWith('/next')) && args?.continuation === 'OUTER_REPLIES_TOKEN') {
+        client.payloads.push({ endpoint, args })
+        return Parser.parseResponse({
+          frameworkUpdates: { entityBatchUpdate: { mutations: [] } },
+          onResponseReceivedEndpoints: [{
+            appendContinuationItemsAction: {
+              continuationItems: [
+                {
+                  commentThreadRenderer: {
+                    commentViewModel: { commentViewModel: { commentId: 'reply-lvl-1' } },
+                    replies: {
+                      commentRepliesRenderer: {
+                        subThreads: [
+                          {
+                            commentThreadRenderer: {
+                              commentViewModel: { commentViewModel: { commentId: 'reply-lvl-2' } },
+                            },
+                          },
+                          {
+                            continuationItemRenderer: {
+                              continuationEndpoint: {
+                                commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/next' } },
+                                continuationCommand: { token: 'NESTED_REPLIES_TOKEN', request: 'CONTINUATION_REQUEST_TYPE_WATCH_NEXT' },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+                {
+                  continuationItemRenderer: {
+                    button: {
+                      buttonRenderer: {
+                        command: {
+                          commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/next' } },
+                          continuationCommand: { token: 'MORE_OUTER_REPLIES_TOKEN', request: 'CONTINUATION_REQUEST_TYPE_WATCH_NEXT' },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }],
+        } as never) as never
+      }
+      if ((endpoint === 'next' || endpoint.endsWith('/next')) && (args?.continuation === 'NESTED_REPLIES_TOKEN' || args?.continuation === 'MORE_OUTER_REPLIES_TOKEN')) {
+        client.payloads.push({ endpoint, args })
+        return Parser.parseResponse({
+          frameworkUpdates: { entityBatchUpdate: { mutations: [] } },
+          onResponseReceivedEndpoints: [{
+            appendContinuationItemsAction: {
+              continuationItems: [
+                {
+                  commentThreadRenderer: {
+                    commentViewModel: { commentViewModel: { commentId: `from-${String(args.continuation)}` } },
+                  },
+                },
+              ],
+            },
+          }],
+        } as never) as never
+      }
+      return baseExecute(endpoint, args)
+    }
+    const thread = new YTNodes.CommentThread({
+      commentViewModel: { commentViewModel: { commentId: 'top-thread' } },
+      replies: {
+        commentRepliesRenderer: {
+          subThreads: [{
+            continuationItemRenderer: {
+              continuationEndpoint: {
+                commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/next' } },
+                continuationCommand: { token: 'OUTER_REPLIES_TOKEN', request: 'CONTINUATION_REQUEST_TYPE_WATCH_NEXT' },
+              },
+            },
+          }],
+        },
+      },
+    })
+    client.getComments = async () => ({ contents: [thread], has_continuation: false, getContinuation: async () => { throw new Error('no continuation') } }) as never
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const list = await source.comments('abc')
+    const page = await source.commentReplies(list.items[0]!.repliesCursor!)
+
+    expect(page.items.map(item => item.id)).toEqual(['reply-lvl-1'])
+    expect(page.items[0]?.replies?.map(item => item.id)).toEqual(['reply-lvl-2'])
+    expect(page.items[0]?.repliesCursor).toBeTruthy()
+    expect(page.cursor).toBeTruthy()
+
+    const nestedPage = await source.commentReplies(page.items[0]!.repliesCursor!)
+    expect(client.payloads.at(-1)?.args).toMatchObject({ continuation: 'NESTED_REPLIES_TOKEN' })
+    expect(nestedPage.items.map(item => item.id)).toEqual(['from-NESTED_REPLIES_TOKEN'])
+
+    const nextOuterPage = await source.commentReplies(page.cursor!)
+    expect(client.payloads.at(-1)?.args).toMatchObject({ continuation: 'MORE_OUTER_REPLIES_TOKEN' })
+    expect(nextOuterPage.items.map(item => item.id)).toEqual(['from-MORE_OUTER_REPLIES_TOKEN'])
+  })
+
   it('only lets a cursored read opt out of replay through a cursor argument', () => {
     for (const [method, policy] of Object.entries(SOURCE_REPLAY)) {
       if (policy === 'unless-cursor') {

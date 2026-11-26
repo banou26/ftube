@@ -112,7 +112,7 @@ test('renders creator hearts, vertical reply thread connectors, creator pills, a
   await topComposer.getByRole('button', { name: 'Comment', exact: true }).click()
   await expect(topInput).toHaveValue('')
 
-  await firstComment.getByRole('button', { name: 'Reply', exact: true }).click()
+  await firstComment.locator(':scope > .body > .actions').getByRole('button', { name: 'Reply', exact: true }).click()
   const replyComposer = firstComment.locator('.composer')
   const replyInput = replyComposer.getByRole('textbox', { name: 'Add a reply', exact: true })
   await replyInput.fill('Great')
@@ -182,4 +182,88 @@ test('opens mini profile card when clicking top-level or reply commenter avatar'
 
   await page.mouse.click(8, 8)
   await expect(replyCard).toHaveCount(0)
+})
+
+test('renders nested comment replies with curved connectors, per-reply actions, and multi-level expansion', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+
+  const root = page.locator('[data-comments-harness="true"]')
+  await expect(async () => {
+    if (await root.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/comments-harness')
+        const state = harness.mountCommentsHarness({ nested: true })
+        ;(window as unknown as { __commentsHarness?: typeof state }).__commentsHarness = state
+      }, HARNESS)
+    }
+    await expect(root.locator('.comment')).toHaveCount(2, { timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const firstComment = root.locator('.comment').nth(0)
+  await expect(firstComment).toHaveClass(/has-replies/)
+  const collapsedStem = await firstComment.evaluate((el) => {
+    const before = getComputedStyle(el, '::before')
+    return {
+      content: before.content,
+      borderLeftWidth: Number.parseFloat(before.borderLeftWidth),
+      borderBottomWidth: Number.parseFloat(before.borderBottomWidth),
+      borderBottomLeftRadius: Number.parseFloat(before.borderBottomLeftRadius),
+    }
+  })
+  expect(collapsedStem.content).not.toBe('none')
+  expect(collapsedStem.borderLeftWidth).toBeGreaterThan(0)
+  expect(collapsedStem.borderBottomWidth).toBeGreaterThan(0)
+  expect(collapsedStem.borderBottomLeftRadius).toBeGreaterThan(0)
+
+  await firstComment.getByRole('button', { name: '3 replies', exact: true }).click()
+
+  const lvl1Row = firstComment.locator(':scope > .body > .replies-block > .reply-list > .reply-rows > .reply-row').nth(0)
+  await expect(lvl1Row).toContainText('Level 1 reply')
+  await expect(lvl1Row.locator(':scope > .body > .actions').getByRole('button', { name: 'Like', exact: true })).toBeVisible()
+  await expect(lvl1Row.locator(':scope > .body > .actions').getByRole('button', { name: 'Dislike', exact: true })).toBeVisible()
+  await expect(lvl1Row.locator(':scope > .body > .actions').getByRole('button', { name: 'Reply', exact: true })).toBeVisible()
+
+  const lvl2List = lvl1Row.locator(':scope > .body > .replies-block > .reply-list')
+  const lvl2Row = lvl2List.locator(':scope > .reply-rows > .reply-row').nth(0)
+  await expect(lvl2Row).toContainText('Level 2 inline reply')
+  await expect(lvl2List.locator(':scope > .reply-rows > button.thread-line')).toBeVisible()
+  const lvl2Curve = await lvl2Row.evaluate((el) => {
+    const before = getComputedStyle(el, '::before')
+    return {
+      borderLeftWidth: Number.parseFloat(before.borderLeftWidth),
+      borderBottomWidth: Number.parseFloat(before.borderBottomWidth),
+      borderBottomLeftRadius: Number.parseFloat(before.borderBottomLeftRadius),
+    }
+  })
+  expect(lvl2Curve.borderLeftWidth).toBeGreaterThan(0)
+  expect(lvl2Curve.borderBottomWidth).toBeGreaterThan(0)
+  expect(lvl2Curve.borderBottomLeftRadius).toBeGreaterThan(0)
+
+  await lvl2Row.getByRole('button', { name: '1 reply', exact: true }).click()
+  const lvl3Row = lvl2Row.locator(':scope > .body > .replies-block > .reply-list > .reply-rows > .reply-row').nth(0)
+  await expect(lvl3Row).toContainText('Level 3 nested reply')
+
+  await lvl2Row.locator(':scope > .body > .actions').getByRole('button', { name: 'Reply', exact: true }).click()
+  const deepComposer = lvl2Row.locator(':scope > .body > .composer')
+  await deepComposer.getByRole('textbox', { name: 'Add a reply', exact: true }).fill('Deep reply')
+  await deepComposer.getByRole('button', { name: 'Reply', exact: true }).click()
+  await expect(deepComposer).toHaveCount(0)
+
+  const posted = await page.evaluate(() => {
+    const state = (window as unknown as { __commentsHarness: { postedReplies: () => { actionsToken: string, text: string }[] } }).__commentsHarness
+    return state.postedReplies()
+  })
+  expect(posted).toEqual([{ actionsToken: 'tok-r1-1', text: 'Deep reply' }])
+
+  const lvl2ThreadLine = lvl2List.locator(':scope > .reply-rows > button.thread-line')
+  await lvl2ThreadLine.click()
+  await expect(lvl2Row).toHaveCount(0)
+  await expect(lvl1Row).toBeVisible()
+  const lvl2Reopen = lvl1Row.locator(':scope > .body > .replies-block > button.replies')
+  await expect(lvl2Reopen).toHaveAttribute('aria-expanded', 'false')
+  await lvl2Reopen.click()
+  await expect(lvl2Row).toBeVisible()
 })

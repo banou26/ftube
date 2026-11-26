@@ -1,6 +1,6 @@
 import type { TargetedEvent } from 'preact'
 
-import type { CommentRepliesQuery, CommentSort, CommentsQuery } from '../generated/graphql'
+import type { CommentCoreFragment, CommentRepliesQuery, CommentSort, CommentsQuery } from '../generated/graphql'
 
 import type { RydComment, RydCommentSort } from '../ryd-comments'
 
@@ -29,29 +29,44 @@ import { signIn } from '../sign-in'
 
 type CommentPage = CommentsQuery['comments']
 type RepliesPage = CommentRepliesQuery['commentReplies']
-type CommentRow = CommentPage['items'][number]
+type CommentNode = CommentCoreFragment & { replies?: readonly CommentNode[] | null }
+
+gql(`
+  fragment CommentCore on Comment {
+    id
+    text
+    runs { text url videoId startSeconds browseId }
+    publishedText
+    likeCountText
+    replyCount
+    repliesCursor
+    actionsToken
+    isPinned
+    pinnedText
+    isHearted
+    heartAvatar
+    heartTooltip
+    isCreator
+    isMember
+    isLiked
+    isDisliked
+    author { id name avatar isVerified isVerifiedArtist }
+  }
+`)
 
 gql(`
   fragment CommentPageFields on CommentPage {
     items {
-      id
-      text
-      runs { text url videoId startSeconds browseId }
-      publishedText
-      likeCountText
-      replyCount
-      repliesCursor
-      actionsToken
-      isPinned
-      pinnedText
-      isHearted
-      heartAvatar
-      heartTooltip
-      isCreator
-      isMember
-      isLiked
-      isDisliked
-      author { id name avatar isVerified isVerifiedArtist }
+      ...CommentCore
+      replies {
+        ...CommentCore
+        replies {
+          ...CommentCore
+          replies {
+            ...CommentCore
+          }
+        }
+      }
     }
     cursor
     disabled
@@ -142,8 +157,22 @@ const style = css`
   }
 
   .comment {
+    position: relative;
     display: flex;
     align-items: flex-start;
+  }
+
+  .comment.has-replies:not(:has(> .body > .replies-block > .reply-list))::before {
+    content: '';
+    position: absolute;
+    top: 4.4rem;
+    left: 2rem;
+    bottom: 2rem;
+    width: 2rem;
+    border-left: 1.5px solid var(--border);
+    border-bottom: 1.5px solid var(--border);
+    border-bottom-left-radius: 1.2rem;
+    pointer-events: none;
   }
 
   .avatar {
@@ -381,11 +410,12 @@ const style = css`
     background: var(--bg-primary);
   }
 
-  .reply-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    margin-top: 0.4rem;
+  .reply-row > .body {
+    margin-left: 0;
+  }
+
+  .reply-row .actions {
+    margin-top: 0.2rem;
   }
 
   .composer-cancel,
@@ -540,10 +570,10 @@ const style = css`
     transition: border-color 0.15s ease;
   }
 
-  .reply-rows:has(> .thread-line:hover) .reply-row::before,
-  .reply-rows:has(> .thread-line:hover) .reply-row:has(+ .reply-row)::after,
-  .reply-rows:has(> .thread-line:focus-visible) .reply-row::before,
-  .reply-rows:has(> .thread-line:focus-visible) .reply-row:has(+ .reply-row)::after {
+  .reply-rows:has(> .thread-line:hover) > .reply-row::before,
+  .reply-rows:has(> .thread-line:hover) > .reply-row:has(+ .reply-row)::after,
+  .reply-rows:has(> .thread-line:focus-visible) > .reply-row::before,
+  .reply-rows:has(> .thread-line:focus-visible) > .reply-row:has(+ .reply-row)::after {
     border-color: var(--text-primary);
   }
 
@@ -718,7 +748,7 @@ const Composer = ({ videoId, post }: { videoId?: string, post?: { id: string, ch
 }
 
 const CommentText = (
-  { runs, text, videoId }: { runs: CommentRow['runs'], text: string, videoId?: string },
+  { runs, text, videoId }: { runs: CommentNode['runs'], text: string, videoId?: string },
 ) => (
   <ReadMore className='comment-text' text={text}>
     {runs.length > 0
@@ -734,7 +764,7 @@ const CommentText = (
  * comment's `actionsToken`, the per-comment endpoints its read carried, and are
  * disabled on a comment whose read carried none.
  */
-const CommentActions = ({ comment }: { comment: CommentRow }) => {
+const CommentActions = ({ comment }: { comment: CommentNode }) => {
   const { ready, signedIn } = useSession()
   const [, rateComment] = useMutation(RATE_COMMENT)
   const [, replyToComment] = useMutation(REPLY_TO_COMMENT)
@@ -834,54 +864,142 @@ const REPLIES_QUERY = gql(`
   query CommentReplies($cursor: String!) {
     commentReplies(cursor: $cursor) {
       items {
-        id
-        text
-        runs { text url videoId startSeconds browseId }
-        publishedText
-        likeCountText
-        isHearted
-        heartAvatar
-        heartTooltip
-        isCreator
-        isMember
-        author { id name avatar isVerified isVerifiedArtist }
+        ...CommentCore
+        replies {
+          ...CommentCore
+          replies {
+            ...CommentCore
+            replies {
+              ...CommentCore
+            }
+          }
+        }
       }
       cursor
     }
   }
 `)
 
-/**
- * One thread's replies, collapsed until asked for.
- *
- * Mounted only when the comment actually has replies, and the query is paused
- * until the row is expanded: a page of comments is dozens of threads, and
- * fetching every one of them eagerly would be dozens of tunneled round trips
- * for rows nobody opened.
- */
-const Replies = (
-  { cursor, count, videoId, activeProfileKey, onOpenProfile }: {
-    cursor: string
-    count?: number | null
+const AuthorAvatarButton = (
+  { profileKey, author, activeProfileKey, onOpenProfile }: {
+    profileKey: string
+    author?: CommentProfileAuthor | null
+    activeProfileKey: string | null
+    onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
+  },
+) => author
+  ? (
+    <button
+      type='button'
+      className={author.avatar ? 'avatar avatar-btn' : 'avatar avatar-btn fallback'}
+      aria-label={`View ${author.name} profile`}
+      aria-haspopup='dialog'
+      aria-expanded={activeProfileKey === profileKey}
+      onClick={(event: TargetedEvent<HTMLButtonElement>) => onOpenProfile(profileKey, author, event.currentTarget)}
+    >
+      {author.avatar
+        ? <img src={author.avatar} alt='' loading='lazy' />
+        : author.name.slice(0, 1).toUpperCase()}
+    </button>
+  )
+  : <span className='avatar fallback'>?</span>
+
+const ReplyRow = (
+  { reply, videoId, activeProfileKey, onOpenProfile }: {
+    reply: CommentNode
     videoId?: string
     activeProfileKey: string | null
     onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
   },
 ) => {
-  const [open, setOpen] = useState(false)
+  const replyAuthor = reply.author
+  const inlineReplies = reply.replies ?? []
+  return (
+    <div className='reply-row'>
+      <AuthorAvatarButton
+        profileKey={reply.id}
+        author={replyAuthor}
+        activeProfileKey={activeProfileKey}
+        onOpenProfile={onOpenProfile}
+      />
+      <div className='body'>
+        <div className='byline'>
+          {replyAuthor
+            ? (
+              <Link href={`/channel/${replyAuthor.id}`} className={reply.isCreator ? 'name creator' : 'name'}>
+                {replyAuthor.name}
+                <VerifiedBadge channel={replyAuthor} size={12} />
+              </Link>
+            )
+            : undefined}
+          {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
+        </div>
+        <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
+        <CommentActions comment={reply} />
+        {inlineReplies.length > 0 || reply.repliesCursor
+          ? (
+            <ReplyThread
+              initialReplies={inlineReplies}
+              cursor={reply.repliesCursor}
+              count={reply.replyCount}
+              defaultOpen={inlineReplies.length > 0}
+              videoId={videoId}
+              activeProfileKey={activeProfileKey}
+              onOpenProfile={onOpenProfile}
+            />
+          )
+          : undefined}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One reply branch (lazy cursor-backed, inline pre-populated, or both),
+ * collapsible along its vertical thread rail.
+ */
+const ReplyThread = (
+  { initialReplies, cursor, count, defaultOpen = false, videoId, activeProfileKey, onOpenProfile }: {
+    initialReplies?: readonly CommentNode[]
+    cursor?: string | null
+    count?: number | null
+    defaultOpen?: boolean
+    videoId?: string
+    activeProfileKey: string | null
+    onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
+  },
+) => {
+  const hasInitial = Boolean(initialReplies && initialReplies.length > 0)
+  const [open, setOpen] = useState(defaultOpen)
+  const [fetchingMore, setFetchingMore] = useState(!hasInitial)
   const [loaded, setLoaded] = useState<RepliesPage[]>([])
   const toggleRef = useRef<HTMLButtonElement>(null)
+  const activeCursor = loaded[loaded.length - 1]?.cursor ?? cursor
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: REPLIES_QUERY,
-    variables: { cursor: loaded[loaded.length - 1]?.cursor ?? cursor },
-    pause: !open,
+    variables: { cursor: activeCursor ?? '' },
+    pause: !open || !fetchingMore || !activeCursor,
   })
   const page = data?.commentReplies
+  const seeded: RepliesPage[] = hasInitial
+    ? [{ items: initialReplies as RepliesPage['items'], cursor: null }]
+    : []
   const { items, cursor: next } = useInfiniteFeed({
-    pages: page ? [...loaded, page] : loaded,
+    pages: [...seeded, ...loaded, ...(page ? [page] : [])],
     key: reply => reply.id,
   })
-  const label = count === 1 ? '1 reply' : `${count ?? ''} replies`.trim()
+  const resolvedCount = count ?? (hasInitial ? initialReplies!.length : undefined)
+  const label = resolvedCount === 1 ? '1 reply' : `${resolvedCount ?? ''} replies`.trim()
+  const showMore = !fetching && !error && (hasInitial && !fetchingMore ? Boolean(cursor) : Boolean(next))
+  const onShowMore = () => {
+    if (!fetchingMore) {
+      setFetchingMore(true)
+      return
+    }
+    if (page && loaded[loaded.length - 1] !== page) {
+      setLoaded([...loaded, page])
+    }
+  }
   const collapse = () => {
     setOpen(false)
     toggleRef.current?.focus()
@@ -912,63 +1030,23 @@ const Replies = (
                     title='Collapse replies'
                     onClick={collapse}
                   />
-                  {items.map(reply => {
-                    const replyAuthor = reply.author
-                    return (
-                      <div className='reply-row' key={reply.id}>
-                        {replyAuthor
-                          ? (
-                            <button
-                              type='button'
-                              className={replyAuthor.avatar ? 'avatar avatar-btn' : 'avatar avatar-btn fallback'}
-                              aria-label={`View ${replyAuthor.name} profile`}
-                              aria-haspopup='dialog'
-                              aria-expanded={activeProfileKey === reply.id}
-                              onClick={(event: TargetedEvent<HTMLButtonElement>) => onOpenProfile(reply.id, replyAuthor, event.currentTarget)}
-                            >
-                              {replyAuthor.avatar
-                                ? <img src={replyAuthor.avatar} alt='' loading='lazy' />
-                                : replyAuthor.name.slice(0, 1).toUpperCase()}
-                            </button>
-                          )
-                          : <span className='avatar fallback'>?</span>}
-                        <div className='body'>
-                          <div className='byline'>
-                            {replyAuthor
-                              ? (
-                                <Link href={`/channel/${replyAuthor.id}`} className={reply.isCreator ? 'name creator' : 'name'}>
-                                  {replyAuthor.name}
-                                  <VerifiedBadge channel={replyAuthor} size={12} />
-                                </Link>
-                              )
-                              : undefined}
-                            {reply.publishedText ? <span className='age'>{reply.publishedText}</span> : undefined}
-                          </div>
-                        <CommentText runs={reply.runs} text={reply.text} videoId={videoId} />
-                        {reply.likeCountText || reply.isHearted
-                          ? (
-                            <div className='reply-meta'>
-                              {reply.likeCountText ? <span className='age'>{reply.likeCountText}</span> : undefined}
-                              {reply.isHearted ? <CreatorHeart avatar={reply.heartAvatar} tooltip={reply.heartTooltip} /> : undefined}
-                            </div>
-                          )
-                          : undefined}
-                      </div>
-                    </div>
-                    )
-                  })}
+                  {items.map(reply => (
+                    <ReplyRow
+                      key={reply.id}
+                      reply={reply}
+                      videoId={videoId}
+                      activeProfileKey={activeProfileKey}
+                      onOpenProfile={onOpenProfile}
+                    />
+                  ))}
                 </div>
               )
               : undefined}
             {fetching ? <div className='age'>Loading replies…</div> : undefined}
             {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-            {next && !fetching && !error
+            {showMore
               ? (
-                <button
-                  type='button'
-                  className='replies'
-                  onClick={() => setLoaded(loaded[loaded.length - 1] === page ? loaded : [...loaded, page!])}
-                >
+                <button type='button' className='replies' onClick={onShowMore}>
                   Show more replies
                 </button>
               )
@@ -1272,24 +1350,16 @@ export const Comments = ({ videoId, post, commentCountText }: {
       <div className='list'>
         {items.map(comment => {
           const author = comment.author
+          const inlineReplies = comment.replies ?? []
+          const hasReplies = Boolean(comment.repliesCursor || inlineReplies.length > 0 || comment.replyCount)
           return (
-            <div className='comment' key={comment.id}>
-              {author
-                ? (
-                  <button
-                    type='button'
-                    className={author.avatar ? 'avatar avatar-btn' : 'avatar avatar-btn fallback'}
-                    aria-label={`View ${author.name} profile`}
-                    aria-haspopup='dialog'
-                    aria-expanded={activeProfile?.key === comment.id}
-                    onClick={(event: TargetedEvent<HTMLButtonElement>) => toggleProfile(comment.id, author, event.currentTarget)}
-                  >
-                    {author.avatar
-                      ? <img src={author.avatar} alt='' loading='lazy' />
-                      : author.name.slice(0, 1).toUpperCase()}
-                  </button>
-                )
-                : <span className='avatar fallback'>?</span>}
+            <div className={hasReplies ? 'comment has-replies' : 'comment'} key={comment.id}>
+              <AuthorAvatarButton
+                profileKey={comment.id}
+                author={author}
+                activeProfileKey={activeProfile?.key ?? null}
+                onOpenProfile={toggleProfile}
+              />
               <div className='body'>
                 {comment.isPinned
                   ? (
@@ -1312,11 +1382,13 @@ export const Comments = ({ videoId, post, commentCountText }: {
                 </div>
                 <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
                 <CommentActions comment={comment} />
-                {comment.repliesCursor
+                {inlineReplies.length > 0 || comment.repliesCursor
                   ? (
-                    <Replies
+                    <ReplyThread
+                      initialReplies={inlineReplies}
                       cursor={comment.repliesCursor}
                       count={comment.replyCount}
+                      defaultOpen={false}
                       videoId={videoId}
                       activeProfileKey={activeProfile?.key ?? null}
                       onOpenProfile={toggleProfile}

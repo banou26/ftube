@@ -785,6 +785,8 @@ type Comment {
   heartTooltip: String
   # Present only when the comment has replies. Pass it to `commentReplies`.
   repliesCursor: String
+  # Inline nested replies returned inside a threaded reply container.
+  replies: [Comment!]
   # Opaque handle for this comment's own like, dislike and reply endpoints.
   # Absent when the read carried no commands, which is what signed out looks
   # like, so a control without one should not be rendered.

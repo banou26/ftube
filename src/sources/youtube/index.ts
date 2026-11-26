@@ -1,4 +1,4 @@
-import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceFeedChip, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
+import type { Source, SourceChannel, SourceChannelHome, SourceChannelPage, SourceChannelTab, SourceComment, SourceCommentPage, SourceCommentSort, SourceCommunityPage, SourceFeedChip, SourceHashtagPage, SourceHashtagTab, SourceLikeStatus, SourceLiveChatPage, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourcePlaylistListPage, SourcePlaylistPage, SourcePlaylistPrivacy, SourcePost, SourceSearchFeature, SourceSearchFilters, SourceSearchPage, SourceSearchResult, SourceHomePage, SourceNotificationPage, SourcePostPage, SourceSectionedVideoPage, SourceShort, SourceShortsPage, SourceVideo, SourceVideoPage } from '../types'
 import type { ParsedCommunityPost, PostActionTokens } from './community'
 import type { EntityMutation } from './normalize'
 
@@ -150,8 +150,13 @@ const findContinuation = (nodes: Iterable<unknown>): EndpointNode | undefined =>
   return undefined
 }
 
+type ContinuationActionNode = {
+  contents?: Iterable<unknown>
+}
+
 type ContinuationResponse = {
   on_response_received_actions_memo?: Map<string, unknown[]>
+  on_response_received_endpoints?: Iterable<ContinuationActionNode>
   on_response_received_endpoints_memo?: Map<string, unknown[]>
 }
 
@@ -1108,19 +1113,77 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     return commentActions.register(commentId, actions)
   }
 
-  const repliesPage = (kind: string, memo: Map<string, unknown[]> | undefined): SourceCommentPage => {
-    const result: SourceCommentPage = {
-      items: (memo?.get('CommentView') ?? []).flatMap((node) => {
-        const comment = normalizeCommentView(node)
-        return comment ? [{ ...comment, actionsToken: actionsToken(node, comment.id) }] : []
-      }),
+  const extractCommentNode = (node: unknown): SourceComment | undefined => {
+    const thread = node as { comment?: unknown, comment_replies_data?: CommentThreadNode['comment_replies_data'] } | undefined
+    if (thread?.comment) {
+      const base = normalizeCommentThread(node)
+      if (!base) return undefined
+      const token = actionsToken(thread.comment, base.id)
+      const repliesData = thread.comment_replies_data
+      const nestedReplies: SourceComment[] = []
+      const seenIds = new Set<string>()
+      let continuationEndpoint: EndpointNode | undefined
+      for (const item of [...(repliesData?.sub_threads ?? []), ...(repliesData?.contents ?? [])]) {
+        const child = extractCommentNode(item)
+        if (child) {
+          if (!seenIds.has(child.id)) {
+            seenIds.add(child.id)
+            nestedReplies.push(child)
+          }
+          continue
+        }
+        if (!continuationEndpoint) {
+          continuationEndpoint = findContinuation([item])
+        }
+      }
+      const repliesCursor = continuationEndpoint
+        ? commentContinuations.register(`replies:${base.id}`, async () => {
+          const response = await continuationEndpoint.call((await client).actions, { parse: true }) as ContinuationResponse
+          return repliesPage(`replies:${base.id}`, response)
+        })
+        : undefined
+      return {
+        ...base,
+        actionsToken: token,
+        ...(nestedReplies.length > 0 ? { replies: nestedReplies } : {}),
+        ...(repliesCursor ? { repliesCursor } : {}),
+      }
     }
-    const next = (memo?.get('ContinuationItem') ?? [])[0] as ContinuationNode | undefined
-    const button = next?.button?.endpoint ?? next?.endpoint
-    if (button) {
+    const comment = normalizeCommentView(node)
+    if (!comment) return undefined
+    return { ...comment, actionsToken: actionsToken(node, comment.id) }
+  }
+
+  const repliesPage = (kind: string, response: ContinuationResponse): SourceCommentPage => {
+    const items: SourceComment[] = []
+    let nextEndpoint: EndpointNode | undefined
+    if (response.on_response_received_endpoints) {
+      for (const action of response.on_response_received_endpoints) {
+        for (const entry of action.contents ?? []) {
+          const item = extractCommentNode(entry)
+          if (item) {
+            items.push(item)
+            continue
+          }
+          if (!nextEndpoint) {
+            nextEndpoint = findContinuation([entry])
+          }
+        }
+      }
+    } else {
+      const memo = response.on_response_received_endpoints_memo
+      for (const node of memo?.get('CommentView') ?? []) {
+        const item = extractCommentNode(node)
+        if (item) items.push(item)
+      }
+      const next = (memo?.get('ContinuationItem') ?? [])[0] as ContinuationNode | undefined
+      nextEndpoint = next?.button?.endpoint ?? next?.endpoint
+    }
+    const result: SourceCommentPage = { items }
+    if (nextEndpoint) {
       result.cursor = commentContinuations.register(kind, async () => {
-        const response = await button.call((await client).actions, { parse: true }) as ContinuationResponse
-        return repliesPage(kind, response.on_response_received_endpoints_memo)
+        const nextResponse = await nextEndpoint.call((await client).actions, { parse: true }) as ContinuationResponse
+        return repliesPage(kind, nextResponse)
       })
     }
     return result
@@ -1129,24 +1192,8 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const commentPage = (kind: string, comments: CommentsFeed): SourceCommentPage => {
     const result: SourceCommentPage = {
       items: [...comments.contents].flatMap((node) => {
-        const comment = normalizeCommentThread(node)
-        if (!comment) return []
-        const replies = (node as CommentThreadNode).comment_replies_data
-        // youtubei.js 18 parses a threaded comment's replies continuation into `sub_threads`, apart from `contents`
-        const continuation = [...(replies?.contents ?? []), ...(replies?.sub_threads ?? [])]
-          .find((item) => (item as ContinuationNode).endpoint !== undefined) as ContinuationNode | undefined
-        const token = actionsToken((node as { comment?: unknown }).comment, comment.id)
-        if (!continuation?.endpoint) return [{ ...comment, actionsToken: token }]
-        const repliesKind = `replies:${comment.id}`
-        const endpoint = continuation.endpoint
-        return [{
-          ...comment,
-          actionsToken: token,
-          repliesCursor: commentContinuations.register(repliesKind, async () => {
-            const response = await endpoint.call((await client).actions, { parse: true }) as ContinuationResponse
-            return repliesPage(repliesKind, response.on_response_received_endpoints_memo)
-          }),
-        }]
+        const item = extractCommentNode(node)
+        return item ? [item] : []
       }),
       // `count` is the full '2,461,151 Comments' youtube.com heads the list with, `comments_count` only the rounded '2.4M'
       countText: text(comments.header?.count) ?? text(comments.header?.comments_count),

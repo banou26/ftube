@@ -7,7 +7,7 @@ const AVATAR_SVG = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#cc0000"/></svg>',
 )
 
-export const mountCommentsHarness = () => {
+export const mountCommentsHarness = (options?: { nested?: boolean }) => {
   document.documentElement.dataset.engine = 'ready'
   document.querySelector('[data-comments-harness]')?.remove()
   const container = document.createElement('div')
@@ -41,8 +41,9 @@ export const mountCommentsHarness = () => {
                 runs: [{ text: 'Great track!', url: null, videoId: null, startSeconds: null, browseId: null }],
                 publishedText: '2 hours ago',
                 likeCountText: '42',
-                replyCount: 2,
+                replyCount: options?.nested ? 3 : 2,
                 repliesCursor: 'replies-1',
+                replies: [],
                 actionsToken: 'tok-1',
                 isPinned: false,
                 pinnedText: null,
@@ -63,6 +64,7 @@ export const mountCommentsHarness = () => {
                 likeCountText: '15',
                 replyCount: 0,
                 repliesCursor: null,
+                replies: [],
                 actionsToken: 'tok-2',
                 isPinned: true,
                 pinnedText: 'Pinned by @Creator',
@@ -84,6 +86,87 @@ export const mountCommentsHarness = () => {
       }), { headers: { 'content-type': 'application/json' } })
     }
     if (operationName === 'CommentReplies') {
+      const cursor = typeof variables?.cursor === 'string' ? variables.cursor : ''
+      if (options?.nested && cursor === 'replies-nested-1') {
+        return new Response(JSON.stringify({
+          data: {
+            commentReplies: {
+              items: [
+                {
+                  id: 'r1-1-1',
+                  text: 'Level 3 nested reply',
+                  runs: [{ text: 'Level 3 nested reply', url: null, videoId: null, startSeconds: null, browseId: null }],
+                  publishedText: '10 minutes ago',
+                  likeCountText: '1',
+                  replyCount: null,
+                  repliesCursor: null,
+                  replies: [],
+                  actionsToken: 'tok-r1-1-1',
+                  isLiked: false,
+                  isDisliked: false,
+                  isHearted: false,
+                  heartAvatar: null,
+                  heartTooltip: null,
+                  isCreator: true,
+                  isMember: false,
+                  author: { id: 'UCcreator', name: 'Creator', avatar: AVATAR_SVG, isVerified: true, isVerifiedArtist: false },
+                },
+              ],
+              cursor: null,
+            },
+          },
+        }), { headers: { 'content-type': 'application/json' } })
+      }
+      if (options?.nested) {
+        return new Response(JSON.stringify({
+          data: {
+            commentReplies: {
+              items: [
+                {
+                  id: 'r1',
+                  text: 'Level 1 reply',
+                  runs: [{ text: 'Level 1 reply', url: null, videoId: null, startSeconds: null, browseId: null }],
+                  publishedText: '1 hour ago',
+                  likeCountText: '5',
+                  replyCount: 2,
+                  repliesCursor: null,
+                  actionsToken: 'tok-r1',
+                  isLiked: false,
+                  isDisliked: false,
+                  isHearted: true,
+                  heartAvatar: AVATAR_SVG,
+                  heartTooltip: 'Loved by Creator',
+                  isCreator: false,
+                  isMember: false,
+                  author: { id: 'UC2', name: '@reply1', avatar: null, isVerified: false, isVerifiedArtist: false },
+                  replies: [
+                    {
+                      id: 'r1-1',
+                      text: 'Level 2 inline reply',
+                      runs: [{ text: 'Level 2 inline reply', url: null, videoId: null, startSeconds: null, browseId: null }],
+                      publishedText: '30 minutes ago',
+                      likeCountText: '2',
+                      replyCount: 1,
+                      repliesCursor: 'replies-nested-1',
+                      actionsToken: 'tok-r1-1',
+                      isLiked: false,
+                      isDisliked: false,
+                      isHearted: false,
+                      heartAvatar: null,
+                      heartTooltip: null,
+                      isCreator: false,
+                      isMember: false,
+                      author: { id: 'UC3', name: '@reply2', avatar: null, isVerified: false, isVerifiedArtist: false },
+                      replies: [],
+                    },
+                  ],
+                },
+              ],
+              cursor: null,
+            },
+          },
+        }), { headers: { 'content-type': 'application/json' } })
+      }
       return new Response(JSON.stringify({
         data: {
           commentReplies: {
@@ -94,6 +177,12 @@ export const mountCommentsHarness = () => {
                 runs: [{ text: 'Totally agree', url: null, videoId: null, startSeconds: null, browseId: null }],
                 publishedText: '1 hour ago',
                 likeCountText: '5',
+                replyCount: null,
+                repliesCursor: null,
+                replies: [],
+                actionsToken: null,
+                isLiked: false,
+                isDisliked: false,
                 isHearted: true,
                 heartAvatar: AVATAR_SVG,
                 heartTooltip: 'Loved by Creator',
@@ -107,6 +196,12 @@ export const mountCommentsHarness = () => {
                 runs: [{ text: 'Glad you liked it', url: null, videoId: null, startSeconds: null, browseId: null }],
                 publishedText: '30 minutes ago',
                 likeCountText: null,
+                replyCount: null,
+                repliesCursor: null,
+                replies: [],
+                actionsToken: null,
+                isLiked: false,
+                isDisliked: false,
                 isHearted: false,
                 heartAvatar: null,
                 heartTooltip: null,
