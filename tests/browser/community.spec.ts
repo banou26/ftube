@@ -26,6 +26,13 @@ test('opens @s0laacol4/community, displays creator posts, switches Top/Newest so
   await expect(newestChip).toHaveAttribute('aria-pressed', 'true', { timeout: 60_000 })
   await expect(posts.first()).toBeVisible({ timeout: 60_000 })
 
+  const creatorChip = sortBar.getByRole('button', { name: 'Creator posts', exact: true })
+  if (await creatorChip.isVisible()) {
+    await creatorChip.click()
+    await expect(creatorChip).toHaveAttribute('aria-pressed', 'true', { timeout: 60_000 })
+    await expect(posts.first().locator('.creator-badge')).toHaveText('Creator', { timeout: 60_000 })
+  }
+
   // Navigating to a channel header links to Community and clicking opens the community page
   await page.goto('/@s0laacol4')
   const communityLink = page.locator('main .subscribe-row').getByRole('link', { name: 'Community', exact: true })

@@ -339,8 +339,9 @@ export const normalizeRawCommunityPost = (
   }
   if (!node?.postId) return undefined
 
-  const authorId = node.authorEndpoint?.browseEndpoint?.browseId
+  const explicitAuthorId = node.authorEndpoint?.browseEndpoint?.browseId
     ?? (node.authorText as RawText | undefined)?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId
+  const authorId = explicitAuthorId
     ?? hostChannelId
     ?? ''
   const authorName = rawText(node.authorText) ?? ''
@@ -368,7 +369,8 @@ export const normalizeRawCommunityPost = (
   const attachedVideo = attachment?.videoRenderer ? rawAttachedVideo(attachment.videoRenderer) : undefined
   const poll = attachment?.pollRenderer ? rawPoll(attachment.pollRenderer) : undefined
 
-  const isCreator = Boolean(node.showPostAuthorBackgroundHighlight) || (Boolean(hostChannelId) && authorId === hostChannelId)
+  const isCreator = Boolean(node.showPostAuthorBackgroundHighlight)
+    || (Boolean(hostChannelId) && explicitAuthorId === hostChannelId)
   const actions = extractRawPostActions(node)
 
   const post: SourcePost = {

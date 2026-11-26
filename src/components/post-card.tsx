@@ -326,14 +326,20 @@ const PostActions = ({ post }: { post: PostCardData }) => {
  * Interactive voting (`PostActions`) renders when `readMore` is true so Home harness tests without an urql Provider
  * keep rendering cleanly.
  */
-export const PostCard = ({ post, readMore = true }: { post: PostCardData, readMore?: boolean }) => {
+export const PostCard = (
+  { post, readMore = true, showCommentLink = readMore }: {
+    post: PostCardData
+    readMore?: boolean
+    showCommentLink?: boolean
+  },
+) => {
   const images = post.attachedImages && post.attachedImages.length > 1
     ? post.attachedImages
     : undefined
   const body = post.runs && post.runs.length > 0
     ? <RichText runs={post.runs} />
     : post.text
-  const showCommentLink = Boolean(post.commentCountText) || readMore
+  const hasCommentLink = Boolean(post.commentCountText) || showCommentLink
 
   return (
     <article css={style} className='post'>
@@ -387,7 +393,7 @@ export const PostCard = ({ post, readMore = true }: { post: PostCardData, readMo
           </div>
         )
         : undefined}
-      {(readMore || post.voteCountText || showCommentLink)
+      {(readMore || post.voteCountText || hasCommentLink)
         ? (
           <div className='post-footer'>
             {readMore

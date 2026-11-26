@@ -676,6 +676,7 @@ export const DownloadDialog = (
   }
 
   const onTrackPointerDown = (event: PointerEvent) => {
+    if ((event.target as HTMLElement | null)?.tagName === 'INPUT') return
     const bar = rangeBarRef.current
     if (!bar || durationMs <= 0) return
     const rect = bar.getBoundingClientRect()
@@ -726,6 +727,7 @@ export const DownloadDialog = (
     onClose()
   }
 
+  const sliderMax = durationMs > 0 ? Math.ceil(durationMs / 1000) * 1000 : 0
   const startPct = durationMs > 0 ? (startMs / durationMs) * 100 : 0
   const endPct = durationMs > 0 ? (endMs / durationMs) * 100 : 100
   const playheadPct = durationMs > 0 && playerTimeMs !== undefined
@@ -819,12 +821,13 @@ export const DownloadDialog = (
                         type='range'
                         className='range-thumb-input'
                         aria-label='Start time'
+                        aria-valuetext={formatTimestamp(startMs)}
                         min={0}
-                        max={durationMs}
+                        max={sliderMax}
                         step={1000}
                         value={startMs}
                         onInput={(event: TargetedEvent<HTMLInputElement>) => {
-                          const raw = Number(event.currentTarget.value)
+                          const raw = Math.min(durationMs, Number(event.currentTarget.value))
                           const clampedStart = Math.min(raw, Math.max(0, endMs - MIN_CLIP_MS))
                           applyRange(clampedStart, endMs, clampedStart)
                         }}
@@ -833,12 +836,13 @@ export const DownloadDialog = (
                         type='range'
                         className='range-thumb-input'
                         aria-label='End time'
+                        aria-valuetext={formatTimestamp(endMs)}
                         min={0}
-                        max={durationMs}
+                        max={sliderMax}
                         step={1000}
-                        value={endMs}
+                        value={endMs >= durationMs ? sliderMax : endMs}
                         onInput={(event: TargetedEvent<HTMLInputElement>) => {
-                          const raw = Number(event.currentTarget.value)
+                          const raw = Math.min(durationMs, Number(event.currentTarget.value))
                           const clampedEnd = Math.max(raw, Math.min(durationMs, startMs + MIN_CLIP_MS))
                           applyRange(startMs, clampedEnd, clampedEnd)
                         }}

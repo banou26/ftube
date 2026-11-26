@@ -57,5 +57,7 @@ describe('download trim helpers', () => {
     const suffix = formatClipFilenameSuffix({ startMs: 4_000, endMs: 65_000 })
     expect(suffix).not.toContain(':')
     expect(suffix).toBe('0m04s-1m05s')
+
+    expect(formatClipFilenameSuffix({ startMs: 3_661_000, endMs: 3_725_000 })).toBe('1h01m01s-1h02m05s')
   })
 })

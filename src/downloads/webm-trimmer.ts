@@ -95,14 +95,6 @@ const readUnsignedInt = (bytes: Uint8Array, start: number, end: number): number 
   return value
 }
 
-const readFloatValue = (bytes: Uint8Array, start: number, end: number): number | undefined => {
-  const len = end - start
-  const view = new DataView(bytes.buffer, bytes.byteOffset + start, len)
-  if (len === 4) return view.getFloat32(0)
-  if (len === 8) return view.getFloat64(0)
-  return undefined
-}
-
 const encodeId = (id: number): Uint8Array => {
   if (id <= 0xff) return Uint8Array.from([id])
   if (id <= 0xffff) return Uint8Array.from([(id >>> 8) & 0xff, id & 0xff])
@@ -158,35 +150,46 @@ const encodeFloat64 = (value: number): Uint8Array => {
   return out
 }
 
+type IterateOptions = {
+  unknownBoundaryIds?: ReadonlySet<number>
+  stopOnIds?: ReadonlySet<number>
+}
+
 const iterateElements = (
   bytes: Uint8Array,
   start: number,
   end: number,
-  stopOnUnknownIds?: ReadonlySet<number>,
+  options: IterateOptions = {},
 ): EbmlElement[] => {
   const out: EbmlElement[] = []
   let pos = start
   while (pos < end) {
     const idInfo = readVintId(bytes, pos)
     if (!idInfo) break
-    if (stopOnUnknownIds && out.length > 0 && stopOnUnknownIds.has(idInfo.id)) break
+    if (options.stopOnIds && out.length > 0 && options.stopOnIds.has(idInfo.id)) break
     const sizeInfo = readVintValue(bytes, pos + idInfo.length)
     if (!sizeInfo) break
     const dataStart = pos + idInfo.length + sizeInfo.length
     let dataEnd: number
     if (sizeInfo.value === undefined) {
       dataEnd = end
-      if (stopOnUnknownIds) {
+      const scanStops = options.unknownBoundaryIds ?? options.stopOnIds
+      if (scanStops) {
         let scan = dataStart
         while (scan < end) {
           const nextId = readVintId(bytes, scan)
           if (!nextId) break
-          if (stopOnUnknownIds.has(nextId.id)) {
+          if (scanStops.has(nextId.id)) {
             dataEnd = scan
             break
           }
           const nextSize = readVintValue(bytes, scan + nextId.length)
-          if (!nextSize || nextSize.value === undefined) break
+          if (!nextSize) break
+          if (nextSize.value === undefined) {
+            // Nested unknown-size element (e.g. an unknown-size SimpleBlock/BlockGroup is invalid; recurse conservatively)
+            scan += nextId.length + nextSize.length
+            continue
+          }
           scan = scan + nextId.length + nextSize.length + nextSize.value
         }
       }
@@ -249,7 +252,9 @@ export const trimWebmAudio = (chunks: readonly Uint8Array[], trim: TrimRange): U
     throw new Error('webm-trimmer: input is missing EBML or Segment header')
   }
 
-  const segChildren = iterateElements(bytes, segment.dataStart, segment.dataEnd)
+  const segChildren = iterateElements(bytes, segment.dataStart, segment.dataEnd, {
+    unknownBoundaryIds: TOP_LEVEL_SEGMENT_CHILDREN,
+  })
   const infoEl = segChildren.find((entry) => entry.id === ID_INFO)
   const tracksEl = segChildren.find((entry) => entry.id === ID_TRACKS)
   if (!tracksEl) {
@@ -274,7 +279,7 @@ export const trimWebmAudio = (chunks: readonly Uint8Array[], trim: TrimRange): U
   for (const child of segChildren) {
     if (child.id !== ID_CLUSTER) continue
     let clusterTimeMs = 0
-    for (const entry of iterateElements(bytes, child.dataStart, child.dataEnd, TOP_LEVEL_SEGMENT_CHILDREN)) {
+    for (const entry of iterateElements(bytes, child.dataStart, child.dataEnd, { stopOnIds: TOP_LEVEL_SEGMENT_CHILDREN })) {
       if (entry.id === ID_TIMESTAMP) {
         clusterTimeMs = readUnsignedInt(bytes, entry.dataStart, entry.dataEnd) * scaleMs
       } else if (entry.id === ID_SIMPLE_BLOCK) {
@@ -297,7 +302,6 @@ export const trimWebmAudio = (chunks: readonly Uint8Array[], trim: TrimRange): U
             blockParsed = parseBlockHeader(bytes, sub.dataStart, sub.dataEnd, clusterTimeMs, scaleMs)
           } else if (sub.id === ID_BLOCK_DURATION) {
             durationMs = readUnsignedInt(bytes, sub.dataStart, sub.dataEnd) * scaleMs
-            extras.push(sub.raw)
           } else {
             extras.push(sub.raw)
           }
@@ -361,10 +365,12 @@ export const trimWebmAudio = (chunks: readonly Uint8Array[], trim: TrimRange): U
     if (block.kind === 'simple') {
       currentClusterChildren.push(encodeElement(ID_SIMPLE_BLOCK, payload))
     } else {
-      currentClusterChildren.push(encodeElement(ID_BLOCK_GROUP, concatChunks([
-        encodeElement(ID_BLOCK, payload),
-        ...block.extraElements,
-      ])))
+      const groupChildren = [encodeElement(ID_BLOCK, payload)]
+      if (block.durationMs !== undefined) {
+        groupChildren.push(encodeElement(ID_BLOCK_DURATION, encodeUint(Math.max(1, Math.round(block.durationMs)))))
+      }
+      groupChildren.push(...block.extraElements)
+      currentClusterChildren.push(encodeElement(ID_BLOCK_GROUP, concatChunks(groupChildren)))
     }
   }
   if (currentClusterChildren.length > 1) {
@@ -375,5 +381,3 @@ export const trimWebmAudio = (chunks: readonly Uint8Array[], trim: TrimRange): U
   const nextSegment = encodeElement(ID_SEGMENT, concatChunks([nextInfo, tracksEl.raw, ...clusters]))
   return [ebmlHeader.raw, nextSegment]
 }
-
-export { readFloatValue }

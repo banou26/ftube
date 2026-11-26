@@ -756,9 +756,18 @@ export const startDownloadSession = async (options: StartDownloadOptions): Promi
             if (!track.initSegment || track.segments.size === 0) {
               throw new Error(`youtube: missing segments for cropped ${track.kind} download`)
             }
+            const sorted = [...track.segments.values()].sort((a, b) => a.seq - b.seq)
+            const first = sorted[0]!
+            if (first.seq > 1 && (track.coveredStartMs === undefined || track.coveredStartMs > trimmedRange.startMs + 250)) {
+              throw new Error(`youtube: cropped ${track.kind} stream missed clip start boundary`)
+            }
+            for (let i = 1; i < sorted.length; i += 1) {
+              if (sorted[i]!.seq !== sorted[i - 1]!.seq + 1) {
+                throw new Error(`youtube: cropped ${track.kind} stream has missing segment gap`)
+              }
+            }
             const targetQueue = track.kind === 'video' ? session.videoQueue : session.audioQueue
             targetQueue.push(track.initSegment)
-            const sorted = [...track.segments.values()].sort((a, b) => a.seq - b.seq)
             for (const seg of sorted) targetQueue.push(seg.data)
           }
         }

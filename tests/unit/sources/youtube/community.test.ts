@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
+import { createYoutubeSource } from '../../../../src/sources/youtube'
 import {
   extractParsedPostActions,
   extractRawPostActions,
@@ -301,5 +302,153 @@ describe('YouTube community parser (APP-865)', () => {
         },
       },
     })).toEqual({ like: 'PARSED_LIKE', unlike: 'PARSED_UNLIKE' })
+  })
+
+  it('does not infer isCreator from host fallback when authorEndpoint is absent', () => {
+    const anonymous = normalizeRawCommunityPost({
+      postId: 'UgkxNoAuthor',
+      authorText: { simpleText: 'Anon' },
+      contentText: { simpleText: 'Anonymous post' },
+    }, 'UCHost')
+    expect(anonymous?.post.isCreator).toBe(false)
+  })
+})
+
+describe('createYoutubeSource community & ratePost (APP-865)', () => {
+  it('switches sort via continuation token, reports unavailable channels, and toggles LIKE/DISLIKE with tracked state', async () => {
+    const calls: { endpoint: string, args: unknown }[] = []
+    const client = {
+      session: { logged_in: true },
+      resolveURL: async (url: string) => {
+        if (url.endsWith('/@host')) return { payload: { browseId: 'UCHost' } }
+        if (url.endsWith('/@host/community')) return { payload: { browseId: 'FEcommunity_page', params: 'pHost' } }
+        return { payload: { browseId: 'FEcommunity_page', params: 'pEmpty' } }
+      },
+      actions: {
+        execute: async (endpoint: string, args: unknown) => {
+          calls.push({ endpoint, args })
+          const req = args as { browseId?: string, params?: string, continuation?: string }
+          if (endpoint === '/browse' && req.params === 'pEmpty') {
+            return {
+              data: {
+                contents: {
+                  twoColumnBrowseResultsRenderer: {
+                    tabs: [{
+                      tabRenderer: {
+                        selected: true,
+                        content: {
+                          sectionListRenderer: {
+                            contents: [{ itemSectionRenderer: { contents: [{ messageRenderer: { text: { simpleText: 'Unavailable' } } }] } }],
+                          },
+                        },
+                      },
+                    }],
+                  },
+                },
+              },
+            }
+          }
+          if (endpoint === '/browse' && req.continuation === 'sort-newest') {
+            return {
+              data: {
+                onResponseReceivedEndpoints: [{
+                  reloadContinuationItemsCommand: {
+                    continuationItems: [{
+                      itemSectionRenderer: {
+                        contents: [{
+                          backstagePostThreadRenderer: {
+                            post: {
+                              backstagePostRenderer: {
+                                postId: 'UgkxSortNewest',
+                                authorText: { simpleText: 'Host' },
+                                authorEndpoint: { browseEndpoint: { browseId: 'UCHost' } },
+                                contentText: { simpleText: 'Newest post' },
+                                actionButtons: {
+                                  commentActionButtonsRenderer: {
+                                    likeButton: {
+                                      toggleButtonRenderer: {
+                                        defaultServiceEndpoint: { performCommentActionEndpoint: { action: 'ACT_LIKE' } },
+                                        toggledServiceEndpoint: { performCommentActionEndpoint: { action: 'ACT_UNLIKE' } },
+                                      },
+                                    },
+                                    dislikeButton: {
+                                      toggleButtonRenderer: {
+                                        defaultServiceEndpoint: { performCommentActionEndpoint: { action: 'ACT_DISLIKE' } },
+                                        toggledServiceEndpoint: { performCommentActionEndpoint: { action: 'ACT_UNDISLIKE' } },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        }],
+                      },
+                    }],
+                  },
+                }],
+              },
+            }
+          }
+          if (endpoint === '/browse') {
+            return {
+              data: {
+                header: { pageHeaderRenderer: { content: { pageHeaderViewModel: { title: { dynamicTextViewModel: { text: { content: 'Host Community' } } } } } } },
+                contents: {
+                  twoColumnBrowseResultsRenderer: {
+                    tabs: [{
+                      tabRenderer: {
+                        selected: true,
+                        content: {
+                          sectionListRenderer: {
+                            header: {
+                              feedFilterChipBarRenderer: {
+                                contents: [
+                                  { chipCloudChipRenderer: { text: { simpleText: 'Top' }, isSelected: true } },
+                                  { chipCloudChipRenderer: { text: { simpleText: 'Newest' }, isSelected: false, navigationEndpoint: { continuationCommand: { token: 'sort-newest' } } } },
+                                ],
+                              },
+                            },
+                            contents: [],
+                          },
+                        },
+                      },
+                    }],
+                  },
+                },
+              },
+            }
+          }
+          return {}
+        },
+      },
+    }
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client as never })
+
+    const unavail = await source.channelCommunity('@other')
+    expect(unavail.available).toBe(false)
+    expect(unavail.posts.items).toEqual([])
+
+    const sorted = await source.channelCommunity('@host', 'Newest')
+    expect(sorted.available).toBe(true)
+    expect(sorted.appliedSort).toBe('Newest')
+    expect(sorted.sortOptions).toEqual(['Top', 'Newest'])
+    expect(sorted.posts.items).toHaveLength(1)
+
+    const token = sorted.posts.items[0]!.actionsToken!
+    expect(token).toBeTruthy()
+    await source.ratePost(token, 'LIKE')
+    await source.ratePost(token, 'INDIFFERENT')
+    await source.ratePost(token, 'DISLIKE')
+    await source.ratePost(token, 'INDIFFERENT')
+
+    const actionCalls = calls.filter((c) => c.endpoint === '/comment/perform_comment_action').map((c) => c.args)
+    expect(actionCalls).toEqual([
+      { actions: ['ACT_LIKE'] },
+      { actions: ['ACT_UNLIKE'] },
+      { actions: ['ACT_DISLIKE'] },
+      { actions: ['ACT_UNDISLIKE'] },
+    ])
   })
 })

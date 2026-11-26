@@ -67,7 +67,7 @@ export const PostPage = ({ params }: { params: { postId: string } }) => {
   useDocumentTitle(post?.text.split('\n')[0] || 'Post')
   return (
     <main css={style}>
-      {post ? <PostCard post={post} /> : undefined}
+      {post ? <PostCard post={post} showCommentLink={false} /> : undefined}
       {post?.author
         ? (
           <div className='comments-column'>

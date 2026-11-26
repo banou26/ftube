@@ -85,8 +85,10 @@ const parseTopAndSegment = (bytes: Uint8Array) => {
   const segEnd = pos + segSize
 
   let durationMs: number | undefined
+  let timecodeScaleNs: number | undefined
   let tracksSeen = false
-  const blocks: { absMs: number, payload: number[] }[] = []
+  let clusterCount = 0
+  const blocks: { absMs: number, payload: number[], durationMs?: number }[] = []
 
   while (pos < segEnd) {
     const id = readId()
@@ -96,7 +98,10 @@ const parseTopAndSegment = (bytes: Uint8Array) => {
       while (pos < end) {
         const subId = readId()
         const subSize = readSize()
-        if (subId === 0x4489 && subSize === 8) {
+        if (subId === 0x2ad7b1) {
+          timecodeScaleNs = 0
+          for (let i = 0; i < subSize; i += 1) timecodeScaleNs = timecodeScaleNs * 256 + bytes[pos + i]!
+        } else if (subId === 0x4489 && subSize === 8) {
           durationMs = view.getFloat64(pos)
         }
         pos += subSize
@@ -105,6 +110,7 @@ const parseTopAndSegment = (bytes: Uint8Array) => {
       tracksSeen = true
       pos = end
     } else if (id === 0x1f43b675) {
+      clusterCount += 1
       let clusterTs = 0
       while (pos < end) {
         const subId = readId()
@@ -117,6 +123,24 @@ const parseTopAndSegment = (bytes: Uint8Array) => {
           const rel = view.getInt16(pos + 1)
           const payload = [...bytes.subarray(pos + 4, subEnd)]
           blocks.push({ absMs: clusterTs + rel, payload })
+        } else if (subId === 0xa0) {
+          let rel = 0
+          let payload: number[] = []
+          let blockDur: number | undefined
+          while (pos < subEnd) {
+            const gId = readId()
+            const gSize = readSize()
+            const gEnd = pos + gSize
+            if (gId === 0xa1) {
+              rel = view.getInt16(pos + 1)
+              payload = [...bytes.subarray(pos + 4, gEnd)]
+            } else if (gId === 0x9b) {
+              blockDur = 0
+              for (let i = 0; i < gSize; i += 1) blockDur = blockDur * 256 + bytes[pos + i]!
+            }
+            pos = gEnd
+          }
+          blocks.push({ absMs: clusterTs + rel, payload, durationMs: blockDur })
         }
         pos = subEnd
       }
@@ -125,7 +149,7 @@ const parseTopAndSegment = (bytes: Uint8Array) => {
     }
   }
 
-  return { durationMs, tracksSeen, blocks }
+  return { durationMs, timecodeScaleNs, tracksSeen, clusterCount, blocks }
 }
 
 describe('trimWebmAudio', () => {
@@ -175,5 +199,74 @@ describe('trimWebmAudio', () => {
   it('throws cleanly when no audio frames fall inside the requested trim window', () => {
     const webm = buildFixture()
     expect(() => trimWebmAudio([webm], { startMs: 10_000, endMs: 12_000 })).toThrow('webm-trimmer')
+  })
+
+  it('handles unknown-size Clusters across multiple clusters without dropping later blocks', () => {
+    const ebml = element([0x1a, 0x45, 0xdf, 0xa3], element([0x42, 0x86], Uint8Array.from([1])))
+    const info = element(
+      [0x15, 0x49, 0xa9, 0x66],
+      concat([
+        element([0x2a, 0xd7, 0xb1], uintPayload(1_000_000)),
+        element([0x44, 0x89], float64Payload(10_000)),
+      ]),
+    )
+    const tracks = element([0x16, 0x54, 0xae, 0x6b], element([0xae], element([0xd7], Uint8Array.from([1]))))
+    const unknownCluster = (ts: number, frames: number[]) => concat([
+      ebmlId([0x1f, 0x43, 0xb6, 0x75]),
+      Uint8Array.from([0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+      element([0xe7], uintPayload(ts)),
+      ...frames.map((offset, idx) => simpleBlock(1, offset, Uint8Array.from([ts / 100 + idx]))),
+    ])
+    const webm = concat([
+      ebml,
+      element(
+        [0x18, 0x53, 0x80, 0x67],
+        concat([info, tracks, unknownCluster(0, [0, 1000]), unknownCluster(2000, [0, 1000]), unknownCluster(4000, [0, 1000])]),
+      ),
+    ])
+
+    const trimmed = concat(trimWebmAudio([webm], { startMs: 1_000, endMs: 5_000 }))
+    const parsed = parseTopAndSegment(trimmed)
+    expect(parsed.blocks.map((b) => b.absMs)).toEqual([0, 1000, 2000, 3000])
+    expect(parsed.durationMs).toBe(4_000)
+  })
+
+  it('rescales BlockGroup BlockDuration from non-1ms TimecodeScale and splits clusters past 30s', () => {
+    // Source scale: 500_000 ns (0.5ms per tick), so tick 2000 = 1000ms and cluster durations in ticks must halve when rewritten to 1ms scale.
+    const ebml = element([0x1a, 0x45, 0xdf, 0xa3], element([0x42, 0x86], Uint8Array.from([1])))
+    const info = element(
+      [0x15, 0x49, 0xa9, 0x66],
+      concat([
+        element([0x2a, 0xd7, 0xb1], uintPayload(500_000)),
+        element([0x44, 0x89], float64Payload(120_000)),
+      ]),
+    )
+    const tracks = element([0x16, 0x54, 0xae, 0x6b], element([0xae], element([0xd7], Uint8Array.from([1]))))
+    const blockHeader = (relTicks: number) => {
+      const hdr = new Uint8Array(4)
+      hdr[0] = 0x81
+      new DataView(hdr.buffer).setInt16(1, relTicks)
+      hdr[3] = 0
+      return concat([hdr, Uint8Array.from([42])])
+    }
+    const blockGroup = (relTicks: number, durTicks: number) =>
+      element([0xa0], concat([
+        element([0xa1], blockHeader(relTicks)),
+        element([0x9b], uintPayload(durTicks)),
+      ]))
+    // Clusters every 10_000ms (= 20_000 source ticks)
+    const clusterA = element([0x1f, 0x43, 0xb6, 0x75], concat([element([0xe7], uintPayload(20_000)), blockGroup(0, 2000)]))
+    const clusterB = element([0x1f, 0x43, 0xb6, 0x75], concat([element([0xe7], uintPayload(90_000)), blockGroup(0, 2000)]))
+    const webm = concat([ebml, element([0x18, 0x53, 0x80, 0x67], concat([info, tracks, clusterA, clusterB]))])
+
+    const trimmed = concat(trimWebmAudio([webm], { startMs: 10_000, endMs: 46_000 }))
+    const parsed = parseTopAndSegment(trimmed)
+    expect(parsed.timecodeScaleNs).toBe(1_000_000)
+    expect(parsed.clusterCount).toBe(2)
+    expect(parsed.blocks).toEqual([
+      { absMs: 0, payload: [42], durationMs: 1000 },
+      { absMs: 35_000, payload: [42], durationMs: 1000 },
+    ])
+    expect(parsed.durationMs).toBe(36_000)
   })
 })

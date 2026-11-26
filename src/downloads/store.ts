@@ -5,9 +5,7 @@ import type { TrimRange } from './trim'
 
 import { startEngine } from '../engine/client'
 import { showToast } from '../components/ui/toast'
-import { muxMp4, muxMp4Audio } from './mp4-muxer'
 import { formatClipFilenameSuffix, formatClipLabel, isFullRange } from './trim'
-import { trimWebmAudio } from './webm-trimmer'
 
 /** Target video metadata passed when opening the download picker or queuing a download. */
 export type DownloadTarget = {
@@ -473,15 +471,23 @@ export const startVideoDownload = async (
       updateItem(id, { status: 'muxing' })
       await new Promise((resolve) => setTimeout(resolve, 0))
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
+      const { muxMp4 } = await import('./mp4-muxer')
+      if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
       parts = muxMp4(videoChunks, audioChunks, effectiveTrim)
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
     } else if (effectiveTrim) {
       updateItem(id, { status: 'muxing' })
       await new Promise((resolve) => setTimeout(resolve, 0))
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
-      parts = input.container === 'webm'
-        ? trimWebmAudio(audioChunks, effectiveTrim)
-        : muxMp4Audio(audioChunks, effectiveTrim)
+      if (input.container === 'webm') {
+        const { trimWebmAudio } = await import('./webm-trimmer')
+        if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
+        parts = trimWebmAudio(audioChunks, effectiveTrim)
+      } else {
+        const { muxMp4Audio } = await import('./mp4-muxer')
+        if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
+        parts = muxMp4Audio(audioChunks, effectiveTrim)
+      }
       if (cancelledIds.has(id)) throw new DOMException('Cancelled', 'AbortError')
     } else {
       parts = audioChunks
