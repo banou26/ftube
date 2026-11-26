@@ -20,6 +20,7 @@ export type SourceChannel = {
   hasCommunityPage?: boolean
   isLive?: boolean
   liveVideoId?: string
+  hasNewContent?: boolean
   notificationLevel?: SourceNotificationLevel
   isVerified?: boolean
   // the music-note badge an official artist channel carries in place of the check

@@ -699,6 +699,71 @@ export const normalizeChannel = (input: unknown, fallbackId?: string): SourceCha
   }
 }
 
+type RawGuideEntry = {
+  navigationEndpoint?: { browseEndpoint?: { browseId?: string } }
+  thumbnail?: { thumbnails?: Thumbnail[] }
+  formattedTitle?: { simpleText?: string, runs?: { text?: string }[] }
+  presentationStyle?: string
+  badges?: { liveBroadcasting?: boolean }
+}
+
+const rawGuideText = (value: RawGuideEntry['formattedTitle']) =>
+  presentText(value?.simpleText)
+  ?? presentText(value?.runs?.map((run) => run.text ?? '').join(''))
+
+/** Extracts subscription channel entries (including collapsible overflow items) from raw InnerTube `/guide` JSON. */
+export const parseGuideSubscriptions = (raw: unknown): SourceChannel[] => {
+  const root = raw as { items?: { guideSubscriptionsSectionRenderer?: { items?: unknown[] } }[] } | undefined
+  const out: SourceChannel[] = []
+  const seen = new Set<string>()
+  const pushEntry = (entry: RawGuideEntry | undefined) => {
+    const id = entry?.navigationEndpoint?.browseEndpoint?.browseId
+    if (!id || !id.startsWith('UC') || seen.has(id)) return
+    const name = rawGuideText(entry.formattedTitle)
+    if (!name) return
+    seen.add(id)
+    const isLive = entry.badges?.liveBroadcasting === true
+    const hasNewContent = !isLive && entry.presentationStyle === 'GUIDE_ENTRY_PRESENTATION_STYLE_NEW_CONTENT'
+    out.push({
+      id,
+      name,
+      avatar: httpsUrl(thumbnail(entry.thumbnail?.thumbnails, AVATAR_WIDTH)),
+      ...(isLive ? { isLive: true } : {}),
+      ...(hasNewContent ? { hasNewContent: true } : {}),
+    })
+  }
+  for (const section of root?.items ?? []) {
+    const items = section.guideSubscriptionsSectionRenderer?.items
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      const node = item as {
+        guideEntryRenderer?: RawGuideEntry
+        guideCollapsibleEntryRenderer?: { expandableItems?: { guideEntryRenderer?: RawGuideEntry }[] }
+      }
+      if (node.guideEntryRenderer) pushEntry(node.guideEntryRenderer)
+      for (const extra of node.guideCollapsibleEntryRenderer?.expandableItems ?? []) {
+        if (extra.guideEntryRenderer) pushEntry(extra.guideEntryRenderer)
+      }
+    }
+  }
+  return out
+}
+
+/** Sorts guide subscriptions stably with live channels first, then new-content channels, then the rest. */
+export const sortGuideSubscriptions = <T extends { isLive?: boolean | null, hasNewContent?: boolean | null }>(
+  channels: readonly T[],
+): T[] => {
+  const live: T[] = []
+  const fresh: T[] = []
+  const rest: T[] = []
+  for (const channel of channels) {
+    if (channel.isLive) live.push(channel)
+    else if (channel.hasNewContent) fresh.push(channel)
+    else rest.push(channel)
+  }
+  return [...live, ...fresh, ...rest]
+}
+
 export const normalizeFeedChannel = (input: unknown): SourceChannel | undefined => {
   const node = input as {
     id?: string

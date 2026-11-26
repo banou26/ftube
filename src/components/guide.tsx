@@ -3,7 +3,7 @@ import type { FunctionComponent } from 'preact'
 import type { Group } from '../groups/store'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronRight, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Library, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Plus, Radio, ThumbsUp, Trophy } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -25,6 +25,8 @@ const GUIDE_SUBSCRIPTIONS_QUERY = gql(`
       id
       name
       avatar
+      isLive
+      hasNewContent
     }
   }
 `)
@@ -99,14 +101,31 @@ const GuideLink = ({ entry }: { entry: GuideEntry }) => {
   )
 }
 
+const SUBSCRIPTIONS_COLLAPSED_LIMIT = 7
+
+const sortSubscriptions = <T extends { isLive?: boolean | null, hasNewContent?: boolean | null }>(channels: readonly T[]): T[] => {
+  const live: T[] = []
+  const fresh: T[] = []
+  const rest: T[] = []
+  for (const channel of channels) {
+    if (channel.isLive) live.push(channel)
+    else if (channel.hasNewContent) fresh.push(channel)
+    else rest.push(channel)
+  }
+  return [...live, ...fresh, ...rest]
+}
+
 const SubscriptionRail = () => {
   const { signedIn } = useSession()
   const [path] = useLocation()
+  const [expanded, setExpanded] = useState(false)
   const [{ data }] = useQuery({ query: GUIDE_SUBSCRIPTIONS_QUERY, pause: !signedIn })
   const channels = data?.subscribedChannels ?? []
 
   if (!signedIn || channels.length === 0) return null
 
+  const sorted = sortSubscriptions(channels)
+  const visible = expanded ? sorted : sorted.slice(0, SUBSCRIPTIONS_COLLAPSED_LIMIT)
   const channelsActive = isActive('/feed/channels', path, '')
 
   return (
@@ -119,7 +138,7 @@ const SubscriptionRail = () => {
         Subscriptions
         <ChevronRight size={20} strokeWidth={1.5} />
       </Link>
-      {channels.map(channel => {
+      {visible.map(channel => {
         const href = `/channel/${channel.id}`
         const active = isActive(href, path, '')
         return (
@@ -133,9 +152,33 @@ const SubscriptionRail = () => {
               ? <img className='avatar' src={channel.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
               : <span className='avatar fallback' aria-hidden='true'>{channel.name.slice(0, 1).toUpperCase()}</span>}
             <span className='label channel-name'>{channel.name}</span>
+            {channel.isLive
+              ? (
+                <span className='sub-live-icon' aria-label='Live' title='Live'>
+                  <Radio size={16} strokeWidth={2} aria-hidden='true' />
+                </span>
+              )
+              : channel.hasNewContent
+                ? <span className='sub-new-dot' aria-label='New content' title='New content' />
+                : undefined}
           </Link>
         )
       })}
+      {sorted.length > SUBSCRIPTIONS_COLLAPSED_LIMIT
+        ? (
+          <button
+            type='button'
+            className='item show-toggle'
+            aria-expanded={expanded}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded
+              ? <ChevronUp size={20} strokeWidth={1.5} aria-hidden='true' />
+              : <ChevronDown size={20} strokeWidth={1.5} aria-hidden='true' />}
+            <span className='label'>{expanded ? 'Show fewer' : 'Show more'}</span>
+          </button>
+        )
+        : undefined}
     </div>
   )
 }
@@ -382,6 +425,32 @@ const sectionsStyle = css`
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .sub-live-icon {
+    flex: none;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    color: #ff4e45;
+  }
+
+  .sub-new-dot {
+    flex: none;
+    margin-left: auto;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: #3ea6ff;
+  }
+
+  .show-toggle {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
   }
 
   .sign-in-note {

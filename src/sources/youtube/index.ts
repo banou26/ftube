@@ -9,7 +9,7 @@ import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo
 import { collectMembersOnlyPosts, extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
-import { approximateCount, chatReplayToken, extractRelatedChips, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta } from './normalize'
+import { approximateCount, chatReplayToken, extractRelatedChips, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions } from './normalize'
 import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -298,6 +298,7 @@ export type YoutubeClient = {
     // unparsed: youtubei.js 18.3.0 has no parser for the view models of youtube.com's transcript panel
     execute(endpoint: '/get_panel', args: { panelId: string, params: string, parse?: boolean } | { continuation: string, formData: { searchInputFormData: { query: string } } }): Promise<{ data: unknown }>
     execute(endpoint: '/feedback', args: { feedbackTokens: string[], shouldMerge: boolean, isFeedbackTokenUnencrypted: boolean, parse: false }): Promise<unknown>
+    execute(endpoint: '/guide', args: { parse: false }): Promise<{ data?: unknown }>
     execute(endpoint: string, args: { params: string, parse: false }): Promise<{ data: unknown }>
   }
 }
@@ -1306,6 +1307,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     subscribedChannels: async (all) => {
       const active = await client
       requireSignIn(active, 'see your subscriptions')
+      if (!all && typeof active.actions?.execute === 'function') {
+        try {
+          const response = await active.actions.execute('/guide', { parse: false })
+          const parsed = parseGuideSubscriptions(response?.data ?? response)
+          if (parsed.length > 0) return sortGuideSubscriptions(parsed)
+        } catch {
+          // fall back to channels feed below
+        }
+      }
       let feed = await active.getChannelsFeed()
       const nodes = [...(feed.channels ?? [])]
       for (let pages = 1; all && pages < SUBSCRIPTION_PAGES && feed.has_continuation && feed.getContinuation; pages++) {

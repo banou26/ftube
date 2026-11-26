@@ -29,3 +29,49 @@ export const mountGuide = (signedIn: boolean) => mount(signedIn ? 'signed-in' : 
 
 // the Session answer never comes, as on a cold load before the session probe returns
 export const mountPendingGuide = () => mount('pending')
+
+export type GuideSubscriptionFixture = {
+  id: string
+  name: string
+  avatar?: string | null
+  isLive?: boolean
+  hasNewContent?: boolean
+}
+
+export const mountGuideWithSubscriptions = (channels: GuideSubscriptionFixture[]) => {
+  document.documentElement.dataset.engine = 'ready'
+  const app = document.getElementById('app')
+  if (app) app.hidden = true
+  document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
+  const host = document.createElement('div')
+  host.setAttribute('data-guide-harness', 'subscriptions')
+  document.body.append(host)
+  const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const { operationName } = JSON.parse(init?.body as string) as { operationName: string }
+    if (operationName === 'Session') {
+      return new Response(
+        JSON.stringify({ data: { session: { signedIn: true, name: 'Viewer', avatar: null, handle: null, accounts: [] } } }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    }
+    if (operationName === 'GuideSubscriptions') {
+      return new Response(
+        JSON.stringify({
+          data: {
+            subscribedChannels: channels.map((ch) => ({
+              id: ch.id,
+              name: ch.name,
+              avatar: ch.avatar ?? null,
+              isLive: ch.isLive ?? null,
+              hasNewContent: ch.hasNewContent ?? null,
+            })),
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    }
+    return new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } })
+  }
+  const client = new Client({ url: '/guide-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  render(<Provider value={client}><Guide variant='expanded' /></Provider>, host)
+}

@@ -36,6 +36,7 @@ type Channel {
   hasCommunityPage: Boolean
   isLive: Boolean
   liveVideoId: ID
+  hasNewContent: Boolean
   notificationLevel: NotificationLevel
   isVerified: Boolean
   # An official artist channel, badged with a music note instead of the check.
