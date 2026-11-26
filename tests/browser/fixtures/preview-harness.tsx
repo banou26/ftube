@@ -8,6 +8,7 @@ import { VideoCard } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
 import { ChannelPage } from '../../../src/routes/channel'
 import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
+import HomePage from '../../../src/routes/home'
 import SearchPage from '../../../src/routes/search'
 import { createYoutubeSource } from '../../../src/sources/youtube'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -171,4 +172,40 @@ export const mountSubscriptions = () => {
   render(null, probe)
   probe.remove()
   render(<Provider value={client}><SubscriptionsFeedPage /></Provider>, host)
+}
+
+/**
+ * Mounts HomePage backed by the local Yoga GraphQL server with two sample Home cards:
+ * one carrying `inlinePlayerParams` and one without (carrying `animatedThumbnail` fallback).
+ */
+export const mountHome = () => {
+  document.getElementById('app')!.hidden = true
+  const host = document.createElement('div')
+  host.setAttribute('data-preview-harness', '')
+  host.style.width = '100%'
+  document.body.append(host)
+  const page = {
+    items: [
+      { id: 'home-params-0', title: 'Home card with params', durationSeconds: 320, inlinePlayerParams: CARD_PARAMS, channel, badges: [] },
+      { id: 'home-no-params-0', title: 'Home card without params', durationSeconds: 240, animatedThumbnail: MOVING, channel, badges: [] },
+    ],
+    shorts: [],
+    chips: [],
+  }
+  const source = {
+    ...createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => ({}) as never }),
+    session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
+    home: async () => page,
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: 'http://preview-harness.local/graphql',
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
+  })
+  render(<Provider value={client}><HomePage /></Provider>, host)
 }

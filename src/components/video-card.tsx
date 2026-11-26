@@ -5,7 +5,7 @@ import type { CollaborationData } from './byline'
 
 import { css } from '@emotion/react'
 import { Ban, Check, ChevronLeft, CircleMinus, Clock, Download, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
-import { useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -464,6 +464,7 @@ const style = css`
   .thumb img.moving {
     position: absolute;
     inset: 0;
+    z-index: 2;
   }
 
   .badge {
@@ -682,12 +683,15 @@ export const VideoCard = (
   const canPreview = video.isUpcoming !== true && !carouselShort && (Boolean(playerParams) || Boolean(inlinePreview))
   const prefetch = usePrefetchOnIntent(video.id, playerParams)
   const [hovered, setHovered] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const handlePreviewFail = useCallback(() => setPreviewFailed(true), [])
+  useEffect(() => setPreviewFailed(false), [video.id, playerParams, inlinePreview])
   const classes = [variant, video.isShort && !carouselShort ? 'short' : undefined]
     .filter(Boolean)
     .join(' ')
-  // youtube.com mounts a player on a card with inline playback params or on signed-in subscriptions feeds, and plays
-  // the moving thumbnail on the rest (a channel's Home rows and Videos tab)
-  const moving = hovered && !canPreview ? video.animatedThumbnail ?? undefined : undefined
+  // youtube.com mounts a player on a card with inline playback params or on signed-in subscriptions/Home feeds, and
+  // plays the moving thumbnail on the rest (or as fallback if inline playback setup fails)
+  const moving = hovered && (!canPreview || previewFailed) ? video.animatedThumbnail ?? undefined : undefined
   const state = carouselShort ? undefined : cardState(playerParams)
   const avatar = variant === undefined || variant === 'carousel'
   return (
@@ -702,6 +706,7 @@ export const VideoCard = (
       onPointerLeave={() => {
         if (!canPreview) prefetch.onPointerLeave()
         setHovered(false)
+        setPreviewFailed(false)
       }}
       onPointerDown={prefetch.onPointerDown}
     >
@@ -709,7 +714,16 @@ export const VideoCard = (
         {video.thumbnail
           ? <Thumbnail src={video.thumbnail} srcSet={video.thumbnailSrcset} sizes='(max-width: 500px) 100vw, 38rem' />
           : undefined}
-        {hovered && canPreview ? <HoverPreview videoId={video.id} href={watchHref} playerParams={playerParams} /> : undefined}
+        {hovered && canPreview
+          ? (
+            <HoverPreview
+              videoId={video.id}
+              href={watchHref}
+              playerParams={playerParams}
+              onFail={video.animatedThumbnail ? handlePreviewFail : undefined}
+            />
+          )
+          : undefined}
         {moving ? <img className='moving' src={moving} alt='' /> : undefined}
         {video.thumbnailBadge ? <CornerBadge label={video.thumbnailBadge} /> : undefined}
         {video.isLive

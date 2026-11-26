@@ -25,6 +25,7 @@ const HOME_FEED_QUERY = gql(`
         inlinePlayerParams
         thumbnail
         thumbnailSrcset
+        animatedThumbnail
         durationSeconds
         viewCount
         publishedText
@@ -319,6 +320,7 @@ const HomePage = () => {
             shelf={hideShorts ? undefined : <ShortsShelf shorts={visibleShorts} />}
             fetching={fetching && visibleItems.length === 0}
             recommendable
+            inlinePreview
           />
         )}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}

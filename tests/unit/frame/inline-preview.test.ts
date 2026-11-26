@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 
-const { playerExecute } = vi.hoisted(() => ({
+const { innertubeCreateCalls, playerExecute } = vi.hoisted(() => ({
+  innertubeCreateCalls: [] as Record<string, unknown>[],
   playerExecute: vi.fn<(...args: unknown[]) => Promise<{ data: unknown }>>(),
 }))
 
@@ -13,13 +14,16 @@ vi.mock('youtubei.js/web', async (importOriginal) => {
   return {
     ...actual,
     Innertube: {
-      create: async () => ({
-        session: { context, player: { decipher: async (url: string) => url } },
-        actions: { session: {}, execute: (...args: unknown[]) => playerExecute(...args) },
-      }),
+      create: async (config: Record<string, unknown> = {}) => {
+        innertubeCreateCalls.push(config)
+        return {
+          session: { context, player: { player_id: 'iframe_api', decipher: async (url: string) => `${url}&decipher=iframe_api` } },
+          actions: { session: {}, execute: (...args: unknown[]) => playerExecute(...args) },
+        }
+      },
     },
     Player: {
-      create: async () => ({ signature_timestamp: 20774, decipher: async (url: string) => url }),
+      create: async () => ({ signature_timestamp: 20774, decipher: async (url: string) => `${url}&decipher=page_player` }),
     },
   }
 })
@@ -56,6 +60,7 @@ let respond: (url: string) => Response | Promise<Response>
 beforeEach(() => {
   vi.resetModules()
   fetched = []
+  innertubeCreateCalls.length = 0
   playerExecute.mockReset()
   const storage = new Map<string, string>()
   vi.stubGlobal('localStorage', {
@@ -155,6 +160,9 @@ it('uses /player over the media lane for hover previews once a player is warmed,
 
   const fast = await getSabrSource(VIDEO, PARAMS, true)
   expect(fast.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fast.streamingUrl).toContain('decipher=page_player')
+  expect(fast.streamingUrl).not.toContain('decipher=iframe_api')
+  expect(innertubeCreateCalls.filter((call) => call.retrieve_player === true)).toEqual([])
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([])
   const playerCall = vi.mocked(egressFetch).mock.calls.find(([url]) => url.includes('/youtubei/v1/player'))
   expect(playerCall).toBeDefined()
@@ -263,6 +271,9 @@ it('uses authenticated /player without params and skips playback stats for signe
   const fast = await getSabrSource(VIDEO, undefined, true)
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(fast.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
+  expect(fast.streamingUrl).toContain('decipher=page_player')
+  expect(fast.streamingUrl).not.toContain('decipher=iframe_api')
+  expect(innertubeCreateCalls.filter((call) => call.retrieve_player === true)).toEqual([])
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([])
   expect(fetched.filter(({ url }) => url.includes('/api/stats/'))).toEqual([])
   expect(playerExecute).toHaveBeenCalledWith('/player', {
@@ -278,5 +289,36 @@ it('uses authenticated /player without params and skips playback stats for signe
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(fallback.streamingUrl).toMatch(/^https:\/\/rr1\.googlevideo\.com\/videoplayback\?id=1&/)
   expect(fetched.filter(({ url }) => url.includes('/watch'))).toEqual([{ url: plain, visitor: null }])
+  expect(fetched.filter(({ url }) => url.includes('/api/stats/'))).toEqual([])
+})
+
+it('preserves preview manifest trimming and skips playback stats when card params fall back to plain /watch', async () => {
+  vi.stubGlobal('MediaSource', { isTypeSupported: () => true })
+  const vodResponse = {
+    playabilityStatus: { status: 'OK' },
+    videoDetails: { videoId: 'vod-fallback', title: 'VOD', lengthSeconds: '120', isLive: false },
+    streamingData: {
+      serverAbrStreamingUrl: 'https://rr1.googlevideo.com/videoplayback?id=2',
+      adaptiveFormats: [
+        { itag: 396, mimeType: 'video/mp4; codecs="av01.0.01M.08"', bitrate: 200_000, width: 640, height: 360, qualityLabel: '360p', approxDurationMs: '120000', initRange: { start: '0', end: '700' }, indexRange: { start: '701', end: '1400' } },
+        { itag: 399, mimeType: 'video/mp4; codecs="av01.0.08M.08"', bitrate: 2_000_000, width: 1920, height: 1080, qualityLabel: '1080p', approxDurationMs: '120000', initRange: { start: '0', end: '700' }, indexRange: { start: '701', end: '1400' } },
+        { itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 130_000, audioQuality: 'AUDIO_QUALITY_MEDIUM', approxDurationMs: '120000', initRange: { start: '0', end: '265' }, indexRange: { start: '266', end: '900' } },
+        { itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128_000, audioQuality: 'AUDIO_QUALITY_MEDIUM', approxDurationMs: '120000', initRange: { start: '0', end: '265' }, indexRange: { start: '266', end: '900' } },
+      ],
+    },
+    playerConfig: { mediaCommonConfig: { mediaUstreamerRequestConfig: { videoPlaybackUstreamerConfig: 'config' } } },
+    playbackTracking: {
+      videostatsPlaybackUrl: { baseUrl: 'https://s.youtube.com/api/stats/playback?docid=vod-fallback' },
+      videostatsWatchtimeUrl: { baseUrl: 'https://s.youtube.com/api/stats/watchtime?docid=vod-fallback' },
+    },
+  }
+  respond = (url) => url.includes('&pp=')
+    ? page({ playabilityStatus: { status: 'UNPLAYABLE' } })
+    : page(vodResponse)
+  const { getSabrSource } = await import('../../../src/frame/innertube')
+  const preview = await getSabrSource('vod-fallback', PARAMS, true, 360)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(preview.manifest).toContain('id="396"')
+  expect(preview.manifest).not.toContain('id="399"')
   expect(fetched.filter(({ url }) => url.includes('/api/stats/'))).toEqual([])
 })

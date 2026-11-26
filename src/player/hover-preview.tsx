@@ -291,9 +291,13 @@ const style = css`
  * `playerParams`, when present, are the card's inline playback params, which the preview's
  * watch page is read with, as youtube.com reads its own.
  */
-export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string, href: string, playerParams?: string }) => {
+export const HoverPreview = (
+  { videoId, href, playerParams, onFail }: { videoId: string, href: string, playerParams?: string, onFail?: () => void },
+) => {
   const [, navigate] = useLocation()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const onFailRef = useRef(onFail)
+  onFailRef.current = onFail
   const [time, setTime] = useState(0)
   const [buffered, setBuffered] = useState(0)
   const [ready, setReady] = useState(false)
@@ -312,6 +316,13 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
     if (!video) return
     const token = ++activeToken
     const abort = new AbortController()
+    let isPainted = false
+    let failed = false
+    const notifyFailed = () => {
+      if (failed || isPainted || abort.signal.aborted || token !== activeToken) return
+      failed = true
+      onFailRef.current?.()
+    }
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
@@ -341,7 +352,7 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
           sessionPromise,
           startTime: 0,
           signal: abort.signal,
-          onError: () => {},
+          onError: notifyFailed,
         })
         if (abort.signal.aborted) return
         setStoryboards(controller.storyboards)
@@ -355,7 +366,8 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
           void controller.selectCaption(wanted.id).catch(() => setCaption(undefined))
         }
       })().catch(() => {
-        // silent: the thumbnail underneath is still the right thing to show
+        // silent: the thumbnail underneath is still the right thing to show, or animatedThumbnail when provided
+        notifyFailed()
       })
     }, DWELL_MS)
 
@@ -373,7 +385,10 @@ export const HoverPreview = ({ videoId, href, playerParams }: { videoId: string,
     video.addEventListener('timeupdate', onTime)
     video.addEventListener('progress', onTime)
 
-    const onPainted = () => setPainted(true)
+    const onPainted = () => {
+      isPainted = true
+      setPainted(true)
+    }
     if (video.readyState >= 2) onPainted()
     video.addEventListener('loadeddata', onPainted)
 

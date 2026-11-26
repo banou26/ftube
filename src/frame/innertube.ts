@@ -226,10 +226,11 @@ const loadPagePlayer = (pageId: string) => {
    answered 403 to every request 7 of 7 times when it differed, and 0 of 78 matched (2026-11-05). Building the page's
    player directly avoids downloading and parsing an unused /iframe_api player on cold start. */
 const decipherPlayer = async (pageId: string | undefined, started?: Promise<Player>) => {
-  if (!pageId) return (await innertube()).session.player!
-  return (started ?? loadPagePlayer(pageId)).catch(async (error: unknown) => {
+  const source = started ?? (pageId ? loadPagePlayer(pageId) : undefined)
+  if (!source) return (await innertube()).session.player!
+  return source.catch(async (error: unknown) => {
     const fallback = (await innertube()).session.player!
-    console.warn(`youtube: player ${pageId} failed to build, deciphering with ${fallback.player_id}`, error)
+    console.warn(`youtube: player ${pageId ?? 'prefetched'} failed to build, deciphering with ${fallback.player_id}`, error)
     return fallback
   })
 }
@@ -399,9 +400,10 @@ const fetchPreviewPlayerResponse = async (
   videoId: string,
   playerParams: string | undefined,
   client: Innertube,
-): Promise<{ raw: Record<string, unknown>, player: Player } | undefined> => {
-  if (!lastPlayerId) return undefined
-  const build = pagePlayers.get(lastPlayerId)
+): Promise<{ raw: Record<string, unknown>, player: Player, playerId: string } | undefined> => {
+  const playerId = lastPlayerId
+  if (!playerId) return undefined
+  const build = pagePlayers.get(playerId)
   if (!build) return undefined
   try {
     const player = await build()
@@ -437,7 +439,7 @@ const fetchPreviewPlayerResponse = async (
       if (!response.ok) return undefined
       raw = await response.json() as Record<string, unknown>
     }
-    return playsWithParams(raw) ? { raw, player } : undefined
+    return playsWithParams(raw) ? { raw, player, playerId } : undefined
   } catch {
     return undefined
   }
@@ -508,7 +510,7 @@ export const getSabrSource = async (
       warmPoTokenSession((client.session.context as unknown as InnertubeContext).client.visitorData)
     }).catch(() => {})
   }
-  if (playerParams && !playsWithParams(raw)) return getSabrSource(videoId)
+  if (playerParams && !playsWithParams(raw)) return getSabrSource(videoId, undefined, preview, previewMaxHeight)
   const nonce = Utils.generateRandomString(16)
   const actions = catalogClient?.actions && 'session' in catalogClient.actions
     ? catalogClient.actions
@@ -540,7 +542,7 @@ export const getSabrSource = async (
     }
   }
   const playerPromise = decipherPlayer(
-    pagePlayerOf(raw),
+    pagePlayerOf(raw) ?? previewAnswer?.playerId,
     startedPlayer ?? (rawPromise ? prefetchedPlayerFor.get(rawPromise)?.() : undefined),
   )
   if (!preview || playerParams) {
