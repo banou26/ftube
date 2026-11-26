@@ -126,7 +126,8 @@ const style = css`
     grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
     gap: 1.6rem;
     overflow-x: auto;
-    padding-bottom: 0.8rem;
+    margin: -0.8rem -0.8rem 0;
+    padding: 0.8rem 0.8rem 1.6rem;
   }
 
   .empty {

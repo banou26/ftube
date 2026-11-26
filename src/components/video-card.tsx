@@ -397,9 +397,44 @@ export const VideoCardMenu = (
 }
 
 const style = css`
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-width: 0;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -0.8rem;
+    z-index: -1;
+    border-radius: 1.6rem;
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 0.15s ease;
+  }
+
+  &.shelf::before,
+  &.carousel::before {
+    inset: 0;
+    border-radius: 1.2rem;
+  }
+
+  @media (hover: hover) {
+    &:hover::before {
+      background: var(--bg-hover);
+    }
+  }
+
+  &:has(:focus-visible)::before {
+    background: var(--bg-hover);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before {
+      transition: none;
+    }
+  }
 
   .thumb {
     position: relative;
@@ -410,11 +445,8 @@ const style = css`
     background: var(--bg-elevated);
   }
 
-  /* The card does NOT grow on hover. It used to, matching upstream's 4% lift,
-     with an elevated surface behind the whole card so the grown thumbnail did
-     not read as a picture that had outgrown its own caption. Both are gone by
-     request: the preview now arrives inside a thumbnail that stays exactly
-     where it was, so nothing under the pointer moves while the reader aims. */
+  /* The card stays stationary on hover (no scale jump under the pointer), while
+     ::before paints a soft rounded backdrop behind thumbnail and details. */
 
   /* Shorts are vertical, and a 16/9 box would letterbox one into a slot mostly
      made of background. The card keeps its grid column and only the thumbnail

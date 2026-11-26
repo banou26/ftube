@@ -496,3 +496,41 @@ test('subscriptions cards open hover previews with params when present and even 
   await expect(withoutParams.locator('video')).toHaveCount(1)
   await expect.poll(opened, { timeout: 60_000 }).toEqual([['sub-params-0', cardParams], ['sub-no-params-0', null]])
 })
+
+test('hovering a video card paints a stationary rounded backdrop without scaling or horizontal overflow', async ({ page }) => {
+  test.setTimeout(240_000)
+  await hideFknNotice(page)
+  await page.addInitScript(answerPlaybackHere)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountSubscriptions: () => void }
+    module.mountSubscriptions()
+  })
+
+  const card = page.locator('[data-preview-harness] article').first()
+  const thumb = card.locator('a.thumb')
+  await expect(thumb).toBeVisible({ timeout: 60_000 })
+
+  const backdropColor = () => card.evaluate((el) => getComputedStyle(el, '::before').backgroundColor)
+  expect(await backdropColor()).toBe('rgba(0, 0, 0, 0)')
+
+  const beforeBox = (await thumb.boundingBox())!
+  await card.locator('.details').hover()
+  await expect.poll(backdropColor).not.toBe('rgba(0, 0, 0, 0)')
+  const afterBox = (await thumb.boundingBox())!
+  expect(afterBox.x).toBeCloseTo(beforeBox.x, 1)
+  expect(afterBox.y).toBeCloseTo(beforeBox.y, 1)
+  expect(afterBox.width).toBeCloseTo(beforeBox.width, 1)
+  expect(afterBox.height).toBeCloseTo(beforeBox.height, 1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+
+  await page.mouse.move(0, 0)
+  await expect.poll(backdropColor).toBe('rgba(0, 0, 0, 0)')
+
+  await page.setViewportSize({ width: 360, height: 800 })
+  await card.locator('.details').hover()
+  await expect.poll(backdropColor).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+})
