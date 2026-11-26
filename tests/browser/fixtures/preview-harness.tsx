@@ -147,6 +147,7 @@ export const mountSubscriptions = () => {
       { id: 'sub-params-0', title: 'Subscription card with params', durationSeconds: 320, inlinePlayerParams: CARD_PARAMS, channel, badges: [] },
       { id: 'sub-no-params-0', title: 'Subscription card without params', durationSeconds: 240, channel, badges: [] },
     ],
+    playlists: [],
   }
   const source = {
     ...createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => ({}) as never }),
