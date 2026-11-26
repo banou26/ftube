@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ListVideo, X } from 'lucide
 import { useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
-import { clearQueue, getQueue, moveInQueue, removeFromQueue, restoreQueue, setQueueIndex, useQueue } from '../player/queue'
+import { clearQueue, getQueue, insertQueueEntry, moveInQueue, removeFromQueue, restoreQueue, setQueueIndex, useQueue } from '../player/queue'
 import { showUndoableToast } from '../undo'
 import { formatDuration } from './format'
 import { Thumbnail } from './thumbnail'
@@ -299,11 +299,12 @@ export const QueuePanel = () => {
                       className='icon-btn'
                       aria-label={`Remove ${item.title} from queue`}
                       onClick={() => {
-                        const snapshot = getQueue()
+                        const removed = item
+                        const wasCurrent = active
                         removeFromQueue(index)
                         showUndoableToast('Removed from queue', {
                           label: `Remove ${item.title} from queue`,
-                          undo: () => restoreQueue(snapshot),
+                          undo: () => insertQueueEntry(removed, index, wasCurrent),
                           undoneMessage: 'Restored to queue',
                         })
                       }}

@@ -86,7 +86,7 @@ export const buildAppIconDataUri = (id: AppIconId, accentColor?: string): string
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildAppIconSvg(id, accentColor))}`
 
 let activeManifestBlobUrl: string | undefined
-let appleTouchVersion = 0
+let activeIconVersion = 0
 
 const revokeManifestBlob = () => {
   if (!activeManifestBlobUrl || typeof URL.revokeObjectURL !== 'function') return
@@ -94,39 +94,63 @@ const revokeManifestBlob = () => {
   activeManifestBlobUrl = undefined
 }
 
-const syncAppleTouchIcon = (dataUri: string | undefined) => {
+const renderIconPng = (image: HTMLImageElement, size: number): string | undefined => {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+    ctx.drawImage(image, 0, 0, size, size)
+    return canvas.toDataURL('image/png')
+  } catch {
+    return undefined
+  }
+}
+
+type ManifestIcon = {
+  src: string
+  sizes: string
+  type: string
+  purpose: string
+}
+
+const updateManifestLink = (manifestLink: HTMLLinkElement | null, bgColor: string, icons: ManifestIcon[]) => {
+  if (!manifestLink || typeof Blob !== 'function' || typeof URL.createObjectURL !== 'function') return
+  const origin = typeof location === 'object' && location.origin && location.origin !== 'null'
+    ? location.origin
+    : ''
+  const base = origin ? `${origin}/` : '/'
+  const manifest = {
+    name: 'FTube',
+    short_name: 'FTube',
+    description: 'Fast, private YouTube client running in your browser over FKN.',
+    id: base,
+    start_url: base,
+    scope: base,
+    display: 'standalone',
+    background_color: bgColor,
+    theme_color: bgColor,
+    icons,
+  }
+  const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' })
+  const nextUrl = URL.createObjectURL(blob)
+  revokeManifestBlob()
+  activeManifestBlobUrl = nextUrl
+  manifestLink.href = nextUrl
+}
+
+const setAppleTouchIconHref = (pngUri: string | undefined) => {
   if (typeof document === 'undefined') return
   const existing = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')
-  if (!dataUri) {
-    appleTouchVersion += 1
+  if (!pngUri) {
     existing?.remove()
     return
   }
-  if (typeof Image !== 'function') return
-  const version = ++appleTouchVersion
-  const image = new Image()
-  image.onload = () => {
-    if (version !== appleTouchVersion) return
-    try {
-      const canvas = document.createElement('canvas')
-      canvas.width = 180
-      canvas.height = 180
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(image, 0, 0, 180, 180)
-      const pngUri = canvas.toDataURL('image/png')
-      let link = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')
-      if (!link) {
-        link = document.createElement('link')
-        link.rel = 'apple-touch-icon'
-        document.head.append(link)
-      }
-      link.href = pngUri
-    } catch {
-      // Ignore offscreen canvas restrictions
-    }
-  }
-  image.src = dataUri
+  const link = existing ?? document.createElement('link')
+  link.rel = 'apple-touch-icon'
+  link.href = pngUri
+  if (!existing) document.head.append(link)
 }
 
 export const applyAppIcon = (
@@ -137,52 +161,39 @@ export const applyAppIcon = (
   if (typeof document === 'undefined') return
   const iconLink = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]')
   const manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')
+  const version = ++activeIconVersion
 
   if (iconId === 'default') {
     if (iconLink) iconLink.href = '/favicon.svg'
     revokeManifestBlob()
     if (manifestLink) manifestLink.href = '/app.webmanifest'
-    syncAppleTouchIcon(undefined)
+    setAppleTouchIconHref(undefined)
     return
   }
 
   const normalizedCustom = normalizeHexColor(customThemeColor)
   const palette = normalizedCustom ? generateThemePalette(normalizedCustom, mode) : undefined
-  const accentForIcon = normalizedCustom ?? '#ff0033'
+  const accentForIcon = normalizedCustom ?? '#ff0000'
   const dataUri = buildAppIconDataUri(iconId, accentForIcon)
+  const bgColor = palette?.['--bg-base'] ?? (mode === 'light' ? '#f9f9f9' : '#0f0f0f')
+  const svgIcon: ManifestIcon = { src: dataUri, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
 
   if (iconLink) iconLink.href = dataUri
-  syncAppleTouchIcon(dataUri)
+  updateManifestLink(manifestLink, bgColor, [svgIcon])
 
-  if (manifestLink && typeof Blob === 'function' && typeof URL.createObjectURL === 'function') {
-    const origin = typeof location === 'object' && location.origin && location.origin !== 'null'
-      ? location.origin
-      : ''
-    const base = origin ? `${origin}/` : '/'
-    const bgColor = palette?.['--bg-base'] ?? (mode === 'light' ? '#f9f9f9' : '#0f0f0f')
-    const manifest = {
-      name: 'FTube',
-      short_name: 'FTube',
-      description: 'Fast, private YouTube client running in your browser over FKN.',
-      id: base,
-      start_url: base,
-      scope: base,
-      display: 'standalone',
-      background_color: bgColor,
-      theme_color: bgColor,
-      icons: [
-        {
-          src: dataUri,
-          sizes: 'any',
-          type: 'image/svg+xml',
-          purpose: 'any',
-        },
-      ],
-    }
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' })
-    const nextUrl = URL.createObjectURL(blob)
-    revokeManifestBlob()
-    activeManifestBlobUrl = nextUrl
-    manifestLink.href = nextUrl
+  if (typeof Image !== 'function') return
+  const image = new Image()
+  image.onload = () => {
+    if (version !== activeIconVersion) return
+    const applePng = renderIconPng(image, 180)
+    if (applePng) setAppleTouchIconHref(applePng)
+    const png192 = renderIconPng(image, 192)
+    const png512 = renderIconPng(image, 512)
+    const icons: ManifestIcon[] = []
+    if (png192) icons.push({ src: png192, sizes: '192x192', type: 'image/png', purpose: 'any' })
+    if (png512) icons.push({ src: png512, sizes: '512x512', type: 'image/png', purpose: 'any' })
+    icons.push(svgIcon)
+    updateManifestLink(manifestLink, bgColor, icons)
   }
+  image.src = dataUri
 }

@@ -41,6 +41,8 @@ const NOT_FETCHED_FROM_THE_PAGE: Record<string, string[]> = {
   'reddit.com': SHARE_TARGETS,
   'pinterest.com': SHARE_TARGETS,
   'www.linkedin.com': SHARE_TARGETS,
+  // SVG XML namespace literal used in SVG markup, never fetched by the page
+  'www.w3.org': ['src/theme/app-icon.ts'],
 }
 
 // Named by no code or fixture: the standard emoji in live chat messages (fonts.gstatic.com/s/e/notoemoji, read again

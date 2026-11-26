@@ -83,7 +83,7 @@ export const subscribeStyle = css`
  */
 export const useToggleSubscription = () => {
   const [state, setSubscribed] = useMutation(SET_SUBSCRIBED)
-  const toggle = async (channelId: string, subscribed: boolean) => {
+  const toggle = async (channelId: string, subscribed: boolean, onUndo?: (restored: boolean) => void) => {
     const result = await setSubscribed({ channelId, subscribed: !subscribed })
     if (result.error) {
       showToast(lineFor(result.error))
@@ -94,6 +94,7 @@ export const useToggleSubscription = () => {
       undo: async () => {
         const reverted = await setSubscribed({ channelId, subscribed })
         if (reverted.error) throw reverted.error
+        onUndo?.(reverted.data?.setSubscribed.isSubscribed === true)
       },
       undoneMessage: subscribed ? 'Subscribed' : 'Unsubscribed',
     })

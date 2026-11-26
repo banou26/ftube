@@ -140,7 +140,7 @@ describe('undo stack and shortcut', () => {
       expect(calls).toEqual([])
 
       expect(targetWindow.dispatch('keydown', { key: 'z', metaKey: true })).toBe(true)
-      await vi.runAllTicks()
+      vi.runAllTicks()
       expect(calls).toEqual(['undid'])
     } finally {
       unbind()

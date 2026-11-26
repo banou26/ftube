@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 
-import { appendQueueEntry, clearQueue, getQueue, moveInQueue, nextInQueueIndex, previousInQueueIndex, removeFromQueue, setQueueIndex, syncQueueVideo } from '../../../src/player/queue'
+import { appendQueueEntry, clearQueue, getQueue, insertQueueEntry, moveInQueue, nextInQueueIndex, previousInQueueIndex, removeFromQueue, restoreQueue, setQueueIndex, syncQueueVideo } from '../../../src/player/queue'
 
 describe('local playback queue', () => {
   beforeEach(() => {
@@ -58,5 +58,23 @@ describe('local playback queue', () => {
     expect(getQueue().currentIndex).toBe(1)
     syncQueueVideo('unrelated')
     expect(getQueue().currentIndex).toBe(-1)
+  })
+
+  it('inserts removed entries back cleanly and preserves newer items when restoring a cleared queue', () => {
+    appendQueueEntry({ id: 'v1', title: 'First' })
+    appendQueueEntry({ id: 'v2', title: 'Second' })
+    setQueueIndex(0)
+
+    removeFromQueue(1)
+    appendQueueEntry({ id: 'v3', title: 'Third' })
+    insertQueueEntry({ id: 'v2', title: 'Second' }, 1, false)
+    expect(getQueue().items.map(item => item.id)).toEqual(['v1', 'v2', 'v3'])
+    expect(getQueue().currentIndex).toBe(0)
+
+    const beforeClear = getQueue()
+    clearQueue()
+    appendQueueEntry({ id: 'v4', title: 'Fourth' })
+    restoreQueue(beforeClear)
+    expect(getQueue().items.map(item => item.id)).toEqual(['v1', 'v2', 'v3', 'v4'])
   })
 })

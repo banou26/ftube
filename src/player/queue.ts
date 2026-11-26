@@ -132,13 +132,42 @@ export const removeFromQueueById = (id: string) => {
   if (index !== -1) removeFromQueue(index)
 }
 
-/** Restores a previously captured playback queue snapshot. */
+/** Inserts `entry` back into the queue at `index`, shifting active indices while skipping duplicates. */
+export const insertQueueEntry = (entry: QueueEntry, index: number, wasCurrent = false) => {
+  if (state.items.some(item => item.id === entry.id)) return
+  const at = Math.max(0, Math.min(index, state.items.length))
+  const items = [...state.items]
+  items.splice(at, 0, entry)
+  if (wasCurrent && state.currentIndex === -1) {
+    publish({ items, currentIndex: at, resumeIndex: at + 1 })
+    return
+  }
+  const currentIndex = state.currentIndex >= at ? state.currentIndex + 1 : state.currentIndex
+  const resumeIndex = currentIndex >= 0
+    ? currentIndex + 1
+    : state.resumeIndex >= at
+    ? state.resumeIndex + 1
+    : state.resumeIndex
+  publish({ items, currentIndex, resumeIndex })
+}
+
+/** Restores a previously captured playback queue snapshot, preserving any newer queued items. */
 export const restoreQueue = (snapshot: QueueState) => {
-  publish({
-    items: [...snapshot.items],
-    currentIndex: snapshot.currentIndex,
-    resumeIndex: snapshot.resumeIndex,
-  })
+  if (state.items.length === 0) {
+    publish({
+      items: [...snapshot.items],
+      currentIndex: snapshot.currentIndex,
+      resumeIndex: snapshot.resumeIndex,
+    })
+    return
+  }
+  const existingIds = new Set(state.items.map(item => item.id))
+  const prepended = snapshot.items.filter(item => !existingIds.has(item.id))
+  if (prepended.length === 0) return
+  const items = [...prepended, ...state.items]
+  const currentIndex = state.currentIndex >= 0 ? state.currentIndex + prepended.length : -1
+  const resumeIndex = currentIndex >= 0 ? currentIndex + 1 : state.resumeIndex + prepended.length
+  publish({ items, currentIndex, resumeIndex })
 }
 
 /** Subscribes a component to the session playback queue. */

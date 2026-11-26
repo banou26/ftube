@@ -4,7 +4,7 @@ import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
 import { Eye, EyeOff, Link as LinkIcon, ListVideo } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { useToggleSubscription } from '../components/subscribe-button'
 import { useSession } from '../session'
@@ -514,13 +514,19 @@ const ChannelSubscribe = ({ channelId, subscribed }: { channelId: string, subscr
   const { signedIn } = useSession()
   const { fetching, toggle } = useToggleSubscription()
   const [on, setOn] = useState(subscribed === true)
+  const mountedRef = useRef(true)
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
   const onClick = () => {
     if (!signedIn) {
       signIn()
       return
     }
-    void toggle(channelId, on).then((next) => {
-      if (next !== undefined) setOn(next)
+    void toggle(channelId, on, (restored) => {
+      if (mountedRef.current) setOn(restored)
+    }).then((next) => {
+      if (next !== undefined && mountedRef.current) setOn(next)
     })
   }
   return (
