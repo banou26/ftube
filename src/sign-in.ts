@@ -4,8 +4,15 @@ import { showToast } from './components/ui/toast'
 import { mountHiddenFrame, stopAgentHost } from './engine/agent-host'
 import { resetEngine, startEngine } from './engine/client'
 import { loadedLib, startPlatform } from './engine/platform'
-import { clearSignedIn, markSignedIn, readChannel, storeChannel } from './engine/signed-in'
+import { clearSignedIn, markSignedIn, readChannel, readSignedIn, storeChannel } from './engine/signed-in'
 import { mountSignInModal } from './sign-in-modal'
+import { clearUndo, setUndoAccountScope } from './undo'
+
+setUndoAccountScope(() => (
+  typeof localStorage === 'undefined'
+    ? 'ssr'
+    : `${readSignedIn() ? 'in' : 'out'}:${readChannel() ?? ''}`
+))
 
 /**
  * How a sign-in through FKN's window ended: `'authed'` once youtube.com showed its avatar there, the window closed
@@ -69,16 +76,19 @@ const landSignedIn = () => {
 const tabs = new BroadcastChannel(SIGNED_IN_CHANNEL)
 tabs.addEventListener('message', (event: MessageEvent) => {
   if (event.data === SIGNING_OUT) {
+    clearUndo()
     resetEngine()
     stopAgentHost()
     return
   }
   if (event.data === SIGNED_OUT || event.data === SWITCHED) {
+    clearUndo()
     location.reload()
     return
   }
   if (event.data !== SIGNED_IN || finishing) return
   finishing = true
+  clearUndo()
   void openWindow?.close()
   landSignedIn()
 })
@@ -87,6 +97,7 @@ const finishSignIn = async () => {
   if (finishing) return
   finishing = true
   markSignedIn()
+  clearUndo()
   await startEngine().then((engine) => engine.resetIdentity()).catch(() => {})
   tabs.postMessage(SIGNED_IN)
   landSignedIn()
@@ -258,6 +269,7 @@ export const signIn = () => {
  */
 export const switchChannel = (brandPageId?: string) => {
   storeChannel(brandPageId)
+  clearUndo()
   tabs.postMessage(SWITCHED)
   location.assign('/')
 }
@@ -281,6 +293,7 @@ export const signOut = async () => {
   const channel = readChannel()
   // cleared first, so an engine started meanwhile attaches its page on a jar of its own
   clearSignedIn()
+  clearUndo()
   resetEngine()
   stopAgentHost()
   tabs.postMessage(SIGNING_OUT)

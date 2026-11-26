@@ -1575,6 +1575,32 @@ describe('youtube source', () => {
     await expect(source.addToPlaylist('PL1', ['a'])).resolves.toMatchObject({ id: 'PL1', title: 'My playlist' })
   })
 
+  it('extracts addedSetVideoId transiently from addToPlaylist without caching it in knownPlaylists', async () => {
+    const client = createFakeClient()
+    const baseExecute = client.actions.execute
+    client.actions.execute = (async (endpoint: string, args?: Record<string, unknown>) => {
+      if (endpoint === 'browse/edit_playlist') {
+        client.calls.push(endpoint)
+        client.payloads.push({ endpoint, args })
+        return {
+          success: true,
+          data: {
+            playlistEditResults: [
+              { playlistEditVideoAddedResultData: { videoId: 'a', setVideoId: 'added-set-1' } },
+            ],
+          },
+        }
+      }
+      return baseExecute(endpoint, args as never)
+    }) as typeof client.actions.execute
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    await source.playlist('PL1')
+    const added = await source.addToPlaylist('PL1', ['a'])
+    expect(added).toMatchObject({ id: 'PL1', title: 'My playlist', addedSetVideoId: 'added-set-1' })
+    const moved = await source.movePlaylistItem('PL1', 'added-set-1', 'prev-set')
+    expect(moved.addedSetVideoId).toBeUndefined()
+  })
+
   it('does not POST an edit for an empty selection', async () => {
     const client = createFakeClient()
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })

@@ -53,7 +53,7 @@ const lib = vi.hoisted(() => ({
   loaded: true,
 }))
 
-vi.mock('../../src/components/ui/toast', () => ({ showToast }))
+vi.mock('../../src/components/ui/toast', () => ({ showToast, dismissToast: vi.fn(), TOAST_DISMISS_MS: 5_000 }))
 vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), resetEngine: () => {} }))
 vi.mock('../../src/engine/agent-host', () => ({ mountHiddenFrame: () => ({ remove: () => {} }), stopAgentHost: () => {} }))
 const startPlatform = vi.fn(async () => ({}))

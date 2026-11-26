@@ -747,6 +747,8 @@ export type SourcePlaylist = {
   isEditable?: boolean
   canDelete?: boolean
   canReorder?: boolean
+  /** Set transiently on addToPlaylist results so callers can position the new entry. */
+  addedSetVideoId?: string
   channel?: SourceChannel
 }
 

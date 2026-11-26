@@ -234,9 +234,19 @@ type PlaylistEditAction = {
   playlistPrivacy?: SourcePlaylistPrivacy
 }
 
+type PlaylistEditResult = {
+  playlistEditVideoAddedResultData?: {
+    videoId?: string
+    setVideoId?: string
+  }
+}
+
 type ApiResponse = {
   success?: boolean
-  data?: { playlistId?: string }
+  data?: {
+    playlistId?: string
+    playlistEditResults?: PlaylistEditResult[]
+  }
 }
 
 type SeedlessReelResponse = {
@@ -1189,7 +1199,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const editPlaylist = async (id: string, reason: string, actions: PlaylistEditAction[]) => {
     const active = await client
     requireSignIn(active, reason)
-    await active.actions.execute('browse/edit_playlist', { playlistId: id, actions })
+    return active.actions.execute('browse/edit_playlist', { playlistId: id, actions })
   }
 
   const playlistListPage = (feed: PlaylistsFeed): SourcePlaylistListPage => {
@@ -1729,11 +1739,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     },
     addToPlaylist: async (playlistId, videoIds) => {
       if (videoIds.length === 0) return writtenPlaylist(playlistId, {})
-      await editPlaylist(playlistId, 'save to a playlist', videoIds.map((videoId) => ({
+      const response = await editPlaylist(playlistId, 'save to a playlist', videoIds.map((videoId) => ({
         action: 'ACTION_ADD_VIDEO',
         addedVideoId: videoId,
       })))
-      return writtenPlaylist(playlistId, {})
+      const addedSetVideoId = response?.data?.playlistEditResults?.find(
+        (entry) => entry.playlistEditVideoAddedResultData?.setVideoId,
+      )?.playlistEditVideoAddedResultData?.setVideoId
+      const result = writtenPlaylist(playlistId, {})
+      return addedSetVideoId ? { ...result, addedSetVideoId } : result
     },
     // Takes setVideoIds rather than video ids because youtubei.js's removeVideos translates video ids by browsing and paging until it has matched as many rows as ids given: an id not in the playlist makes it walk every page then throw, and a single Shorts lockup on any page throws a ParsingError before the edit is attempted (core/managers/PlaylistManager.js:129).
     removeFromPlaylist: async (playlistId, setVideoIds) => {

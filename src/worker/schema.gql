@@ -985,6 +985,7 @@ type Playlist {
   isEditable: Boolean
   canDelete: Boolean
   canReorder: Boolean
+  addedSetVideoId: ID
   channel: Channel
 }
 

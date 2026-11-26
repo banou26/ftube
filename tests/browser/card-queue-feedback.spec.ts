@@ -47,19 +47,31 @@ test('adds to queue with panel management and applies Not interested and Don\'t 
   await page.getByRole('menuitem', { name: 'Not interested' }).click()
   await expect(harness.getByRole('link', { name: 'Alpha Video' })).toBeHidden()
   await expect(harness.getByRole('link', { name: 'Alpha Followup' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? [])).toContain('tok-ni-alpha')
+  // Feedback waits until the undo window expires rather than firing immediately.
+  await page.waitForTimeout(250)
+  expect(await page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? [])).toEqual([])
 
   await page.getByRole('button', { name: 'Undo' }).last().click()
   await expect(harness.getByRole('link', { name: 'Alpha Video' })).toBeVisible()
+  expect(await page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? [])).toEqual([])
 
   await harness.getByRole('button', { name: 'More actions for Alpha Video' }).click()
   await page.getByRole('menuitem', { name: "Don't recommend channel" }).click()
   await expect(harness.getByRole('link', { name: 'Alpha Video' })).toBeHidden()
   await expect(harness.getByRole('link', { name: 'Alpha Followup' })).toBeHidden()
   await expect(harness.getByRole('link', { name: 'Beta Video' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? [])).toContain('tok-dr-alpha')
+  await page.waitForTimeout(250)
+  expect(await page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? [])).toEqual([])
 
   await page.getByRole('button', { name: 'Undo' }).last().click()
   await expect(harness.getByRole('link', { name: 'Alpha Video' })).toBeVisible()
   await expect(harness.getByRole('link', { name: 'Alpha Followup' })).toBeVisible()
+
+  // Un-reverted dismissal commits its deferred feedback once the toast expires, even though the card is unmounted.
+  await harness.getByRole('button', { name: 'More actions for Alpha Video' }).click()
+  await page.getByRole('menuitem', { name: 'Not interested' }).click()
+  await expect(harness.getByRole('link', { name: 'Alpha Video' })).toBeHidden()
+  await expect(page.getByText('Video removed')).toBeVisible()
+  await expect(page.getByText('Video removed')).toHaveCount(0, { timeout: 8_000 })
+  await expect.poll(() => page.evaluate(() => window.__cardMenuHarness?.feedbackTokens ?? []), { timeout: 5_000 }).toEqual(['tok-ni-alpha'])
 })

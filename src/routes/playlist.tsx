@@ -2,8 +2,8 @@ import type { PlaylistViewQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 import { CircleUserRound, ListVideo, Play, Share2, Shuffle, X } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { useMutation, useQuery } from 'urql'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useClient, useMutation, useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { useDocumentTitle } from '../app'
@@ -18,7 +18,6 @@ import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { watchHrefFor } from '../components/video-card'
 import { VideoCardCompact, VideoCardCompactSkeleton } from '../components/video-card-compact'
 import { gql } from '../generated'
-import { AddToPlaylistDocument } from '../generated/graphql'
 import { signIn } from '../sign-in'
 import { PLAYLIST_UNAVAILABLE } from '../sources/types'
 import { showUndoableToast } from '../undo'
@@ -36,6 +35,7 @@ const PLAYLIST_VIEW_QUERY = gql(`
         updatedText
         privacy
         isEditable
+        canReorder
         channel { id name avatar }
       }
       items {
@@ -66,6 +66,23 @@ const PLAYLIST_VIEW_QUERY = gql(`
 const REMOVE_FROM_PLAYLIST = gql(`
   mutation RemoveFromPlaylist($playlistId: ID!, $setVideoIds: [ID!]!) {
     removeFromPlaylist(playlistId: $playlistId, setVideoIds: $setVideoIds) {
+      id
+    }
+  }
+`)
+
+const RESTORE_TO_PLAYLIST = gql(`
+  mutation RestoreToPlaylist($playlistId: ID!, $videoIds: [ID!]!) {
+    addToPlaylist(playlistId: $playlistId, videoIds: $videoIds) {
+      id
+      addedSetVideoId
+    }
+  }
+`)
+
+const MOVE_PLAYLIST_ITEM = gql(`
+  mutation MovePlaylistItem($playlistId: ID!, $setVideoId: ID!, $afterSetVideoId: ID) {
+    movePlaylistItem(playlistId: $playlistId, setVideoId: $setVideoId, afterSetVideoId: $afterSetVideoId) {
       id
     }
   }
@@ -640,8 +657,12 @@ const PlaylistPage = () => {
     variables: { id: listId, cursor: pages[pages.length - 1]?.cursor },
     pause: listId.length === 0 || (accountScoped && (!ready || !signedIn))
   })
+  const client = useClient()
+  const mountedRef = useRef(true)
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
   const [, removeFromPlaylist] = useMutation(REMOVE_FROM_PLAYLIST)
-  const [, addToPlaylist] = useMutation(AddToPlaylistDocument)
   const [removed, setRemoved] = useState<Set<string>>(() => new Set())
   const [removing, setRemoving] = useState<string[]>([])
 
@@ -668,21 +689,40 @@ const PlaylistPage = () => {
 
   const onRemove = (setVideoId: string) => {
     if (removing.includes(setVideoId)) return
-    const targetVideoId = rows.find(item => item.setVideoId === setVideoId)?.video.id
+    const removedIndex = rows.findIndex(item => item.setVideoId === setVideoId)
+    const targetVideoId = removedIndex === -1 ? undefined : rows[removedIndex]?.video.id
+    const predecessorSetVideoId = removedIndex > 0 ? rows[removedIndex - 1]?.setVideoId : undefined
+    const wasLast = removedIndex !== -1 && removedIndex === rows.length - 1 && !cursor
     setRemoving(previous => [...previous, setVideoId])
     void removeFromPlaylist({ playlistId: listId, setVideoIds: [setVideoId] }).then((result) => {
-      setRemoving(previous => previous.filter(value => value !== setVideoId))
+      if (mountedRef.current) setRemoving(previous => previous.filter(value => value !== setVideoId))
       if (result.error) {
         showToast(lineFor(result.error))
         return
       }
-      setRemoved(previous => new Set(previous).add(setVideoId))
+      if (mountedRef.current) setRemoved(previous => new Set(previous).add(setVideoId))
       if (targetVideoId) {
         showUndoableToast('Removed from playlist', {
           label: 'Remove from playlist',
           undo: async () => {
-            const added = await addToPlaylist({ playlistId: listId, videoIds: [targetVideoId] })
+            // client.mutation bypasses hook unmount guards if the user navigates before pressing Undo.
+            const added = await client.mutation(RESTORE_TO_PLAYLIST, { playlistId: listId, videoIds: [targetVideoId] }).toPromise()
             if (added.error) throw added.error
+            const addedSetVideoId = added.data?.addToPlaylist.addedSetVideoId ?? undefined
+            if (
+              playlist?.canReorder !== false
+              && !wasLast
+              && addedSetVideoId
+              && (removedIndex === 0 || predecessorSetVideoId !== undefined)
+            ) {
+              const moved = await client.mutation(MOVE_PLAYLIST_ITEM, {
+                playlistId: listId,
+                setVideoId: addedSetVideoId,
+                ...(predecessorSetVideoId !== undefined ? { afterSetVideoId: predecessorSetVideoId } : {}),
+              }).toPromise()
+              if (moved.error) showToast(lineFor(moved.error))
+            }
+            if (!mountedRef.current) return
             setRemoved(previous => {
               const next = new Set(previous)
               next.delete(setVideoId)

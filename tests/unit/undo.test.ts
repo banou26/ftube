@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
-const shownToasts = vi.hoisted(() => [] as { id: number, message: string }[])
+const shownToasts = vi.hoisted(() => [] as { id: number, message: string, onExpire?: () => void }[])
 const dismissedIds = vi.hoisted(() => [] as number[])
 const mockState = vi.hoisted(() => ({ nextId: 0 }))
 
 vi.mock('../../src/components/ui/toast', () => ({
-  showToast: vi.fn((message: string) => {
+  TOAST_DISMISS_MS: 5_000,
+  showToast: vi.fn((message: string, _action?: unknown, options?: { onExpire?: () => void }) => {
     const id = ++mockState.nextId
-    shownToasts.push({ id, message })
+    shownToasts.push({ id, message, onExpire: options?.onExpire })
     return id
   }),
   dismissToast: vi.fn((id: number) => {
@@ -15,7 +16,7 @@ vi.mock('../../src/components/ui/toast', () => ({
   }),
 }))
 
-import { bindUndoShortcut, canUndo, clearUndo, MAX_UNDO, pushUndo, runUndo, showUndoableToast } from '../../src/undo'
+import { bindUndoShortcut, canUndo, clearUndo, expireUndo, flushPendingUndoCommits, MAX_UNDO, pushUndo, runUndo, setUndoAccountScope, showUndoableToast } from '../../src/undo'
 
 const makeWindow = () => {
   const listeners = new Map<string, Set<(event: KeyboardEvent) => void>>()
@@ -144,6 +145,109 @@ describe('undo stack and shortcut', () => {
       expect(calls).toEqual(['undid'])
     } finally {
       unbind()
+    }
+  })
+
+  it('isolates undo entries per accountKey and drops entries on clearUndo without committing', async () => {
+    let scope = 'in:channel-a'
+    setUndoAccountScope(() => scope)
+    try {
+      const committed: string[] = []
+      const undone: string[] = []
+      pushUndo({
+        label: 'Dismiss A',
+        undo: () => { undone.push('a') },
+        onCommit: () => { committed.push('commit-a') },
+      })
+      expect(canUndo()).toBe(true)
+
+      scope = 'in:channel-b'
+      expect(canUndo()).toBe(false)
+      await expect(runUndo()).resolves.toBe(false)
+      expect(undone).toEqual([])
+      expect(committed).toEqual([])
+
+      pushUndo({
+        label: 'Dismiss B',
+        undo: () => { undone.push('b') },
+        onCommit: () => { committed.push('commit-b') },
+      })
+      clearUndo()
+      expect(canUndo()).toBe(false)
+      expect(committed).toEqual([])
+    } finally {
+      setUndoAccountScope(() => '')
+    }
+  })
+
+  it('expires toast undo entries after ttlMs and commits onCommit once only when not undone', async () => {
+    setUndoAccountScope(() => 'in:')
+    try {
+      const committed: string[] = []
+      const undone: string[] = []
+
+      // Undoing before expiry cancels onCommit even if onExpire later arrives.
+      showUndoableToast('Removed A', {
+        label: 'Remove A',
+        undo: () => { undone.push('a') },
+        onCommit: () => { committed.push('commit-a') },
+      })
+      const toastA = shownToasts.at(-1)!
+      await expect(runUndo()).resolves.toBe(true)
+      toastA.onExpire?.()
+      expect(undone).toEqual(['a'])
+      expect(committed).toEqual([])
+
+      // Natural toast expiry commits once and blocks subsequent undo or duplicate expiry.
+      showUndoableToast('Removed B', {
+        label: 'Remove B',
+        undo: () => { undone.push('b') },
+        onCommit: () => { committed.push('commit-b') },
+      })
+      const toastB = shownToasts.at(-1)!
+      toastB.onExpire?.()
+      toastB.onExpire?.()
+      expect(canUndo()).toBe(false)
+      await expect(runUndo()).resolves.toBe(false)
+      expect(committed).toEqual(['commit-b'])
+
+      // Elapsed ttlMs also self-prunes and commits on next check even without timer callback.
+      const idC = pushUndo({
+        label: 'Remove C',
+        ttlMs: 250,
+        undo: () => { undone.push('c') },
+        onCommit: () => { committed.push('commit-c') },
+      })
+      vi.advanceTimersByTime(300)
+      expect(canUndo()).toBe(false)
+      expireUndo(idC)
+      expect(committed).toEqual(['commit-b', 'commit-c'])
+    } finally {
+      setUndoAccountScope(() => '')
+    }
+  })
+
+  it('flushes pending onCommit callbacks once when pagehide fires', async () => {
+    setUndoAccountScope(() => 'in:')
+    const targetWindow = makeWindow()
+    const unbind = bindUndoShortcut(targetWindow as unknown as Window)
+    try {
+      const committed: string[] = []
+      const undone: string[] = []
+      showUndoableToast('Removed D', {
+        label: 'Remove D',
+        undo: () => { undone.push('d') },
+        onCommit: () => { committed.push('commit-d') },
+      })
+      targetWindow.dispatch('pagehide')
+      flushPendingUndoCommits()
+      expect(committed).toEqual(['commit-d'])
+      expect(canUndo()).toBe(false)
+      await expect(runUndo()).resolves.toBe(false)
+      expect(undone).toEqual([])
+    } finally {
+      unbind()
+      setUndoAccountScope(() => '')
     }
   })
 })

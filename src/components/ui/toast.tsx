@@ -10,28 +10,52 @@ export type Toast = {
   action?: { label: string, onAction: () => void }
 }
 
-const DISMISS_MS = 5_000
+export type ShowToastOptions = {
+  durationMs?: number
+  onExpire?: () => void
+}
+
+export const TOAST_DISMISS_MS = 5_000
+
+type PendingToast = {
+  timer: ReturnType<typeof setTimeout>
+  onExpire?: () => void
+}
 
 let toasts: Toast[] = []
 let nextId = 0
 const listeners = new Set<(value: Toast[]) => void>()
+const pending = new Map<number, PendingToast>()
 
 const publish = () => {
   for (const listener of listeners) listener(toasts)
 }
 
 export const dismissToast = (id: number) => {
+  const entry = pending.get(id)
+  if (entry) {
+    clearTimeout(entry.timer)
+    pending.delete(id)
+  }
   const next = toasts.filter(toast => toast.id !== id)
   if (next.length === toasts.length) return
   toasts = next
   publish()
 }
 
-export const showToast = (message: string, action?: Toast['action']) => {
+export const showToast = (message: string, action?: Toast['action'], options?: ShowToastOptions) => {
   const id = ++nextId
   toasts = [...toasts, { id, message, action }]
   publish()
-  setTimeout(() => dismissToast(id), DISMISS_MS)
+  const timer = setTimeout(() => {
+    const current = pending.get(id)
+    if (!current) return
+    pending.delete(id)
+    toasts = toasts.filter(toast => toast.id !== id)
+    publish()
+    current.onExpire?.()
+  }, options?.durationMs ?? TOAST_DISMISS_MS)
+  pending.set(id, { timer, onExpire: options?.onExpire })
   return id
 }
 

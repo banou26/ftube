@@ -18,7 +18,7 @@ const attachFrame = vi.fn(async (options: { cookies: string }) => {
   return { clearCookies }
 })
 
-vi.mock('../../src/components/ui/toast', () => ({ showToast: vi.fn() }))
+vi.mock('../../src/components/ui/toast', () => ({ showToast: vi.fn(), dismissToast: vi.fn(), TOAST_DISMISS_MS: 5_000 }))
 vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), resetEngine }))
 vi.mock('../../src/engine/agent-host', () => ({ mountHiddenFrame: () => iframe, stopAgentHost }))
 vi.mock('../../src/engine/platform', () => ({ startPlatform: async () => ({}), loadedLib: () => ({ attachFrame }) }))

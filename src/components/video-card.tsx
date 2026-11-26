@@ -4,7 +4,7 @@ import type { CollaborationData } from './byline'
 import { css } from '@emotion/react'
 import { Ban, Check, ChevronLeft, CircleMinus, Clock, Download, EllipsisVertical, ListPlus, ListVideo, Share2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'preact/hooks'
-import { useMutation, useQuery } from 'urql'
+import { useMutation, useQuery, useClient } from 'urql'
 import { Link } from 'wouter'
 
 // reuses save-menu.tsx's documents rather than a second gql() copy: two operations cannot share a name
@@ -155,8 +155,8 @@ const CardMenuPanel = (
     variables: { cursor: loaded[loaded.length - 1]?.cursor },
     pause: !wanted || !ready || !signedIn,
   })
+  const client = useClient()
   const [, addToPlaylist] = useMutation(AddToPlaylistDocument)
-  const [, submitFeedback] = useMutation(SUBMIT_FEEDBACK)
 
   const page = data?.playlists
   const { items, cursor } = useInfiniteFeed({
@@ -221,23 +221,31 @@ const CardMenuPanel = (
 
   const onNotInterested = () => {
     dismissVideo(videoId)
-    if (signedIn && notInterestedToken) {
-      void submitFeedback({ token: notInterestedToken }).then((result) => {
-        if (result.error) showToast(lineFor(result.error))
-      })
-    }
+    const token = signedIn ? notInterestedToken : undefined
     showUndoableToast('Video removed', {
       label: `Remove ${title}`,
       undo: () => undismissVideo(videoId),
       undoneMessage: 'Video restored',
+      ...(token
+        ? {
+            onCommit: () => {
+              // VideoCard unmounts immediately once dismissVideo hides the card, so client.mutation must outlive hook state.
+              void client.mutation(SUBMIT_FEEDBACK, { token }).toPromise().then((result) => {
+                if (result.error) showToast(lineFor(result.error))
+              })
+            },
+          }
+        : {}),
     })
   }
 
   const onDontRecommend = () => {
     const channelId = channel?.id
     if (channelId) dismissChannel(channelId)
-    if (signedIn && dontRecommendToken) {
-      void submitFeedback({ token: dontRecommendToken }).then((result) => {
+    const token = signedIn ? dontRecommendToken : undefined
+    const sendFeedback = () => {
+      if (!token) return
+      void client.mutation(SUBMIT_FEEDBACK, { token }).toPromise().then((result) => {
         if (result.error) showToast(lineFor(result.error))
       })
     }
@@ -247,8 +255,10 @@ const CardMenuPanel = (
         label: message,
         undo: () => undismissChannel(channelId),
         undoneMessage: channel?.name ? `Restored ${channel.name}` : 'Channel restored',
+        ...(token ? { onCommit: sendFeedback } : {}),
       })
     } else {
+      sendFeedback()
       showToast(message)
     }
   }
