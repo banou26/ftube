@@ -517,7 +517,7 @@ const style = css`
   .progress span {
     display: block;
     height: 100%;
-    background: var(--brand);
+    background: var(--brand-red);
   }
 
   .details {
