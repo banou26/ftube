@@ -1,8 +1,8 @@
 import { css } from '@emotion/react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
-const AMBIENT_WIDTH = 32
-const AMBIENT_HEIGHT = 18
+const AMBIENT_WIDTH = 64
+const AMBIENT_HEIGHT = 36
 const AMBIENT_INTERVAL_MS = 100
 const AMBIENT_OPACITY = 0.72
 const AMBIENT_BAR_OPACITY = 0.88
@@ -10,6 +10,7 @@ const BLEND_ALPHA = 0.28
 const BLACK_THRESHOLD = 28
 const SIGNAL_THRESHOLD = 36
 const MAX_CROP_FRACTION = 0.2
+const EDGE_MARGIN_EPSILON = 0.05
 
 export type AmbientState = {
   enabled: boolean
@@ -28,6 +29,32 @@ export type AmbientCrop = {
   y: number
   w: number
   h: number
+}
+
+export type AmbientVideoRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type AmbientDrawContext = {
+  clearRect: (x: number, y: number, width: number, height: number) => void
+  drawImage: (
+    image: CanvasImageSource,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ) => void
+  save: () => void
+  restore: () => void
+  translate: (x: number, y: number) => void
+  scale: (x: number, y: number) => void
 }
 
 /**
@@ -107,9 +134,150 @@ export const detectSymmetricBarCrop = (
   return hasSignal ? { x, y, w, h } : { x: 0, y: 0, w: safeWidth, h: safeHeight }
 }
 
+/** Computes the `object-fit: contain` sub-rectangle of a video inside a container box. */
+export const computeContainedVideoRect = (
+  containerWidth: number,
+  containerHeight: number,
+  videoWidth: number,
+  videoHeight: number,
+): AmbientVideoRect => {
+  const safeCW = Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 0
+  const safeCH = Number.isFinite(containerHeight) && containerHeight > 0 ? containerHeight : 0
+  if (
+    safeCW === 0
+    || safeCH === 0
+    || !Number.isFinite(videoWidth)
+    || !Number.isFinite(videoHeight)
+    || videoWidth <= 0
+    || videoHeight <= 0
+  ) {
+    return { x: 0, y: 0, width: safeCW, height: safeCH }
+  }
+  const containerAspect = safeCW / safeCH
+  const videoAspect = videoWidth / videoHeight
+  if (videoAspect > containerAspect) {
+    const height = safeCW / videoAspect
+    return { x: 0, y: (safeCH - height) / 2, width: safeCW, height }
+  }
+  const width = safeCH * videoAspect
+  return { x: (safeCW - width) / 2, y: 0, width, height: safeCH }
+}
+
+/**
+ * Draws the sampled frame at `videoRect` and mirror-extends outer ~8% strips and corner
+ * patches out to every canvas border so edge colors sit flush against `<video>` without
+ * dark blur borders or interior colors bleeding across letterbox/pillarbox margins.
+ */
+export const drawEdgeMatchedFrame = (
+  ctx: AmbientDrawContext,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  videoRect: AmbientVideoRect,
+  crop?: AmbientCrop,
+  clear = true,
+) => {
+  if (clear) ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+  if (
+    canvasWidth <= 0
+    || canvasHeight <= 0
+    || sourceWidth <= 0
+    || sourceHeight <= 0
+    || videoRect.width <= 0
+    || videoRect.height <= 0
+  ) {
+    return
+  }
+
+  const sx = crop ? Math.max(0, Math.min(sourceWidth, crop.x)) : 0
+  const sy = crop ? Math.max(0, Math.min(sourceHeight, crop.y)) : 0
+  const sw = crop ? Math.max(1, Math.min(sourceWidth - sx, crop.w)) : sourceWidth
+  const sh = crop ? Math.max(1, Math.min(sourceHeight - sy, crop.h)) : sourceHeight
+  const stripW = Math.max(2, Math.min(sw, Math.round(sw * 0.08)))
+  const stripH = Math.max(2, Math.min(sh, Math.round(sh * 0.08)))
+
+  const left = Math.max(0, Math.min(canvasWidth, videoRect.x))
+  const top = Math.max(0, Math.min(canvasHeight, videoRect.y))
+  const right = Math.max(left, Math.min(canvasWidth, videoRect.x + videoRect.width))
+  const bottom = Math.max(top, Math.min(canvasHeight, videoRect.y + videoRect.height))
+  const dw = right - left
+  const dh = bottom - top
+  const rw = Math.max(0, canvasWidth - right)
+  const bh = Math.max(0, canvasHeight - bottom)
+
+  if (dw > 0 && dh > 0) ctx.drawImage(source, sx, sy, sw, sh, left, top, dw, dh)
+
+  if (left > EDGE_MARGIN_EPSILON && dh > 0) {
+    ctx.save()
+    ctx.translate(left, 0)
+    ctx.scale(-1, 1)
+    ctx.drawImage(source, sx, sy, stripW, sh, 0, top, left, dh)
+    ctx.restore()
+  }
+
+  if (rw > EDGE_MARGIN_EPSILON && dh > 0) {
+    ctx.save()
+    ctx.translate(canvasWidth, 0)
+    ctx.scale(-1, 1)
+    ctx.drawImage(source, sx + sw - stripW, sy, stripW, sh, 0, top, rw, dh)
+    ctx.restore()
+  }
+
+  if (top > EDGE_MARGIN_EPSILON && dw > 0) {
+    ctx.save()
+    ctx.translate(0, top)
+    ctx.scale(1, -1)
+    ctx.drawImage(source, sx, sy, sw, stripH, left, 0, dw, top)
+    ctx.restore()
+  }
+
+  if (bh > EDGE_MARGIN_EPSILON && dw > 0) {
+    ctx.save()
+    ctx.translate(0, canvasHeight)
+    ctx.scale(1, -1)
+    ctx.drawImage(source, sx, sy + sh - stripH, sw, stripH, left, 0, dw, bh)
+    ctx.restore()
+  }
+
+  if (left > EDGE_MARGIN_EPSILON && top > EDGE_MARGIN_EPSILON) {
+    ctx.save()
+    ctx.translate(left, top)
+    ctx.scale(-1, -1)
+    ctx.drawImage(source, sx, sy, stripW, stripH, 0, 0, left, top)
+    ctx.restore()
+  }
+
+  if (rw > EDGE_MARGIN_EPSILON && top > EDGE_MARGIN_EPSILON) {
+    ctx.save()
+    ctx.translate(canvasWidth, top)
+    ctx.scale(-1, -1)
+    ctx.drawImage(source, sx + sw - stripW, sy, stripW, stripH, 0, 0, rw, top)
+    ctx.restore()
+  }
+
+  if (left > EDGE_MARGIN_EPSILON && bh > EDGE_MARGIN_EPSILON) {
+    ctx.save()
+    ctx.translate(left, canvasHeight)
+    ctx.scale(-1, -1)
+    ctx.drawImage(source, sx, sy + sh - stripH, stripW, stripH, 0, 0, left, bh)
+    ctx.restore()
+  }
+
+  if (rw > EDGE_MARGIN_EPSILON && bh > EDGE_MARGIN_EPSILON) {
+    ctx.save()
+    ctx.translate(canvasWidth, canvasHeight)
+    ctx.scale(-1, -1)
+    ctx.drawImage(source, sx + sw - stripW, sy + sh - stripH, stripW, stripH, 0, 0, rw, bh)
+    ctx.restore()
+  }
+}
+
 type CanvasTarget = {
   canvas: HTMLCanvasElement
   seeded: boolean
+  lastRectKey: string
 }
 
 type VideoSampler = {
@@ -120,6 +288,31 @@ type VideoSampler = {
 }
 
 const samplers = new WeakMap<HTMLVideoElement, VideoSampler>()
+
+const rectForTarget = (
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+): { rect: AmbientVideoRect, key: string } => {
+  const cw = canvas.width
+  const ch = canvas.height
+  const cRect = canvas.getBoundingClientRect()
+  const vRect = video.getBoundingClientRect()
+  const rect = cRect.width > 0 && cRect.height > 0 && vRect.width > 0 && vRect.height > 0
+    ? (() => {
+        const contained = computeContainedVideoRect(vRect.width, vRect.height, video.videoWidth, video.videoHeight)
+        const sx = cw / cRect.width
+        const sy = ch / cRect.height
+        return {
+          x: (vRect.left + contained.x - cRect.left) * sx,
+          y: (vRect.top + contained.y - cRect.top) * sy,
+          width: contained.width * sx,
+          height: contained.height * sy,
+        }
+      })()
+    : computeContainedVideoRect(cw, ch, video.videoWidth, video.videoHeight)
+  const key = `${rect.x.toFixed(2)},${rect.y.toFixed(2)},${rect.width.toFixed(2)},${rect.height.toFixed(2)}`
+  return { rect, key }
+}
 
 const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
   const scratch = document.createElement('canvas')
@@ -136,21 +329,14 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
     if (!hasSample) return
     const ctx = target.canvas.getContext('2d')
     if (!ctx) return
+    const { rect, key } = rectForTarget(video, target.canvas)
+    const snap = instant || !target.seeded || target.lastRectKey !== key
     const previousAlpha = ctx.globalAlpha
-    ctx.globalAlpha = instant || !target.seeded ? 1 : BLEND_ALPHA
-    ctx.drawImage(
-      scratch,
-      lastCrop.x,
-      lastCrop.y,
-      lastCrop.w,
-      lastCrop.h,
-      0,
-      0,
-      AMBIENT_WIDTH,
-      AMBIENT_HEIGHT,
-    )
+    ctx.globalAlpha = snap ? 1 : BLEND_ALPHA
+    drawEdgeMatchedFrame(ctx, scratch, AMBIENT_WIDTH, AMBIENT_HEIGHT, target.canvas.width, target.canvas.height, rect, lastCrop, snap)
     ctx.globalAlpha = previousAlpha
     target.seeded = true
+    target.lastRectKey = key
   }
 
   const sample = (instant: boolean) => {
@@ -200,7 +386,9 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
 
   const onSeeked = () => sample(true)
 
+  video.addEventListener('loadedmetadata', syncPlayback)
   video.addEventListener('loadeddata', syncPlayback)
+  video.addEventListener('resize', syncPlayback)
   video.addEventListener('playing', syncPlayback)
   video.addEventListener('seeked', onSeeked)
   video.addEventListener('play', syncPlayback)
@@ -214,7 +402,9 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
     drawTarget,
     destroy: () => {
       cancelLoop()
+      video.removeEventListener('loadedmetadata', syncPlayback)
       video.removeEventListener('loadeddata', syncPlayback)
+      video.removeEventListener('resize', syncPlayback)
       video.removeEventListener('playing', syncPlayback)
       video.removeEventListener('seeked', onSeeked)
       video.removeEventListener('play', syncPlayback)
@@ -230,11 +420,19 @@ const subscribeAmbientVideo = (video: HTMLVideoElement, canvas: HTMLCanvasElemen
     sampler = createVideoSampler(video)
     samplers.set(video, sampler)
   }
-  const target: CanvasTarget = { canvas, seeded: false }
+  const target: CanvasTarget = { canvas, seeded: false, lastRectKey: '' }
   sampler.targets.add(target)
   sampler.sample(true)
   sampler.drawTarget(target, true)
+  const observer = typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver(() => {
+        sampler?.drawTarget(target, true)
+      })
+    : undefined
+  observer?.observe(video)
+  if (canvas.parentElement) observer?.observe(canvas.parentElement)
   return () => {
+    observer?.disconnect()
     sampler.targets.delete(target)
     if (sampler.targets.size === 0) {
       sampler.destroy()
@@ -267,7 +465,7 @@ const glowStyle = css`
     width: 100%;
     height: 100%;
     filter: blur(5.2rem) saturate(1.65) brightness(1.08);
-    transform: scale(1.12) translateZ(0);
+    transform: translateZ(0);
   }
 `
 
@@ -278,15 +476,18 @@ const barsStyle = css`
   overflow: hidden;
   pointer-events: none;
   transition: opacity 0.4s ease;
-  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 1) 14%, rgba(0, 0, 0, 1) 86%, rgba(0, 0, 0, 0.72) 100%);
-  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 1) 14%, rgba(0, 0, 0, 1) 86%, rgba(0, 0, 0, 0.72) 100%);
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0.88) 100%);
+  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0.88) 100%);
 
   canvas {
+    position: absolute;
+    top: -4rem;
+    left: -4rem;
     display: block;
-    width: 100%;
-    height: 100%;
+    width: calc(100% + 8rem);
+    height: calc(100% + 8rem);
     filter: blur(3.6rem) saturate(1.55) brightness(0.92);
-    transform: scale(1.18) translateZ(0);
+    transform: translateZ(0);
   }
 `
 
@@ -376,8 +577,16 @@ export const AmbientBars = (
   const active = opacity > 0
 
   useEffect(() => {
+    clearCanvas(canvasRef.current)
+  }, [video])
+
+  useEffect(() => {
     const canvas = canvasRef.current
-    if (!active || !video || !canvas) return
+    if (!video) {
+      clearCanvas(canvas)
+      return
+    }
+    if (!active || !canvas) return
     return subscribeAmbientVideo(video, canvas)
   }, [active, video])
 
