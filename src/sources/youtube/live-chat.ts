@@ -15,6 +15,7 @@ import type {
   SourceLiveChatTickerItem,
 } from '../types'
 
+import { classifyCustomEmoji, collectEmojiCategoryMeta } from './emoji'
 import { argbColor, AVATAR_WIDTH, EMOJI_WIDTH, handleFromUrl, httpsUrl, thumbnail } from './normalize'
 
 type RawThumb = { url?: string, width?: number, height?: number }
@@ -927,8 +928,17 @@ export const parseLiveChatResponse = (raw: unknown): ParsedLiveChatResponse => {
           shortcuts?: string[]
           image?: RawThumbList
           isCustomEmoji?: boolean
+          isLocked?: boolean
         }[]
-        actionPanel?: unknown
+        actionPanel?: {
+          liveChatMessageInputRenderer?: {
+            pickers?: {
+              emojiPickerRenderer?: {
+                categories?: unknown[]
+              }
+            }[]
+          }
+        }
         actions?: Record<string, unknown>[]
       }
     }
@@ -997,6 +1007,11 @@ export const parseLiveChatResponse = (raw: unknown): ParsedLiveChatResponse => {
       ? 'TOP'
       : undefined
 
+  const emojiCategoryMeta = collectEmojiCategoryMeta(
+    lcc.actionPanel?.liveChatMessageInputRenderer?.pickers?.flatMap(
+      picker => picker.emojiPickerRenderer?.categories ?? [],
+    ),
+  )
   const seenEmoji = new Set<string>()
   const customEmojis: SourceLiveChatEmoji[] = []
   for (const entry of lcc.emojis ?? []) {
@@ -1005,7 +1020,13 @@ export const parseLiveChatResponse = (raw: unknown): ParsedLiveChatResponse => {
     const url = rawThumb(entry.image, EMOJI_WIDTH)
     if (!shortcut || !url || seenEmoji.has(shortcut)) continue
     seenEmoji.add(shortcut)
-    customEmojis.push({ id: entry.emojiId ?? shortcut, shortcut, url })
+    const id = entry.emojiId ?? shortcut
+    customEmojis.push({
+      id,
+      shortcut,
+      url,
+      ...classifyCustomEmoji(id, emojiCategoryMeta, entry.isLocked === true),
+    })
   }
 
   const { inputState, sendParams, clearSendParams } = parseRawActionPanel(lcc.actionPanel)

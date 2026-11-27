@@ -10,8 +10,10 @@ vi.mock('lucide-react', () => ({
   Hand: () => null,
   Heart: () => null,
   Lightbulb: () => null,
+  Lock: () => null,
   Search: () => null,
   Smile: () => null,
+  Sparkles: () => null,
   Trophy: () => null,
   Tv: () => null,
 }))
@@ -33,6 +35,7 @@ const {
   filterCustomEmojis,
   filterEmojis,
   insertAtCursor,
+  splitCustomEmojis,
 } = await import('../../../src/components/emoji-picker')
 
 describe('insertAtCursor', () => {
@@ -73,6 +76,17 @@ describe('filterEmojis', () => {
     expect(filterCustomEmojis(custom, '')).toHaveLength(2)
     expect(filterCustomEmojis(custom, 'HYP')).toEqual([custom[0]])
     expect(filterCustomEmojis(custom, 'none')).toEqual([])
+  })
+
+  it('splits channel emojis from YouTube global emojis while preserving lock metadata', () => {
+    const grouped = splitCustomEmojis([
+      { id: 'UCch/1', shortcut: ':member:', url: 'https://img/m.png', group: 'channel', locked: true, lockReason: 'Members only' },
+      { id: 'UCkszU2WH9gy1mb0dV-11UJg/1', shortcut: ':yt:', url: 'https://img/yt.png', group: 'youtube' },
+      { id: 'legacy', shortcut: ':legacy:', url: 'https://img/l.png' },
+    ])
+    expect(grouped.channel.map(item => item.shortcut)).toEqual([':member:', ':legacy:'])
+    expect(grouped.channel[0]?.locked).toBe(true)
+    expect(grouped.youtube.map(item => item.shortcut)).toEqual([':yt:'])
   })
 })
 

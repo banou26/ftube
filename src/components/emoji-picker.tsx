@@ -2,7 +2,7 @@ import type { TargetedEvent } from 'preact'
 import type { LiveChatEmoji } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { Cake, Car, Flower2, Hand, Heart, Lightbulb, Search, Smile, Trophy, Tv } from 'lucide-react'
+import { Cake, Car, Flower2, Hand, Heart, Lightbulb, Lock, Search, Smile, Sparkles, Trophy, Tv } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
@@ -52,7 +52,7 @@ export type EmojiEntry = {
 
 export type CustomEmoji = LiveChatEmoji
 
-type PickerTab = 'Channel' | EmojiCategory
+type PickerTab = 'Channel' | 'YouTube' | EmojiCategory
 
 export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
   'Smileys',
@@ -67,6 +67,7 @@ export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
 
 const SECTION_LABELS: Record<PickerTab, string> = {
   Channel: 'Channel emojis',
+  YouTube: 'YouTube emojis',
   Smileys: 'Smileys',
   Gestures: 'Gestures',
   Hearts: 'Hearts & symbols',
@@ -285,7 +286,7 @@ export const filterEmojis = (query: string, category?: EmojiCategory): readonly 
   )
 }
 
-/** Filters custom channel emojis by shortcut when a search `query` is non-empty. */
+/** Filters custom channel or YouTube emojis by shortcut when a search `query` is non-empty. */
 export const filterCustomEmojis = (
   customEmojis: readonly CustomEmoji[],
   query: string,
@@ -293,6 +294,17 @@ export const filterCustomEmojis = (
   const term = query.trim().toLowerCase()
   if (!term) return customEmojis
   return customEmojis.filter(entry => entry.shortcut.toLowerCase().includes(term))
+}
+
+/** Partitions custom emojis into channel membership emojis and YouTube global emojis. */
+export const splitCustomEmojis = (customEmojis: readonly CustomEmoji[]) => {
+  const channel: CustomEmoji[] = []
+  const youtube: CustomEmoji[] = []
+  for (const entry of customEmojis) {
+    if (entry.group === 'youtube') youtube.push(entry)
+    else channel.push(entry)
+  }
+  return { channel, youtube }
 }
 
 const triggerStyle = css`
@@ -502,6 +514,10 @@ const panelStyle = css`
     position: sticky;
     top: 0;
     z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
     padding: 0.8rem 0 0.4rem;
     background: var(--picker-bg);
     font-size: 1.1rem;
@@ -509,6 +525,16 @@ const panelStyle = css`
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-secondary);
+  }
+
+  .emoji-section-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
   }
 
   .emoji-section-grid {
@@ -522,6 +548,7 @@ const panelStyle = css`
   }
 
   .emoji-cell {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -538,6 +565,34 @@ const panelStyle = css`
   .emoji-cell:hover,
   .emoji-cell:focus-visible {
     background: var(--bg-hover-strong);
+  }
+
+  .emoji-cell.locked {
+    opacity: 0.58;
+    cursor: not-allowed;
+  }
+
+  .emoji-cell.locked:hover {
+    background: transparent;
+  }
+
+  .emoji-cell.locked img {
+    filter: grayscale(0.4);
+  }
+
+  .emoji-lock {
+    position: absolute;
+    right: 0.2rem;
+    bottom: 0.2rem;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: var(--bg-base, #0f0f0f);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 1px var(--border);
+    pointer-events: none;
   }
 
   .emoji-cell.selected {
@@ -606,9 +661,15 @@ export const EmojiPickerPanel = ({
   const [query, setQuery] = useState('')
   const [skinTone, setSkinTone] = useState<SkinToneModifier>('')
   const [toneOpen, setToneOpen] = useState(false)
-  const hasCustom = customEmojis.length > 0
-  const tabs: readonly PickerTab[] = hasCustom ? ['Channel', ...EMOJI_CATEGORIES] : EMOJI_CATEGORIES
-  const [activeTab, setActiveTab] = useState<PickerTab>(hasCustom ? 'Channel' : 'Smileys')
+  const { channel: channelEmojis, youtube: youtubeEmojis } = splitCustomEmojis(customEmojis)
+  const hasChannel = channelEmojis.length > 0
+  const hasYoutube = youtubeEmojis.length > 0
+  const tabs: readonly PickerTab[] = [
+    ...(hasChannel ? ['Channel' as const] : []),
+    ...(hasYoutube ? ['YouTube' as const] : []),
+    ...EMOJI_CATEGORIES,
+  ]
+  const [activeTab, setActiveTab] = useState<PickerTab>(tabs[0] ?? 'Smileys')
   const searchRef = useRef<HTMLInputElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -616,10 +677,10 @@ export const EmojiPickerPanel = ({
   const gridId = useId()
 
   useEffect(() => {
-    if (!hasCustom && activeTab === 'Channel') {
-      setActiveTab('Smileys')
+    if (!tabs.includes(activeTab)) {
+      setActiveTab(tabs[0] ?? 'Smileys')
     }
-  }, [hasCustom, activeTab])
+  }, [hasChannel, hasYoutube, activeTab])
 
   useEffect(() => {
     if (autoFocus) searchRef.current?.focus()
@@ -653,8 +714,44 @@ export const EmojiPickerPanel = ({
 
   const currentTone = SKIN_TONES.find(tone => tone.modifier === skinTone) ?? SKIN_TONES[0]!
   const searching = query.trim().length > 0
-  const matchingCustom = hasCustom ? filterCustomEmojis(customEmojis, query) : []
+  const matchingChannel = hasChannel ? filterCustomEmojis(channelEmojis, query) : []
+  const matchingYoutube = hasYoutube ? filterCustomEmojis(youtubeEmojis, query) : []
   const matchingStandard = searching ? filterEmojis(query) : []
+
+  const renderCustomEmoji = (entry: CustomEmoji) => {
+    const locked = entry.locked === true
+    const label = locked ? `${entry.shortcut} (Members only)` : entry.shortcut
+    const tip = locked ? (entry.lockReason || label) : entry.shortcut
+    return (
+      <button
+        key={entry.id}
+        type='button'
+        className={locked ? 'emoji-cell locked' : 'emoji-cell'}
+        aria-label={label}
+        aria-disabled={locked ? 'true' : undefined}
+        data-locked={locked ? 'true' : undefined}
+        title={tip}
+        onClick={locked ? undefined : () => onPick(`${entry.shortcut} `)}
+      >
+        <img src={entry.url} alt={entry.shortcut} loading='lazy' />
+        {locked ? <span className='emoji-lock' aria-hidden='true'><Lock size={9} strokeWidth={2.2} /></span> : undefined}
+      </button>
+    )
+  }
+
+  const renderCustomSection = (tab: 'Channel' | 'YouTube', entries: readonly CustomEmoji[], withRef: boolean) => (
+    <div ref={withRef ? setSectionRef(tab) : undefined}>
+      <div className='emoji-section-title'>
+        <span>{SECTION_LABELS[tab]}</span>
+        {tab === 'Channel' && entries.some(entry => entry.locked === true)
+          ? <span className='emoji-section-lock'><Lock size={11} strokeWidth={2.2} aria-hidden='true' />Members only</span>
+          : undefined}
+      </div>
+      <div className='emoji-section-grid'>
+        {entries.map(renderCustomEmoji)}
+      </div>
+    </div>
+  )
 
   return (
     <div css={panelStyle} className={variant === 'inline' ? 'inline' : undefined}>
@@ -711,7 +808,7 @@ export const EmojiPickerPanel = ({
         ? (
           <div ref={tabsRef} className='emoji-tabs' role='tablist' aria-label='Emoji categories' onKeyDown={onTabKeyDown}>
             {tabs.map((tab) => {
-              const Icon = tab === 'Channel' ? Tv : CATEGORY_ICONS[tab]
+              const Icon = tab === 'Channel' ? Tv : tab === 'YouTube' ? Sparkles : CATEGORY_ICONS[tab]
               return (
                 <button
                   key={tab}
@@ -737,27 +834,8 @@ export const EmojiPickerPanel = ({
         {searching
           ? (
             <>
-              {matchingCustom.length > 0
-                ? (
-                  <>
-                    <div className='emoji-section-title'>{SECTION_LABELS.Channel}</div>
-                    <div className='emoji-section-grid'>
-                      {matchingCustom.map(entry => (
-                        <button
-                          key={entry.id}
-                          type='button'
-                          className='emoji-cell'
-                          aria-label={entry.shortcut}
-                          title={entry.shortcut}
-                          onClick={() => onPick(`${entry.shortcut} `)}
-                        >
-                          <img src={entry.url} alt={entry.shortcut} loading='lazy' />
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )
-                : undefined}
+              {matchingChannel.length > 0 ? renderCustomSection('Channel', matchingChannel, false) : undefined}
+              {matchingYoutube.length > 0 ? renderCustomSection('YouTube', matchingYoutube, false) : undefined}
               {matchingStandard.length > 0
                 ? (
                   <div className='emoji-section-grid'>
@@ -780,34 +858,15 @@ export const EmojiPickerPanel = ({
                     })}
                   </div>
                 )
-                : matchingCustom.length === 0
+                : matchingChannel.length === 0 && matchingYoutube.length === 0
                 ? <div className='emoji-empty'>No matching emojis</div>
                 : undefined}
             </>
           )
           : (
             <>
-              {hasCustom
-                ? (
-                  <div ref={setSectionRef('Channel')}>
-                    <div className='emoji-section-title'>{SECTION_LABELS.Channel}</div>
-                    <div className='emoji-section-grid'>
-                      {customEmojis.map(entry => (
-                        <button
-                          key={entry.id}
-                          type='button'
-                          className='emoji-cell'
-                          aria-label={entry.shortcut}
-                          title={entry.shortcut}
-                          onClick={() => onPick(`${entry.shortcut} `)}
-                        >
-                          <img src={entry.url} alt={entry.shortcut} loading='lazy' />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )
-                : undefined}
+              {hasChannel ? renderCustomSection('Channel', channelEmojis, true) : undefined}
+              {hasYoutube ? renderCustomSection('YouTube', youtubeEmojis, true) : undefined}
               {EMOJI_CATEGORIES.map((category) => {
                 const items = filterEmojis('', category)
                 return (

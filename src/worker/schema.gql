@@ -934,6 +934,9 @@ type LiveChatEmoji {
   id: ID!
   shortcut: String!
   url: String!
+  group: String
+  locked: Boolean
+  lockReason: String
 }
 
 type LiveChatPinnedMessage {

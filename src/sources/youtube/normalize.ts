@@ -1,5 +1,7 @@
 import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceFeedChip, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
 
+import { classifyCustomEmoji } from './emoji'
+
 type Thumbnail = {
   url?: string
   width?: number
@@ -2398,6 +2400,7 @@ type LiveChatEmojiNode = {
   shortcuts?: string[]
   image?: Thumbnail[]
   is_custom_emoji?: boolean
+  is_locked?: boolean
 }
 
 /** Normalizes a pinned live chat banner into a header label and pinned message. */
@@ -2428,7 +2431,13 @@ export const normalizeLiveChatEmojis = (input: unknown): SourceLiveChatEmoji[] =
     const url = thumbnail(entry.image, EMOJI_WIDTH)
     if (!shortcut || !url || seen.has(shortcut)) continue
     seen.add(shortcut)
-    emojis.push({ id: entry.emoji_id ?? shortcut, shortcut, url })
+    const id = entry.emoji_id ?? shortcut
+    emojis.push({
+      id,
+      shortcut,
+      url,
+      ...classifyCustomEmoji(id, undefined, entry.is_locked === true),
+    })
   }
   return emojis
 }

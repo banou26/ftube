@@ -8,6 +8,7 @@ import { isMostRelevantShelfTitle } from '../../feeds/filter'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
 import { collectMembersOnlyPosts, extractParsedPostActions, extractRawPostMembersOnly, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
+import { classifyCustomEmoji, collectEmojiCategoryMeta } from './emoji'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
 import { approximateCount, chatReplayToken, EMOJI_WIDTH, extractRelatedChips, httpsUrl, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchDescription, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions, thumbnail } from './normalize'
@@ -200,6 +201,7 @@ type CommentHeaderEmoji = {
   emoji_id?: string
   shortcuts?: readonly string[]
   image?: { url?: string, width?: number }[] | { thumbnails?: { url?: string, width?: number }[] }
+  is_locked?: boolean
 }
 
 type CommentsFeed = {
@@ -210,6 +212,7 @@ type CommentsFeed = {
     custom_emojis?: readonly CommentHeaderEmoji[]
     create_renderer?: {
       submit_button?: { endpoint?: EndpointNode, on_tap?: EndpointNode } | null
+      emoji_picker?: { categories?: readonly unknown[] } | null
     } | null
   }
   has_continuation: boolean
@@ -1409,6 +1412,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
 
   const extractCommentCustomEmojis = (header: CommentsFeed['header']): SourceLiveChatEmoji[] => {
     const entries = header?.custom_emojis ?? []
+    const emojiCategoryMeta = collectEmojiCategoryMeta(header?.create_renderer?.emoji_picker?.categories)
     const out: SourceLiveChatEmoji[] = []
     const seen = new Set<string>()
     for (const entry of entries) {
@@ -1424,7 +1428,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (seen.has(id) || seen.has(shortcut)) continue
       seen.add(id)
       seen.add(shortcut)
-      out.push({ id, shortcut, url })
+      out.push({
+        id,
+        shortcut,
+        url,
+        ...classifyCustomEmoji(id, emojiCategoryMeta, entry.is_locked === true),
+      })
     }
     return out
   }

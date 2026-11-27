@@ -97,7 +97,7 @@ const LIVE_CHAT_QUERY = gql(`
         }
       }
       pinnedCleared
-      customEmojis { id shortcut url }
+      customEmojis { id shortcut url group locked lockReason }
       inputState {
         status
         restrictionMessage

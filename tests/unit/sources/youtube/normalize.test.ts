@@ -1528,6 +1528,12 @@ describe('live chat banners and custom emojis', () => {
         is_custom_emoji: true,
       },
       {
+        emoji_id: 'UCkszU2WH9gy1mb0dV-11UJg/yt',
+        shortcuts: [':yt:'],
+        image: [{ url: 'https://yt3.ggpht.com/yt.png', width: 48 }],
+        is_custom_emoji: true,
+      },
+      {
         emoji_id: 'e1-dup',
         shortcuts: [':party:'],
         image: [{ url: 'https://yt3.ggpht.com/party2.png', width: 48 }],
@@ -1547,6 +1553,7 @@ describe('live chat banners and custom emojis', () => {
       },
     ])).toEqual([
       { id: 'e1', shortcut: ':party:', url: 'https://yt3.ggpht.com/party.png' },
+      { id: 'UCkszU2WH9gy1mb0dV-11UJg/yt', shortcut: ':yt:', url: 'https://yt3.ggpht.com/yt.png', group: 'youtube' },
     ])
   })
 

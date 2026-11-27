@@ -513,6 +513,12 @@ describe('youtube comment writes', () => {
                     isCustomEmoji: true,
                   },
                   {
+                    emojiId: 'UCkszU2WH9gy1mb0dV-11UJg/g1',
+                    shortcuts: [':ytlogo:'],
+                    image: { thumbnails: [{ url: '//yt3.ggpht.com/yt=w48', width: 48, height: 48 }] },
+                    isCustomEmoji: true,
+                  },
+                  {
                     emojiId: 'UC1/e1',
                     shortcuts: [':fanwave:'],
                     image: { thumbnails: [{ url: '//yt3.ggpht.com/dup=w48', width: 48, height: 48 }] },
@@ -546,6 +552,7 @@ describe('youtube comment writes', () => {
     const page = await source.comments('vid1')
     expect(page.customEmojis).toEqual([
       { id: 'UC1/e1', shortcut: ':fanwave:', url: 'https://yt3.ggpht.com/e1=w48' },
+      { id: 'UCkszU2WH9gy1mb0dV-11UJg/g1', shortcut: ':ytlogo:', url: 'https://yt3.ggpht.com/yt=w48', group: 'youtube' },
     ])
   })
 

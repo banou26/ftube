@@ -687,6 +687,9 @@ export type SourceLiveChatEmoji = {
   id: string
   shortcut: string
   url: string
+  group?: 'channel' | 'youtube'
+  locked?: boolean
+  lockReason?: string
 }
 
 export type SourceLiveChatPinnedMessage = {

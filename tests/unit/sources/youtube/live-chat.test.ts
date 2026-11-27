@@ -430,4 +430,69 @@ describe('applyPollPatch, parseLiveChatLeaderboard, and parseSendLiveChatResult'
     expect(parsed.poll?.finished).toBe(true)
     expect(parsed.poll?.choices[0]?.voteParams).toBeUndefined()
   })
+
+  it('separates channel emojis from YouTube global emojis and marks upsell channel emojis locked', () => {
+    const parsed = parseLiveChatResponse({
+      continuationContents: {
+        liveChatContinuation: {
+          emojis: [
+            {
+              emojiId: 'UCchannel123/panic',
+              shortcuts: [':_Panic:'],
+              image: { thumbnails: [{ url: 'https://img/panic.png', width: 24 }] },
+              isCustomEmoji: true,
+            },
+            {
+              emojiId: 'UCkszU2WH9gy1mb0dV-11UJg/ytlogo',
+              shortcuts: [':_YouTube:'],
+              image: { thumbnails: [{ url: 'https://img/yt.png', width: 24 }] },
+              isCustomEmoji: true,
+            },
+          ],
+          actionPanel: {
+            liveChatMessageInputRenderer: {
+              pickers: [{
+                emojiPickerRenderer: {
+                  categories: [
+                    {
+                      emojiPickerUpsellCategoryRenderer: {
+                        categoryId: 'UCchannel123',
+                        upsell: { runs: [{ text: 'Become a member to unlock' }] },
+                        emojiTooltip: 'Members only emoji',
+                        emojiIds: ['UCchannel123/panic'],
+                      },
+                    },
+                    {
+                      emojiPickerCategoryRenderer: {
+                        categoryId: 'UCkszU2WH9gy1mb0dV-11UJg',
+                        categoryType: 'CATEGORY_TYPE_GLOBAL',
+                        emojiIds: ['UCkszU2WH9gy1mb0dV-11UJg/ytlogo'],
+                      },
+                    },
+                  ],
+                },
+              }],
+            },
+          },
+        },
+      },
+    })
+
+    expect(parsed.customEmojis).toEqual([
+      {
+        id: 'UCchannel123/panic',
+        shortcut: ':_Panic:',
+        url: 'https://img/panic.png',
+        group: 'channel',
+        locked: true,
+        lockReason: 'Members only emoji',
+      },
+      {
+        id: 'UCkszU2WH9gy1mb0dV-11UJg/ytlogo',
+        shortcut: ':_YouTube:',
+        url: 'https://img/yt.png',
+        group: 'youtube',
+      },
+    ])
+  })
 })

@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks'
 import { Client, fetchExchange, Provider } from 'urql'
 
 import { CustomAppearance } from '../../../src/components/custom-appearance'
-import { EmojiButton } from '../../../src/components/emoji-picker'
+import { type CustomEmoji, EmojiButton } from '../../../src/components/emoji-picker'
 import { GroupDialog } from '../../../src/components/group-dialog'
 import { DEFAULT_SETTINGS, type Settings } from '../../../src/settings'
 
@@ -11,7 +11,17 @@ const CUSTOM_SVG = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#ff4444"/></svg>',
 )
 
-const EmojiPickerHarness = ({ onPicked }: { onPicked: (value: string) => void }) => {
+const DEFAULT_CUSTOM_EMOJIS: readonly CustomEmoji[] = [
+  { id: 'ce-1', shortcut: ':party:', url: CUSTOM_SVG },
+]
+
+const EmojiPickerHarness = ({
+  customEmojis = DEFAULT_CUSTOM_EMOJIS,
+  onPicked,
+}: {
+  customEmojis?: readonly CustomEmoji[]
+  onPicked: (value: string) => void
+}) => {
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS }))
   const [groupOpen, setGroupOpen] = useState(false)
 
@@ -19,7 +29,7 @@ const EmojiPickerHarness = ({ onPicked }: { onPicked: (value: string) => void })
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <EmojiButton
-          customEmojis={[{ id: 'ce-1', shortcut: ':party:', url: CUSTOM_SVG }]}
+          customEmojis={customEmojis}
           onPick={onPicked}
         />
         <button type='button' onClick={() => setGroupOpen(true)}>
@@ -38,7 +48,7 @@ const EmojiPickerHarness = ({ onPicked }: { onPicked: (value: string) => void })
   )
 }
 
-export const mountEmojiPickerHarness = () => {
+export const mountEmojiPickerHarness = (customEmojis?: readonly CustomEmoji[]) => {
   document.querySelector('[data-emoji-harness]')?.remove()
   const container = document.createElement('div')
   container.setAttribute('data-emoji-harness', 'true')
@@ -64,7 +74,7 @@ export const mountEmojiPickerHarness = () => {
 
   render(
     <Provider value={client}>
-      <EmojiPickerHarness onPicked={(value: string) => picked.push(value)} />
+      <EmojiPickerHarness customEmojis={customEmojis} onPicked={(value: string) => picked.push(value)} />
     </Provider>,
     container,
   )

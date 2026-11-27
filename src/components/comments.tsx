@@ -71,7 +71,7 @@ gql(`
     cursor
     disabled
     countText
-    customEmojis { id shortcut url }
+    customEmojis { id shortcut url group locked lockReason }
   }
 `)
 

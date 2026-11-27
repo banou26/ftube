@@ -80,3 +80,47 @@ test('reworked YouTube emoji picker works with channel tabs, skin tones, setting
   await groupDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(groupDialog).toHaveCount(0)
 })
+
+test('separates YouTube global emojis from locked channel membership emojis and blocks locked picks', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+
+  const root = page.locator('[data-emoji-harness="true"]')
+  await expect(async () => {
+    if (await root.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as {
+          mountEmojiPickerHarness: (customEmojis?: unknown[]) => { picked: () => string[] }
+        }
+        const img = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#0ea5e9"/></svg>')
+        const state = harness.mountEmojiPickerHarness([
+          { id: 'UC1/panic', shortcut: ':_Panic:', url: img, group: 'channel', locked: true, lockReason: 'Members only' },
+          { id: 'UCkszU2WH9gy1mb0dV-11UJg/yt', shortcut: ':ytwave:', url: img, group: 'youtube' },
+        ])
+        ;(window as unknown as { __emojiHarness?: typeof state }).__emojiHarness = state
+      }, HARNESS)
+    }
+    await expect(root.getByRole('button', { name: 'Insert emoji', exact: true })).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  await root.getByRole('button', { name: 'Insert emoji', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: 'Emoji picker', exact: true })
+  await expect(picker.getByRole('tab', { name: 'Channel', exact: true })).toBeVisible()
+  await expect(picker.getByRole('tab', { name: 'YouTube', exact: true })).toBeVisible()
+  await expect(picker).toContainText('Channel emojis')
+  await expect(picker).toContainText('Members only')
+  await expect(picker).toContainText('YouTube emojis')
+
+  const lockedBtn = picker.getByRole('button', { name: ':_Panic: (Members only)', exact: true })
+  await expect(lockedBtn).toHaveAttribute('aria-disabled', 'true')
+  await expect(lockedBtn).toHaveAttribute('data-locked', 'true')
+  await lockedBtn.click({ force: true })
+
+  const ytBtn = picker.getByRole('button', { name: ':ytwave:', exact: true })
+  await ytBtn.click()
+
+  const picked = await page.evaluate(() => (window as unknown as { __emojiHarness: { picked: () => string[] } }).__emojiHarness.picked())
+  expect(picked).toEqual([':ytwave: '])
+})
