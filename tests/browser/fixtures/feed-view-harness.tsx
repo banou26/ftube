@@ -5,6 +5,8 @@ import { Route, Switch } from 'wouter'
 import { createCache } from '../../../src/graphql'
 import { ChannelPage } from '../../../src/routes/channel'
 import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
+import HashtagPage from '../../../src/routes/hashtag'
+import HomePage from '../../../src/routes/home'
 import SearchPage from '../../../src/routes/search'
 
 const CHANNEL_DEMO = {
@@ -188,84 +190,153 @@ const CHANNEL_VIDEOS = [
   }),
 ]
 
-const answers: Record<string, unknown> = {
-  Session: {
-    session: {
-      __typename: 'Session',
-      signedIn: true,
-      name: 'Viewer',
-      avatar: null,
-      handle: '@viewer',
-      accounts: [],
-    },
+const CHANNEL_SPAM = {
+  ...CHANNEL_DEMO,
+  id: 'UC_SPAM',
+  name: 'Spam Channel',
+  handle: '@spamchannel',
+}
+
+const HASHTAG_SHORTS = [
+  {
+    ...makeVideo({
+      id: 'ht-short-1',
+      title: 'Hashtag Short Without Date',
+      durationSeconds: 30,
+      isShort: true,
+    }),
+    publishedText: null,
   },
-  SubscriptionsFeed: {
-    subscriptions: {
-      __typename: 'VideoPage',
-      items: SUBSCRIPTIONS_ITEMS,
-      cursor: null,
-    },
-  },
-  ChannelView: {
-    channel: {
-      __typename: 'ChannelPage',
-      channel: CHANNEL_DEMO,
-      videos: {
-        __typename: 'VideoPage',
-        items: CHANNEL_VIDEOS,
-        playlists: [],
+]
+
+let homeRequests = 0
+
+const answers = (operationName: string, variables: Record<string, unknown> = {}): unknown => {
+  if (operationName === 'HomeFeed') {
+    const cursor = typeof variables.cursor === 'string' ? variables.cursor : undefined
+    const pageNum = cursor ? Number(cursor.replace('home-p', '')) : 0
+    homeRequests += 1
+    return {
+      home: {
+        __typename: 'HomePage',
+        items: [
+          makeVideo({
+            id: `home-filtered-${pageNum}`,
+            title: `Old Short Video Page ${pageNum}`,
+            durationSeconds: 180,
+            publishedText: '2 years ago',
+          }),
+        ],
+        shorts: [],
+        chips: [],
+        cursor: pageNum < 6 ? `home-p${pageNum + 1}` : null,
+      },
+    }
+  }
+  if (operationName === 'HashtagPage') {
+    return {
+      hashtag: {
+        __typename: 'HashtagPage',
+        tag: typeof variables.tag === 'string' ? variables.tag : 'demo',
+        title: `#${typeof variables.tag === 'string' ? variables.tag : 'demo'}`,
+        stats: '12 videos',
+        tab: variables.tab === 'SHORTS' ? 'SHORTS' : 'ALL',
+        availableTabs: ['ALL', 'SHORTS'],
+        items: HASHTAG_SHORTS,
         cursor: null,
       },
-      availableTabs: ['HOME', 'VIDEOS', 'SHORTS', 'LIVE'],
-      tab: 'VIDEOS',
-      sortOptions: ['Latest', 'Popular', 'Oldest'],
-      appliedSort: 'Latest',
-      sortMenu: false,
-      filterOptions: [],
-      appliedFilter: null,
-      home: null,
-      store: null,
-      posts: null,
-    },
-  },
-  ChannelAbout: {
-    channelAbout: null,
-  },
-  SearchResults: {
-    search: {
-      __typename: 'SearchPage',
-      results: [
-        makeVideo({ id: 'search-normal', title: 'Normal Search Video' }),
-        makeVideo({ id: 'search-blocked-kw', title: 'Hidden Spoiler Result' }),
-        makeVideo({
-          id: 'search-blocked-ch',
-          title: 'Channel Blocked In Search',
-          channel: makeChannelRef('UC_SPAM', 'Spam Channel'),
-        }),
-        {
-          __typename: 'SearchShelf',
-          title: 'Most relevant',
-          subtitle: null,
-          horizontal: false,
-          collapsedCount: null,
-          videos: [makeVideo({ id: 'search-mr', title: 'Most Relevant Shelf Item' })],
-          shorts: [],
+    }
+  }
+  if (operationName === 'ChannelView') {
+    const channelId = typeof variables.id === 'string' ? variables.id : 'UC_DEMO'
+    return {
+      channel: {
+        __typename: 'ChannelPage',
+        channel: channelId === 'UC_SPAM' ? CHANNEL_SPAM : CHANNEL_DEMO,
+        videos: {
+          __typename: 'VideoPage',
+          items: CHANNEL_VIDEOS,
+          playlists: [],
+          cursor: null,
         },
-      ],
-      topic: null,
-      refinements: [],
-      cursor: null,
-      unwatchedChip: false,
+        availableTabs: ['HOME', 'VIDEOS', 'SHORTS', 'LIVE'],
+        tab: 'VIDEOS',
+        sortOptions: ['Latest', 'Popular', 'Oldest'],
+        appliedSort: 'Latest',
+        sortMenu: false,
+        filterOptions: [],
+        appliedFilter: null,
+        home: null,
+        store: null,
+        posts: null,
+      },
+    }
+  }
+  if (operationName === 'SearchResults') {
+    return {
+      search: {
+        __typename: 'SearchPage',
+        results: [
+          makeVideo({ id: 'search-normal', title: 'Normal Search Video' }),
+          makeVideo({ id: 'search-live', title: 'Live Stream In Search', durationSeconds: null, isLive: true, publishedText: 'Watching now' }),
+          makeVideo({ id: 'search-watched', title: 'Watched Video In Search', progressPercent: 95 }),
+          makeVideo({ id: 'search-blocked-kw', title: 'Hidden Spoiler Result' }),
+          makeVideo({
+            id: 'search-blocked-ch',
+            title: 'Channel Blocked In Search',
+            channel: makeChannelRef('UC_SPAM', 'Spam Channel'),
+          }),
+          {
+            __typename: 'SearchShelf',
+            title: 'Most relevant',
+            subtitle: null,
+            horizontal: false,
+            collapsedCount: null,
+            videos: [makeVideo({ id: 'search-mr', title: 'Most Relevant Shelf Item' })],
+            shorts: [],
+          },
+        ],
+        topic: null,
+        refinements: [],
+        cursor: null,
+        unwatchedChip: false,
+      },
+    }
+  }
+  const staticAnswers: Record<string, unknown> = {
+    Session: {
+      session: {
+        __typename: 'Session',
+        signedIn: true,
+        name: 'Viewer',
+        avatar: null,
+        handle: '@viewer',
+        accounts: [],
+      },
     },
-  },
+    SubscriptionsFeed: {
+      subscriptions: {
+        __typename: 'VideoPage',
+        items: SUBSCRIPTIONS_ITEMS,
+        cursor: null,
+      },
+    },
+    ChannelAbout: {
+      channelAbout: null,
+    },
+  }
+  return staticAnswers[operationName] ?? null
 }
 
 const createMockClient = () => new Client({
   url: '/feed-view-harness',
   exchanges: [createCache(), fetchExchange],
   fetch: async (_input, init) => {
-    const { operationName } = JSON.parse(init?.body as string) as { operationName: string }
-    return new Response(JSON.stringify({ data: answers[operationName] ?? null }), {
+    const { operationName, variables } = JSON.parse(init?.body as string) as {
+      operationName: string
+      variables?: Record<string, unknown>
+    }
+    return new Response(JSON.stringify({ data: answers(operationName, variables) }), {
       headers: { 'content-type': 'application/json' },
     })
   },
@@ -283,16 +354,23 @@ const prepareHost = (name: string) => {
   return host
 }
 
+export const getHomeRequestCount = () => homeRequests
+
 export const mountApp = (initialUrl = '/feed/subscriptions') => {
+  if (initialUrl === '/') homeRequests = 0
   history.replaceState(null, '', initialUrl)
   const host = prepareHost('app')
   const client = createMockClient()
   render(
     <Provider value={client}>
       <Switch>
+        <Route path='/' component={HomePage} />
         <Route path='/feed/subscriptions' component={SubscriptionsFeedPage} />
         <Route path='/channel/:id/videos'>
           {(params: { id: string }) => <ChannelPage id={params.id} base={`/channel/${params.id}`} tab='VIDEOS' />}
+        </Route>
+        <Route path='/hashtag/:tag/shorts'>
+          {(params: { tag: string }) => <HashtagPage tag={params.tag} tab='SHORTS' />}
         </Route>
         <Route path='/results' component={SearchPage} />
       </Switch>

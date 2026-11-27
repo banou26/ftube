@@ -75,14 +75,14 @@ export type FeedViewSettings = {
 export const DEFAULT_GRID_CARD_STYLE: FeedCardStyle = {
   thumbSize: 100,
   thumbPosition: 'start',
-  cardWidth: 320,
+  cardWidth: 380,
   titleSize: 16,
   titleColor: '',
   boldTitle: false,
   font: 'default',
   metaColor: '',
   descriptionLines: 0,
-  rowGap: 32,
+  rowGap: 40,
   cornerRadius: 12,
 }
 
@@ -213,13 +213,18 @@ const coerceCustomFilters = (raw: unknown): CustomFeedFilter[] => {
     const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : undefined
     if (!id || !name || seen.has(id)) continue
     seen.add(id)
+    let minMinutes = coerceOptionalMinutes(item.minMinutes)
+    let maxMinutes = coerceOptionalMinutes(item.maxMinutes)
+    if (minMinutes !== undefined && maxMinutes !== undefined && minMinutes > maxMinutes) {
+      ;[minMinutes, maxMinutes] = [maxMinutes, minMinutes]
+    }
     out.push({
       id,
       name,
       keyword: typeof item.keyword === 'string' ? item.keyword.trim() : '',
       durationPreset: coerceDurationPreset(item.durationPreset),
-      minMinutes: coerceOptionalMinutes(item.minMinutes),
-      maxMinutes: coerceOptionalMinutes(item.maxMinutes),
+      minMinutes,
+      maxMinutes,
       uploadDate: coerceUploadDate(item.uploadDate),
       ...(item.hideLive ? { hideLive: true } : {}),
       ...(item.hideWatched ? { hideWatched: true } : {}),

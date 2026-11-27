@@ -12,7 +12,7 @@ import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-contro
 import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
-import { matchesFeedViewFilter } from '../feeds/filter'
+import { EMPTY_PAGES_LIMIT, matchesFeedViewFilter, trailingEmptyPages } from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSession } from '../session'
@@ -80,6 +80,25 @@ const style = css`
     font-size: 1.4rem;
     color: var(--text-secondary);
   }
+
+  .load-more {
+    display: block;
+    height: 3.6rem;
+    margin: 2.4rem auto 0;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .load-more:hover {
+    background: var(--accent-hover);
+    border-color: transparent;
+  }
 `
 
 const FeedClipsPage = () => {
@@ -101,7 +120,11 @@ const FeedClipsPage = () => {
     pages: page ? [...loaded, page] : loaded,
     key: video => video.id,
   })
-  const shown = items.filter(item => matchesFeedViewFilter(item, feedSettings, hideShorts))
+  const allPages = page && loaded[loaded.length - 1] !== page ? [...loaded, page] : loaded
+  const keeps = (item: ClipsPage['items'][number]) => matchesFeedViewFilter(item, feedSettings, hideShorts)
+  const shown = items.filter(keeps)
+  const stalled = trailingEmptyPages(allPages, keeps) >= EMPTY_PAGES_LIMIT
+  const filteredOut = items.length > 0 && shown.length === 0
 
   const onMore = () => {
     if (!page?.cursor || fetching || error) return
@@ -142,8 +165,8 @@ const FeedClipsPage = () => {
           onTogglePanel={() => setPanelOpen(open => !open)}
         />
       </div>
-      {data && !fetching && !error && shown.length === 0
-        ? <p className='empty'>No clips yet.</p>
+      {data && !fetching && !error && shown.length === 0 && (stalled || !cursor)
+        ? <p className='empty'>{filteredOut ? 'Filters hide everything on this page.' : 'No clips yet.'}</p>
         : (
           <VideoGrid
             videos={shown}
@@ -158,7 +181,10 @@ const FeedClipsPage = () => {
         )}
       {fetching && shown.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
+      {stalled && cursor && !fetching && !error
+        ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
+        : undefined}
+      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
       <FeedSettingsPanel surface='other' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )

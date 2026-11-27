@@ -36,7 +36,12 @@ export const visibleChannelShelves = <
     games: readonly unknown[]
     posts: readonly unknown[]
   },
->(shelves: readonly Shelf[], hideShorts: boolean, feedSettings?: FeedViewSettings): Shelf[] => {
+>(
+  shelves: readonly Shelf[],
+  hideShorts: boolean,
+  feedSettings?: FeedViewSettings,
+  options: { ignoreBlockedChannels?: boolean } = {},
+): Shelf[] => {
   if (!hideShorts && !feedSettings) return [...shelves]
   return shelves
     .filter(shelf => !(feedSettings?.hide.mostRelevant && isMostRelevantShelfTitle(shelf.title)))
@@ -47,10 +52,10 @@ export const visibleChannelShelves = <
         : feedSettings
         ? shelf.shorts.filter(short =>
           !matchesBlockedKeywords(short, feedSettings.blockedKeywords)
-          && !matchesBlockedChannels(short, feedSettings.blockedChannels))
+          && (options.ignoreBlockedChannels || !matchesBlockedChannels(short, feedSettings.blockedChannels)))
         : shelf.shorts,
       videos: feedSettings
-        ? shelf.videos.filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts))
+        ? shelf.videos.filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts, options))
         : filterOutShorts(shelf.videos, hideShorts),
     }))
     .filter(shelf =>

@@ -119,6 +119,16 @@ describe('feed view settings store', () => {
     removeCustomFeedFilter(id)
     expect(getFeedViewSettings().customFilters).toEqual([])
     expect(getFeedViewSettings().activeCustomFilterIds).toEqual([])
+
+    const reversedCustom = addCustomFeedFilter({
+      name: 'Mid Length',
+      keyword: '',
+      durationPreset: 'custom',
+      minMinutes: 20,
+      maxMinutes: 5,
+      uploadDate: 'any',
+    })
+    expect(reversedCustom.customFilters[0]).toMatchObject({ minMinutes: 5, maxMinutes: 20 })
   })
 
   it('coerces corrupted localStorage values without throwing', () => {

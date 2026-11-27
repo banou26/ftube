@@ -13,10 +13,10 @@ import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-contro
 import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
-import { matchesFeedViewFilter } from '../feeds/filter'
-import { updateFeedHide, useFeedViewSettings } from '../feeds/settings'
+import { EMPTY_PAGES_LIMIT, matchesFeedViewFilter, trailingEmptyPages } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
-import { EMPTY_PAGES_LIMIT, matchesFilter } from '../groups/filter'
+import { matchesFilter } from '../groups/filter'
 import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
@@ -201,10 +201,10 @@ const SubscriptionsFeedPage = () => {
   const { ready, signedIn } = useSession()
   const groups = useGroups()
   const [groupId, setGroupId] = useState<string | undefined>(undefined)
+  const [hideLive, setHideLive] = useState(false)
+  const [hideWatched, setHideWatched] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const feedSettings = useFeedViewSettings()
-  const hideLive = feedSettings.hide.live
-  const hideWatched = feedSettings.hide.watched
   const layout = feedSettings.layouts.subscriptions
   const cardStyle = feedSettings.cardStyles[layout]
   const [loaded, setLoaded] = useState<SubscriptionsPage[]>([])
@@ -229,12 +229,8 @@ const SubscriptionsFeedPage = () => {
   const keeps = (item: SubscriptionsPage['items'][number]) =>
     matchesFilter(item, filter) && matchesFeedViewFilter(item, feedSettings, hideShorts)
   const shown = items.filter(keeps)
-  let emptyTrailing = 0
-  for (let index = pages.length - 1; index >= 0; index--) {
-    if (pages[index]!.items.some(keeps)) break
-    emptyTrailing++
-  }
-  const stalled = emptyTrailing >= EMPTY_PAGES_LIMIT
+  const stalled = trailingEmptyPages(pages, keeps) >= EMPTY_PAGES_LIMIT
+  const filteredOut = items.length > 0 && shown.length === 0
 
   const onMore = () => {
     if (!page?.cursor || fetching || error) return
@@ -288,11 +284,11 @@ const SubscriptionsFeedPage = () => {
           <Link href='/feed/groups' className='manage'>Manage</Link>
         </div>
         <label className='toggle'>
-          <input type='checkbox' checked={hideLive} onChange={() => updateFeedHide({ live: !hideLive })} />
+          <input type='checkbox' checked={hideLive} onChange={() => setHideLive(value => !value)} />
           Hide live
         </label>
         <label className='toggle'>
-          <input type='checkbox' checked={hideWatched} onChange={() => updateFeedHide({ watched: !hideWatched })} />
+          <input type='checkbox' checked={hideWatched} onChange={() => setHideWatched(value => !value)} />
           Hide watched
         </label>
         <FeedFilterChips />
@@ -305,7 +301,7 @@ const SubscriptionsFeedPage = () => {
       {data && !fetching && !error && shown.length === 0 && (stalled || !cursor)
         ? (
           <div className='card'>
-            <h2>No new videos</h2>
+            <h2>{filteredOut ? 'Filters hide everything on this page.' : 'No new videos'}</h2>
           </div>
         )
         : (

@@ -14,7 +14,7 @@ import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-contro
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
-import { matchesFeedViewFilter, matchesBlockedKeywords } from '../feeds/filter'
+import { EMPTY_PAGES_LIMIT, matchesBlockedKeywords, matchesFeedViewFilter, trailingEmptyPages } from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
@@ -181,6 +181,25 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  .load-more {
+    display: block;
+    height: 3.6rem;
+    margin: 2.4rem auto 0;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .load-more:hover {
+    background: var(--accent-hover);
+    border-color: transparent;
+  }
+
   .empty {
     max-width: 60rem;
     margin: 4.8rem auto 0;
@@ -241,8 +260,11 @@ const HomePage = () => {
   const visibleShorts = shorts.filter(short =>
     !isDismissedVideo(dismissed, short)
     && !matchesBlockedKeywords(short, feedSettings.blockedKeywords))
-  const visibleItems = items.filter(video =>
-    matchesFeedViewFilter(video, feedSettings, hideShorts) && !isDismissedVideo(dismissed, video))
+  const keeps = (video: HomeFeedPage['items'][number]) =>
+    matchesFeedViewFilter(video, feedSettings, hideShorts) && !isDismissedVideo(dismissed, video)
+  const visibleItems = items.filter(keeps)
+  const stalled = trailingEmptyPages(feed.videos, keeps) >= EMPTY_PAGES_LIMIT
+  const filteredOut = items.length > 0 && visibleItems.length === 0
 
   useEffect(() => {
     const chips = page?.chips
@@ -292,7 +314,7 @@ const HomePage = () => {
   }
 
   const chips = rail.chips.filter(entry => entry.id !== rail.allId)
-  const empty = !fetching && !error && visibleItems.length === 0
+  const empty = !fetching && !error && visibleItems.length === 0 && (stalled || !cursor)
 
   return (
     <main css={style}>
@@ -354,7 +376,9 @@ const HomePage = () => {
         )
         : undefined}
       {empty
-        ? chip === undefined
+        ? filteredOut
+          ? <p className='notice'>Filters hide everything on this page.</p>
+          : chip === undefined
           ? (
             <div className='empty'>
               <h2>Try searching to get started</h2>
@@ -378,7 +402,10 @@ const HomePage = () => {
         )}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {fetching && visibleItems.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
-      <FeedSentinel onVisible={onMore} disabled={fetching || !cursor || Boolean(error)} />
+      {stalled && cursor && !fetching && !error
+        ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
+        : undefined}
+      <FeedSentinel onVisible={onMore} disabled={fetching || !cursor || Boolean(error) || stalled} />
       <FeedSettingsPanel surface='home' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )

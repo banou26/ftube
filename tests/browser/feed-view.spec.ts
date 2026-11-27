@@ -16,8 +16,14 @@ const openSurface = async (page: Page, url: string) => {
         harness.mountApp(url)
       }, { path: HARNESS, url })
     }
-    await expect(root.locator('article').first()).toBeVisible({ timeout: 15_000 })
+    await expect(root.locator('article, main').first()).toBeVisible({ timeout: 15_000 })
   }).toPass({ timeout: 120_000 })
+  return root
+}
+
+const openFeedPage = async (page: Page, url: string) => {
+  const root = await openSurface(page, url)
+  await expect(root.locator('article').first()).toBeVisible({ timeout: 15_000 })
   return root
 }
 
@@ -164,11 +170,11 @@ test('applies hide toggles, duration and upload date filters, custom filter butt
 
   await panel.getByRole('tab', { name: 'Filters' }).click()
   await panel.getByLabel('Shorts', { exact: true }).check()
-  await panel.getByLabel('Live streams').check()
-  await panel.getByLabel('Premieres').check()
-  await panel.getByLabel('Upcoming videos').check()
-  await panel.getByLabel('Past streams').check()
-  await panel.getByLabel('Watched videos').check()
+  await panel.getByLabel('Live streams', { exact: true }).check()
+  await panel.getByLabel('Premieres', { exact: true }).check()
+  await panel.getByLabel('Upcoming videos', { exact: true }).check()
+  await panel.getByLabel('Past streams', { exact: true }).check()
+  await panel.getByLabel('Watched videos', { exact: true }).check()
   await panel.getByLabel('"Most relevant" shelf').check()
 
   await expect(root.getByText('Quick Clip Short')).toHaveCount(0)
@@ -221,9 +227,75 @@ test('applies hide toggles, duration and upload date filters, custom filter butt
   await expect(customChip).toHaveCount(0)
 
   // Navigate to Search: keyword block, channel block, and Most relevant shelf stay hidden across YouTube.
-  const searchRoot = await openSurface(page, '/results?search_query=demo')
+  const searchRoot = await openFeedPage(page, '/results?search_query=demo')
   await expect(searchRoot.getByText('Normal Search Video')).toBeVisible()
+  await expect(searchRoot.getByText('Live Stream In Search')).toHaveCount(0)
+  await expect(searchRoot.getByText('Watched Video In Search')).toHaveCount(0)
   await expect(searchRoot.getByText('Hidden Spoiler Result')).toHaveCount(0)
   await expect(searchRoot.getByText('Channel Blocked In Search')).toHaveCount(0)
   await expect(searchRoot.getByText('Most Relevant Shelf Item')).toHaveCount(0)
+})
+
+test('keeps Subscriptions toggles local, skips channel block on own channel, avoids filtering Hashtag Shorts, caps empty auto-paging, and navigates panel tabs via keyboard', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const root = await openFeedPage(page, '/feed/subscriptions')
+
+  // Local Subscriptions checkboxes stay local and do not write global feedSettings.hide.
+  await root.getByLabel('Hide live', { exact: true }).check()
+  await root.getByLabel('Hide watched', { exact: true }).check()
+  await expect(root.getByText('Live Coding Session')).toHaveCount(0)
+  await expect(root.getByText('Already Watched Video')).toHaveCount(0)
+  const storedHide = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:feed-view') ?? '{}').hide)
+  expect(storedHide?.live ?? false).toBe(false)
+  expect(storedHide?.watched ?? false).toBe(false)
+
+  // Search still shows live and watched items when only Subscriptions local toggles were checked.
+  const searchRoot = await openFeedPage(page, '/results?search_query=demo')
+  await expect(searchRoot.getByText('Live Stream In Search')).toBeVisible()
+  await expect(searchRoot.getByText('Watched Video In Search')).toBeVisible()
+
+  // Keyboard navigation + ARIA tabpanel in FeedSettingsPanel, and add Spam Channel + Today + Over 20 minutes filters.
+  const subsRoot = await openFeedPage(page, '/feed/subscriptions')
+  await subsRoot.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+  const panel = subsRoot.getByRole('complementary', { name: 'Feed display settings' })
+  const cardTab = panel.getByRole('tab', { name: 'Card', exact: true })
+  await cardTab.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(panel.getByRole('tab', { name: 'Filters', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.getByRole('tabpanel', { name: 'Filters', exact: true })).toBeVisible()
+  await page.keyboard.press('ArrowRight')
+  await expect(panel.getByRole('tab', { name: 'Blocklist', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowLeft')
+  await expect(panel.getByRole('tab', { name: 'Filters', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await panel.getByRole('tab', { name: 'Blocklist', exact: true }).click()
+  await panel.getByLabel('Blocked channel').fill('Spam Channel')
+  await panel.getByRole('button', { name: 'Block', exact: true }).nth(1).click()
+  await panel.getByRole('tab', { name: 'Filters', exact: true }).click()
+  await panel.getByLabel('Duration filter').selectOption('over20')
+  await panel.getByLabel('Upload date filter').selectOption('today')
+
+  // Visiting blocked channel's own page still shows its uploads.
+  const spamChannelRoot = await openSurface(page, '/channel/UC_SPAM/videos')
+  await spamChannelRoot.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+  await spamChannelRoot.getByRole('tab', { name: 'Filters' }).click()
+  await spamChannelRoot.getByLabel('Duration filter').selectOption('any')
+  await spamChannelRoot.getByLabel('Upload date filter').selectOption('any')
+  await expect(spamChannelRoot.getByText('Channel Video Alpha')).toBeVisible()
+
+  // Hashtag Shorts tab stays visible even with Over 20 minutes + Today filters active.
+  await spamChannelRoot.getByLabel('Duration filter').selectOption('over20')
+  await spamChannelRoot.getByLabel('Upload date filter').selectOption('today')
+  const hashtagShortsRoot = await openSurface(page, '/hashtag/demo/shorts')
+  await expect(hashtagShortsRoot.getByText('Hashtag Short Without Date')).toBeVisible()
+
+  // Home stops auto-paging after EMPTY_PAGES_LIMIT (5) pages when filters hide everything and exposes Load more.
+  const homeRoot = await openSurface(page, '/')
+  await expect(homeRoot.getByText('Filters hide everything on this page.')).toBeVisible({ timeout: 30_000 })
+  await expect(homeRoot.getByRole('button', { name: 'Load more', exact: true })).toBeVisible()
+  const requestCount = await page.evaluate(async (path) => {
+    const harness = await import(path) as typeof import('./fixtures/feed-view-harness')
+    return harness.getHomeRequestCount()
+  }, HARNESS)
+  expect(requestCount).toBe(5)
 })

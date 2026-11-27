@@ -1,7 +1,9 @@
 import type { CustomFeedFilter, DurationFilter, DurationPreset, FeedViewSettings, UploadDatePreset } from './settings'
 
-import { WATCHED_PERCENT } from '../groups/filter'
+import { EMPTY_PAGES_LIMIT, WATCHED_PERCENT } from '../groups/filter'
 import { isAllowedWithHideShorts } from '../shorts-filter'
+
+export { EMPTY_PAGES_LIMIT }
 
 export type FilterableChannel = {
   id?: string | null
@@ -43,13 +45,13 @@ const JUST_NOW_RE = /(?:^|[^\p{L}\p{N}])(?:just now|seconds? ago|à l'instant|il
 
 // Ordered multi-character units first so 'sem' matches before 's' and 'mois'/'monat' before 'm'.
 const RELATIVE_UNIT_MS: readonly [RegExp, number][] = [
-  [/^(?:months?|mois|mes(?:es)?|monat(?:e|en)?|mo)/, MONTH_MS],
-  [/^(?:years?|ans?|a(?:ños?|ño|nnee|nnées)?|jahre?n?|y)/, YEAR_MS],
-  [/^(?:weeks?|semaines?|sem\.?|semanas?|wochen?|w)/, WEEK_MS],
-  [/^(?:days?|jours?|d[ií]as?|tage?n?|j|d)/, DAY_MS],
-  [/^(?:hours?|heures?|horas?|stunden?|h)/, HOUR_MS],
-  [/^(?:minutes?|mins?|minuten?|min|m)/, MINUTE_MS],
-  [/^(?:seconds?|secondes?|segundos?|sekunden?|sec|s)/, 1_000],
+  [/^(?:months?|mois|mes(?:es)?|monat(?:e|en)?|mo|か月前?|ヶ月前?|カ月前?|月前?)/, MONTH_MS],
+  [/^(?:years?|ans?|a(?:ños?|ño|nnee|nnées)?|jahre?n?|年前?|y)/, YEAR_MS],
+  [/^(?:weeks?|semaines?|sem\.?|semanas?|wochen?|週間前?|週前?|w)/, WEEK_MS],
+  [/^(?:days?|jours?|d[ií]as?|tage?n?|日前?|j|d)/, DAY_MS],
+  [/^(?:hours?|heures?|horas?|stunden?|時間前?|h)/, HOUR_MS],
+  [/^(?:minutes?|mins?|minuten?|min|分前?|m)/, MINUTE_MS],
+  [/^(?:seconds?|secondes?|segundos?|sekunden?|sec|秒前?|s)/, 1_000],
 ]
 
 export const isPremiereVideo = (video: Pick<FilterableVideo, 'badges' | 'thumbnailBadge'>): boolean =>
@@ -110,8 +112,10 @@ export const matchesDurationRule = (
   if (preset === 'under4') return durationSeconds < 4 * 60
   if (preset === '4to20') return durationSeconds >= 4 * 60 && durationSeconds <= 20 * 60
   if (preset === 'over20') return durationSeconds > 20 * 60
-  if (minMinutes !== undefined && durationSeconds < minMinutes * 60) return false
-  if (maxMinutes !== undefined && durationSeconds > maxMinutes * 60) return false
+  const low = minMinutes !== undefined && maxMinutes !== undefined ? Math.min(minMinutes, maxMinutes) : minMinutes
+  const high = minMinutes !== undefined && maxMinutes !== undefined ? Math.max(minMinutes, maxMinutes) : maxMinutes
+  if (low !== undefined && durationSeconds < low * 60) return false
+  if (high !== undefined && durationSeconds > high * 60) return false
   return true
 }
 
@@ -123,13 +127,13 @@ const UPLOAD_DATE_LIMIT_MS: Record<Exclude<UploadDatePreset, 'any'>, number> = {
 }
 
 export const matchesUploadDateRule = (
-  video: Pick<FilterableVideo, 'publishedText' | 'publishedAt'>,
+  video: Pick<FilterableVideo, 'publishedText' | 'publishedAt' | 'isLive'>,
   preset: UploadDatePreset,
   now = Date.now(),
 ): boolean => {
-  if (preset === 'any') return true
+  if (preset === 'any' || video.isLive === true) return true
   const ageMs = parseRelativeAgeMs(video.publishedText, video.publishedAt, now)
-  if (ageMs === undefined) return false
+  if (ageMs === undefined) return true
   return ageMs <= UPLOAD_DATE_LIMIT_MS[preset]
 }
 
@@ -165,7 +169,7 @@ const matchesChannelEntry = (channel: FilterableChannel | null | undefined, need
   if (channel.id && channel.id.toLowerCase() === needle) return true
   const normalizedNeedle = stripAt(needle)
   if (channel.handle && stripAt(channel.handle.trim().toLowerCase()) === normalizedNeedle) return true
-  if (channel.name && channel.name.trim().toLowerCase().includes(normalizedNeedle)) return true
+  if (channel.name && channel.name.trim().toLowerCase() === needle) return true
   return false
 }
 
@@ -179,7 +183,7 @@ export const matchesBlockedChannels = (
     if (!needle) return false
     if (matchesChannelEntry(video.channel, needle)) return true
     if (video.collaborators?.some(collaborator => matchesChannelEntry(collaborator, needle))) return true
-    if (video.byline?.some(part => part.text.trim().toLowerCase().includes(stripAt(needle)))) return true
+    if (video.byline?.some(part => stripAt(part.text.trim().toLowerCase()) === stripAt(needle))) return true
     return false
   })
 }
@@ -188,7 +192,7 @@ export const matchesGlobalFeedRules = (
   video: FilterableVideo,
   settings: Pick<FeedViewSettings, 'hide' | 'blockedKeywords' | 'blockedChannels'>,
   hideShorts: boolean,
-  options: { ignoreWatched?: boolean } = {},
+  options: { ignoreWatched?: boolean, ignoreBlockedChannels?: boolean } = {},
 ): boolean => {
   if (!isAllowedWithHideShorts(video, hideShorts)) return false
   if (settings.hide.live && video.isLive === true) return false
@@ -198,7 +202,7 @@ export const matchesGlobalFeedRules = (
   if (!options.ignoreWatched && settings.hide.watched && isWatchedVideo(video)) return false
   if (settings.hide.mostRelevant && video.isMostRelevant === true) return false
   if (matchesBlockedKeywords(video, settings.blockedKeywords)) return false
-  if (matchesBlockedChannels(video, settings.blockedChannels)) return false
+  if (!options.ignoreBlockedChannels && matchesBlockedChannels(video, settings.blockedChannels)) return false
   return true
 }
 
@@ -235,8 +239,9 @@ export const matchesFeedViewFilter = (
   settings: FeedViewSettings,
   hideShorts: boolean,
   now = Date.now(),
+  options: { ignoreWatched?: boolean, ignoreBlockedChannels?: boolean } = {},
 ): boolean => {
-  if (!matchesGlobalFeedRules(video, settings, hideShorts)) return false
+  if (!matchesGlobalFeedRules(video, settings, hideShorts, options)) return false
   if (!matchesDurationFilter(video, settings.durationFilter)) return false
   if (!matchesUploadDateRule(video, settings.uploadDate, now)) return false
   for (const activeId of settings.activeCustomFilterIds) {
@@ -244,4 +249,17 @@ export const matchesFeedViewFilter = (
     if (custom && !matchesCustomFilter(video, custom, now)) return false
   }
   return true
+}
+
+/** Counts newest consecutive pages whose items are all rejected by `keeps`. */
+export const trailingEmptyPages = <Item>(
+  pages: readonly { items: readonly Item[] }[],
+  keeps: (item: Item) => boolean,
+): number => {
+  let count = 0
+  for (let index = pages.length - 1; index >= 0; index--) {
+    if (pages[index]!.items.some(keeps)) break
+    count++
+  }
+  return count
 }

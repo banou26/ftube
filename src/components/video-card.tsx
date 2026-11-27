@@ -823,7 +823,7 @@ export const VideoCard = (
   const hasMeta = Boolean(video.viewCount || video.publishedText)
   const hasSubline = hasNames || hasChannel || hasMeta
   const duration = showDuration ? formatDuration(video.durationSeconds) : undefined
-  const descriptionText = (video.descriptionSnippet ?? video.description)?.trim()
+  const descriptionText = video.descriptionSnippet?.trim() || video.description?.trim() || ''
   const progress = resumePercent(video.progressPercent)
   const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
   const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)

@@ -12,7 +12,13 @@ import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-contro
 import { ShortsGrid } from '../components/shorts-grid'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
-import { matchesFeedViewFilter } from '../feeds/filter'
+import {
+  EMPTY_PAGES_LIMIT,
+  matchesBlockedChannels,
+  matchesBlockedKeywords,
+  matchesFeedViewFilter,
+  trailingEmptyPages,
+} from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
@@ -45,7 +51,9 @@ const HASHTAG_PAGE_QUERY = gql(`
         isShort
         shortsSequence
         isUpcoming
+        isMostRelevant
         isMembersOnly
+        progressPercent
         badges
         channel { id name avatar isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
@@ -139,6 +147,25 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  .load-more {
+    display: block;
+    height: 3.6rem;
+    margin: 2.4rem auto 0;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .load-more:hover {
+    background: var(--accent-hover);
+    border-color: transparent;
+  }
+
   @media (max-width: 768px) {
     .name {
       font-size: 2.4rem;
@@ -168,9 +195,15 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
   const [panelOpen, setPanelOpen] = useState(false)
   const layout = feedSettings.layouts.other
   const cardStyle = feedSettings.cardStyles[layout]
-  const visibleItems = tab === 'ALL'
-    ? items.filter(item => matchesFeedViewFilter(item, feedSettings, hideShorts))
-    : items.filter(item => matchesFeedViewFilter(item, feedSettings, false))
+  const allPages = page && pages[pages.length - 1] !== page ? [...pages, page] : pages
+  const keeps = (item: HashtagPageResult['items'][number]) =>
+    tab === 'SHORTS'
+      ? !matchesBlockedKeywords(item, feedSettings.blockedKeywords)
+        && !matchesBlockedChannels(item, feedSettings.blockedChannels)
+      : matchesFeedViewFilter(item, feedSettings, hideShorts)
+  const visibleItems = items.filter(keeps)
+  const stalled = trailingEmptyPages(allPages, keeps) >= EMPTY_PAGES_LIMIT
+  const filteredOut = items.length > 0 && visibleItems.length === 0
   const heading = page?.title ?? `#${tag.toLowerCase()}`
   useDocumentTitle(heading)
 
@@ -239,13 +272,24 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
               />
             )
             : undefined}
-        {data && !fetching && !error && visibleItems.length === 0
-          ? <p className='status'>{tab === 'SHORTS' ? 'No Shorts for this hashtag.' : 'No videos for this hashtag.'}</p>
+        {data && !fetching && !error && visibleItems.length === 0 && (stalled || !cursor)
+          ? (
+            <p className='status'>
+              {filteredOut
+                ? 'Filters hide everything on this page.'
+                : tab === 'SHORTS'
+                  ? 'No Shorts for this hashtag.'
+                  : 'No videos for this hashtag.'}
+            </p>
+          )
           : undefined}
       </div>
       {fetching && visibleItems.length > 0 ? <p className='status'>Loading more…</p> : undefined}
       {error && !fetching && pages.length > 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
+      {stalled && cursor && !fetching && !error
+        ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
+        : undefined}
+      <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
       <FeedSettingsPanel surface='other' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )

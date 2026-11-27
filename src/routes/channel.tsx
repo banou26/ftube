@@ -21,7 +21,7 @@ import { Menu, MenuItem } from '../components/ui/menu'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { VideoGrid } from '../components/video-grid'
-import { matchesBlockedChannels, matchesBlockedKeywords, matchesFeedViewFilter } from '../feeds/filter'
+import { EMPTY_PAGES_LIMIT, matchesBlockedKeywords, matchesFeedViewFilter, trailingEmptyPages } from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSession } from '../session'
@@ -812,6 +812,25 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  .load-more {
+    display: block;
+    height: 3.6rem;
+    margin: 2.4rem auto 0;
+    padding: 0 1.6rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .load-more:hover {
+    background: var(--accent-hover);
+    border-color: transparent;
+  }
+
   /* youtube.com's 404 page, measured at 1280 px on 2026-11-10 */
   .not-found {
     margin-top: 16rem;
@@ -1069,16 +1088,16 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
     && displayTab !== 'COMMUNITY'
     && displayTab !== 'STORE'
     && displayTab !== 'HOME'
-  const visibleItems = displayTab === 'SHORTS'
-    ? items.filter(item => {
-      const scoped = channel ? { ...item, channel } : item
-      return !matchesBlockedKeywords(scoped, feedSettings.blockedKeywords)
-        && !matchesBlockedChannels(scoped, feedSettings.blockedChannels)
-    })
-    : items.filter(item => {
-      const scoped = channel ? { ...item, channel } : item
-      return matchesFeedViewFilter(scoped, feedSettings, hideShorts)
-    })
+  const videoPages = page && pages[pages.length - 1] !== page ? [...pages, page] : pages
+  const keeps = (item: VideosPage['items'][number]) => {
+    const scoped = channel ? { ...item, channel } : item
+    return displayTab === 'SHORTS'
+      ? !matchesBlockedKeywords(scoped, feedSettings.blockedKeywords)
+      : matchesFeedViewFilter(scoped, feedSettings, hideShorts, undefined, { ignoreBlockedChannels: true })
+  }
+  const visibleItems = items.filter(keeps)
+  const stalled = !isPlaylistTab && trailingEmptyPages(videoPages, keeps) >= EMPTY_PAGES_LIMIT
+  const filteredOut = items.length > 0 && visibleItems.length === 0
   const effectiveDescriptionLines = cardStyle.descriptionLines > 0
     ? cardStyle.descriptionLines
     : layout === 'grid' && displayTab === 'VIDEOS' && feedSettings.showChannelDescriptions
@@ -1088,7 +1107,7 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   const hasSortControls = (data?.channel.sortOptions.length ?? 0) > 1 || (data?.channel.filterOptions.length ?? 0) > 0
   const showToolbar = hasSortControls || (!data && fetching && !error && expectsSorts) || isVideoGridTab
   const visibleHome = data?.channel.home
-    ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts, feedSettings) }
+    ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts, feedSettings, { ignoreBlockedChannels: true }) }
     : undefined
   const avatarInner = channel
     ? (
@@ -1417,13 +1436,16 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                         </div>
                       )
                       : undefined}
-                  {data && !fetching && !error && visibleItems.length === 0 && playlists.length === 0
-                    ? <p className='status'>{emptyMessageFor(tab)}</p>
+                  {data && !fetching && !error && visibleItems.length === 0 && playlists.length === 0 && (stalled || !cursor)
+                    ? <p className='status'>{filteredOut ? 'Filters hide everything on this page.' : emptyMessageFor(tab)}</p>
                     : undefined}
                 </div>
                 {fetching && visibleItems.length > 0 ? <p className='status'>Loading more…</p> : undefined}
                 {error && !fetching && pages.length > 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
-                <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
+                {!isPlaylistTab && stalled && cursor && !fetching && !error
+                  ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
+                  : undefined}
+                <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
               </>
             )}
       <FeedSettingsPanel surface='channel' open={panelOpen} onClose={() => setPanelOpen(false)} />

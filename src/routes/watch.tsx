@@ -717,7 +717,7 @@ const WatchPage = () => {
   const related: VideoCardData[] | undefined = rawRelated
     ? rawRelated
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
-      .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts) && !isDismissedVideo(dismissed, video))
+      .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts, { ignoreWatched: true }) && !isDismissedVideo(dismissed, video))
     : undefined
 
   const selectChip = useCallback(async (chipId: string) => {

@@ -171,7 +171,7 @@ const PlaylistShelf = (
   const [{ data, fetching }] = useQuery({ query: YOU_PLAYLIST_QUERY, variables: { id } })
   const videos = (data?.playlist.items ?? [])
     .map(item => item.video)
-    .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts))
+    .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts, { ignoreWatched: true }))
   if (!fetching && videos.length === 0) return null
   return <VideoShelf title={title} href={playlistHrefFor(id)} videos={videos} fetching={fetching} />
 }

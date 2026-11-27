@@ -10,7 +10,7 @@ import type {
 
 import { css } from '@emotion/react'
 import { RotateCcw, Trash2, X } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 
 import {
   addBlockedChannel,
@@ -30,6 +30,12 @@ import {
 import { updateSettings, useSetting } from '../settings'
 
 type PanelTab = 'card' | 'filters' | 'blocklist'
+
+const TABS: readonly { id: PanelTab, label: string }[] = [
+  { id: 'card', label: 'Card' },
+  { id: 'filters', label: 'Filters' },
+  { id: 'blocklist', label: 'Blocklist' },
+]
 
 const SURFACE_LABELS: Record<FeedSurface, string> = {
   subscriptions: 'Subscriptions',
@@ -352,6 +358,18 @@ const parseOptionalNum = (value: string): number | undefined => {
   return Number.isFinite(num) && num >= 0 ? num : undefined
 }
 
+const hexByte = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+
+const cssColorToHex = (varName: string, fallback: string): string => {
+  if (typeof document === 'undefined') return fallback
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
+  if (!raw) return fallback
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  if (/^#[0-9a-f]{3}$/i.test(raw)) return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`
+  const rgb = raw.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  return rgb ? `#${hexByte(Number(rgb[1]))}${hexByte(Number(rgb[2]))}${hexByte(Number(rgb[3]))}` : fallback
+}
+
 export const FeedSettingsPanel = (
   { surface, open, onClose }: {
     surface: FeedSurface
@@ -364,16 +382,24 @@ export const FeedSettingsPanel = (
   const surfaceLayout = settings.layouts[surface]
   const [tab, setTab] = useState<PanelTab>('card')
   const [editMode, setEditMode] = useState<FeedLayoutMode>(surfaceLayout)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({})
 
   const [keywordDraft, setKeywordDraft] = useState('')
   const [channelDraft, setChannelDraft] = useState('')
   const [cfName, setCfName] = useState('')
   const [cfKeyword, setCfKeyword] = useState('')
   const [cfDuration, setCfDuration] = useState<DurationPreset>('any')
+  const [cfMinMinutes, setCfMinMinutes] = useState<number | undefined>(undefined)
+  const [cfMaxMinutes, setCfMaxMinutes] = useState<number | undefined>(undefined)
   const [cfDate, setCfDate] = useState<UploadDatePreset>('any')
   const [cfHideShorts, setCfHideShorts] = useState(false)
   const [cfHideLive, setCfHideLive] = useState(false)
   const [cfHideWatched, setCfHideWatched] = useState(false)
+  const [cfHidePremieres, setCfHidePremieres] = useState(false)
+  const [cfHideUpcoming, setCfHideUpcoming] = useState(false)
+  const [cfHidePastStreams, setCfHidePastStreams] = useState(false)
 
   useEffect(() => {
     setEditMode(surfaceLayout)
@@ -382,16 +408,48 @@ export const FeedSettingsPanel = (
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      onCloseRef.current()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
   const cardStyle = settings.cardStyles[editMode]
   const patchCard = (patch: Partial<typeof cardStyle>) => updateFeedCardStyle(editMode, patch)
+  const defaultTitleColor = cssColorToHex('--text-primary', '#f1f1f1')
+  const defaultMetaColor = cssColorToHex('--text-secondary', '#aaaaaa')
+
+  const selectTab = (next: PanelTab, focusButton = false) => {
+    setTab(next)
+    if (focusButton) tabRefs.current[next]?.focus()
+  }
+
+  const onTabKeyDown = (event: KeyboardEvent, index: number) => {
+    let targetIndex = -1
+    if (event.key === 'ArrowRight') targetIndex = (index + 1) % TABS.length
+    else if (event.key === 'ArrowLeft') targetIndex = (index - 1 + TABS.length) % TABS.length
+    else if (event.key === 'Home') targetIndex = 0
+    else if (event.key === 'End') targetIndex = TABS.length - 1
+    if (targetIndex === -1) return
+    event.preventDefault()
+    selectTab(TABS[targetIndex]!.id, true)
+  }
+
+  const normalizeDurationOrder = () => {
+    const { minMinutes, maxMinutes } = settings.durationFilter
+    if (minMinutes !== undefined && maxMinutes !== undefined && minMinutes > maxMinutes) {
+      updateFeedViewSettings({
+        durationFilter: {
+          ...settings.durationFilter,
+          minMinutes: maxMinutes,
+          maxMinutes: minMinutes,
+        },
+      })
+    }
+  }
 
   const submitKeyword = (event: TargetedSubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -414,18 +472,29 @@ export const FeedSettingsPanel = (
       name: cfName,
       keyword: cfKeyword,
       durationPreset: cfDuration,
+      ...(cfDuration === 'custom'
+        ? { minMinutes: cfMinMinutes, maxMinutes: cfMaxMinutes }
+        : {}),
       uploadDate: cfDate,
       ...(cfHideShorts ? { hideShorts: true } : {}),
       ...(cfHideLive ? { hideLive: true } : {}),
       ...(cfHideWatched ? { hideWatched: true } : {}),
+      ...(cfHidePremieres ? { hidePremieres: true } : {}),
+      ...(cfHideUpcoming ? { hideUpcoming: true } : {}),
+      ...(cfHidePastStreams ? { hidePastStreams: true } : {}),
     })
     setCfName('')
     setCfKeyword('')
     setCfDuration('any')
+    setCfMinMinutes(undefined)
+    setCfMaxMinutes(undefined)
     setCfDate('any')
     setCfHideShorts(false)
     setCfHideLive(false)
     setCfHideWatched(false)
+    setCfHidePremieres(false)
+    setCfHideUpcoming(false)
+    setCfHidePastStreams(false)
   }
 
   return (
@@ -438,36 +507,31 @@ export const FeedSettingsPanel = (
       </div>
 
       <div className='panel-tabs' role='tablist' aria-label='Feed settings sections'>
-        <button
-          type='button'
-          role='tab'
-          className='tab-btn'
-          aria-selected={tab === 'card'}
-          onClick={() => setTab('card')}
-        >
-          Card
-        </button>
-        <button
-          type='button'
-          role='tab'
-          className='tab-btn'
-          aria-selected={tab === 'filters'}
-          onClick={() => setTab('filters')}
-        >
-          Filters
-        </button>
-        <button
-          type='button'
-          role='tab'
-          className='tab-btn'
-          aria-selected={tab === 'blocklist'}
-          onClick={() => setTab('blocklist')}
-        >
-          Blocklist
-        </button>
+        {TABS.map((entry, index) => (
+          <button
+            key={entry.id}
+            ref={(el: HTMLButtonElement | null) => { tabRefs.current[entry.id] = el }}
+            id={`feed-tab-${entry.id}`}
+            type='button'
+            role='tab'
+            className='tab-btn'
+            aria-selected={tab === entry.id}
+            aria-controls={`feed-tabpanel-${entry.id}`}
+            tabIndex={tab === entry.id ? 0 : -1}
+            onClick={() => selectTab(entry.id)}
+            onKeyDown={(event: KeyboardEvent) => onTabKeyDown(event, index)}
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
 
-      <div className='panel-body'>
+      <div
+        className='panel-body'
+        role='tabpanel'
+        id={`feed-tabpanel-${tab}`}
+        aria-labelledby={`feed-tab-${tab}`}
+      >
         {tab === 'card'
           ? (
             <>
@@ -679,7 +743,7 @@ export const FeedSettingsPanel = (
                       type='color'
                       className='color-input'
                       aria-label='Title color'
-                      value={cardStyle.titleColor || '#f1f1f1'}
+                      value={cardStyle.titleColor || defaultTitleColor}
                       onInput={(event: TargetedEvent<HTMLInputElement>) =>
                         patchCard({ titleColor: event.currentTarget.value })}
                     />
@@ -703,7 +767,7 @@ export const FeedSettingsPanel = (
                       type='color'
                       className='color-input'
                       aria-label='Metadata color'
-                      value={cardStyle.metaColor || '#aaaaaa'}
+                      value={cardStyle.metaColor || defaultMetaColor}
                       onInput={(event: TargetedEvent<HTMLInputElement>) =>
                         patchCard({ metaColor: event.currentTarget.value })}
                     />
@@ -891,6 +955,7 @@ export const FeedSettingsPanel = (
                               minMinutes: parseOptionalNum(event.currentTarget.value),
                             },
                           })}
+                        onBlur={normalizeDurationOrder}
                       />
                       <input
                         type='number'
@@ -906,6 +971,7 @@ export const FeedSettingsPanel = (
                               maxMinutes: parseOptionalNum(event.currentTarget.value),
                             },
                           })}
+                        onBlur={normalizeDurationOrder}
                       />
                     </div>
                   )
@@ -960,6 +1026,7 @@ export const FeedSettingsPanel = (
                       <option value='under4'>Under 4m</option>
                       <option value='4to20'>4 to 20m</option>
                       <option value='over20'>Over 20m</option>
+                      <option value='custom'>Custom range</option>
                     </select>
                     <select
                       className='select'
@@ -975,6 +1042,32 @@ export const FeedSettingsPanel = (
                       <option value='year'>This year</option>
                     </select>
                   </div>
+                  {cfDuration === 'custom'
+                    ? (
+                      <div className='row-inline'>
+                        <input
+                          type='number'
+                          min={0}
+                          className='num-input'
+                          aria-label='Custom filter min minutes'
+                          placeholder='Min (min)'
+                          value={cfMinMinutes ?? ''}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            setCfMinMinutes(parseOptionalNum(event.currentTarget.value))}
+                        />
+                        <input
+                          type='number'
+                          min={0}
+                          className='num-input'
+                          aria-label='Custom filter max minutes'
+                          placeholder='Max (min)'
+                          value={cfMaxMinutes ?? ''}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            setCfMaxMinutes(parseOptionalNum(event.currentTarget.value))}
+                        />
+                      </div>
+                    )
+                    : undefined}
                   <div className='tag-list'>
                     <label className='check-row'>
                       <input
@@ -1002,6 +1095,33 @@ export const FeedSettingsPanel = (
                           setCfHideWatched(event.currentTarget.checked)}
                       />
                       Unwatched
+                    </label>
+                    <label className='check-row'>
+                      <input
+                        type='checkbox'
+                        checked={cfHidePremieres}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          setCfHidePremieres(event.currentTarget.checked)}
+                      />
+                      No Premieres
+                    </label>
+                    <label className='check-row'>
+                      <input
+                        type='checkbox'
+                        checked={cfHideUpcoming}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          setCfHideUpcoming(event.currentTarget.checked)}
+                      />
+                      No Upcoming
+                    </label>
+                    <label className='check-row'>
+                      <input
+                        type='checkbox'
+                        checked={cfHidePastStreams}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          setCfHidePastStreams(event.currentTarget.checked)}
+                      />
+                      No Past streams
                     </label>
                   </div>
                   <button type='submit' className='small-btn primary'>

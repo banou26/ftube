@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 
 import {
+  EMPTY_PAGES_LIMIT,
   isMostRelevantShelfTitle,
   isPastStreamVideo,
   isPremiereVideo,
@@ -14,6 +15,7 @@ import {
   matchesGlobalFeedRules,
   matchesUploadDateRule,
   parseRelativeAgeMs,
+  trailingEmptyPages,
 } from '../../../src/feeds/filter'
 import { DEFAULT_FEED_VIEW_SETTINGS } from '../../../src/feeds/settings'
 import { visibleChannelShelves } from '../../../src/routes/channel-rows'
@@ -181,5 +183,46 @@ describe('feed filtering engine', () => {
     ], false, settings)
     expect(searchRows).toEqual([{ __typename: 'Video', id: 'sv1', title: 'Normal match' }])
     expect(matchesGlobalFeedRules({ title: 'Watched in history', progressPercent: 100 }, settings, false, { ignoreWatched: true })).toBe(true)
+  })
+
+  it('counts trailing empty pages, honors ignoreBlockedChannels, and keeps upload/duration/block rules safe', () => {
+    const pages = [
+      { items: [{ id: 'keep-0' }] },
+      { items: [{ id: 'skip-1' }] },
+      { items: [{ id: 'skip-2' }] },
+      { items: [{ id: 'skip-3' }] },
+      { items: [{ id: 'skip-4' }] },
+      { items: [{ id: 'skip-5' }] },
+    ]
+    expect(EMPTY_PAGES_LIMIT).toBe(5)
+    expect(trailingEmptyPages(pages, item => item.id.startsWith('keep'))).toBe(5)
+    expect(trailingEmptyPages(pages.slice(0, 2), item => item.id.startsWith('keep'))).toBe(1)
+
+    // Exact channel name / handle / id matching: short substrings like "TV" or "ai" must not match unrelated names.
+    expect(matchesBlockedChannels({ channel: { id: 'UC_A', name: 'Tech Review TV' } }, ['TV'])).toBe(false)
+    expect(matchesBlockedChannels({ byline: [{ text: 'Daily AI' }] }, ['ai'])).toBe(false)
+    expect(matchesBlockedChannels({ channel: { id: 'UC_B', name: 'Tech Cafe' } }, ['Tech Cafe'])).toBe(true)
+
+    // Live items and unknown upload ages pass upload-date presets; Japanese relative strings parse accurately.
+    const now = Date.UTC(2026, 10, 27, 12, 0, 0)
+    expect(matchesUploadDateRule({ isLive: true }, 'today', now)).toBe(true)
+    expect(matchesUploadDateRule({ publishedText: '3日前' }, 'today', now)).toBe(false)
+    expect(matchesUploadDateRule({ publishedText: '3日前' }, 'week', now)).toBe(true)
+    expect(matchesUploadDateRule({}, 'today', now)).toBe(true)
+
+    // Reversed custom duration bounds normalize instead of filtering out everything.
+    expect(matchesDurationFilter({ durationSeconds: 600 }, { preset: 'custom', minMinutes: 20, maxMinutes: 5 })).toBe(true)
+    expect(matchesDurationFilter({ durationSeconds: 120 }, { preset: 'custom', minMinutes: 20, maxMinutes: 5 })).toBe(false)
+    expect(matchesDurationFilter({ durationSeconds: 1500 }, { preset: 'custom', minMinutes: 20, maxMinutes: 5 })).toBe(false)
+
+    const settings = baseSettings()
+    settings.blockedChannels = ['Spam Channel']
+    const ownChannelVideo = {
+      title: 'Own Channel Upload',
+      progressPercent: 100,
+      channel: { id: 'UC_SPAM', name: 'Spam Channel' },
+    }
+    expect(matchesGlobalFeedRules(ownChannelVideo, settings, false, { ignoreBlockedChannels: true, ignoreWatched: true })).toBe(true)
+    expect(matchesFeedViewFilter(ownChannelVideo, settings, false, now, { ignoreBlockedChannels: true })).toBe(true)
   })
 })
