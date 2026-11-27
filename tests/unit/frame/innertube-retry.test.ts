@@ -140,7 +140,7 @@ describe('the frame Innertube sessions', () => {
     await getSabrSource(VIDEO)
     const taken = await Promise.race([takePageChallenge(), new Promise((resolve) => setTimeout(() => resolve('still waiting'), 100))])
     expect(taken).toMatchObject({ config: { EVENT_ID: 'event-1' } })
-    expect(fetched).toEqual([`https://www.youtube.com/watch?v=${VIDEO}`])
+    expect(fetched).toEqual([`https://www.youtube.com/watch?v=${VIDEO}&app=desktop`])
   })
 
   it('omits X-Goog-Visitor-Id on plain watch reads while keeping it on card reads and playback registrations, and sends no other report', async () => {
@@ -157,7 +157,7 @@ describe('the frame Innertube sessions', () => {
     await getSabrSource(VIDEO)
     await settle()
     expect(sent).toEqual([
-      { url: `https://www.youtube.com/watch?v=${VIDEO}`, method: 'GET', visitor: null },
+      { url: `https://www.youtube.com/watch?v=${VIDEO}&app=desktop`, method: 'GET', visitor: null },
       { url: expect.stringMatching(/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/), method: 'POST', visitor: 'visitor' },
     ])
     const registration = new URL(sent[1]!.url).searchParams
@@ -178,7 +178,7 @@ describe('the frame Innertube sessions', () => {
     await getSabrSource(VIDEO, 'card-params')
     await settle()
     expect(sent).toEqual([
-      { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=card-params`, method: 'GET', visitor: 'visitor' },
+      { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=card-params&app=desktop`, method: 'GET', visitor: 'visitor' },
       { url: expect.stringMatching(/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/), method: 'POST', visitor: 'visitor' },
     ])
   })
@@ -303,11 +303,11 @@ describe('the frame Innertube sessions', () => {
       await settle()
       expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
       expect(youtube.builds).toEqual(['catalog'])
-      expect(fetched).toEqual([{ url: 'https://www.youtube.com/', visitor: 'visitor' }])
+      expect(fetched).toEqual([{ url: 'https://www.youtube.com/?app=desktop', visitor: 'visitor' }])
       // subsequent video with the same player id reuses the warmed player without rebuilding
       expect(await decipheredBy(getSabrSource)).toBe('a5c2aafe')
       expect(youtube.pagePlayers).toEqual(['a5c2aafe'])
-      expect(fetched[1]).toEqual({ url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null })
+      expect(fetched[1]).toEqual({ url: `https://www.youtube.com/watch?v=${VIDEO}&app=desktop`, visitor: null })
     })
   })
 

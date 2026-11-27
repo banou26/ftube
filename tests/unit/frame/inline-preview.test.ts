@@ -85,8 +85,8 @@ it('reads a preview\'s watch page with its card\'s params and visitor, leaving t
   await getSabrSource(VIDEO, PARAMS)
   await getSabrSource(VIDEO)
   expect(fetched).toEqual([
-    { url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null },
-    { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`, visitor: 'visitor' },
+    { url: `https://www.youtube.com/watch?v=${VIDEO}&app=desktop`, visitor: null },
+    { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}&app=desktop`, visitor: 'visitor' },
   ])
 })
 
@@ -97,13 +97,13 @@ it('reads the page afresh when a session opened on it is refreshed, with params 
   await prefetchInitialPlayerResponse(VIDEO)
   await getSabrSource(VIDEO)
   await getSabrSource(VIDEO)
-  const preview = { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`, visitor: 'visitor' }
-  const plain = { url: `https://www.youtube.com/watch?v=${VIDEO}`, visitor: null }
+  const preview = { url: `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}&app=desktop`, visitor: 'visitor' }
+  const plain = { url: `https://www.youtube.com/watch?v=${VIDEO}&app=desktop`, visitor: null }
   expect(fetched).toEqual([preview, preview, plain, plain])
 })
 
-const card = `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}`
-const plain = `https://www.youtube.com/watch?v=${VIDEO}`
+const card = `https://www.youtube.com/watch?v=${VIDEO}&pp=${encodeURIComponent(PARAMS)}&app=desktop`
+const plain = `https://www.youtube.com/watch?v=${VIDEO}&app=desktop`
 
 it('a card\'s link opens its video with the card\'s params, and a shared link or a reload reads the page plain', async () => {
   const { cardParamsIn, cardState } = await import('../../../src/player/card-params')
@@ -148,11 +148,11 @@ it('uses /player over the media lane for hover previews once a player is warmed,
   const { egressFetch } = await import('../../../src/frame/egress')
   const { getSabrSource } = await import('../../../src/frame/innertube')
   const homePage = new Response('<script>ytcfg.set({"PLAYER_JS_URL":"/s/player/abc12345/base.js"});window.ytAtN({\'R\':\'{}\'});</script>')
-  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(playerResponse)
+  respond = (url) => url === 'https://www.youtube.com/?app=desktop' ? homePage : page(playerResponse)
 
   const { warmPlaybackResources } = await import('../../../src/frame/innertube')
   warmPlaybackResources()
-  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/')).toBe(true))
+  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/?app=desktop')).toBe(true))
   fetched.length = 0
 
   vi.mocked(egressFetch).mockImplementation(async (url) =>
@@ -261,10 +261,10 @@ it('uses authenticated /player without params and skips playback stats for signe
     },
   }
   const homePage = new Response('<script>ytcfg.set({"PLAYER_JS_URL":"/s/player/abc12345/base.js"});window.ytAtN({\'R\':\'{}\'});</script>')
-  respond = (url) => url === 'https://www.youtube.com/' ? homePage : page(trackedPlayerResponse)
+  respond = (url) => url === 'https://www.youtube.com/?app=desktop' ? homePage : page(trackedPlayerResponse)
 
   warmPlaybackResources()
-  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/')).toBe(true))
+  await vi.waitFor(() => expect(fetched.some(({ url }) => url === 'https://www.youtube.com/?app=desktop')).toBe(true))
   fetched.length = 0
 
   playerExecute.mockResolvedValueOnce({ data: trackedPlayerResponse })

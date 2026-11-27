@@ -380,7 +380,7 @@ describe('the session wait', () => {
     await readWatchPage()
     await mintPoToken('video-1')
     await recoverPoTokenSession()
-    expect(realm.watched).toEqual(['https://www.youtube.com/watch?v=video-1', 'https://www.youtube.com/watch?v=video-1'])
+    expect(realm.watched).toEqual(['https://www.youtube.com/watch?v=video-1&app=desktop', 'https://www.youtube.com/watch?v=video-1&app=desktop'])
     expect(agent.creates).toEqual([
       expect.objectContaining({ config: expect.objectContaining({ EVENT_ID: 'event-1' }) }),
       expect.objectContaining({ config: expect.objectContaining({ EVENT_ID: 'event-2' }) }),

@@ -61,11 +61,21 @@ export const readJsonObject = (text: string, open: number) => {
   return undefined
 }
 
+const HOME_URL = 'https://www.youtube.com/?app=desktop'
+const PLAYER_RESPONSE_START = /\bytInitialPlayerResponse\s*=\s*\{/g
+
 const readPlayerResponse = (html: string) => {
-  const marker = html.indexOf('ytInitialPlayerResponse')
-  if (marker < 0) return undefined
-  const start = html.indexOf('{', marker)
-  return start < 0 ? undefined : readJsonObject(html, start)
+  PLAYER_RESPONSE_START.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = PLAYER_RESPONSE_START.exec(html)) !== null) {
+    try {
+      const parsed = readJsonObject(html, match.index + match[0].length - 1)
+      if (parsed) return parsed
+    } catch {
+      // Skip non-JSON brace blocks (e.g. inline scripts following `ytInitialPlayerResponse = null`) and keep scanning.
+    }
+  }
+  return undefined
 }
 
 /**
@@ -125,7 +135,7 @@ const fetchYoutubePage = async (url: string, visitorData: string | undefined) =>
 
 const watchUrl = (videoId: string, playerParams: string | undefined) => {
   const params = playerParams ? `&pp=${encodeURIComponent(playerParams)}` : ''
-  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}`
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${params}&app=desktop`
 }
 
 // Each part (PLAYER_JS_URL, ytInitialPlayerResponse, window.ytAtN) resolves as soon as its chunk arrives so player deciphering and BotGuard start without waiting for the rest of the document.
@@ -251,7 +261,7 @@ export const warmChallengePage = (
   if (hasStartedRead) return false
   hasStartedRead = true
   lastWarm = { visitorData }
-  unusedChallenge = readChallengeOnlyPage('https://www.youtube.com/', visitorData, onPlayerId)
+  unusedChallenge = readChallengeOnlyPage(HOME_URL, visitorData, onPlayerId)
   firstRead.resolve()
   return true
 }
@@ -264,7 +274,7 @@ export const takePageChallenge = async () => {
   await firstRead.promise
   const challenge = unusedChallenge ?? (lastRead
     ? readWatchPage(lastRead.videoId, lastRead.visitorData, lastRead.playerParams).challenge
-    : readChallengeOnlyPage('https://www.youtube.com/', lastWarm?.visitorData))
+    : readChallengeOnlyPage(HOME_URL, lastWarm?.visitorData))
   unusedChallenge = undefined
   return challenge
 }

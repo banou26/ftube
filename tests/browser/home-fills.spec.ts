@@ -171,7 +171,7 @@ plainTest('omits X-Goog-Visitor-Id on plain /watch reads while keeping it on war
 
   const afterCard = await catalogRequests(page)
   const cardWatchReads = afterCard.filter(req => req.url.startsWith('https://www.youtube.com/watch?v=jNQXAC9IVRw&pp='))
-  const cardPlainPrefetch = afterCard.filter(req => req.url === 'https://www.youtube.com/watch?v=jNQXAC9IVRw')
+  const cardPlainPrefetch = afterCard.filter(req => req.url === 'https://www.youtube.com/watch?v=jNQXAC9IVRw&app=desktop')
   const cardBeacons = afterCard.filter(req => req.url.includes('/api/stats/playback') && req.url.includes('docid=jNQXAC9IVRw'))
   expect(cardWatchReads.length).toBeGreaterThan(0)
   expect(cardWatchReads.every(req => typeof req.visitor === 'string' && req.visitor.length > 0)).toBe(true)
@@ -186,7 +186,7 @@ plainTest('a signed-out Home fills once two videos were watched from cards, and 
   await page.addInitScript(captureCatalogRequests)
   const videos = await watchTwoThenOpenHome(page, origin)
 
-  const warmReads = (await catalogRequests(page)).filter(req => req.url === 'https://www.youtube.com/')
+  const warmReads = (await catalogRequests(page)).filter(req => req.url === 'https://www.youtube.com/?app=desktop')
   expect(warmReads.length).toBeGreaterThan(0)
   expect(warmReads.every(req => typeof req.visitor === 'string' && req.visitor.length > 0)).toBe(true)
 

@@ -98,12 +98,12 @@ describe('reading a watch page', () => {
     expect(await takePageChallenge()).toEqual(CHALLENGE)
   })
 
-  it('a session that finds the last page taken reads the last video\'s page again', async () => {
+  it("a session that finds the last page taken reads the last video's page again", async () => {
     const { fetchPlayerResponse, takePageChallenge } = await import('../../../src/frame/watch-page')
     await fetchPlayerResponse('video-1')
     expect((await takePageChallenge()).config.EVENT_ID).toBe('event-1')
     expect((await takePageChallenge()).config.EVENT_ID).toBe('event-2')
-    expect(fetched).toEqual(['https://www.youtube.com/watch?v=video-1', 'https://www.youtube.com/watch?v=video-1'])
+    expect(fetched).toEqual(['https://www.youtube.com/watch?v=video-1&app=desktop', 'https://www.youtube.com/watch?v=video-1&app=desktop'])
   })
 
   it('reads a preview\'s page with its card\'s params as pp, the read a later session makes too', async () => {
@@ -112,8 +112,8 @@ describe('reading a watch page', () => {
     await takePageChallenge()
     await takePageChallenge()
     expect(fetched).toEqual([
-      'https://www.youtube.com/watch?v=video-1&pp=YAHIAQGiBhUB%2B%2Fx%3D',
-      'https://www.youtube.com/watch?v=video-1&pp=YAHIAQGiBhUB%2B%2Fx%3D',
+      'https://www.youtube.com/watch?v=video-1&pp=YAHIAQGiBhUB%2B%2Fx%3D&app=desktop',
+      'https://www.youtube.com/watch?v=video-1&pp=YAHIAQGiBhUB%2B%2Fx%3D&app=desktop',
     ])
   })
 
@@ -189,7 +189,7 @@ describe('reading a watch page', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(await player).toHaveProperty('videoDetails')
     expect((await takePageChallenge()).config.EVENT_ID).toBe('event-2')
-    expect(fetched).toEqual(['https://www.youtube.com/watch?v=video-1', 'https://www.youtube.com/watch?v=video-1'])
+    expect(fetched).toEqual(['https://www.youtube.com/watch?v=video-1&app=desktop', 'https://www.youtube.com/watch?v=video-1&app=desktop'])
   })
 
   it('a status that keeps coming back fails both with that status after three reads, never as a missing player response', async () => {
@@ -273,9 +273,21 @@ describe('reading a watch page', () => {
       config: { ...CHALLENGE.config, PLAYER_JS_URL: '/s/player/a5c2aafe/player_es6.vflset/en_US/base.js' },
     })
     expect(seen).toEqual(['a5c2aafe'])
-    expect(fetched).toEqual(['https://www.youtube.com/'])
+    expect(fetched).toEqual(['https://www.youtube.com/?app=desktop'])
     // a later watch read replaces the challenge source
     await fetchPlayerResponse('video-2')
-    expect(fetched).toEqual(['https://www.youtube.com/', 'https://www.youtube.com/watch?v=video-2'])
+    expect(fetched).toEqual(['https://www.youtube.com/?app=desktop', 'https://www.youtube.com/watch?v=video-2&app=desktop'])
+  })
+
+  it('skips null and script assignments before the real ytInitialPlayerResponse across streamed chunks', async () => {
+    const realPage = watchPage()
+    const prMarker = 'var ytInitialPlayerResponse = '
+    const [head, tail] = realPage.split(prMarker) as [string, string]
+    const mobilePreamble = 'var ytInitialPlayerResponse = null;//# sourceURL=yt-mweb-initial-player-response.js</script><script>var ytcsi={gt:function(n){return n}};</script><script>'
+    const mobilePage = `${head}${mobilePreamble}${prMarker}${tail}`
+    const chunks = mobilePage.match(/.{1,19}/gs) ?? [mobilePage]
+    vi.stubGlobal('fetch', async () => streamed(chunks))
+    const { fetchPlayerResponse } = await import('../../../src/frame/watch-page')
+    expect(await fetchPlayerResponse('video-1')).toEqual({ videoDetails: { videoId: 'video-1', title: 'a {brace} and a "quote"' } })
   })
 })
