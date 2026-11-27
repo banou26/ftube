@@ -35,7 +35,8 @@ export const resolvers = {
     history: (_, { query, cursor }, context) => context.source.history(cursor ?? undefined, query ?? undefined),
     clips: (_, { cursor }, context) => context.source.clips(cursor ?? undefined),
     subscribedChannels: (_, { all }, context) => context.source.subscribedChannels(all ?? undefined),
-    channelUploads: (_, { channelId }, context) => context.source.channelUploads(channelId),
+    channelUploads: (_, { channelId, includeDurations }, context) =>
+      context.source.channelUploads(channelId, includeDurations ?? true),
     search: (_, { query, filters, cursor }, context) =>
       context.source.search(query, searchFilters(filters), cursor ?? undefined),
     hashtag: (_, { tag, tab, cursor }, context) =>

@@ -184,6 +184,22 @@ describe('channelUploads', () => {
     expect(videos[0]?.durationSeconds).toBeUndefined()
   })
 
+  it('skips the Videos tab duration browse when includeDurations is false', async () => {
+    let browsed = 0
+    const source = sourceWith(
+      async () => new Response(feed),
+      async () => {
+        browsed += 1
+        return { contents_memo: new Map() }
+      },
+    )
+    const videos = await source.channelUploads(CHANNEL, false)
+    expect(videos).toHaveLength(15)
+    expect(browsed).toBe(0)
+    expect(videos[0]?.publishedAt).toBe('2026-10-30T15:47:25.000Z')
+    expect(videos[0]?.durationSeconds).toBeUndefined()
+  })
+
   const BLENDER = 'UCSMOQeBJ2RAnuFungnQOxLg'
 
   const notFoundSource = (getChannel: () => Promise<unknown>) => createYoutubeSource({

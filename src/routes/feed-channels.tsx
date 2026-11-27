@@ -4,7 +4,7 @@ import type { ActivityWindow, ChannelSort, UploadDateRange } from './feed-channe
 
 import { css } from '@emotion/react'
 import { CircleUserRound } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { useClient, useQuery } from 'urql'
 import { Link } from 'wouter'
 
@@ -45,8 +45,8 @@ const ALL_SUBSCRIBED_CHANNELS_QUERY = gql(`
 `)
 
 const CHANNEL_LAST_UPLOAD_QUERY = gql(`
-  query ChannelLastUpload($channelId: ID!) {
-    channelUploads(channelId: $channelId) {
+  query ChannelLastUpload($channelId: ID!, $includeDurations: Boolean) {
+    channelUploads(channelId: $channelId, includeDurations: $includeDurations) {
       id
       publishedAt
     }
@@ -135,6 +135,22 @@ const style = css`
   .check-dates:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  .date-progress {
+    width: 100%;
+    height: 0.3rem;
+    margin: -0.8rem 0 1.6rem;
+    border-radius: 999px;
+    background: var(--border-subtle);
+    overflow: hidden;
+  }
+
+  .date-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 0.15s ease;
   }
 
   .date-range-bar {
@@ -378,27 +394,47 @@ const FeedChannelsPage = () => {
   const [sort, setSort] = useState<ChannelSort>('default')
   const [loadDates, setLoadDates] = useState(false)
   const [lastUploadAt, setLastUploadAt] = useState<Record<string, string | null>>({})
+  const lastUploadAtRef = useRef(lastUploadAt)
+  lastUploadAtRef.current = lastUploadAt
 
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: ALL_SUBSCRIBED_CHANNELS_QUERY,
     pause: !ready || !signedIn,
   })
   const channels = data?.subscribedChannels ?? []
-  const channelKey = channels.map(channel => channel.id).join(',')
+  const baseChannels = filterAndSortChannels(channels, {
+    query,
+    groupId,
+    groups,
+    activity: 'all',
+    sort: 'default',
+    lastUploadAt,
+  })
+  const baseChannelKey = baseChannels.map(channel => channel.id).join(',')
   const needsDates = loadDates || activity !== 'all' || sort === 'latest-upload' || sort === 'oldest-upload'
 
   useEffect(() => {
-    if (!needsDates || channels.length === 0) return
+    if (!needsDates || baseChannels.length === 0) return
+    const ids = baseChannels.map(channel => channel.id).filter(id => !(id in lastUploadAtRef.current))
+    if (ids.length === 0) return
     let cancelled = false
-    const ids = channels.map(channel => channel.id)
     let cursor = 0
     const worker = async () => {
       while (!cancelled && cursor < ids.length) {
         const channelId = ids[cursor++]!
-        const result = await client.query(CHANNEL_LAST_UPLOAD_QUERY, { channelId }, { requestPolicy: 'cache-first' }).toPromise()
+        const result = await client.query(
+          CHANNEL_LAST_UPLOAD_QUERY,
+          { channelId, includeDurations: false },
+          { requestPolicy: 'cache-first' },
+        ).toPromise()
         if (cancelled) return
         const value = result.data ? newestUpload(result.data.channelUploads) : null
-        setLastUploadAt(current => current[channelId] === value ? current : { ...current, [channelId]: value })
+        setLastUploadAt(current => {
+          if (current[channelId] === value) return current
+          const next = { ...current, [channelId]: value }
+          lastUploadAtRef.current = next
+          return next
+        })
       }
     }
     const workers = Array.from({ length: Math.min(4, ids.length) }, worker)
@@ -406,7 +442,7 @@ const FeedChannelsPage = () => {
     return () => {
       cancelled = true
     }
-  }, [client, needsDates, channelKey])
+  }, [client, needsDates, baseChannelKey])
 
   if (!ready) {
     return (
@@ -436,9 +472,12 @@ const FeedChannelsPage = () => {
     )
   }
 
-  const checkedCount = channels.filter(channel => channel.id in lastUploadAt).length
-  const datesLoading = needsDates && checkedCount < channels.length
+  const checkedCount = baseChannels.filter(channel => channel.id in lastUploadAt).length
+  const datesLoading = needsDates && baseChannels.length > 0 && checkedCount < baseChannels.length
   const parsedRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
+  const hasDateFilter = activity === 'custom'
+    ? Boolean(parsedRange && !parsedRange.inverted && (parsedRange.fromMs !== undefined || parsedRange.toMs !== undefined))
+    : activity !== 'all'
   const todayYmd = formatLocalDateInput(Date.now())
   const datePresets: { label: string, range: UploadDateRange }[] = activity === 'custom'
     ? [
@@ -449,7 +488,17 @@ const FeedChannelsPage = () => {
       { label: 'Last year', range: calendarYearRange(-1) },
     ]
     : []
-  const shown = filterAndSortChannels(channels, { query, groupId, groups, activity, dateRange, sort, lastUploadAt })
+  const shown = filterAndSortChannels(channels, {
+    query,
+    groupId,
+    groups,
+    activity,
+    dateRange,
+    sort,
+    lastUploadAt,
+    includePending: datesLoading,
+  })
+  const confirmedCount = shown.filter(channel => channel.id in lastUploadAt).length
 
   return (
     <main css={style}>
@@ -458,10 +507,13 @@ const FeedChannelsPage = () => {
         {channels.length > 0
           ? (
             <span className='count'>
-              {shown.length === channels.length
-                ? formatCount(channels.length, 'channel')
-                : `${shown.length} of ${formatCount(channels.length, 'channel')}`}
-              {datesLoading ? ` • checking upload dates (${checkedCount}/${channels.length})` : ''}
+              {datesLoading
+                ? hasDateFilter
+                  ? `${confirmedCount} matched • checking ${checkedCount} of ${baseChannels.length}`
+                  : `${shown.length} of ${formatCount(channels.length, 'channel')} • checked ${checkedCount} of ${baseChannels.length}`
+                : shown.length === channels.length
+                  ? formatCount(channels.length, 'channel')
+                  : `${shown.length} of ${formatCount(channels.length, 'channel')}`}
             </span>
           )
           : undefined}
@@ -585,10 +637,27 @@ const FeedChannelsPage = () => {
           </div>
         )
         : undefined}
+      {datesLoading
+        ? (
+          <div
+            className='date-progress'
+            role='progressbar'
+            aria-label='Checking channel upload dates'
+            aria-valuemin={0}
+            aria-valuemax={baseChannels.length}
+            aria-valuenow={checkedCount}
+          >
+            <div
+              className='date-progress-fill'
+              style={{ width: `${Math.round((checkedCount / baseChannels.length) * 100)}%` }}
+            />
+          </div>
+        )
+        : undefined}
       {fetching && channels.length === 0 ? <p className='notice'>Loading…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {!fetching && !error && channels.length > 0 && shown.length === 0
-        ? <p className='notice'>{datesLoading ? 'Checking channel upload dates…' : 'No matching channels'}</p>
+        ? <p className='notice'>{datesLoading && !parsedRange?.inverted ? 'Checking channel upload dates…' : 'No matching channels'}</p>
         : undefined}
       {!fetching && !error && data && channels.length === 0
         ? <p className='notice'>No subscriptions yet</p>
@@ -600,7 +669,14 @@ const FeedChannelsPage = () => {
             ? channel.handle.startsWith('@') ? channel.handle : `@${channel.handle}`
             : undefined
           const lastIso = lastUploadAt[channel.id]
-          const lastText = lastIso ? `Last video ${formatAgo(lastIso)}` : lastIso === null ? 'No recent videos' : undefined
+          const checkingDate = needsDates && !(channel.id in lastUploadAt)
+          const lastText = checkingDate
+            ? 'Checking upload date…'
+            : lastIso
+              ? `Last video ${formatAgo(lastIso)}`
+              : lastIso === null
+                ? 'No recent videos'
+                : undefined
           const meta = [handle, channel.subscriberCountText, channel.videoCountText, lastText]
             .filter((part): part is string => Boolean(part))
             .join(' • ')

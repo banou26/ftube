@@ -139,3 +139,60 @@ test('own channel page hides Subscribe and shows Customize channel and Manage vi
   await expect(other.getByRole('button', { name: 'Groups', exact: true })).toBeVisible()
   await expect(other.getByRole('link', { name: 'Customize channel' })).toHaveCount(0)
 })
+
+test('keeps the subscription list populated and updates matches dynamically while checking upload dates', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/feed/channels')
+  await expect(async () => {
+    const host = page.locator('[data-channels-harness]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelsSurface({ delayedUploads: true })
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+
+  const harness = page.locator('[data-channels-harness]')
+  const rows = harness.locator('.list .row')
+  await expect(rows).toHaveCount(3)
+
+  // Selecting an upload-date filter while dates are still pending keeps channels visible instead of blanking out.
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-365d')
+  const progress = harness.getByRole('progressbar', { name: 'Checking channel upload dates' })
+  await expect(progress).toBeVisible()
+  await expect(progress).toHaveAttribute('aria-valuenow', '0')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText('Checking upload date…')
+  await expect(harness.locator('.count')).toContainText('0 matched • checking 0 of 3')
+
+  // Non-matching resolved channel disappears immediately.
+  await page.evaluate(() => {
+    ;(window as unknown as { __resolveChannelUpload: (id: string) => void }).__resolveChannelUpload('UCaaaaaaaaaaaaaaaaaaaaaa')
+  })
+  await expect(rows).toHaveCount(2)
+  await expect(progress).toHaveAttribute('aria-valuenow', '1')
+  await expect(harness.locator('.count')).toContainText('0 matched • checking 1 of 3')
+
+  // Matching resolved channel promotes above still-pending channels and updates its metadata immediately.
+  await page.evaluate(() => {
+    ;(window as unknown as { __resolveChannelUpload: (id: string) => void }).__resolveChannelUpload('UCcccccccccccccccccccccc')
+  })
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText('Old Archive')
+  await expect(rows.nth(0)).toContainText(/Last video \d+/)
+  await expect(rows.nth(1)).toContainText('Beta Music')
+  await expect(rows.nth(1)).toContainText('Checking upload date…')
+  await expect(progress).toHaveAttribute('aria-valuenow', '2')
+  await expect(harness.locator('.count')).toContainText('1 matched • checking 2 of 3')
+
+  // Final channel resolves: only confirmed match remains and progress bar clears.
+  await page.evaluate(() => {
+    ;(window as unknown as { __resolveChannelUpload: (id: string) => void }).__resolveChannelUpload('UCbbbbbbbbbbbbbbbbbbbbbb')
+  })
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Old Archive')
+  await expect(progress).toHaveCount(0)
+  await expect(harness.locator('.count')).toHaveText('1 of 3 channels')
+})

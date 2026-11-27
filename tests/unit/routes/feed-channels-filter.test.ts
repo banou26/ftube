@@ -158,4 +158,39 @@ describe('filterAndSortChannels', () => {
     expect(formatLocalDateInput(refNow)).toBe('2026-06-15')
     expect(relativeDateRange(14, refNow)).toEqual({ from: '2026-06-01', to: '2026-06-15' })
   })
+
+  it('retains unchecked pending channels below confirmed matches when includePending is true', () => {
+    const partialUploads = {
+      UC2: null,
+      UC3: daysAgo(2),
+    }
+
+    // Without includePending, unresolved channels are hidden (even UC1/UC4). With it, confirmed UC3 moves first, non-matching UC2 drops, and pending UC1/UC4 remain visible.
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: '7d',
+      lastUploadAt: partialUploads,
+      includePending: true,
+      now: NOW,
+    }).map(c => c.id)).toEqual(['UC3', 'UC1', 'UC4'])
+
+    // Works with custom non-inverted ranges and keeps inverted ranges empty even when pending.
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2026-06-01', to: '2026-06-20' },
+      lastUploadAt: { UC1: '2026-06-15T00:00:00Z', UC2: '2026-05-01T00:00:00Z' },
+      includePending: true,
+      now: NOW,
+    }).map(c => c.id)).toEqual(['UC1', 'UC3', 'UC4'])
+
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'custom',
+      dateRange: { from: '2026-06-20', to: '2026-06-01' },
+      lastUploadAt: {},
+      includePending: true,
+      now: NOW,
+    })).toEqual([])
+  })
 })

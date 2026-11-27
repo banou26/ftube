@@ -172,7 +172,7 @@ export const mountGroupPicker = () => {
 }
 
 /** Renders the guide, /feed/subscriptions and /feed/channels over a signed-in mock source for YTB-124 tests. */
-export const mountChannelsSurface = (options?: { withLinux?: boolean }) => {
+export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUploads?: boolean }) => {
   const host = document.createElement('div')
   host.setAttribute('data-channels-harness', 'true')
   host.style.cssText = 'position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding-left: 24rem'
@@ -221,6 +221,19 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean }) => {
     UCcccccccccccccccccccccc: [{ id: 'vid33333333', title: 'Old clip', publishedAt: daysAgo(450), badges: [] }],
     UC55tEex69nxJF2uB40wLnxE: [{ id: 'vid44444444', title: 'Linux desktop weekly', publishedAt: daysAgo(1), badges: [] }],
   }
+  const waiters = new Map<string, () => void>()
+  const preResolved = new Set<string>()
+  if (options?.delayedUploads) {
+    ;(window as unknown as { __resolveChannelUpload?: (channelId: string) => void }).__resolveChannelUpload = (channelId: string) => {
+      const unblock = waiters.get(channelId)
+      if (unblock) {
+        waiters.delete(channelId)
+        unblock()
+      } else {
+        preResolved.add(channelId)
+      }
+    }
+  }
   const channelsSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
     subscribedChannels: async () => channels,
@@ -230,7 +243,14 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean }) => {
         ? ['linux', 'linux desktop', 'linux news', 'linux hardware', 'linux 2025', 'best linux', 'linux videos', 'switching to linux']
         : [],
     subscriptions: async () => ({ items: [], playlists: [] }),
-    channelUploads: async (channelId: string) => uploadsByChannel[channelId] ?? [],
+    channelUploads: async (channelId: string, _includeDurations?: boolean) => {
+      if (options?.delayedUploads && !preResolved.delete(channelId)) {
+        await new Promise<void>(resolve => {
+          waiters.set(channelId, resolve)
+        })
+      }
+      return uploadsByChannel[channelId] ?? []
+    },
     setSubscribed: async (id: string, isSubscribed: boolean) => ({
       ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
       isSubscribed,

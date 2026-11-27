@@ -1649,12 +1649,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
       return [...channels.values()]
     },
-    channelUploads: async (channelId) => {
+    channelUploads: async (channelId, includeDurations = true) => {
       if (!isChannelId(channelId)) throw new Error(`youtube: ${channelId} is not a channel id`)
       const response = await paceFeed(() => fetch(channelFeedUrl(channelId, Date.now())))
       if (response.ok) {
         const feedVideos = parseChannelFeed(await response.text())
-        if (feedVideos.length === 0) return feedVideos
+        if (feedVideos.length === 0 || !includeDurations) return feedVideos
         // The XML feed carries exact timestamps and view counts, never durations. One direct Videos-tab browse fills
         // in each video's duration without losing that exact ordering; if it fails, the feed still stands on its own.
         const tabbed = await browseVideosTab(channelId).catch(() => [])

@@ -812,7 +812,7 @@ export type Source = {
   // `all` follows the list past its first page, at a cost of one request per page
   subscribedChannels(all?: boolean): Promise<SourceChannel[]>
   // A channel's newest long uploads, read off its public feed, or its Videos tab when the feed fails; a channel id that is not of the `UC` form is refused
-  channelUploads(channelId: string): Promise<SourceVideo[]>
+  channelUploads(channelId: string, includeDurations?: boolean): Promise<SourceVideo[]>
   search(query: string, filters?: SourceSearchFilters, cursor?: string): Promise<SourceSearchPage>
   hashtag(tag: string, tab?: SourceHashtagTab, cursor?: string): Promise<SourceHashtagPage>
   // Not an InnerTube call: every keystroke that reaches it is a tunneled round trip, so the caller is expected to debounce

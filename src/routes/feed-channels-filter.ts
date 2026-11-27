@@ -61,6 +61,8 @@ export type ChannelFilterOptions = {
   sort: ChannelSort
   /** Channel id -> ISO timestamp of newest upload, or null when checked and empty. Undefined means not loaded yet. */
   lastUploadAt: Readonly<Record<string, string | null | undefined>>
+  /** Keep unchecked channels visible (after confirmed matches) while upload dates are still fetching. */
+  includePending?: boolean
   now?: number
 }
 
@@ -122,7 +124,7 @@ const uploadMs = (iso: string | null | undefined) => {
 /** Filters subscribed channels by name/handle/description, group membership and last upload date, then sorts them. */
 export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
   channels: readonly Channel[],
-  { query, groupId, groups, activity, dateRange, sort, lastUploadAt, now = Date.now() }: ChannelFilterOptions,
+  { query, groupId, groups, activity, dateRange, sort, lastUploadAt, includePending = false, now = Date.now() }: ChannelFilterOptions,
 ): Channel[] => {
   const needle = query.trim().toLowerCase()
   const groupedIds = groupId === 'ungrouped'
@@ -132,6 +134,13 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     ? new Set(groupChannelsWithDescendants(groups, groupId).map(channel => channel.id))
     : undefined
   const customRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
+  const hasCustomBounds = Boolean(
+    activity === 'custom'
+    && customRange
+    && !customRange.inverted
+    && (customRange.fromMs !== undefined || customRange.toMs !== undefined),
+  )
+  const hasDateFilter = (activity !== 'all' && activity !== 'custom') || hasCustomBounds
 
   const filtered = channels.filter(channel => {
     if (needle) {
@@ -142,9 +151,9 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     if (selectedGroupIds && !selectedGroupIds.has(channel.id)) return false
     if (activity === 'custom') {
       if (customRange?.inverted) return false
-      if (customRange && (customRange.fromMs !== undefined || customRange.toMs !== undefined)) {
+      if (hasCustomBounds && customRange) {
         const entry = lastUploadAt[channel.id]
-        if (entry === undefined) return false
+        if (entry === undefined) return includePending
         const at = uploadMs(entry)
         if (at === undefined) return false
         if (customRange.fromMs !== undefined && at < customRange.fromMs) return false
@@ -152,7 +161,7 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
       }
     } else if (activity !== 'all') {
       const entry = lastUploadAt[channel.id]
-      if (entry === undefined) return false
+      if (entry === undefined) return includePending
       const at = uploadMs(entry)
       if (activity === 'inactive-365d') {
         if (at !== undefined && now - at < 365 * DAY_MS) return false
@@ -163,20 +172,27 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     return true
   })
 
-  if (sort === 'default') return filtered
-  const sorted = [...filtered]
-  if (sort === 'name-asc') return sorted.sort((a, b) => a.name.localeCompare(b.name))
-  if (sort === 'name-desc') return sorted.sort((a, b) => b.name.localeCompare(a.name))
-  if (sort === 'subscribers') {
-    return sorted.sort((a, b) => (parseSubscribers(b.subscriberCountText) ?? -1) - (parseSubscribers(a.subscriberCountText) ?? -1))
-  }
-  const direction = sort === 'latest-upload' ? -1 : 1
-  return sorted.sort((a, b) => {
-    const aMs = uploadMs(lastUploadAt[a.id])
-    const bMs = uploadMs(lastUploadAt[b.id])
-    if (aMs === undefined && bMs === undefined) return 0
-    if (aMs === undefined) return 1
-    if (bMs === undefined) return -1
-    return (aMs - bMs) * direction
-  })
+  const ordered = sort === 'default'
+    ? filtered
+    : sort === 'name-asc'
+      ? [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+      : sort === 'name-desc'
+        ? [...filtered].sort((a, b) => b.name.localeCompare(a.name))
+        : sort === 'subscribers'
+          ? [...filtered].sort((a, b) => (parseSubscribers(b.subscriberCountText) ?? -1) - (parseSubscribers(a.subscriberCountText) ?? -1))
+          : [...filtered].sort((a, b) => {
+            const direction = sort === 'latest-upload' ? -1 : 1
+            const aMs = uploadMs(lastUploadAt[a.id])
+            const bMs = uploadMs(lastUploadAt[b.id])
+            if (aMs === undefined && bMs === undefined) return 0
+            if (aMs === undefined) return 1
+            if (bMs === undefined) return -1
+            return (aMs - bMs) * direction
+          })
+
+  if (!includePending || !hasDateFilter) return ordered
+  return [
+    ...ordered.filter(channel => lastUploadAt[channel.id] !== undefined),
+    ...ordered.filter(channel => lastUploadAt[channel.id] === undefined),
+  ]
 }
