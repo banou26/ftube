@@ -21,6 +21,7 @@ import {
 import { getSleepTimer, setSleepTimer, SLEEP_MINUTES, sleepDuration, subscribeSleepTimer } from '../player/sleep-timer'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
+import { THEATER_MODES } from '../player/theater'
 import { atHandle, useSession } from '../session'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { showUndoableToast } from '../undo'
@@ -690,6 +691,28 @@ export const SettingsPage = () => {
                       </div>
 
                       <div className='setting-row'>
+                        <h3 className='group-label'>Theater mode</h3>
+                        <div className='group-controls'>
+                          <div className='choices' role='group' aria-label='Theater mode'>
+                            {THEATER_MODES.map(mode => {
+                              const active = settings.theater === mode.value
+                              return (
+                                <button
+                                  type='button'
+                                  key={mode.value}
+                                  className={active ? 'choice active' : 'choice'}
+                                  aria-pressed={active}
+                                  onClick={() => set({ theater: mode.value })}
+                                >
+                                  {mode.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className='setting-row'>
                         <h3 className='group-label'>Playback</h3>
                         <div className='group-controls'>
                           <CheckboxRow
@@ -701,11 +724,6 @@ export const SettingsPage = () => {
                             label='Autoplay'
                             checked={settings.autoplay}
                             onChange={() => set({ autoplay: !settings.autoplay })}
-                          />
-                          <CheckboxRow
-                            label='Theater mode'
-                            checked={settings.theater}
-                            onChange={() => set({ theater: !settings.theater })}
                           />
                           <CheckboxRow
                             label='Annotations'

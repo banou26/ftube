@@ -1,4 +1,5 @@
 import type { NotificationLevel } from '../../../src/generated/graphql'
+import type { TheaterMode } from '../../../src/player/theater'
 import type { SourceApi } from '../../../src/sources/types'
 
 import { createSchema, createYoga } from 'graphql-yoga'
@@ -9,6 +10,7 @@ import { memoryLocation } from 'wouter/memory-location'
 
 import { createCache } from '../../../src/graphql'
 import { setTheater as setPlayerTheater } from '../../../src/player/session'
+import { coerceTheaterMode } from '../../../src/player/theater'
 import WatchPage from '../../../src/routes/watch'
 import { updateSettings } from '../../../src/settings'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -25,7 +27,7 @@ export type WatchHarnessOptions = {
   publishedDateText?: string | null
   isLive?: boolean
   hasChatReplay?: boolean
-  theater?: boolean
+  theater?: TheaterMode | boolean
   longDescription?: boolean
   withChips?: boolean
   chipDelays?: Record<string, number>
@@ -46,7 +48,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const withChips = options.withChips === true
   let subscribed = options.subscribed ?? false
   let level: NotificationLevel = options.notificationLevel ?? 'PERSONALIZED'
-  setPlayerTheater(updateSettings({ theater: options.theater === true }).theater)
+  setPlayerTheater(updateSettings({ theater: coerceTheaterMode(options.theater) }).theater)
 
   const app = document.getElementById('app')
   if (app) app.hidden = true

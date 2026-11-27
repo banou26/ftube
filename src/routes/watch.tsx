@@ -44,6 +44,7 @@ import { useQueue } from '../player/queue'
 import {
   claimPlayer, closePlayer, getPlayerSession, openPlayer, setPanel, usePlayerSession,
 } from '../player/session'
+import { isTheaterActive } from '../player/theater'
 import { descriptionOf, WATCH_META_QUERY } from '../player/watch-query'
 import { Menu, MenuItem } from '../components/ui/menu'
 import { useSetting } from '../settings'
@@ -264,12 +265,18 @@ const style = css`
     grid-row: 2;
   }
 
-  /* Theater fills the entire viewport below the fixed header so details,
-     comments, and suggested videos sit below the fold until scrolled.
+  /* youtube.com's default theater caps height at window height minus 169px
+     (never under 480px); fullscreen theater expands to fill below the header.
      Excluded in :fullscreen so native fullscreen keeps full viewport height.
      Matched on the player's own attribute rather than on a direct child: the
      player is moved in through a slot and a host node, two levels down. */
   &.theater .stage [data-player-root]:not(:fullscreen) {
+    max-height: calc(100vh - 169px);
+    min-height: 480px;
+    border-radius: 0;
+  }
+
+  &.theater-fullscreen .stage [data-player-root]:not(:fullscreen) {
     width: 100%;
     height: calc(100vh - var(--header-height, 5.6rem));
     height: calc(100dvh - var(--header-height, 5.6rem));
@@ -532,13 +539,14 @@ const style = css`
       margin: 0 calc(-1 * var(--margin));
     }
 
-    .stage [data-player-root]:not(:fullscreen) {
+    .stage [data-player-root]:not(:fullscreen),
+    &.theater .stage [data-player-root]:not(:fullscreen) {
       max-height: calc(100vh - 169px);
       min-height: 240px;
       border-radius: 0;
     }
 
-    &.theater .stage [data-player-root]:not(:fullscreen) {
+    &.theater-fullscreen .stage [data-player-root]:not(:fullscreen) {
       width: 100%;
       height: calc(100vh - var(--header-height, 5.6rem));
       height: calc(100dvh - var(--header-height, 5.6rem));
@@ -650,6 +658,7 @@ const WatchPage = () => {
   })
   const playerSession = usePlayerSession()
   const theater = playerSession.theater
+  const inTheater = isTheaterActive(theater)
 
   const client = useClient()
   const relatedRequestRef = useRef({ seq: 0, videoId })
@@ -863,7 +872,7 @@ const WatchPage = () => {
     ? <ChatReplay key={`replay:${videoId}`} videoId={videoId} onClose={() => setReplayFor(undefined)} />
     : undefined
   const chatHidden = chatHiddenFor === videoId
-  const theaterChatDocked = theater && !oneColumn && ((watch?.isLive === true && !chatHidden) || replayOpen)
+  const theaterChatDocked = inTheater && !oneColumn && ((watch?.isLive === true && !chatHidden) || replayOpen)
   const liveChat = watch?.isLive
     ? chatHidden
       ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
@@ -890,7 +899,7 @@ const WatchPage = () => {
       chapters,
       chapter,
       transcript,
-      fit: oneColumn || theater ? undefined : stageRef,
+      fit: oneColumn || inTheater ? undefined : stageRef,
     })
     : undefined
 
@@ -904,7 +913,12 @@ const WatchPage = () => {
   }
 
   return (
-    <main css={style} className={theater ? (theaterChatDocked ? 'theater theater-chat' : 'theater') : undefined}>
+    <main
+      css={style}
+      className={inTheater
+        ? ['theater', theater === 'fullscreen' ? 'theater-fullscreen' : '', theaterChatDocked ? 'theater-chat' : ''].filter(Boolean).join(' ')
+        : undefined}
+    >
       <div className='stage' ref={stageRef}>
         {/* The player is NOT mounted here: it lives above the router, so leaving the page docks it rather than destroying its SABR session */}
         <div className='player-slot' ref={claimPlayer} />

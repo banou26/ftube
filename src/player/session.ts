@@ -1,3 +1,5 @@
+import type { TheaterMode } from './theater'
+
 import { useEffect, useState } from 'preact/hooks'
 
 import { clearQueue } from './queue'
@@ -14,7 +16,7 @@ export type PlayerSession = {
   index?: number
   // the inline playback params of the card the video was opened from, which its playback reads the watch page with
   playerParams?: string
-  theater: boolean
+  theater: TheaterMode
   claimed: boolean
   // the index of the chapter playing, which the player publishes for the watch page's list and cards
   chapter: number
@@ -24,7 +26,7 @@ export type PlayerSession = {
 
 export type VideoPanel = 'chapters' | 'transcript'
 
-let session: PlayerSession = { theater: false, claimed: false, chapter: -1 }
+let session: PlayerSession = { theater: 'default', claimed: false, chapter: -1 }
 const listeners = new Set<() => void>()
 
 const emit = () => {
@@ -80,12 +82,12 @@ export const closePlayer = () => {
   clearQueue()
   update({
     videoId: undefined, startAt: undefined, title: undefined, poster: undefined, list: undefined, index: undefined,
-    playerParams: undefined, theater: false,
+    playerParams: undefined, theater: 'default',
     chapter: -1, panel: undefined,
   })
 }
 
-export const setTheater = (theater: boolean) => update({ theater })
+export const setTheater = (theater: TheaterMode) => update({ theater })
 
 export const setPlayingChapter = (chapter: number) => {
   if (chapter !== session.chapter) update({ chapter })

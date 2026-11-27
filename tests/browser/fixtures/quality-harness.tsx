@@ -123,7 +123,7 @@ const QualityHarness = ({ heights, initialVideoHeight, variantHeight = 0 }: Qual
             caption={undefined}
             onCaption={() => {}}
             onToggleCaption={() => {}}
-            theater={false}
+            theater='default'
             onTheater={() => {}}
             visible
           />

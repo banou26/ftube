@@ -9,7 +9,7 @@ const mountTheaterWatch = async (
   page: Page,
   videoId: string,
   viewport: { width: number, height: number },
-  options: Omit<WatchHarnessOptions, 'videoId' | 'theater' | 'longDescription'> = {},
+  options: Omit<WatchHarnessOptions, 'videoId' | 'longDescription'> = {},
 ) => {
   await page.setViewportSize(viewport)
   await page.route('https://*.sdbx.app/**', route => route.abort())
@@ -23,7 +23,7 @@ const mountTheaterWatch = async (
       await page.evaluate(async ([path, opts]) => {
         const mod = await import(path) as typeof import('./fixtures/watch-harness')
         mod.mountWatchHarness(opts)
-      }, [HARNESS, { ...options, videoId, theater: true, longDescription: true }] as const)
+      }, [HARNESS, { ...options, theater: options.theater ?? 'fullscreen', videoId, longDescription: true }] as const)
     }
     await expect(host.locator('main.theater .stage [data-player-root]')).toBeVisible({ timeout: 5_000 })
     await expect(host.getByRole('heading', { name: `Harness Video ${videoId}` })).toBeAttached({ timeout: 5_000 })
@@ -105,4 +105,17 @@ test('docks live chat replay full-height on the right in theater mode without ov
 
   await rail.getByRole('button', { name: 'Close' }).click()
   await expect(host.locator('aside.theater-chat-rail')).toHaveCount(0)
+})
+
+test('docks live chat full-height on the right in normal YouTube theater mode too', async ({ page }) => {
+  const host = await mountTheaterWatch(page, 'theater-yt-live-1280', { width: 1280, height: 800 }, {
+    isLive: true,
+    theater: 'theater',
+  })
+
+  await expect(host.locator('main')).toHaveClass(/\btheater\b/)
+  await expect(host.locator('main')).not.toHaveClass(/\btheater-fullscreen\b/)
+  const rail = host.locator('aside.theater-chat-rail')
+  await expect(rail).toBeVisible()
+  await expectRailClearOfPlayer(host)
 })

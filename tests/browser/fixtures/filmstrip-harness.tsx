@@ -103,7 +103,7 @@ const FilmstripHarness = ({
             caption={undefined}
             onCaption={() => {}}
             onToggleCaption={() => {}}
-            theater={false}
+            theater='default'
             onTheater={() => {}}
             visible
           />

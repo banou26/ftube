@@ -96,7 +96,7 @@ const Harness = () => {
             caption={undefined}
             onCaption={() => {}}
             onToggleCaption={() => {}}
-            theater={false}
+            theater='default'
             onTheater={() => {}}
             visible
           />

@@ -1,3 +1,4 @@
+import type { TheaterMode } from '../../../src/player/theater'
 import type { SourceApi } from '../../../src/sources/types'
 
 import { createSchema, createYoga } from 'graphql-yoga'
@@ -8,6 +9,7 @@ import { memoryLocation } from 'wouter/memory-location'
 
 import { createCache } from '../../../src/graphql'
 import { setTheater as setPlayerTheater } from '../../../src/player/session'
+import { coerceTheaterMode } from '../../../src/player/theater'
 import WatchPage from '../../../src/routes/watch'
 import { updateSettings } from '../../../src/settings'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -15,7 +17,7 @@ import typeDefs from '../../../src/worker/schema.gql?raw'
 
 export type TheaterBiggerHarnessOptions = {
   videoId?: string
-  theater?: boolean
+  theater?: TheaterMode | boolean
 }
 
 const makeRelatedVideo = (id: string, title: string) => ({
@@ -30,7 +32,8 @@ const makeRelatedVideo = (id: string, title: string) => ({
 
 export const mountTheaterBiggerHarness = (options: TheaterBiggerHarnessOptions = {}) => {
   const videoId = options.videoId ?? 'theater-bigger-1'
-  setPlayerTheater(updateSettings({ theater: options.theater !== false }).theater)
+  const initialTheater = options.theater === undefined ? 'fullscreen' : coerceTheaterMode(options.theater)
+  setPlayerTheater(updateSettings({ theater: initialTheater }).theater)
 
   // Keep #app alive at /privacy (for <Global> styles and <PersistentPlayer />),
   // using an isolated memory router so history never navigates #app to /watch.
@@ -127,6 +130,6 @@ export const mountTheaterBiggerHarness = (options: TheaterBiggerHarnessOptions =
   )
 }
 
-export const setTheaterMode = (theater: boolean) => {
-  setPlayerTheater(updateSettings({ theater }).theater)
+export const setTheaterMode = (theater: TheaterMode | boolean) => {
+  setPlayerTheater(updateSettings({ theater: coerceTheaterMode(theater) }).theater)
 }

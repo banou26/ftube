@@ -9,6 +9,7 @@ import type { CaptionOption } from './caption-style'
 import type { PlayerChapter } from './chapters'
 import type { SleepTimer } from './sleep-timer'
 import type { SkipSegment } from './sponsorblock'
+import type { TheaterMode } from './theater'
 import type { PlayerState } from './use-player-state'
 
 import { formatClockSeconds } from '../downloads/trim'
@@ -722,7 +723,7 @@ type ControlsProps = {
   caption: CaptionPick | undefined
   onCaption: (choice: CaptionPick | undefined) => void
   onToggleCaption: () => void
-  theater: boolean
+  theater: TheaterMode
   onTheater: () => void
   onNext?: () => void
   autoplay?: boolean
@@ -1602,11 +1603,32 @@ export const PlayerControls = (
               </button>
             )
             : undefined}
-          <button type='button' className='control theater-toggle' aria-label='Theater mode' aria-pressed={theater} onClick={onTheater}>
-            {/* two nested rectangles read as "wide screen" */}
+          <button
+            type='button'
+            className='control theater-toggle'
+            aria-label='Theater mode'
+            aria-pressed={theater !== 'default'}
+            data-theater-mode={theater}
+            title={theater === 'default' ? 'Theater mode (t)' : theater === 'theater' ? 'Fullscreen theater (t)' : 'Default view (t)'}
+            onClick={onTheater}
+          >
+            {/* Three silhouettes track Default -> YouTube theater -> Fullscreen theater */}
             <svg width='24' height='24' viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='1.8'>
-              <rect x='2' y='6' width='20' height='12' rx='1.5' />
-              {theater ? <rect x='6' y='9' width='12' height='6' rx='1' /> : undefined}
+              {theater === 'fullscreen'
+                ? (
+                  <>
+                    <rect x='2' y='3' width='20' height='18' rx='1.5' />
+                    <rect x='5' y='6' width='14' height='12' rx='1' fill='currentColor' fillOpacity='0.28' />
+                  </>
+                )
+                : theater === 'theater'
+                  ? (
+                    <>
+                      <rect x='2' y='5' width='20' height='14' rx='1.5' />
+                      <rect x='6' y='8.5' width='12' height='7' rx='1' />
+                    </>
+                  )
+                  : <rect x='2' y='6' width='20' height='12' rx='1.5' />}
             </svg>
           </button>
           <button type='button' className='control' aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} onClick={toggleFullscreen}>

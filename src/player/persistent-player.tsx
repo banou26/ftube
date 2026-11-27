@@ -26,6 +26,7 @@ import {
   stepMiniplayerWidth,
 } from './miniplayer-size'
 import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
+import { nextTheaterMode } from './theater'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
 import { getFullscreenElement, subscribeFullscreen } from './fullscreen'
@@ -1012,7 +1013,7 @@ const PersistentPlayer = () => {
                   startAt={session.startAt}
                   docked={docked}
                   theater={session.theater}
-                  onTheater={() => setTheater(!session.theater)}
+                  onTheater={() => setTheater(nextTheaterMode(session.theater))}
                   onMiniplayer={toggleMiniplayer}
                   ambientMode={ambientMode}
                   onAmbientMode={() => updateSettings({ ambientMode: !ambientMode })}

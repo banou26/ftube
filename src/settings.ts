@@ -1,5 +1,6 @@
 import type { CaptionLook } from './player/caption-style'
 import type { MiniplayerPosition } from './player/miniplayer-size'
+import type { TheaterMode } from './player/theater'
 import type { AppIconId } from './theme/app-icon'
 import type { SeekHandle } from './theme/seek-handle'
 
@@ -8,6 +9,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { CAPTION_OPTIONS } from './player/caption-style'
 import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
+import { coerceTheaterMode } from './player/theater'
 import { applyAppIcon, coerceAppIcon } from './theme/app-icon'
 import { applyCustomPalette, normalizeHexColor } from './theme/palette'
 import { coerceSeekHandle } from './theme/seek-handle'
@@ -41,7 +43,7 @@ export type Settings = {
   captionEdge: string
   captionOpacity: number
   captionPosition?: CaptionPosition
-  theater: boolean
+  theater: TheaterMode
   ambientMode: boolean
   annotations: boolean
   miniplayerWidth?: number
@@ -78,7 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionBackgroundOpacity: 0.75,
   captionEdge: 'None',
   captionOpacity: 1,
-  theater: false,
+  theater: 'default',
   ambientMode: true,
   annotations: true,
   miniplayerWidth: undefined,
@@ -129,7 +131,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
       choices.some(choice => choice.value === stored[key]) ? stored[key] : DEFAULT_SETTINGS[key],
     ])) as CaptionLook,
     captionPosition,
-    theater: typeof stored.theater === 'boolean' ? stored.theater : DEFAULT_SETTINGS.theater,
+    theater: coerceTheaterMode(stored.theater),
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
     annotations: typeof stored.annotations === 'boolean' ? stored.annotations : DEFAULT_SETTINGS.annotations,
     miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
@@ -187,6 +189,7 @@ export const updateSettings = (patch: Partial<Settings>) => {
   const normalizedPatch: Partial<Settings> = {
     ...patch,
     ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
+    ...('theater' in patch ? { theater: coerceTheaterMode(patch.theater) } : {}),
     ...('miniplayerWidth' in patch ? { miniplayerWidth: coerceMiniplayerWidth(patch.miniplayerWidth) } : {}),
     ...('miniplayerPosition' in patch ? { miniplayerPosition: coerceMiniplayerPosition(patch.miniplayerPosition) } : {}),
     ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),

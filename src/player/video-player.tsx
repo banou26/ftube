@@ -7,6 +7,7 @@ import type { WatchMetaQuery } from '../generated/graphql'
 import type { BezelCue } from './bezel'
 import type { PlayerChapter } from './chapters'
 import type { SkipSegment } from './sponsorblock'
+import type { TheaterMode } from './theater'
 import type { UpNext } from './up-next'
 
 // must stay type-only: a value import puts the on-demand shaka chunk back in the entry
@@ -255,7 +256,7 @@ const captionBase = (video: HTMLVideoElement) => {
 
 const VideoPlayer = (
   {
-    videoId, playerParams, list, title, channelName, startAt, docked = false, theater = false, onTheater, onMiniplayer, upNext,
+    videoId, playerParams, list, title, channelName, startAt, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
     chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, onVideoElement,
   }: {
     videoId: string
@@ -265,7 +266,7 @@ const VideoPlayer = (
     channelName?: string
     startAt?: number
     docked?: boolean
-    theater?: boolean
+    theater?: TheaterMode
     onTheater?: () => void
     onMiniplayer?: () => void
     upNext?: PlayerUpNext

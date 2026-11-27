@@ -433,3 +433,26 @@ describe('custom appearance settings', () => {
     expect(updateSettings({ customThemeColor: '#10b981' }).appIcon).toBe('theme')
   })
 })
+
+describe('the Theater mode setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to default, migrates legacy booleans, and persists all three states', async () => {
+    expect((await load()).getSettings().theater).toBe('default')
+    expect((await load({ theater: true })).getSettings().theater).toBe('theater')
+    expect((await load({ theater: false })).getSettings().theater).toBe('default')
+    expect((await load({ theater: 'theater' })).getSettings().theater).toBe('theater')
+    expect((await load({ theater: 'fullscreen' })).getSettings().theater).toBe('fullscreen')
+    expect((await load({ theater: 'invalid' })).getSettings().theater).toBe('default')
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ theater: 'fullscreen' })
+    expect(JSON.parse(written.at(-1)!).theater).toBe('fullscreen')
+    expect((await load(JSON.parse(written.at(-1)!))).getSettings().theater).toBe('fullscreen')
+  })
+})
