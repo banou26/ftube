@@ -210,9 +210,9 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
         descriptionRuns: [{ text: 'Deep dive into modern AI models.' }],
         channel: {
           id: 'UClewis',
-          name: 'Coding with Lewis',
+          name: 'RTBF iXPé',
           avatar: AVATAR_SVG,
-          handle: '@CodingWithLewis',
+          handle: '@RTBFiXP%C3%A9',
           isSubscribed: false,
           notificationLevel: null,
           isVerified: true,

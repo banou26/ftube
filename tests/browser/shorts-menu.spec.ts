@@ -47,6 +47,7 @@ test('Shorts More options menu supports description, save to playlist, ambient m
   const firstSlide = root.locator('[data-short-id="short-1"]')
   await expect(firstSlide).toBeVisible({ timeout: 15_000 })
   await expect(firstSlide.locator('.short-title')).toHaveText('The AI Model Iceberg', { timeout: 10_000 })
+  await expect(firstSlide.locator('.byline .name')).toHaveText('RTBF iXPé')
 
   // Keep rail count unchanged (6 items including More actions) while placing More options in the top bar
   await expect(firstSlide.locator('.rail > .rail-button, .rail > .rail-channel, .rail button.rail-button')).toHaveCount(6)
@@ -76,7 +77,7 @@ test('Shorts More options menu supports description, save to playlist, ambient m
   const descDialog = firstSlide.getByRole('dialog', { name: 'Description', exact: true })
   await expect(descDialog).toBeVisible()
   await expect(descDialog).toContainText('The AI Model Iceberg')
-  await expect(descDialog).toContainText('Coding with Lewis')
+  await expect(descDialog).toContainText('RTBF iXPé')
   await expect(descDialog).toContainText('69K')
   await expect(descDialog).toContainText('Likes')
   await expect(descDialog).toContainText('3M')
@@ -201,6 +202,7 @@ test('closing or leaving a Short with Description open keeps keyboard navigation
   const firstSlide = root.locator('[data-short-id="short-1"]')
   await expect(firstSlide).toBeVisible({ timeout: 15_000 })
   await expect(firstSlide.locator('.short-title')).toHaveText('The AI Model Iceberg', { timeout: 10_000 })
+  await expect(firstSlide.locator('.byline .name')).toHaveText('RTBF iXPé')
 
   const topMoreBtn = firstSlide.locator('.top-bar').getByRole('button', { name: 'More options', exact: true })
   await topMoreBtn.click()

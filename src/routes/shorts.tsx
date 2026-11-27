@@ -518,8 +518,9 @@ const Slide = (
   const dislikes = useDislikes(active || preload ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
   const disliked = meta?.likeStatus === 'DISLIKE'
-  const handle = meta?.channel?.handle
-    ? meta.channel.handle.startsWith('@') ? meta.channel.handle : `@${meta.channel.handle}`
+  const rawHandle = meta?.channel?.handle ? safeDecode(meta.channel.handle) : undefined
+  const handle = rawHandle
+    ? rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`
     : undefined
 
   useLayoutEffect(() => {
@@ -593,7 +594,7 @@ const Slide = (
             {meta?.channel
               ? (
                 <Link className='name' href={`/channel/${meta.channel.id}`}>
-                  {handle ?? meta.channel.name}
+                  {meta.channel.name.trim() || handle}
                   <VerifiedBadge channel={meta.channel} size={14} />
                 </Link>
               )

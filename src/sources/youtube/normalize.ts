@@ -393,7 +393,16 @@ export const approximateCount = (value: string | undefined) => {
   return Math.round(base * scale)
 }
 
-export const handleFromUrl = (url: string | undefined) => url?.match(/\/(@[^/?#]+)/)?.[1]
+export const decodeHandle = (raw: string | undefined): string | undefined => {
+  if (!raw) return undefined
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+export const handleFromUrl = (url: string | undefined) => decodeHandle(url?.match(/\/(@[^/?#]+)/)?.[1])
 
 export const httpsUrl = (url: string | undefined) => (url?.startsWith('//') ? `https:${url}` : url)
 

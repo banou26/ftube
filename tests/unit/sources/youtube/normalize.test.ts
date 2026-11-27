@@ -4,7 +4,7 @@ import { Parser, YTNodes } from 'youtubei.js'
 
 import type { AccountRowFixture } from '../../fixtures/accounts-list'
 
-import { normalizeChannel, normalizeChannelAbout, normalizeChannelTags, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommentView, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist, parseChannelKeywords } from '../../../../src/sources/youtube/normalize'
+import { handleFromUrl, normalizeChannel, normalizeChannelAbout, normalizeChannelTags, normalizeNotification, normalizeRuns, normalizeCommentThread, normalizeCommentView, normalizeCommunityPost, normalizeFeedVideo, normalizeLiveChatEmojis, normalizeLiveChatPinned, normalizeShortsLockup, normalizeGridPlaylist, normalizeLockupVideo, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistPanelVideo, normalizeSearchChannel, normalizeSearchTopic, normalizeSession, normalizeVideoDetails, normalizeWatchMeta, normalizeWatchPlaylist, parseChannelKeywords } from '../../../../src/sources/youtube/normalize'
 import { accountsListAnswer, BRAND_PAGE_ID, twoChannels } from '../../fixtures/accounts-list'
 
 // the AccountItem nodes youtubei.js parses out of a WEB accounts_list answer, as the source's session read takes them
@@ -1548,6 +1548,13 @@ describe('live chat banners and custom emojis', () => {
     ])).toEqual([
       { id: 'e1', shortcut: ':party:', url: 'https://yt3.ggpht.com/party.png' },
     ])
+  })
+
+  it('decodes percent-encoded UTF-8 channel handles from URLs while tolerating malformed sequences', () => {
+    expect(handleFromUrl('https://www.youtube.com/@RTBFiXP%C3%A9')).toBe('@RTBFiXPé')
+    expect(handleFromUrl('/@Pok%C3%A9monFR/shorts')).toBe('@PokémonFR')
+    expect(handleFromUrl('/@bad%E0%A4%Ahandle')).toBe('@bad%E0%A4%Ahandle')
+    expect(handleFromUrl(undefined)).toBeUndefined()
   })
 })
 
