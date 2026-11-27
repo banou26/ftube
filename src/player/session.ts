@@ -4,7 +4,7 @@ import { useEffect, useState } from 'preact/hooks'
 
 import { clearQueue } from './queue'
 
-import { getSettings } from '../settings'
+import { getSettings, subscribeSettings, updateSettings } from '../settings'
 
 export type PlayerSession = {
   videoId?: string
@@ -87,7 +87,14 @@ export const closePlayer = () => {
   })
 }
 
-export const setTheater = (theater: TheaterMode) => update({ theater })
+export const setTheater = (theater: TheaterMode) => {
+  update({ theater })
+  if (getSettings().theater !== theater) updateSettings({ theater })
+}
+
+subscribeSettings((next) => {
+  if (session.videoId && next.theater !== session.theater) update({ theater: next.theater })
+})
 
 export const setPlayingChapter = (chapter: number) => {
   if (chapter !== session.chapter) update({ chapter })

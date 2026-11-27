@@ -439,6 +439,7 @@ const ShortsPlayer = (
   const [playbackRate, setPlaybackRate] = useState(() => getSettings().playbackRate)
   const playbackRateRef = useRef(playbackRate)
   playbackRateRef.current = playbackRate
+  const lastSettingsRef = useRef(getSettings())
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
   const [fullscreen, setFullscreen] = useState(false)
@@ -708,10 +709,23 @@ const ShortsPlayer = (
     video.addEventListener('volumechange', sync)
     const unbindProgress = bindSmoothPlaybackLoop(video, tick, () => active && !scrubbing)
     const unsubscribe = subscribeSettings((next) => {
-      if (next.playbackRate === playbackRateRef.current) return
+      const prev = lastSettingsRef.current
+      lastSettingsRef.current = next
       const el = videoRef.current
-      if (el) el.playbackRate = next.playbackRate
-      setPlaybackRate(next.playbackRate)
+      if (next.playbackRate !== playbackRateRef.current) {
+        if (el) el.playbackRate = next.playbackRate
+        setPlaybackRate(next.playbackRate)
+      }
+      if (el) {
+        if (next.volume !== prev.volume && Math.abs(el.volume - next.volume) > 0.001) {
+          el.volume = next.volume
+          setVolume(next.volume)
+        }
+        if (next.muted !== prev.muted && el.muted !== next.muted) {
+          el.muted = next.muted
+          setMuted(next.muted)
+        }
+      }
     })
     return () => {
       video.removeEventListener('play', sync)
@@ -775,7 +789,7 @@ const ShortsPlayer = (
     const controller = controllerRef.current
     if (!next) {
       setCaption(undefined)
-      updateSettings({ captionsEnabled: false })
+      updateSettings({ captionsEnabled: false, captionsChosen: true })
       void controller?.selectCaption(undefined).catch(() => {})
       return
     }
@@ -783,7 +797,7 @@ const ShortsPlayer = (
       void controller?.selectCaption(next.trackId, next.translateTo).then(
         () => {
           setCaption(next)
-          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
+          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo, captionsChosen: true })
         },
         () => {
           showToast('Auto-translate is not available right now')
@@ -793,7 +807,7 @@ const ShortsPlayer = (
     }
     setCaption(next)
     const picked = captionTracks.find((track) => track.id === next.trackId)
-    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
+    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode, captionsChosen: true })
     void controller?.selectCaption(next.trackId).catch(() => {
       setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')

@@ -132,6 +132,7 @@ export const bindWheelVolume = (
     if (!pendingSettings) return
     const next = pendingSettings
     pendingSettings = undefined
+    if (Math.abs(video.volume - next.volume) > 0.001 || video.muted !== next.muted) return
     onPersist?.(next)
   }
 

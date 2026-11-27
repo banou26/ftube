@@ -271,3 +271,26 @@ test('Settings Theater mode selector updates aria-pressed, persists, and initial
   await expect(host.locator('main')).not.toHaveClass(/\btheater-fullscreen\b/)
   await expect(host.locator('.theater-toggle')).toHaveAttribute('data-theater-mode', 'theater')
 })
+
+test('changing theater mode from the player persists to Settings automatically and syncs back', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await hideFknNotice(page)
+
+  const host = await mountTheaterHarness(page, 'theater-sync-player', { width: 1440, height: 900 }, 'default', true)
+  const toggle = host.locator('.theater-toggle')
+  await expect(toggle).toHaveAttribute('data-theater-mode', 'default')
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('data-theater-mode', 'theater')
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').theater)).toBe('theater')
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('data-theater-mode', 'fullscreen')
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').theater)).toBe('fullscreen')
+
+  await page.goto('/settings?section=playback')
+  const group = page.getByRole('main').getByRole('group', { name: 'Theater mode', exact: true })
+  await expect(group.getByRole('button', { name: 'Fullscreen theater', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})

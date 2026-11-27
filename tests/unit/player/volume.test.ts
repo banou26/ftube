@@ -225,4 +225,25 @@ describe('bindWheelVolume', () => {
 
     unbind()
   })
+
+  it('skips stale debounced persistence when video volume changes externally before debounce flushes', () => {
+    vi.useFakeTimers()
+    const target = new EventTarget()
+    const video = { volume: 0.05, muted: false }
+    const persisted: { volume: number, muted: boolean }[] = []
+
+    const unbind = bindWheelVolume(target, video, {
+      onPersist: next => persisted.push(next),
+    })
+
+    target.dispatchEvent(wheelEvent(-120).event)
+    expect(video.volume).toBe(0.1)
+
+    // External slider/key update changes video before the debounce fires.
+    video.volume = 0.5
+    vi.advanceTimersByTime(WHEEL_PERSIST_DEBOUNCE_MS)
+    expect(persisted).toEqual([])
+
+    unbind()
+  })
 })
