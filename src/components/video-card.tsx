@@ -600,10 +600,20 @@ const style = css`
     overflow: hidden;
   }
 
-  .channel-name {
+  .subline {
     display: flex;
     align-items: center;
-    width: fit-content;
+    gap: 0.8rem;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .channel-name {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 2 auto;
+    min-width: 0;
     max-width: 100%;
     font-family: var(--feed-font-family, inherit);
     font-size: 1.4rem;
@@ -626,7 +636,9 @@ const style = css`
 
   /* a collaboration's names stay on one line, cut as youtube.com cuts them */
   .channel-name.names {
-    display: block;
+    display: inline-block;
+    flex: 0 2 auto;
+    min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -634,6 +646,11 @@ const style = css`
   }
 
   .meta {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--feed-font-family, inherit);
     font-size: 1.4rem;
     font-weight: 400;
@@ -743,7 +760,6 @@ const style = css`
     }
 
     &.list .title,
-    &.list .meta,
     &.list .description {
       overflow-wrap: anywhere;
     }
@@ -802,6 +818,10 @@ export const VideoCard = (
   const watchHref = carouselShort ? shortsHrefFor(video.id) : watchHrefFor(video.id, context)
   const channelHref = video.channel ? `/channel/${video.channel.id}` : undefined
   const byline = rowByline(video, variant === 'channel')
+  const hasNames = byline === 'names'
+  const hasChannel = byline === 'channel' && Boolean(video.channel && channelHref)
+  const hasMeta = Boolean(video.viewCount || video.publishedText)
+  const hasSubline = hasNames || hasChannel || hasMeta
   const duration = showDuration ? formatDuration(video.durationSeconds) : undefined
   const descriptionText = (video.descriptionSnippet ?? video.description)?.trim()
   const progress = resumePercent(video.progressPercent)
@@ -890,12 +910,18 @@ export const VideoCard = (
             <Link href={watchHref} state={state}>{video.title}</Link>
           </h3>
           {/* youtube.com opens the video from a collaboration's names, and the choice of its channels from the avatars */}
-          {byline === 'names'
-            ? <Link href={watchHref} state={state} className='channel-name names' tabIndex={-1}><BylineNames parts={video.byline} /></Link>
-            : byline === 'channel' && video.channel && channelHref
-            ? <Link href={channelHref} className='channel-name'><span className='name'>{video.channel.name}</span><VerifiedBadge channel={video.channel} /></Link>
+          {hasSubline
+            ? (
+              <div className='subline'>
+                {hasNames
+                  ? <Link href={watchHref} state={state} className='channel-name names' tabIndex={-1}><BylineNames parts={video.byline} /></Link>
+                  : hasChannel && video.channel && channelHref
+                  ? <Link href={channelHref} className='channel-name'><span className='name'>{video.channel.name}</span><VerifiedBadge channel={video.channel} /></Link>
+                  : undefined}
+                <RowMeta video={video} />
+              </div>
+            )
             : undefined}
-          <RowMeta video={video} />
           {video.isMembersOnly ? <MembersOnly /> : undefined}
           {showDescription && descriptionLines > 0 && descriptionText
             ? (
