@@ -1,4 +1,5 @@
 import { css } from '@emotion/react'
+import { Bell, Check, Home, Search } from 'lucide-react'
 import { useEffect, useState } from 'preact/hooks'
 
 import type { TargetedEvent } from 'preact'
@@ -46,51 +47,115 @@ const style = css`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1.2rem;
+    gap: 1rem;
     flex-wrap: wrap;
   }
 
   .preview-brand {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.8rem;
     font-size: 1.4rem;
-    font-weight: 500;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--text-primary);
   }
 
-  .preview-brand img {
-    width: 2.8rem;
-    height: 2.8rem;
-    object-fit: contain;
+  .preview-brand-mark {
+    display: block;
     flex-shrink: 0;
   }
 
-  .preview-meta {
-    display: flex;
+  .preview-search {
+    flex: 1 1 11rem;
+    max-width: 18rem;
+    min-width: 0;
+    height: 3rem;
+    display: inline-flex;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.6rem;
+    padding: 0 1.2rem;
+    border: 1px solid var(--accent-focus);
+    border-radius: 999px;
+    background: var(--bg-input);
+    color: var(--text-placeholder);
+    font-size: 1.25rem;
+  }
+
+  .preview-top-end {
+    display: inline-flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .preview-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    color: var(--text-primary);
+  }
+
+  .preview-badge {
+    position: absolute;
+    top: 0;
+    right: -0.2rem;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 0.35rem;
+    border-radius: 0.8rem;
+    background: var(--brand-red);
+    color: var(--brand-mark-ink, #ffffff);
+    font-size: 1.05rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    text-align: center;
+  }
+
+  .preview-meta {
     font-size: 1.25rem;
     color: var(--text-secondary);
   }
 
-  .preview-cta {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.4rem 1rem;
-    border-radius: 999px;
-    background: var(--accent-tint);
-    color: var(--accent);
-    font-size: 1.2rem;
-    font-weight: 500;
+  .preview-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 1.2rem;
+    align-items: stretch;
   }
 
   .preview-player {
-    padding: 1.4rem 1.4rem 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 1.1rem 1.4rem;
     border-radius: 0.6rem;
     background: var(--bg-chip);
     color: var(--text-primary);
     border: 1px solid var(--border-subtle);
+  }
+
+  .preview-player-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    font-size: 1.25rem;
+  }
+
+  .preview-player-title {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .preview-timestamp {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 1.2rem;
+    font-weight: 500;
   }
 
   .preview-scrubber {
@@ -121,6 +186,76 @@ const style = css`
     top: 50%;
     left: 45%;
     transform: translate(-50%, -50%);
+  }
+
+  .preview-controls {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.9rem;
+    min-width: 0;
+  }
+
+  .preview-nav-active {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--bg-selected);
+    color: var(--text-primary);
+    font-size: 1.3rem;
+    font-weight: 500;
+  }
+
+  .preview-accent-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.8rem 1rem;
+  }
+
+  .preview-cta {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    background: var(--accent-tint);
+    color: var(--accent);
+    font-size: 1.2rem;
+    font-weight: 500;
+  }
+
+  .preview-link {
+    color: var(--accent);
+    font-size: 1.25rem;
+    font-weight: 500;
+  }
+
+  .preview-check-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+  }
+
+  .preview-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 0.35rem;
+    background: var(--accent);
+    color: var(--text-inverse);
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 540px) {
+    .preview-body {
+      grid-template-columns: 1fr;
+    }
   }
 
   .preset-choice {
@@ -369,19 +504,63 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
       <div className='preview-strip'>
         <div className='preview-top'>
           <div className='preview-brand'>
-            <img src={buildAppIconDataUri(settings.appIcon, activeColor)} alt='' aria-hidden='true' />
+            <svg className='preview-brand-mark' width='28' height='20' viewBox='0 0 30 21' aria-hidden='true'>
+              <path
+                d='M29.37 3.28A3.77 3.77 0 0 0 26.72.62C24.38 0 15 0 15 0S5.62 0 3.28.62A3.77 3.77 0 0 0 .63 3.28C0 5.63 0 10.5 0 10.5s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C5.62 21 15 21 15 21s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C30 15.37 30 10.5 30 10.5s0-4.87-.63-7.22Z'
+                fill='var(--brand-mark, #ff0000)'
+              />
+              <path d='M10.4 14.85V6.15L17.9 10.5l-7.5 4.35Z' fill='var(--brand-mark-ink, #ffffff)' />
+              <path
+                d='M18.6 6.75l3.2 3.75-3.2 3.75'
+                fill='none'
+                stroke='var(--brand-mark-ink, #ffffff)'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+                opacity='0.9'
+              />
+            </svg>
             <span>FTube</span>
           </div>
-          <div className='preview-meta'>
-            <span>{paletteLabel} ({resolvedMode})</span>
-            <span className='preview-cta'>Preview accent</span>
+          <div className='preview-search' aria-hidden='true'>
+            <Search size={14} strokeWidth={2} aria-hidden='true' />
+            <span>Search</span>
+          </div>
+          <div className='preview-top-end'>
+            <span className='preview-bell' aria-hidden='true'>
+              <Bell size={16} strokeWidth={1.75} aria-hidden='true' />
+              <span className='preview-badge'>3</span>
+            </span>
+            <span className='preview-meta'>{paletteLabel} ({resolvedMode})</span>
           </div>
         </div>
-        <div className='preview-player' aria-label='Seek bar preview'>
-          <div className='preview-scrubber'>
-            <div className='preview-track'>
-              <div className='preview-played' />
-              <SeekKnob handle={settings.seekHandle} />
+        <div className='preview-body'>
+          <div className='preview-player' aria-label='Seek bar preview'>
+            <div className='preview-player-row' aria-hidden='true'>
+              <span className='preview-player-title'>Now playing</span>
+              <span className='preview-timestamp'>02:14</span>
+            </div>
+            <div className='preview-scrubber'>
+              <div className='preview-track'>
+                <div className='preview-played' />
+                <SeekKnob handle={settings.seekHandle} />
+              </div>
+            </div>
+          </div>
+          <div className='preview-controls' aria-hidden='true'>
+            <div className='preview-nav-active'>
+              <Home size={15} strokeWidth={2} aria-hidden='true' />
+              <span>Home</span>
+            </div>
+            <div className='preview-accent-row'>
+              <span className='preview-cta'>Chapter 2</span>
+              <span className='preview-link'>Show more</span>
+              <span className='preview-check-item'>
+                <span className='preview-check'>
+                  <Check size={12} strokeWidth={2.5} aria-hidden='true' />
+                </span>
+                <span>Autoplay</span>
+              </span>
             </div>
           </div>
         </div>

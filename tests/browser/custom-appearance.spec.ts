@@ -19,11 +19,17 @@ const contrastFromRgb = (fg: string, bg: string) => {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
 }
 
-test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web app icon, and Reset to default', async ({ page, browserName }) => {
-  test.setTimeout(120_000)
+const openAppearanceTab = async (page: import('@playwright/test').Page) => {
   await page.goto('/settings')
+  await page.getByRole('tab', { name: 'Appearance', exact: true }).click()
   const custom = page.locator('#custom-appearance')
   await expect(custom).toBeVisible()
+  return custom
+}
+
+test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web app icon, and Reset to default', async ({ page, browserName }) => {
+  test.setTimeout(120_000)
+  const custom = await openAppearanceTab(page)
 
   // 1. Preset selection applies CSS tokens and persists across reload
   await custom.getByRole('button', { name: 'Emerald' }).click()
@@ -99,7 +105,7 @@ test('configures presets, WCAG-AA custom colors, emoji/icon seek handles, web ap
   await expect(page.locator('.scrubber [data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
 
   // 5. Reset to default clears custom tokens, restores seek handle & original favicon/manifest
-  await page.goto('/settings')
+  await openAppearanceTab(page)
   await page.locator('#custom-appearance').getByRole('button', { name: 'Reset to default' }).click()
   const clearedAccent = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))
   expect(clearedAccent).toBe('')
@@ -111,9 +117,7 @@ test('renders custom emoji and icon seek handles at rest inside Shorts stage', a
   test.setTimeout(180_000)
   const shortUrl = '/shorts/y2Vqj-59Hqc'
 
-  await page.goto('/settings')
-  const custom = page.locator('#custom-appearance')
-  await expect(custom).toBeVisible()
+  const custom = await openAppearanceTab(page)
 
   await custom.getByRole('tab', { name: 'Emoji' }).click()
   await custom.getByRole('button', { name: 'Rocket', exact: false }).click()
@@ -137,7 +141,7 @@ test('renders custom emoji and icon seek handles at rest inside Shorts stage', a
   expect(emojiBox!.y).toBeGreaterThanOrEqual(stageBox!.y)
   expect(emojiBox!.y + emojiBox!.height).toBeLessThanOrEqual(stageBox!.y + stageBox!.height)
 
-  await page.goto('/settings')
+  await openAppearanceTab(page)
   await custom.getByRole('tab', { name: 'Icon' }).click()
   await custom.getByRole('button', { name: 'Star', exact: true }).click()
   await expect(custom.locator('[data-seek-handle="icon"] svg')).toBeVisible()
@@ -156,7 +160,7 @@ test('renders custom emoji and icon seek handles at rest inside Shorts stage', a
   expect(iconBox!.y + iconBox!.height).toBeLessThanOrEqual(iconStageBox!.y + iconStageBox!.height)
 
   // Default dot stays hidden at rest until hover
-  await page.goto('/settings')
+  await openAppearanceTab(page)
   await custom.getByRole('button', { name: 'Reset to default' }).click()
   await page.goto(shortUrl)
   const defaultKnob = stage.locator('.scrubber [data-seek-handle="default"]')
@@ -168,7 +172,7 @@ test('renders custom emoji and icon seek handles at rest inside Shorts stage', a
 
 test('tints video card and compact card resume progress bars with the custom accent color', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.goto('/settings')
+  await openAppearanceTab(page)
   await page.locator('#custom-appearance').getByRole('button', { name: 'Emerald' }).click()
 
   const harness = '/tests/browser/fixtures/appearance-cards-harness.tsx'
@@ -195,7 +199,7 @@ test('tints video card and compact card resume progress bars with the custom acc
   await expect(gridFill).toHaveCSS('background-color', expectedBrandRed)
   await expect(compactFill).toHaveCSS('background-color', expectedBrandRed)
 
-  await page.goto('/settings')
+  await openAppearanceTab(page)
   await page.locator('#custom-appearance').getByRole('button', { name: 'Reset to default' }).click()
   await page.goto('/privacy')
   await page.evaluate(async (path) => {
@@ -208,9 +212,7 @@ test('tints video card and compact card resume progress bars with the custom acc
 
 test('adapts inline SVG header logo colors to the selected custom accent with WCAG contrast', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.goto('/settings')
-  const custom = page.locator('#custom-appearance')
-  await expect(custom).toBeVisible()
+  const custom = await openAppearanceTab(page)
 
   const pill = page.locator('header svg.mark path').nth(0)
   const playTriangle = page.locator('header svg.mark path').nth(1)
@@ -256,8 +258,7 @@ test('adapts inline SVG header logo colors to the selected custom accent with WC
 
 test('adapts settings accent preview player to light, dark, and live device color schemes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
-  await page.goto('/settings')
-  const custom = page.locator('#custom-appearance')
+  const custom = await openAppearanceTab(page)
   const previewPlayer = custom.locator('.preview-player')
   const previewPlayed = custom.locator('.preview-played')
   const previewTrack = custom.locator('.preview-track')
@@ -306,10 +307,7 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await page.route('https://www.youtube.com/**', route => route.abort())
   await page.route('**/__yt_engine__/**', route => route.abort())
-  await page.goto('/settings')
-
-  const custom = page.locator('#custom-appearance')
-  await expect(custom).toBeVisible()
+  const custom = await openAppearanceTab(page)
 
   const svgIcon = page.locator('link[rel="icon"][type="image/svg+xml"]')
   const fallbackIcon = page.locator('link[rel="icon"]:not([type="image/svg+xml"])')
@@ -330,4 +328,116 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
   await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
   await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
+})
+
+test('organizes Settings into General and Appearance tabs and previews all accent-affected UI elements', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto('/settings')
+
+  const main = page.getByRole('main')
+  const generalTab = main.getByRole('tab', { name: 'General', exact: true })
+  const appearanceTab = main.getByRole('tab', { name: 'Appearance', exact: true })
+  await expect(generalTab).toHaveAttribute('aria-selected', 'true')
+  await expect(appearanceTab).toHaveAttribute('aria-selected', 'false')
+
+  await expect(main.getByRole('heading', { name: 'Playback', exact: true })).toBeVisible()
+  await expect(main.getByRole('checkbox', { name: 'Hide Shorts', exact: true })).toBeVisible()
+  await expect(main.locator('#custom-appearance')).toBeHidden()
+  await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeHidden()
+  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeHidden()
+
+  await appearanceTab.click()
+  await expect(appearanceTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/\/settings\?tab=appearance$/)
+  await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeVisible()
+  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeVisible()
+  await expect(main.getByRole('heading', { name: 'Playback', exact: true })).toBeHidden()
+
+  const custom = main.locator('#custom-appearance')
+  await expect(custom).toBeVisible()
+
+  // Persistence across reload while on Appearance tab
+  await page.reload()
+  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(main.locator('#custom-appearance')).toBeVisible()
+
+  const brandMark = custom.locator('.preview-brand-mark path').first()
+  const previewSearch = custom.locator('.preview-search')
+  const previewBadge = custom.locator('.preview-badge')
+  const previewNavActive = custom.locator('.preview-nav-active')
+  const previewCta = custom.locator('.preview-cta')
+  const previewLink = custom.locator('.preview-link')
+  const previewCheck = custom.locator('.preview-check')
+  const previewPlayed = custom.locator('.preview-played')
+
+  for (const el of [brandMark, previewSearch, previewBadge, previewNavActive, previewCta, previewLink, previewCheck, previewPlayed]) {
+    await expect(el).toBeVisible()
+  }
+
+  const readColors = () => page.evaluate(() => {
+    const pick = (selector: string) => {
+      const node = document.querySelector(selector)!
+      const cs = getComputedStyle(node)
+      return {
+        color: cs.color,
+        bg: cs.backgroundColor,
+        border: cs.borderColor,
+        fill: cs.fill,
+      }
+    }
+    return {
+      brandMarkFill: pick('#custom-appearance .preview-brand-mark path').fill,
+      searchBorder: pick('#custom-appearance .preview-search').border,
+      badgeBg: pick('#custom-appearance .preview-badge').bg,
+      navBg: pick('#custom-appearance .preview-nav-active').bg,
+      ctaBg: pick('#custom-appearance .preview-cta').bg,
+      ctaColor: pick('#custom-appearance .preview-cta').color,
+      linkColor: pick('#custom-appearance .preview-link').color,
+      checkBg: pick('#custom-appearance .preview-check').bg,
+      playedBg: pick('#custom-appearance .preview-played').bg,
+    }
+  })
+
+  for (const mode of ['Dark', 'Light'] as const) {
+    await main.getByRole('button', { name: mode, exact: true }).click()
+    await custom.getByRole('button', { name: 'Default', exact: true }).click()
+    const base = await readColors()
+
+    await custom.getByRole('button', { name: 'Emerald', exact: true }).click()
+    const emerald = await readColors()
+
+    expect(emerald.brandMarkFill, `brandMark in ${mode}`).not.toBe(base.brandMarkFill)
+    expect(emerald.searchBorder, `searchBorder in ${mode}`).not.toBe(base.searchBorder)
+    expect(emerald.badgeBg, `badgeBg in ${mode}`).not.toBe(base.badgeBg)
+    expect(emerald.navBg, `navBg in ${mode}`).not.toBe(base.navBg)
+    expect(emerald.ctaBg, `ctaBg in ${mode}`).not.toBe(base.ctaBg)
+    expect(emerald.ctaColor, `ctaColor in ${mode}`).not.toBe(base.ctaColor)
+    expect(emerald.linkColor, `linkColor in ${mode}`).not.toBe(base.linkColor)
+    expect(emerald.checkBg, `checkBg in ${mode}`).not.toBe(base.checkBg)
+    expect(emerald.playedBg, `playedBg in ${mode}`).not.toBe(base.playedBg)
+  }
+
+  // Zero horizontal overflow at desktop and phone viewports
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      { message: `overflow at width ${width}` },
+    ).toBe(true)
+  }
+
+  // Deep link from /settings#custom-appearance and header menu opens Appearance tab directly
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/settings#custom-appearance')
+  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(custom).toBeVisible()
+
+  await page.goto('/privacy')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^Appearance/ }).click()
+  await page.getByRole('menuitem', { name: 'Custom appearance' }).click()
+  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(custom).toBeVisible()
+
+  await custom.getByRole('button', { name: 'Reset to default', exact: true }).click()
 })

@@ -7,8 +7,8 @@ import { expect, test } from './test'
 test('Skip navigation shows on keyboard focus and moves the focus to the page\'s first control', async ({ page }) => {
   await page.goto('/settings')
   const main = page.getByRole('main')
-  const deviceTheme = main.getByRole('button', { name: 'Device theme', exact: true })
-  await expect(deviceTheme).toBeVisible({ timeout: 30_000 })
+  const generalTab = main.getByRole('tab', { name: 'General', exact: true })
+  await expect(generalTab).toBeVisible({ timeout: 30_000 })
   const skip = page.getByRole('button', { name: 'Skip navigation', exact: true })
   await expect(skip).not.toBeInViewport()
 
@@ -26,10 +26,10 @@ test('Skip navigation shows on keyboard focus and moves the focus to the page\'s
   expect(skipBox.x - (logoBox.x + logoBox.width)).toBeCloseTo(6, 0)
 
   await page.keyboard.press('Enter')
-  await expect(deviceTheme).toBeFocused()
+  await expect(generalTab).toBeFocused()
   await expect(skip).not.toBeInViewport()
   await page.keyboard.press('Tab')
-  await expect(main.getByRole('button', { name: 'Dark', exact: true })).toBeFocused()
+  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toBeFocused()
 })
 
 test('Skip navigation puts the focus on the page when the page has no control', async ({ page }) => {
@@ -52,7 +52,7 @@ test('Skip navigation puts the focus on the page when the page has no control', 
 test('Tab after a click in the page goes on from where the click landed', async ({ page }) => {
   await page.goto('/settings')
   const main = page.getByRole('main')
-  await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(main.getByRole('tab', { name: 'General', exact: true })).toBeVisible({ timeout: 30_000 })
   await main.getByText('Theater mode', { exact: true }).click()
   await page.keyboard.press('Tab')
   await expect(main.getByRole('checkbox', { name: 'Theater mode', exact: true })).toBeFocused()

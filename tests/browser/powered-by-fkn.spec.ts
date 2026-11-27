@@ -13,7 +13,7 @@ const resolvedTokenRgb = async (page: import('@playwright/test').Page, token: st
 test('displays Powered by FKN badge beside FTube header logo with themed popover and phone hiding', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.goto('/settings')
+  await page.goto('/settings?tab=appearance')
 
   const header = page.locator('header')
   const logo = header.getByRole('link', { name: 'FTube home', exact: true })
