@@ -244,15 +244,20 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
     const onWheel = (event: WheelEvent) => {
       if ((event.target as Element).closest('[role="dialog"], [role="menu"]')) return
       const { grid: open, setGrid: toggle } = latest.current
-      const down = event.deltaY > 0
+      if (!open) {
+        pull = 0
+        return
+      }
       // an open grid scrolls its list, and closes on a pull up from the list's top
-      if (open && (down || (scrollRef.current?.scrollTop ?? 0) > 0)) return
+      if (event.deltaY >= 0 || (scrollRef.current?.scrollTop ?? 0) > 0) {
+        pull = 0
+        return
+      }
       event.preventDefault()
-      if (down === open) return
       pull = Math.sign(pull) === Math.sign(event.deltaY) ? pull + event.deltaY : event.deltaY
       if (Math.abs(pull) < WHEEL_PULL) return
       pull = 0
-      toggle(!open)
+      toggle(false)
     }
     surface.addEventListener('wheel', onWheel, { passive: false })
     return () => surface.removeEventListener('wheel', onWheel)

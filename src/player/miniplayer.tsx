@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { updateSettings } from '../settings'
 import { clock } from './controls'
 import { closePlayer } from './session'
-import { createWheelVolumeAccumulator, stepVideoVolume, WHEEL_PERSIST_DEBOUNCE_MS } from './volume'
+import { bindWheelVolume } from './volume'
 import { VolumeControl } from './volume-control'
 
 /* youtube.com's miniplayer, measured signed out 2026-11-10 at 1280 and 1920 px: while the pointer is on the video, a
@@ -129,43 +129,10 @@ export const MiniplayerControls = (
   useEffect(() => {
     const target = video?.closest('aside[aria-label="Miniplayer"]')
     if (!video || !target) return
-    const accumulator = createWheelVolumeAccumulator()
-    let persistTimer: ReturnType<typeof setTimeout> | undefined
-    let pendingSettings: { volume: number, muted: boolean } | undefined
-
-    const flushSettings = () => {
-      if (persistTimer !== undefined) {
-        clearTimeout(persistTimer)
-        persistTimer = undefined
-      }
-      if (!pendingSettings) return
-      const next = pendingSettings
-      pendingSettings = undefined
-      updateSettings(next)
-    }
-
-    const onWheel = (event: Event) => {
-      const wheel = event as WheelEvent
-      if (wheel.ctrlKey || wheel.metaKey || wheel.altKey) return
-      const steps = accumulator.consume(wheel.deltaY, wheel.deltaMode)
-      if (steps === 0) {
-        if (Number.isFinite(wheel.deltaY) && wheel.deltaY !== 0) wheel.preventDefault()
-        return
-      }
-      wheel.preventDefault()
-      const next = stepVideoVolume(video, steps)
-      onVolumeRef.current?.(next)
-      pendingSettings = next
-      if (persistTimer !== undefined) clearTimeout(persistTimer)
-      persistTimer = setTimeout(flushSettings, WHEEL_PERSIST_DEBOUNCE_MS)
-    }
-    target.addEventListener('wheel', onWheel, { passive: false })
-    window.addEventListener('pagehide', flushSettings)
-    return () => {
-      target.removeEventListener('wheel', onWheel)
-      window.removeEventListener('pagehide', flushSettings)
-      flushSettings()
-    }
+    return bindWheelVolume(target, video, {
+      onVolumeChange: next => onVolumeRef.current?.(next),
+      onPersist: next => updateSettings(next),
+    })
   }, [video])
 
   const setAdjustingState = useCallback((next: boolean) => {

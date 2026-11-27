@@ -59,7 +59,7 @@ import { CLOCK_SLACK, skipTarget } from './sponsorblock'
 import { decideSurfaceClick, isTouchPointer, shouldAutoHideControlsOnLoad, shouldIgnoreHoverPointer } from './surface-interaction'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
-import { stepVideoVolume, toggleVideoMute } from './volume'
+import { bindWheelVolume, stepVideoVolume, toggleVideoMute } from './volume'
 
 // the player's box is its frame's, which stays as the video changes; this fills it, less the panel beside it in full screen
 const playerStyle = css`
@@ -281,6 +281,7 @@ const VideoPlayer = (
     onVideoElement?: (video: HTMLVideoElement | null) => void
   },
 ) => {
+  const surfaceRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const bindVideo = useCallback((node: HTMLVideoElement | null) => {
@@ -799,8 +800,26 @@ const VideoPlayer = (
   }
 
   // read at key time, so the listener is bound once rather than on every rendered frame
-  const latest = useRef({ docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
-  latest.current = { docked, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
+  const latest = useRef({ docked, grid, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
+  latest.current = { docked, grid, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
+
+  useEffect(() => {
+    const surface = surfaceRef.current
+    if (!surface || !videoElement || docked || status || refusal) return
+    return bindWheelVolume(surface, videoElement, {
+      shouldIgnore: (event) => {
+        if (latest.current.shortcuts || latest.current.timesUp || latest.current.grid) return true
+        const target = event.target
+        return target instanceof Element
+          && Boolean(target.closest('[role="menu"], [role="dialog"], [role="complementary"], .end-screen, .fs-sheet, .filmstrip-track'))
+      },
+      onVolumeChange: (next) => {
+        wake()
+        flash(next.muted ? 'mute' : 'volume', `${Math.round(next.volume * 100)}%`)
+      },
+      onPersist: next => updateSettings(next),
+    })
+  }, [videoElement, docked, status, refusal, wake, flash])
 
   // Re-run on videoElement change so metadata is restored if <video> remounts after bindMediaSession's cleanup clears it.
   useEffect(() => {
@@ -1061,6 +1080,7 @@ const VideoPlayer = (
 
   return (
     <div
+      ref={surfaceRef}
       css={[playerStyle, captionStyle(cueStyle)]}
       data-player-surface
       className={playerClasses}

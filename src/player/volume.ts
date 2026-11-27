@@ -99,3 +99,71 @@ export const toggleVideoMute = (
   video.muted = true
   return { volume: clampVolume(video.volume), muted: true }
 }
+
+export type WheelVolumeOptions = {
+  shouldIgnore?: (event: WheelEvent) => boolean
+  onVolumeChange?: (next: { volume: number, muted: boolean }) => void
+  onPersist?: (next: { volume: number, muted: boolean }) => void
+  stopPropagation?: boolean
+}
+
+/**
+ * Binds mouse-wheel and trackpad volume control onto `target`, preventing page or container
+ * scrolling while adjusting `video` volume and debouncing persisted settings writes.
+ */
+export const bindWheelVolume = (
+  target: EventTarget,
+  video: { volume: number, muted: boolean },
+  options?: WheelVolumeOptions,
+): (() => void) => {
+  const accumulator = createWheelVolumeAccumulator()
+  let persistTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingSettings: { volume: number, muted: boolean } | undefined
+  const onVolumeChange = options?.onVolumeChange
+  const onPersist = options?.onPersist
+  const shouldIgnore = options?.shouldIgnore
+  const stopPropagation = options?.stopPropagation ?? false
+
+  const flushSettings = () => {
+    if (persistTimer !== undefined) {
+      clearTimeout(persistTimer)
+      persistTimer = undefined
+    }
+    if (!pendingSettings) return
+    const next = pendingSettings
+    pendingSettings = undefined
+    onPersist?.(next)
+  }
+
+  const onWheel = (event: Event) => {
+    const wheel = event as WheelEvent
+    if (wheel.defaultPrevented || wheel.ctrlKey || wheel.metaKey || wheel.altKey) return
+    if (shouldIgnore?.(wheel)) return
+    const steps = accumulator.consume(wheel.deltaY, wheel.deltaMode)
+    if (steps === 0) {
+      if (Number.isFinite(wheel.deltaY) && wheel.deltaY !== 0) {
+        wheel.preventDefault()
+        if (stopPropagation) wheel.stopPropagation()
+      }
+      return
+    }
+    wheel.preventDefault()
+    if (stopPropagation) wheel.stopPropagation()
+    const next = stepVideoVolume(video, steps)
+    onVolumeChange?.(next)
+    if (onPersist) {
+      pendingSettings = next
+      if (persistTimer !== undefined) clearTimeout(persistTimer)
+      persistTimer = setTimeout(flushSettings, WHEEL_PERSIST_DEBOUNCE_MS)
+    }
+  }
+
+  target.addEventListener('wheel', onWheel, { passive: false })
+  const win = typeof window !== 'undefined' ? window : undefined
+  win?.addEventListener('pagehide', flushSettings)
+  return () => {
+    target.removeEventListener('wheel', onWheel)
+    win?.removeEventListener('pagehide', flushSettings)
+    flushSettings()
+  }
+}

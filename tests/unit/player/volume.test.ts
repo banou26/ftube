@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vite-plus/test'
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import {
   applyVideoVolume,
+  bindWheelVolume,
   createWheelVolumeAccumulator,
   effectiveVolumeOf,
   stepVideoVolume,
   toggleVideoMute,
   VOLUME_STEP,
+  WHEEL_PERSIST_DEBOUNCE_MS,
   WHEEL_RESET_MS,
   WHEEL_STEP_PX,
   wheelVolumeDelta,
@@ -114,5 +116,113 @@ describe('player volume helpers', () => {
     acc.reset()
     expect(acc.consume(0)).toBe(0)
     expect(acc.consume(Number.NaN)).toBe(0)
+  })
+})
+
+describe('bindWheelVolume', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const wheelEvent = (deltaY: number, overrides: Partial<{
+    deltaMode: number
+    ctrlKey: boolean
+    metaKey: boolean
+    altKey: boolean
+    defaultPrevented: boolean
+  }> = {}) => {
+    let prevented = Boolean(overrides.defaultPrevented)
+    let stopped = false
+    const event = Object.assign(new Event('wheel', { cancelable: true }), {
+      deltaY,
+      deltaMode: overrides.deltaMode ?? 0,
+      ctrlKey: overrides.ctrlKey ?? false,
+      metaKey: overrides.metaKey ?? false,
+      altKey: overrides.altKey ?? false,
+      stopPropagation: () => {
+        stopped = true
+      },
+      preventDefault: () => {
+        prevented = true
+      },
+    })
+    Object.defineProperty(event, 'defaultPrevented', { get: () => prevented })
+    return {
+      event,
+      isPrevented: () => prevented,
+      isStopped: () => stopped,
+    }
+  }
+
+  it('adjusts volume on discrete and trackpad wheel events, debounces persistence, and flushes on cleanup', () => {
+    vi.useFakeTimers()
+    const target = new EventTarget()
+    const video = { volume: 0.5, muted: false }
+    const changes: { volume: number, muted: boolean }[] = []
+    const persisted: { volume: number, muted: boolean }[] = []
+
+    const unbind = bindWheelVolume(target, video, {
+      onVolumeChange: next => changes.push(next),
+      onPersist: next => persisted.push(next),
+      stopPropagation: true,
+    })
+
+    const sub = wheelEvent(-40)
+    target.dispatchEvent(sub.event)
+    expect(sub.isPrevented()).toBe(true)
+    expect(sub.isStopped()).toBe(true)
+    expect(changes).toEqual([])
+
+    const up = wheelEvent(-120)
+    target.dispatchEvent(up.event)
+    expect(up.isPrevented()).toBe(true)
+    expect(changes).toEqual([{ volume: 0.55, muted: false }])
+    expect(persisted).toEqual([])
+
+    vi.advanceTimersByTime(WHEEL_PERSIST_DEBOUNCE_MS - 1)
+    expect(persisted).toEqual([])
+
+    const up2 = wheelEvent(-120)
+    target.dispatchEvent(up2.event)
+    expect(changes.at(-1)).toEqual({ volume: 0.6, muted: false })
+
+    vi.advanceTimersByTime(WHEEL_PERSIST_DEBOUNCE_MS)
+    expect(persisted).toEqual([{ volume: 0.6, muted: false }])
+
+    const down = wheelEvent(120)
+    target.dispatchEvent(down.event)
+    expect(changes.at(-1)).toEqual({ volume: 0.55, muted: false })
+
+    unbind()
+    expect(persisted).toEqual([
+      { volume: 0.6, muted: false },
+      { volume: 0.55, muted: false },
+    ])
+
+    target.dispatchEvent(wheelEvent(-120).event)
+    expect(video.volume).toBe(0.55)
+  })
+
+  it('ignores modifier keys and events filtered by shouldIgnore', () => {
+    const target = new EventTarget()
+    const video = { volume: 0.5, muted: false }
+    let ignored = false
+
+    const unbind = bindWheelVolume(target, video, {
+      shouldIgnore: () => ignored,
+    })
+
+    const zoomed = wheelEvent(-120, { ctrlKey: true })
+    target.dispatchEvent(zoomed.event)
+    expect(zoomed.isPrevented()).toBe(false)
+    expect(video.volume).toBe(0.5)
+
+    ignored = true
+    const overMenu = wheelEvent(-120)
+    target.dispatchEvent(overMenu.event)
+    expect(overMenu.isPrevented()).toBe(false)
+    expect(video.volume).toBe(0.5)
+
+    unbind()
   })
 })

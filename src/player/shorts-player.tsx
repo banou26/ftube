@@ -24,6 +24,7 @@ import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
 import { ShortsOptionsMenu } from './shorts-menu'
 import { bindSmoothPlaybackLoop } from './smooth-progress'
+import { bindWheelVolume } from './volume'
 
 const playerStyle = css`
   position: relative;
@@ -404,6 +405,7 @@ const ShortsPlayer = (
   },
 ) => {
   const rootRef = useRef<HTMLDivElement>(null)
+  const volumePillRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const controllerRef = useRef<Awaited<ReturnType<typeof startShakaPlayback>> | undefined>(undefined)
@@ -865,6 +867,34 @@ const ShortsPlayer = (
   const effectiveVolume = muted ? 0 : volume
   const visibleStatus = active ? status : ''
 
+  useEffect(() => {
+    const pill = volumePillRef.current
+    if (!active || !pill || !videoEl || visibleStatus) return
+    return bindWheelVolume(pill, videoEl, {
+      stopPropagation: true,
+      onVolumeChange: (next) => {
+        setVolume(next.volume)
+        setMuted(next.muted)
+      },
+      onPersist: next => updateSettings(next),
+    })
+  }, [active, videoEl, visibleStatus])
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!active || !fullscreen || !root || !videoEl || visibleStatus) return
+    return bindWheelVolume(root, videoEl, {
+      shouldIgnore: event =>
+        event.target instanceof Element
+        && Boolean(event.target.closest('[role="menu"], [role="dialog"], .volume-pill')),
+      onVolumeChange: (next) => {
+        setVolume(next.volume)
+        setMuted(next.muted)
+      },
+      onPersist: next => updateSettings(next),
+    })
+  }, [active, fullscreen, videoEl, visibleStatus])
+
   const mediaState = useMemo<ShortsMediaState>(() => ({
     captionTracks,
     translationLanguages,
@@ -937,7 +967,7 @@ const ShortsPlayer = (
                   ? <Play size={22} fill='currentColor' strokeWidth={1.5} />
                   : <Pause size={22} fill='currentColor' strokeWidth={1.5} />}
               </button>
-              <div className='volume-pill'>
+              <div ref={volumePillRef} className='volume-pill'>
                 <button
                   type='button'
                   className='control-btn mute'

@@ -77,10 +77,14 @@ test('shows the title, opens a grid of the related videos, and plays one in full
   await expect(grid).toHaveCount(0)
   // what @fkn/lib does while its notice or bar takes in the pointer: it scrolls the page under the player by the wheel
   await page.evaluate(() => addEventListener('wheel', (event: WheelEvent) => document.scrollingElement!.scrollBy(0, event.deltaY), { capture: true }))
+  const initialVolume = await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)
   await page.mouse.move(640, 300)
   await page.mouse.wheel(0, 120)
-  await expect(grid).toBeVisible()
+  await expect(grid).toHaveCount(0)
+  await expect.poll(() => player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBeLessThan(initialVolume)
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
+  await press(page, player.getByRole('button', { name: 'More videos' }))
+  await expect(grid).toBeVisible()
   // and stay hidden over the open grid, though the pointer is moving
   await page.mouse.move(600, 320)
   await expect.poll(() => opacity(heading)).toBe(0)
