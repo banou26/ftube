@@ -290,4 +290,11 @@ describe('reading a watch page', () => {
     const { fetchPlayerResponse } = await import('../../../src/frame/watch-page')
     expect(await fetchPlayerResponse('video-1')).toEqual({ videoDetails: { videoId: 'video-1', title: 'a {brace} and a "quote"' } })
   })
+
+  it('also parses window["ytInitialPlayerResponse"] assignments', async () => {
+    const windowPage = watchPage().replace('var ytInitialPlayerResponse = ', 'window["ytInitialPlayerResponse"] = ')
+    vi.stubGlobal('fetch', async () => streamed([windowPage]))
+    const { fetchPlayerResponse } = await import('../../../src/frame/watch-page')
+    expect(await fetchPlayerResponse('video-1')).toEqual({ videoDetails: { videoId: 'video-1', title: 'a {brace} and a "quote"' } })
+  })
 })

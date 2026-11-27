@@ -977,8 +977,8 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   const data = answer ?? (pages.length > 0 && lastAnswer.current?.key === feedKey ? lastAnswer.current.data : undefined)
   const channel = data?.channel.channel
   useEffect(() => {
-    if (channel?.id) markSubscriptionSeen(channel.id)
-  }, [channel?.id])
+    if (signedIn && channel?.id) markSubscriptionSeen(channel.id)
+  }, [signedIn, channel?.id])
   const unavailable = error?.graphQLErrors.find(entry => entry.message.startsWith(CHANNEL_UNAVAILABLE))
   const missing = error?.graphQLErrors.some(entry => entry.message === CHANNEL_NOT_FOUND) === true
   const page = data?.channel.videos

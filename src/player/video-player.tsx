@@ -53,6 +53,7 @@ import { useFrame } from './player-frame'
 import { RefusalScreen } from './refusal-screen'
 import { stepRate } from './rates'
 import { PlayerMenu } from './player-menu'
+import { planPlayerSettingsSync } from './settings-sync'
 import { ShortcutsDialog } from './shortcuts'
 import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
@@ -708,26 +709,27 @@ const VideoPlayer = (
       setStableVolume(next.stableVolume)
       void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
     }
+    const sync = planPlayerSettingsSync(prev, next, { hasCaption: Boolean(captionRef.current) })
     const el = videoRef.current
     if (el) {
-      if (next.playbackRate !== prev.playbackRate && (el.playbackRate !== next.playbackRate || el.defaultPlaybackRate !== next.playbackRate)) {
-        el.defaultPlaybackRate = next.playbackRate
-        el.playbackRate = next.playbackRate
+      if (sync.playbackRate !== undefined && (el.playbackRate !== sync.playbackRate || el.defaultPlaybackRate !== sync.playbackRate)) {
+        el.defaultPlaybackRate = sync.playbackRate
+        el.playbackRate = sync.playbackRate
       }
-      if (next.volume !== prev.volume && Math.abs(el.volume - next.volume) > 0.001) el.volume = next.volume
-      if (next.muted !== prev.muted && el.muted !== next.muted) el.muted = next.muted
-      if (!next.muted && next.volume > 0) setAutoMuted(false)
+      if (sync.volume !== undefined && Math.abs(el.volume - sync.volume) > 0.001) el.volume = sync.volume
+      if (sync.muted !== undefined && el.muted !== sync.muted) el.muted = sync.muted
+      if (sync.clearAutoMuted) setAutoMuted(false)
     }
-    if (next.captionsEnabled !== prev.captionsEnabled) {
-      if (!next.captionsEnabled) {
-        setCaption(undefined)
-        void selectCaptionRef.current?.(undefined).catch(() => {})
-      } else if (!captionRef.current) {
-        const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language)
-        if (wanted) {
-          setCaption(wanted)
-          void selectCaptionRef.current?.(wanted.trackId, wanted.translateTo).catch(() => {})
-        }
+    if (sync.captionAction === 'disable') {
+      captionRef.current = undefined
+      setCaption(undefined)
+      void selectCaptionRef.current?.(undefined).catch(() => {})
+    } else if (sync.captionAction === 'enable-default') {
+      const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language)
+      if (wanted) {
+        captionRef.current = wanted
+        setCaption(wanted)
+        void selectCaptionRef.current?.(wanted.trackId, wanted.translateTo).catch(() => {})
       }
     }
   }), [])
@@ -746,16 +748,18 @@ const VideoPlayer = (
   // stores the LANGUAGE rather than the track id, since ids are per video and the next video would not recognize one
   const applyCaption = useCallback((next: CaptionPick | undefined) => {
     if (!next) {
+      captionRef.current = undefined
       setCaption(undefined)
-      updateSettings({ captionsEnabled: false, captionsChosen: true })
+      updateSettings({ captionsEnabled: false })
       void selectCaptionRef.current?.(undefined).catch(() => {})
       return
     }
     if (next.translateTo) {
       void selectCaptionRef.current?.(next.trackId, next.translateTo).then(
         () => {
+          captionRef.current = next
           setCaption(next)
-          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo, captionsChosen: true })
+          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
         },
         () => {
           showToast('Auto-translate is not available right now')
@@ -763,9 +767,10 @@ const VideoPlayer = (
       )
       return
     }
+    captionRef.current = next
     setCaption(next)
     const picked = captionTracks.find((track) => track.id === next.trackId)
-    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode, captionsChosen: true })
+    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
     void selectCaptionRef.current?.(next.trackId).catch(() => {
       setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')

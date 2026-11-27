@@ -456,6 +456,7 @@ export const GroupDialog = (
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
 
   const choices = extraIcon && !storedIcons.includes(extraIcon) ? [extraIcon, ...storedIcons] : storedIcons
+  const canRemoveIcon = (choice: string) => choice === extraIcon || storedIcons.length > 1
 
   const pickGroupEmoji = (picked: string) => {
     const next = picked.trim()
@@ -466,7 +467,7 @@ export const GroupDialog = (
   }
 
   const onRemoveIcon = (choice: string) => {
-    if (choices.length <= 1) return
+    if (!canRemoveIcon(choice)) return
     if (choice === extraIcon) setExtraIcon(undefined)
     const nextStored = removeGroupIcon(choice)
     const remaining = extraIcon && extraIcon !== choice && !nextStored.includes(extraIcon)
@@ -596,7 +597,7 @@ export const GroupDialog = (
                     >
                       {choice}
                     </button>
-                    {choices.length > 1
+                    {canRemoveIcon(choice)
                       ? (
                         <button
                           type='button'

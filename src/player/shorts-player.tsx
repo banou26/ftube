@@ -789,7 +789,7 @@ const ShortsPlayer = (
     const controller = controllerRef.current
     if (!next) {
       setCaption(undefined)
-      updateSettings({ captionsEnabled: false, captionsChosen: true })
+      updateSettings({ captionsEnabled: false })
       void controller?.selectCaption(undefined).catch(() => {})
       return
     }
@@ -797,7 +797,7 @@ const ShortsPlayer = (
       void controller?.selectCaption(next.trackId, next.translateTo).then(
         () => {
           setCaption(next)
-          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo, captionsChosen: true })
+          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
         },
         () => {
           showToast('Auto-translate is not available right now')
@@ -807,7 +807,7 @@ const ShortsPlayer = (
     }
     setCaption(next)
     const picked = captionTracks.find((track) => track.id === next.trackId)
-    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode, captionsChosen: true })
+    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
     void controller?.selectCaption(next.trackId).catch(() => {
       setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')

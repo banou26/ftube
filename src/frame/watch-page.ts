@@ -62,7 +62,7 @@ export const readJsonObject = (text: string, open: number) => {
 }
 
 const HOME_URL = 'https://www.youtube.com/?app=desktop'
-const PLAYER_RESPONSE_START = /\bytInitialPlayerResponse\s*=\s*\{/g
+const PLAYER_RESPONSE_START = /\b(?:ytInitialPlayerResponse|window\[['"]ytInitialPlayerResponse['"]\])\s*=\s*\{/g
 
 const readPlayerResponse = (html: string) => {
   PLAYER_RESPONSE_START.lastIndex = 0

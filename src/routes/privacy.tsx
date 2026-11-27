@@ -22,7 +22,7 @@ const KEPT: { title: string, what: string }[] = [
   },
   {
     title: 'Channel groups',
-    what: 'Each group\'s name and emoji, your customized group icon list, when each group was last changed, and the name, ID and picture address of each channel in it. Kept until you delete the group on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While FTube is signed in to FKN, also a random ID for your account\'s copy of the groups.',
+    what: 'Each group\'s name and emoji, when each group was last changed, and the name, ID and picture address of each channel in it, plus your customized group icon list (kept until you remove icons or clear site data). Groups are kept until you delete them on the Groups page or, for groups from your FKN account, until you sign out of FKN. The ID of each group you delete, with when, stays until you sign out of FKN, so that a copy of the group on your FKN account does not bring it back. While FTube is signed in to FKN, also a random ID for your account\'s copy of the groups.',
   },
   {
     title: 'Whether you are signed in',
@@ -30,7 +30,7 @@ const KEPT: { title: string, what: string }[] = [
   },
   {
     title: 'Seen subscription indicators',
-    what: 'Up to 24 hours of subscribed channel IDs whose blue new-content dot in the left guide you opened, stored locally in this browser so opened dots stay hidden until YouTube clears them or you sign out.',
+    what: 'Channel IDs visited while signed in, stored locally for up to 24 hours so opened blue new-content dots in the left guide stay hidden until YouTube clears them or you sign out.',
   },
   {
     title: 'Your YouTube visitor ID',
