@@ -62,6 +62,8 @@ const SHORT_META_QUERY = gql(`
 type ShortsPage = ShortsFeedQuery['shorts']
 
 const style = css`
+  --slide-pad: 1.2rem;
+  --stage-height: calc(100vh - var(--header-height, 5.6rem) - var(--slide-pad) * 2);
   /* Owns the viewport below the header: the pager scrolls itself rather than
      the document, so snapping is not fighting the page's own scroll. */
   height: calc(100vh - var(--header-height, 5.6rem));
@@ -84,7 +86,7 @@ const style = css`
     align-items: center;
     justify-content: center;
     gap: 1.6rem;
-    padding: 1.2rem 0;
+    padding: var(--slide-pad) 0;
   }
 
   /* A Short's video and its buttons, positioned so that below the breakpoint
@@ -109,7 +111,7 @@ const style = css`
   .stage {
     position: relative;
     height: 100%;
-    width: min(calc((100vh - var(--header-height, 5.6rem) - 2.4rem) * 9 / 16), calc(100vw - 10rem));
+    width: min(calc(var(--stage-height) * 9 / 16), calc(100vw - 10rem));
     aspect-ratio: 9 / 16;
     max-width: calc(100vw - 10rem);
     flex: none;
@@ -371,7 +373,7 @@ const style = css`
     }
 
     .stage {
-      width: min(calc((100vh - var(--header-height, 5.6rem) - 2.4rem) * 9 / 16), 100vw);
+      width: min(calc(var(--stage-height) * 9 / 16), 100vw);
       max-width: 100%;
     }
 

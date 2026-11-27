@@ -24,6 +24,7 @@ const mountTheaterHarness = async (
   videoId: string,
   viewport: { width: number, height: number },
   theater: TheaterMode = 'fullscreen',
+  preserveSetting = false,
 ) => {
   await page.setViewportSize(viewport)
   await page.route('https://*.sdbx.app/**', route => route.abort())
@@ -35,10 +36,10 @@ const mountTheaterHarness = async (
   const host = page.locator(`[data-theater-bigger-harness="${videoId}"]`)
   await expect(async () => {
     if (await host.count() === 0) {
-      await page.evaluate(async ([path, vid, mode]) => {
+      await page.evaluate(async ([path, vid, mode, keep]) => {
         const mod = await import(path) as typeof import('./fixtures/theater-bigger-harness')
-        mod.mountTheaterBiggerHarness({ videoId: vid, theater: mode })
-      }, [HARNESS, videoId, theater] as const)
+        mod.mountTheaterBiggerHarness({ videoId: vid, theater: mode, preserveSetting: keep })
+      }, [HARNESS, videoId, theater, preserveSetting] as const)
     }
     await expect(host.locator('main .stage [data-player-root]')).toBeVisible({ timeout: 5_000 })
     await expect(host.locator('main h1.title')).toBeAttached({ timeout: 5_000 })
@@ -215,4 +216,58 @@ test('cycles theater switch through Default, YouTube theater, and Fullscreen the
   await page.keyboard.press('t')
   await expect(toggle).toHaveAttribute('data-theater-mode', 'default')
   await expect(main).not.toHaveClass(/\btheater\b/)
+})
+
+test('Settings Theater mode selector updates aria-pressed, persists, and initializes watch player mode', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await hideFknNotice(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  const openTheaterGroup = async () => {
+    await page.goto('/settings?section=playback')
+    const group = page.getByRole('main').getByRole('group', { name: 'Theater mode', exact: true })
+    await expect(group).toBeVisible({ timeout: 30_000 })
+    return {
+      defaultBtn: group.getByRole('button', { name: 'Default', exact: true }),
+      theaterBtn: group.getByRole('button', { name: 'Theater', exact: true }),
+      fullscreenBtn: group.getByRole('button', { name: 'Fullscreen theater', exact: true }),
+    }
+  }
+
+  let controls = await openTheaterGroup()
+  await expect(controls.defaultBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(controls.theaterBtn).toHaveAttribute('aria-pressed', 'false')
+  await expect(controls.fullscreenBtn).toHaveAttribute('aria-pressed', 'false')
+
+  await controls.fullscreenBtn.click()
+  await expect(controls.defaultBtn).toHaveAttribute('aria-pressed', 'false')
+  await expect(controls.theaterBtn).toHaveAttribute('aria-pressed', 'false')
+  await expect(controls.fullscreenBtn).toHaveAttribute('aria-pressed', 'true')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').theater)).toBe('fullscreen')
+
+  await page.reload()
+  controls = await openTheaterGroup()
+  await expect(controls.fullscreenBtn).toHaveAttribute('aria-pressed', 'true')
+
+  let host = await mountTheaterHarness(page, 'theater-settings-fs', { width: 1440, height: 900 }, 'default', true)
+  await expect(host.locator('main')).toHaveClass(/\btheater-fullscreen\b/)
+  await expect(host.locator('.theater-toggle')).toHaveAttribute('data-theater-mode', 'fullscreen')
+
+  controls = await openTheaterGroup()
+  await controls.theaterBtn.click()
+  await expect(controls.defaultBtn).toHaveAttribute('aria-pressed', 'false')
+  await expect(controls.theaterBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(controls.fullscreenBtn).toHaveAttribute('aria-pressed', 'false')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}').theater)).toBe('theater')
+
+  await page.reload()
+  controls = await openTheaterGroup()
+  await expect(controls.theaterBtn).toHaveAttribute('aria-pressed', 'true')
+
+  host = await mountTheaterHarness(page, 'theater-settings-normal', { width: 1440, height: 900 }, 'default', true)
+  await expect(host.locator('main')).toHaveClass(/\btheater\b/)
+  await expect(host.locator('main')).not.toHaveClass(/\btheater-fullscreen\b/)
+  await expect(host.locator('.theater-toggle')).toHaveAttribute('data-theater-mode', 'theater')
 })

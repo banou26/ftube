@@ -57,11 +57,12 @@ export const resolveAppIconColors = (
   const accent = normalized ?? '#ff0000'
 
   if (id === 'theme') {
-    if (normalized && mode) {
+    if (!normalized) return { pillFill: '#ff0000', markColor: '#ffffff' }
+    if (mode) {
       const palette = generateThemePalette(normalized, mode)
       return { pillFill: palette['--brand-mark'], markColor: palette['--brand-mark-ink'] }
     }
-    return { pillFill: accent, markColor: pickContrastingInk(accent) }
+    return { pillFill: normalized, markColor: pickContrastingInk(normalized) }
   }
 
   if (id === 'dark') {
@@ -168,15 +169,15 @@ export const applyAppIcon = (
   const normalizedCustom = normalizeHexColor(customThemeColor)
   const rootStyle = document.documentElement.style
   if (iconId === 'default' && !normalizedCustom) {
-    rootStyle.removeProperty('--brand-mark')
-    rootStyle.removeProperty('--brand-mark-ink')
-    rootStyle.removeProperty('--brand-mark-stroke')
+    rootStyle.removeProperty('--app-icon-fill')
+    rootStyle.removeProperty('--app-icon-ink')
+    rootStyle.removeProperty('--app-icon-stroke')
   } else {
     const colors = resolveAppIconColors(iconId, normalizedCustom, mode)
-    rootStyle.setProperty('--brand-mark', colors.pillFill)
-    rootStyle.setProperty('--brand-mark-ink', colors.markColor)
-    if (colors.pillStroke) rootStyle.setProperty('--brand-mark-stroke', colors.pillStroke)
-    else rootStyle.removeProperty('--brand-mark-stroke')
+    rootStyle.setProperty('--app-icon-fill', colors.pillFill)
+    rootStyle.setProperty('--app-icon-ink', colors.markColor)
+    if (colors.pillStroke) rootStyle.setProperty('--app-icon-stroke', colors.pillStroke)
+    else rootStyle.removeProperty('--app-icon-stroke')
   }
 
   const manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')

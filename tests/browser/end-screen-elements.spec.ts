@@ -98,6 +98,8 @@ test('shows the creator\'s elements over the last seconds, scaled to the picture
       expect(Math.abs(same.top - element.top) * wide.picture.height, element.label).toBeLessThanOrEqual(2)
     }
   }).toPass({ timeout: 10_000 })
+  // Second t advances from YouTube theater to Fullscreen theater; third t returns to Default.
+  await page.keyboard.press('t')
   await page.keyboard.press('t')
   await expect.poll(async () => (await layout(page)).picture.width).toBe(shown.picture.width)
 

@@ -5,15 +5,15 @@ export const BrandMark = ({ className, width, height }: { className?: string, wi
   <svg className={className} width={width} height={height} viewBox='0 4.75 32 22.5' aria-hidden='true'>
     <path
       d={BRAND_PILL_PATH}
-      fill='var(--brand-mark, #ff0000)'
-      stroke='var(--brand-mark-stroke, none)'
+      fill='var(--app-icon-fill, var(--brand-mark, #ff0000))'
+      stroke='var(--app-icon-stroke, none)'
       strokeWidth='1'
     />
-    <path d={BRAND_PLAY_PATH} fill='var(--brand-mark-ink, #ffffff)' />
+    <path d={BRAND_PLAY_PATH} fill='var(--app-icon-ink, var(--brand-mark-ink, #ffffff))' />
     <path
       d={BRAND_CHEVRON_PATH}
       fill='none'
-      stroke='var(--brand-mark-ink, #ffffff)'
+      stroke='var(--app-icon-ink, var(--brand-mark-ink, #ffffff))'
       strokeWidth='2'
       strokeLinecap='round'
       strokeLinejoin='round'

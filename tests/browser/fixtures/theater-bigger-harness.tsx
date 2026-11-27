@@ -18,6 +18,7 @@ import typeDefs from '../../../src/worker/schema.gql?raw'
 export type TheaterBiggerHarnessOptions = {
   videoId?: string
   theater?: TheaterMode | boolean
+  preserveSetting?: boolean
 }
 
 const makeRelatedVideo = (id: string, title: string) => ({
@@ -32,8 +33,10 @@ const makeRelatedVideo = (id: string, title: string) => ({
 
 export const mountTheaterBiggerHarness = (options: TheaterBiggerHarnessOptions = {}) => {
   const videoId = options.videoId ?? 'theater-bigger-1'
-  const initialTheater = options.theater === undefined ? 'fullscreen' : coerceTheaterMode(options.theater)
-  setPlayerTheater(updateSettings({ theater: initialTheater }).theater)
+  if (!options.preserveSetting) {
+    const initialTheater = options.theater === undefined ? 'fullscreen' : coerceTheaterMode(options.theater)
+    setPlayerTheater(updateSettings({ theater: initialTheater }).theater)
+  }
 
   // Keep #app alive at /privacy (for <Global> styles and <PersistentPlayer />),
   // using an isolated memory router so history never navigates #app to /watch.

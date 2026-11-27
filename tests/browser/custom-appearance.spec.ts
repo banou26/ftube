@@ -340,8 +340,34 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
     document.body.append(scratch)
     const favicon = readPaths(scratch.querySelector('svg')!)
     scratch.remove()
-    return { header, preview, favicon, href }
+    const badge = getComputedStyle(document.querySelector('#custom-appearance .preview-badge')!)
+    const rootStyle = getComputedStyle(document.documentElement)
+    return {
+      header,
+      preview,
+      favicon,
+      href,
+      badge: { color: badge.color, bg: badge.backgroundColor },
+      brandMark: rootStyle.getPropertyValue('--brand-mark').trim(),
+      brandMarkInk: rootStyle.getPropertyValue('--brand-mark-ink').trim(),
+    }
   })
+
+  // With no custom color, all icon modes stay aligned with the favicon and leave --brand-mark* / .preview-badge readable.
+  for (const iconLabel of ['Classic icon', 'Dark icon', 'Light icon', 'Theme icon'] as const) {
+    await custom.getByRole('button', { name: iconLabel, exact: true }).click()
+    const aligned = await readAlignedMarks()
+    expect(aligned.header, `default ${iconLabel} header vs favicon`).toEqual(aligned.favicon)
+    expect(aligned.preview, `default ${iconLabel} preview vs favicon`).toEqual(aligned.favicon)
+    expect(aligned.brandMark, `default ${iconLabel} --brand-mark untouched`).toBe('#ff0000')
+    expect(aligned.brandMarkInk, `default ${iconLabel} --brand-mark-ink untouched`).toBe('#ffffff')
+    expect(aligned.badge.color, `default ${iconLabel} badge ink`).toBe('rgb(255, 255, 255)')
+    expect(contrastFromRgb(aligned.badge.color, aligned.badge.bg), `default ${iconLabel} badge contrast`).toBeGreaterThanOrEqual(3.5)
+    if (iconLabel === 'Theme icon') {
+      expect(aligned.favicon.pillFill).toBe('rgb(255, 0, 0)')
+      expect(aligned.favicon.playFill).toBe('rgb(255, 255, 255)')
+    }
+  }
 
   await custom.getByRole('button', { name: 'Ocean', exact: true }).click()
   for (const mode of ['Dark', 'Light'] as const) {
@@ -377,6 +403,10 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
     const aligned = await readAlignedMarks()
     expect(aligned.header, `${iconLabel} header vs favicon`).toEqual(aligned.favicon)
     expect(aligned.preview, `${iconLabel} preview vs favicon`).toEqual(aligned.favicon)
+    expect(aligned.brandMark, `${iconLabel} keeps palette --brand-mark`).toBe('#2563eb')
+    expect(aligned.brandMarkInk, `${iconLabel} keeps palette --brand-mark-ink`).toBe('#ffffff')
+    expect(aligned.badge.color, `${iconLabel} badge ink`).toBe('rgb(255, 255, 255)')
+    expect(contrastFromRgb(aligned.badge.color, aligned.badge.bg), `${iconLabel} badge contrast`).toBeGreaterThanOrEqual(3.5)
   }
   await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
   await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')

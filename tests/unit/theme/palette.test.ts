@@ -78,6 +78,10 @@ describe('theme palette generator', () => {
         pillFill: '#2563eb',
         markColor: '#ffffff',
       })
+      expect(resolveAppIconColors('theme', undefined, mode)).toEqual({
+        pillFill: '#ff0000',
+        markColor: '#ffffff',
+      })
     }
 
     for (const hex of [...THEME_PRESETS.map(preset => preset.color), ...EDGE_COLORS]) {
