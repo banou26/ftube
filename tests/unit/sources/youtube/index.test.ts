@@ -2027,6 +2027,233 @@ describe('youtube source', () => {
     await expect(source.home()).resolves.toMatchObject({ items: [{ id: 'first' }], chips: [] })
   })
 
+  it('applies Home filter chips using remembered feed endpoints even when each getHomeFeed rotates chip tokens', async () => {
+    const chipRenderer = (label: string, token: string, isSelected: boolean) => ({
+      chipCloudChipRenderer: {
+        text: { runs: [{ text: label }] },
+        isSelected,
+        navigationEndpoint: {
+          commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/browse' } },
+          continuationCommand: { token, request: 'CONTINUATION_REQUEST_TYPE_BROWSE' },
+        },
+      },
+    })
+    const videoRenderer = (id: string, title: string) => ({
+      richItemRenderer: { content: { videoRenderer: { videoId: id, title: { runs: [{ text: title }] } } } },
+    })
+    const lockupRenderer = (id: string, title: string) => ({
+      richItemRenderer: {
+        content: {
+          lockupViewModel: {
+            contentId: id,
+            contentType: 'LOCKUP_CONTENT_TYPE_VIDEO',
+            metadata: { lockupMetadataViewModel: { title: { content: title } } },
+          },
+        },
+      },
+    })
+    const homeResponse = (suffix: string) => ({
+      contents: {
+        twoColumnBrowseResultsRenderer: {
+          tabs: [{
+            tabRenderer: {
+              selected: true,
+              content: {
+                richGridRenderer: {
+                  contents: [videoRenderer(`unfiltered-${suffix}`, `Unfiltered ${suffix}`)],
+                  header: {
+                    feedFilterChipBarRenderer: {
+                      contents: [
+                        chipRenderer('Tous', `ALL_${suffix}`, true),
+                        chipRenderer('Musique', `MUSIQUE_${suffix}`, false),
+                        chipRenderer('Podcasts', `PODCASTS_${suffix}`, false),
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          }],
+        },
+      },
+    })
+    const reloadResponse = (items: unknown[], nextToken?: string) => ({
+      onResponseReceivedActions: [{
+        reloadContinuationItemsCommand: {
+          targetId: 'home-page-grid',
+          slot: 'RELOAD_CONTINUATION_SLOT_BODY',
+          continuationItems: [
+            ...items,
+            ...(nextToken
+              ? [{
+                  continuationItemRenderer: {
+                    trigger: 'CONTINUATION_TRIGGER_ON_ITEM_SHOWN',
+                    continuationEndpoint: {
+                      commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/browse' } },
+                      continuationCommand: { token: nextToken, request: 'CONTINUATION_REQUEST_TYPE_BROWSE' },
+                    },
+                  },
+                }]
+              : []),
+          ],
+        },
+      }],
+    })
+
+    const client = createFakeClient()
+    let homeCalls = 0
+    const sentContinuations: unknown[] = []
+    const actions = {
+      session: client.session,
+      execute: async (_path: string, args: Record<string, unknown>) => {
+        sentContinuations.push(args.continuation)
+        if (args.continuation === 'MUSIQUE_1') {
+          return Parser.parseResponse(reloadResponse([
+            videoRenderer('music-video-1', 'Music Video 1'),
+            lockupRenderer('music-lockup-2', 'Music Lockup 2'),
+          ], 'MUSIQUE_PAGE_2') as never)
+        }
+        if (args.continuation === 'MUSIQUE_PAGE_2') {
+          return Parser.parseResponse({
+            onResponseReceivedActions: [{
+              appendContinuationItemsAction: {
+                targetId: 'home-page-grid',
+                continuationItems: [videoRenderer('music-video-3', 'Music Video 3')],
+              },
+            }],
+          } as never)
+        }
+        if (args.continuation === 'PODCASTS_1') {
+          return Parser.parseResponse(reloadResponse([
+            videoRenderer('podcast-video-1', 'Podcast Video 1'),
+          ]) as never)
+        }
+        return Parser.parseResponse(reloadResponse([]) as never)
+      },
+    }
+    client.getHomeFeed = async () => {
+      homeCalls += 1
+      return new YT.HomeFeed(actions as never, { data: homeResponse(String(homeCalls)) } as never) as never
+    }
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    const initial = await source.home()
+    expect(homeCalls).toBe(1)
+    expect(initial.items.map((item) => item.id)).toEqual(['unfiltered-1'])
+    expect(initial.chips).toEqual([
+      { id: 'ALL_1', label: 'Tous', selected: true },
+      { id: 'MUSIQUE_1', label: 'Musique', selected: false },
+      { id: 'PODCASTS_1', label: 'Podcasts', selected: false },
+    ])
+
+    const musique = await source.home('MUSIQUE_1')
+    expect(homeCalls).toBe(1)
+    expect(sentContinuations).toEqual(['MUSIQUE_1'])
+    expect(musique.items.map((item) => item.id)).toEqual(['music-video-1', 'music-lockup-2'])
+    expect(musique.chips).toEqual([
+      { id: 'ALL_1', label: 'Tous', selected: false },
+      { id: 'MUSIQUE_1', label: 'Musique', selected: true },
+      { id: 'PODCASTS_1', label: 'Podcasts', selected: false },
+    ])
+    expect(musique.cursor).toBeTruthy()
+
+    const musiquePage2 = await source.home('MUSIQUE_1', musique.cursor)
+    expect(musiquePage2.items.map((item) => item.id)).toEqual(['music-video-3'])
+    expect(musiquePage2.chips).toEqual([])
+
+    const podcasts = await source.home('PODCASTS_1')
+    expect(homeCalls).toBe(1)
+    expect(sentContinuations).toEqual(['MUSIQUE_1', 'MUSIQUE_PAGE_2', 'PODCASTS_1'])
+    expect(podcasts.items.map((item) => item.id)).toEqual(['podcast-video-1'])
+    expect(podcasts.chips).toEqual([
+      { id: 'ALL_1', label: 'Tous', selected: false },
+      { id: 'MUSIQUE_1', label: 'Musique', selected: false },
+      { id: 'PODCASTS_1', label: 'Podcasts', selected: true },
+    ])
+
+    const backAll = await source.home()
+    expect(homeCalls).toBe(2)
+    expect(backAll.items.map((item) => item.id)).toEqual(['unfiltered-2'])
+    expect(backAll.chips).toEqual([
+      { id: 'ALL_2', label: 'Tous', selected: true },
+      { id: 'MUSIQUE_2', label: 'Musique', selected: false },
+      { id: 'PODCASTS_2', label: 'Podcasts', selected: false },
+    ])
+  })
+
+  it('filters ChipView Home bars without calling getHomeFeed a second time', async () => {
+    const chipView = (text: string, token: string, selected: boolean) => ({
+      chipViewModel: {
+        text,
+        selected,
+        displayType: 'CHIP_VIEW_MODEL_DISPLAY_TYPE_UNSPECIFIED',
+        tapCommand: {
+          innertubeCommand: {
+            commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/browse' } },
+            continuationCommand: { token, request: 'CONTINUATION_REQUEST_TYPE_BROWSE' },
+          },
+        },
+      },
+    })
+    const homeResponse = (suffix: string) => ({
+      contents: {
+        twoColumnBrowseResultsRenderer: {
+          tabs: [{
+            tabRenderer: {
+              selected: true,
+              content: {
+                richGridRenderer: {
+                  contents: [{ richItemRenderer: { content: { videoRenderer: { videoId: `cv-base-${suffix}`, title: { runs: [{ text: 'Base' }] } } } } }],
+                  header: {
+                    chipBarViewModel: {
+                      chips: [
+                        chipView('All', `CV_ALL_${suffix}`, true),
+                        chipView('Music', `CV_MUSIC_${suffix}`, false),
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          }],
+        },
+      },
+    })
+    const client = createFakeClient()
+    let homeCalls = 0
+    const sent: unknown[] = []
+    const actions = {
+      session: client.session,
+      execute: async (_path: string, args: Record<string, unknown>) => {
+        sent.push(args.continuation)
+        return Parser.parseResponse({
+          onResponseReceivedActions: [{
+            reloadContinuationItemsCommand: {
+              targetId: 'home-page-grid',
+              continuationItems: [
+                { richItemRenderer: { content: { videoRenderer: { videoId: 'cv-music-1', title: { runs: [{ text: 'CV Music' }] } } } } },
+              ],
+            },
+          }],
+        } as never)
+      },
+    }
+    client.getHomeFeed = async () => {
+      homeCalls += 1
+      return new YT.HomeFeed(actions as never, { data: homeResponse(String(homeCalls)) } as never) as never
+    }
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client })
+    await source.home()
+    const filtered = await source.home('CV_MUSIC_1')
+    expect(homeCalls).toBe(1)
+    expect(sent).toEqual(['CV_MUSIC_1'])
+    expect(filtered.items.map((item) => item.id)).toEqual(['cv-music-1'])
+    expect(filtered.chips).toEqual([
+      { id: 'CV_ALL_1', label: 'All', selected: false },
+      { id: 'CV_MUSIC_1', label: 'Music', selected: true },
+    ])
+  })
+
   it('covers every cursored method declared to runtime.ts', () => {
     const covered = [...Object.keys(CURSOR_CASES), 'commentReplies', 'relatedVideos']
     expect(covered.sort()).toEqual(Object.keys(SOURCE_CURSOR_ARGUMENT).sort())

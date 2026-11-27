@@ -22,13 +22,14 @@ type Feed = {
 
 type ChipEndpoint = { payload?: { token?: string, params?: string } }
 
-// a ChipCloudChip or ChipView carries `text` and `endpoint`, a ListItemView out of a dropdown `title` and `renderer_context.command_context.on_tap`
+// a ChipCloudChip or ChipView carries `text` and `endpoint` (`tap_command`), a ListItemView out of a dropdown `title` and `renderer_context.command_context.on_tap`
 type FilterChip = {
   text?: unknown
   title?: unknown
   is_selected?: boolean
   selected?: boolean
   endpoint?: ChipEndpoint
+  tap_command?: ChipEndpoint
   renderer_context?: { command_context?: { on_tap?: ChipEndpoint } }
 }
 
@@ -472,7 +473,7 @@ const text = (value: unknown): string | undefined => {
 }
 
 const chipId = (chip: FilterChip) => {
-  const endpoint = chip.endpoint ?? chip.renderer_context?.command_context?.on_tap
+  const endpoint = chip.endpoint ?? chip.tap_command ?? chip.renderer_context?.command_context?.on_tap
   return endpoint?.payload?.token ?? endpoint?.payload?.params
 }
 
@@ -486,6 +487,19 @@ const filterChipsOf = (feed: HomeFeedResponse): FilterChip[] => {
   } catch {
     return []
   }
+}
+
+const HOME_FILTER_LIMIT = 128
+
+const extractHomeChips = (feed: HomeFeedResponse): { raw: FilterChip[], chips: SourceFeedChip[] } => {
+  const raw = filterChipsOf(feed)
+  const chips = raw.flatMap((candidate) => {
+    const id = chipId(candidate)
+    const label = text(candidate.text ?? candidate.title)
+    if (!id || !label) return []
+    return [{ id, label, selected: candidate.is_selected === true || candidate.selected === true }]
+  })
+  return { raw, chips }
 }
 
 const UPSTREAM_FEATURE = {
@@ -694,6 +708,21 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const searchContinuations = createContinuations<SourceSearchPage>()
   const hashtagContinuations = createContinuations<SourceHashtagPage>()
   const homeContinuations = createContinuations<SourceHomePage>()
+  // Home filter tokens rotate per getHomeFeed() response, so remember each chip's owning feed instead of re-fetching Home to match the id.
+  const homeFilters = new Map<string, { feed: HomeFeedResponse, filter: FilterChip, chips: SourceFeedChip[] }>()
+  const rememberHomeFilters = (feed: HomeFeedResponse, raw: FilterChip[], chips: SourceFeedChip[]) => {
+    for (const candidate of raw) {
+      const id = chipId(candidate)
+      if (!id) continue
+      homeFilters.delete(id)
+      homeFilters.set(id, { feed, filter: candidate, chips })
+      while (homeFilters.size > HOME_FILTER_LIMIT) {
+        const oldest = homeFilters.keys().next().value
+        if (oldest === undefined) break
+        homeFilters.delete(oldest)
+      }
+    }
+  }
   const shortsContinuations = createContinuations<SourceShortsPage>()
   const postContinuations = createContinuations<SourcePostPage>()
   const communityContinuations = createContinuations<SourceCommunityPage>()
@@ -1359,21 +1388,34 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         const next = await homeContinuations.resolve(kind, cursor)
         return { items: next.items, shorts: next.shorts, chips: [], cursor: next.cursor }
       }
+      if (chip) {
+        const remembered = homeFilters.get(chip)
+        if (remembered) {
+          homeFilters.delete(chip)
+          homeFilters.set(chip, remembered)
+          const filtered = remembered.feed.applyFilter
+            ? await remembered.feed.applyFilter(remembered.filter)
+            : remembered.feed
+          const result = homePage(kind, filtered)
+          return {
+            items: result.items,
+            shorts: result.shorts,
+            chips: remembered.chips.map((entry) => ({ ...entry, selected: entry.id === chip })),
+            cursor: result.cursor,
+          }
+        }
+      }
       const feed = await (await client).getHomeFeed()
-      const chips = filterChipsOf(feed)
-      const filter = chip ? chips.find((candidate) => chipId(candidate) === chip) : undefined
+      const { raw, chips } = extractHomeChips(feed)
+      rememberHomeFilters(feed, raw, chips)
+      const filter = chip ? raw.find((candidate) => chipId(candidate) === chip) : undefined
       const filtered = filter && feed.applyFilter ? await feed.applyFilter(filter) : feed
       const result = homePage(kind, filtered)
       return {
         items: result.items,
         shorts: result.shorts,
         // Chips come from the unfiltered response: the filtered one echoes back a reduced set that would make the rail collapse after one click.
-        chips: chips.flatMap((candidate) => {
-          const id = chipId(candidate)
-          const label = text(candidate.text ?? candidate.title)
-          if (!id || !label) return []
-          return [{ id, label, selected: candidate.is_selected === true || candidate.selected === true || id === chip }]
-        }),
+        chips: chip ? chips.map((entry) => ({ ...entry, selected: entry.id === chip })) : chips,
         cursor: result.cursor,
       }
     },

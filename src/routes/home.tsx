@@ -223,11 +223,13 @@ const HomePage = () => {
         ? previous
         : {
           chips,
-          // the rail's All entry is spotted as the selected one on the unfiltered feed, not by its localized label, and only the first response can decide it
-          allId: previous.allId ?? chips.find(entry => entry.selected)?.id
+          // the rail's All entry is spotted as the selected one on the unfiltered feed, not by its localized label, and must refresh whenever Home reloads unfiltered
+          allId: chip === undefined
+            ? chips.find(entry => entry.selected)?.id
+            : previous.allId
         }
     ))
-  }, [page])
+  }, [page, chip])
 
   useEffect(() => {
     const scroller = scrollerRef.current

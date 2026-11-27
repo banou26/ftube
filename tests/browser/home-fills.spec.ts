@@ -29,6 +29,48 @@ test('a link click reads Home anew, and going back to it shows the feed it showe
   await expect(first).toHaveAttribute('href', '/watch?v=video-3')
 })
 
+test('filtering Home by clicking topic chips updates videos and restores All without duplicating the localized All chip', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.goto('/privacy')
+  const home = page.locator('[data-filterable-home-harness]')
+  await expect(async () => {
+    if (await home.count() === 0) {
+      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/home-harness')).mountFilterableHome(), HARNESS)
+    }
+    await expect(home.locator('a[href="/watch?v=base-1-1"]').first()).toBeVisible({ timeout: 15_000 })
+  }).toPass({ timeout: 120_000 })
+
+  const chips = home.locator('.rail .chip')
+  await expect(chips).toHaveText(['All', 'Jeux vidéo', 'Musique', 'Podcasts'])
+  const allChip = home.getByRole('button', { name: 'All', exact: true })
+  const musiqueChip = home.getByRole('button', { name: 'Musique', exact: true })
+  const podcastsChip = home.getByRole('button', { name: 'Podcasts', exact: true })
+
+  await expect(allChip).toHaveAttribute('aria-pressed', 'true')
+  await expect(musiqueChip).toHaveAttribute('aria-pressed', 'false')
+  await expect(home.getByText('Home Video 1')).toBeVisible()
+
+  await musiqueChip.click()
+  await expect(musiqueChip).toHaveAttribute('aria-pressed', 'true')
+  await expect(allChip).toHaveAttribute('aria-pressed', 'false')
+  await expect(home.getByText('Musique Track One')).toBeVisible()
+  await expect(home.getByText('Musique Album Live')).toBeVisible()
+  await expect(home.getByText('Home Video 1')).toHaveCount(0)
+
+  await podcastsChip.click()
+  await expect(podcastsChip).toHaveAttribute('aria-pressed', 'true')
+  await expect(musiqueChip).toHaveAttribute('aria-pressed', 'false')
+  await expect(home.getByText('Podcast Episode 42')).toBeVisible()
+  await expect(home.getByText('Musique Track One')).toHaveCount(0)
+
+  await allChip.click()
+  await expect(allChip).toHaveAttribute('aria-pressed', 'true')
+  await expect(podcastsChip).toHaveAttribute('aria-pressed', 'false')
+  await expect(home.getByText('Home Video 2')).toBeVisible()
+  await expect(home.getByText('Podcast Episode 42')).toHaveCount(0)
+  await expect(chips).toHaveText(['All', 'Jeux vidéo', 'Musique', 'Podcasts'])
+})
+
 const playedSeconds = (page: Page) => page.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
 
 type CatalogRequest = { url: string, method: string, visitor: string | null }
