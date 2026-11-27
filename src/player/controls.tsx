@@ -315,16 +315,17 @@ const style = css`
 
   .quality-badge {
     position: absolute;
-    top: 0.45rem;
-    right: 0.45rem;
-    padding: 0.1rem 0.3rem;
+    top: 0.35rem;
+    right: 0.15rem;
+    padding: 0.1rem 0.25rem;
     border-radius: 0.2rem;
     background: var(--brand-red);
     color: var(--brand-mark-ink, #ffffff);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.02em;
+    white-space: nowrap;
     pointer-events: none;
   }
 
@@ -665,10 +666,10 @@ const style = css`
     }
 
     .quality-badge {
-      top: 0.35rem;
-      right: 0.1rem;
-      padding: 0.05rem 0.2rem;
-      font-size: 0.8rem;
+      top: 0.3rem;
+      right: 0.05rem;
+      padding: 0.05rem 0.18rem;
+      font-size: 0.72rem;
     }
 
     .autoplay,

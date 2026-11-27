@@ -128,15 +128,16 @@ describe('resolveQualityDisplay', () => {
 })
 
 describe('qualityBadgeLabel', () => {
-  it('returns 8K for 4320p+, 4K for 2160p+, HD for 720p-1440p, and undefined below 720p', () => {
+  it('returns 8K for 4320p+, 4K for 2160p+, 2K for 1440p+, HD for 1080p+, exact resolution below 1080p, and undefined for invalid heights', () => {
     expect(qualityBadgeLabel(4320)).toBe('8K')
     expect(qualityBadgeLabel(2160)).toBe('4K')
-    expect(qualityBadgeLabel(1440)).toBe('HD')
+    expect(qualityBadgeLabel(1440)).toBe('2K')
     expect(qualityBadgeLabel(1080)).toBe('HD')
-    expect(qualityBadgeLabel(720)).toBe('HD')
-    expect(qualityBadgeLabel(480)).toBeUndefined()
-    expect(qualityBadgeLabel(360)).toBeUndefined()
-    expect(qualityBadgeLabel(240)).toBeUndefined()
+    expect(qualityBadgeLabel(720)).toBe('720p')
+    expect(qualityBadgeLabel(480)).toBe('480p')
+    expect(qualityBadgeLabel(360)).toBe('360p')
+    expect(qualityBadgeLabel(240)).toBe('240p')
+    expect(qualityBadgeLabel(144)).toBe('144p')
     expect(qualityBadgeLabel(0)).toBeUndefined()
     expect(qualityBadgeLabel(undefined)).toBeUndefined()
     expect(qualityBadgeLabel(Number.NaN)).toBeUndefined()

@@ -80,7 +80,7 @@ test('shows actual playing quality and checks the matching option when saved pre
   await expect(qualityMenu.getByRole('menuitem', { name: '720p', exact: true }).locator('svg')).toHaveCount(1)
 })
 
-test('shows active playing quality badge (8K, 4K, HD) on the Settings button without overriding inaccessible preference', async ({ page }) => {
+test('shows active playing quality badge (8K, 4K, 2K, HD, or resolution) on the Settings button without overriding inaccessible preference', async ({ page }) => {
   test.setTimeout(120_000)
   await hideFknNotice(page)
   await page.route('https://*.sdbx.app/**', route => route.abort())
@@ -121,22 +121,30 @@ test('shows active playing quality badge (8K, 4K, HD) on the Settings button wit
     (window as unknown as { __qualityHarness: { setQualitySetting: (val: 'auto' | number) => void } }).__qualityHarness.setQualitySetting(next)
   }, q)
 
-  // Dynamic ABR playingHeight updates (8K -> HD -> none) belong to Auto mode.
+  // Dynamic ABR playingHeight updates (8K -> 2K -> HD -> 720p -> 480p) belong to Auto mode.
   await setQualitySetting('auto')
 
   await setHeight(4320)
   await expect(badge).toHaveAttribute('data-quality-badge', '8K')
   await expect(badge).toHaveText('8K')
 
+  await setHeight(1440)
+  await expect(badge).toHaveAttribute('data-quality-badge', '2K')
+  await expect(badge).toHaveText('2K')
+
   await setHeight(1080)
   await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
   await expect(badge).toHaveText('HD')
 
   await setHeight(720)
-  await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
+  await expect(badge).toHaveAttribute('data-quality-badge', '720p')
+  await expect(badge).toHaveText('720p')
 
   await setHeight(480)
-  await expect(settingsBtn.locator('[data-quality-badge]')).toHaveCount(0)
+  await expect(badge).toHaveAttribute('data-quality-badge', '480p')
+  await expect(badge).toHaveText('480p')
+  const [btnBox480, badgeBox480] = await Promise.all([settingsBtn.boundingBox(), badge.boundingBox()])
+  expect(badgeBox480!.x + badgeBox480!.width).toBeLessThanOrEqual(btnBox480!.x + btnBox480!.width + 1)
 
   // Saved 2160 preference on a 1080p-max video shows HD (not 4K).
   await setQualitySetting(2160)
@@ -197,8 +205,8 @@ test('immediately refreshes Settings button quality badge on manual quality swit
   }
 
   await pickQuality('720p')
-  await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
-  await expect(badge).toHaveText('HD')
+  await expect(badge).toHaveAttribute('data-quality-badge', '720p')
+  await expect(badge).toHaveText('720p')
 
   // Shaka variantchanged also refreshes Auto's active resolution label immediately while decoded videoHeight lags.
   await page.evaluate(() => {
@@ -210,11 +218,12 @@ test('immediately refreshes Settings button quality badge on manual quality swit
   await settingsBtn.click()
 
   await pickQuality('480p')
-  await expect(settingsBtn.locator('[data-quality-badge]')).toHaveCount(0)
+  await expect(badge).toHaveAttribute('data-quality-badge', '480p')
+  await expect(badge).toHaveText('480p')
 
   await pickQuality('2160p')
   await expect(badge).toHaveAttribute('data-quality-badge', '4K')
 
   await pickQuality('Auto')
-  await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
+  await expect(badge).toHaveAttribute('data-quality-badge', '720p')
 })
