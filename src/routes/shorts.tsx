@@ -64,7 +64,7 @@ type ShortsPage = ShortsFeedQuery['shorts']
 const style = css`
   /* Owns the viewport below the header: the pager scrolls itself rather than
      the document, so snapping is not fighting the page's own scroll. */
-  height: calc(100vh - var(--header-height));
+  height: calc(100vh - var(--header-height, 5.6rem));
   overflow-y: auto;
   overflow-x: hidden;
   scroll-snap-type: y mandatory;
@@ -738,6 +738,7 @@ export const ShortsPage = () => {
 
   const handleDontRecommend = useCallback((id: string, channelId?: string, channelName?: string) => {
     if (!channelId) return
+    // The Shorts sequence feed only returns { id, poster, title } without channel ids, so dismissChannel applies across other feeds while hideSlide removes this slide immediately.
     dismissChannel(channelId)
     hideSlide(id)
     const message = channelName ? `We won't recommend ${channelName}` : "We won't recommend this channel"
@@ -791,6 +792,10 @@ export const ShortsPage = () => {
   }, [activeId, items, onMore])
 
   useEffect(() => {
+    setDescriptionFor(undefined)
+  }, [activeId])
+
+  useEffect(() => {
     if (!activeId) return
     const next = shortsHrefFor(activeId)
     if (location.pathname !== next) history.replaceState(null, '', next)
@@ -803,7 +808,8 @@ export const ShortsPage = () => {
     scrollerRef.current?.querySelector(`[data-short-id="${CSS.escape(target.id)}"]`)?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const overlayOpen = Boolean(sharing || saving || descriptionFor || menuOpen)
+  const descriptionOpen = Boolean(activeId && descriptionFor === activeId)
+  const overlayOpen = Boolean(sharing || saving || descriptionOpen || menuOpen)
   const latest = useRef({ step, overlayOpen })
   latest.current = { step, overlayOpen }
 
@@ -856,7 +862,7 @@ export const ShortsPage = () => {
               active={isActive}
               preload={shouldPreload}
               shortcutsDisabled={overlayOpen}
-              descriptionOpen={descriptionFor === short.id}
+              descriptionOpen={isActive && descriptionOpen}
               onReady={(isReady: boolean) => setSlideReady(short.id, isReady)}
               onComments={() => setShowComments(value => !value)}
               onShare={() => setSharing(short.id)}

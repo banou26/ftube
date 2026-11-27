@@ -2557,6 +2557,57 @@ describe('youtube source', () => {
     ])
   })
 
+  it('recovers from stale Home filter feeds and clears cached filters on sign-in changes', async () => {
+    const client = createFakeClient()
+    let homeCalls = 0
+    let failFirstFilter = true
+    let isSignedIn = false
+    const appliedFromFeed: number[] = []
+    client.getHomeFeed = async () => {
+      const feedIndex = ++homeCalls
+      const chips = [
+        { text: 'All', is_selected: true, endpoint: { payload: { token: 'ALL' } } },
+        { text: 'Music', is_selected: false, endpoint: { payload: { token: 'MUSIC' } } },
+      ]
+      return {
+        ...feed(`base-${feedIndex}`),
+        filter_nodes: { primary_filters: chips },
+        memo: new Map<string, unknown[]>(),
+        applyFilter: async () => {
+          appliedFromFeed.push(feedIndex)
+          if (feedIndex === 1 && failFirstFilter) {
+            failFirstFilter = false
+            throw new Error('expired filter continuation')
+          }
+          return feed(`music-${feedIndex}`)
+        },
+      } as never
+    }
+
+    const source = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => client,
+      signedIn: () => isSignedIn,
+    })
+
+    await source.home()
+    const recovered = await source.home('MUSIC')
+    expect(homeCalls).toBe(2)
+    expect(appliedFromFeed).toEqual([1, 2])
+    expect(recovered.items.map((item) => item.id)).toEqual(['music-2'])
+
+    const cached = await source.home('MUSIC')
+    expect(homeCalls).toBe(2)
+    expect(appliedFromFeed).toEqual([1, 2, 2])
+    expect(cached.items.map((item) => item.id)).toEqual(['music-2'])
+
+    isSignedIn = true
+    const afterSignIn = await source.home('MUSIC')
+    expect(homeCalls).toBe(3)
+    expect(appliedFromFeed).toEqual([1, 2, 2, 3])
+    expect(afterSignIn.items.map((item) => item.id)).toEqual(['music-3'])
+  })
+
   it('covers every cursored method declared to runtime.ts', () => {
     const covered = [...Object.keys(CURSOR_CASES), 'commentReplies', 'relatedVideos']
     expect(covered.sort()).toEqual(Object.keys(SOURCE_CURSOR_ARGUMENT).sort())

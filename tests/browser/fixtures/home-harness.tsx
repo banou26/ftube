@@ -139,7 +139,7 @@ export const mountFilterableHome = () => {
   const actions = {
     session: { logged_in: false },
     execute: async (_path: string, args: Record<string, unknown>) => {
-      const token = String(args.continuation ?? '')
+      const token = typeof args.continuation === 'string' ? args.continuation : ''
       if (token.startsWith('MUSIQUE_')) {
         return Parser.parseResponse(reloadResponse([
           videoRenderer('music-1', 'Musique Track One'),

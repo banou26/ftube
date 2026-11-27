@@ -369,6 +369,7 @@ export const HoverPreviewScrubber = (
         handle={seekHandle}
         size={14}
         style={{
+          // Clamping non-default handles prevents edge clipping on preview cards while trading exact end alignment with .fill.
           left: seekHandle.kind === 'default'
             ? `${position * 100}%`
             : `clamp(1.4rem, ${position * 100}%, calc(100% - 1.4rem))`,

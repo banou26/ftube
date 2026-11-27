@@ -195,3 +195,48 @@ test('Shorts More options supports Captions auto-translate, Audio Track switchin
   await expect(dialog).toContainText('How this was made')
   await expect(dialog).toContainText('Auto-dubbed')
 })
+
+test('closing or leaving a Short with Description open keeps keyboard navigation working and manages dialog focus', async ({ page }) => {
+  const root = await openShortsMenuHarness(page, 'full')
+  const firstSlide = root.locator('[data-short-id="short-1"]')
+  await expect(firstSlide).toBeVisible({ timeout: 15_000 })
+  await expect(firstSlide.locator('.short-title')).toHaveText('The AI Model Iceberg', { timeout: 10_000 })
+
+  const topMoreBtn = firstSlide.locator('.top-bar').getByRole('button', { name: 'More options', exact: true })
+  await topMoreBtn.click()
+  const menu = page.getByRole('menu', { name: 'More options', exact: true })
+  await expect(menu).toBeVisible()
+  await menu.getByRole('menuitem', { name: 'Description', exact: true }).click()
+
+  const descDialog = firstSlide.getByRole('dialog', { name: 'Description', exact: true })
+  await expect(descDialog).toBeVisible()
+  const closeBtn = descDialog.getByRole('button', { name: 'Close description', exact: true })
+  await expect(closeBtn).toBeFocused()
+
+  await page.keyboard.press('Shift+Tab')
+  await expect(descDialog.locator(':focus')).toHaveCount(1)
+  await page.keyboard.press('Tab')
+  await expect(descDialog.locator(':focus')).toHaveCount(1)
+
+  await page.keyboard.press('Escape')
+  await expect(descDialog).toHaveCount(0)
+  await expect(topMoreBtn).toBeFocused()
+
+  await topMoreBtn.click()
+  await expect(menu).toBeVisible()
+  await menu.getByRole('menuitem', { name: 'Description', exact: true }).click()
+  await expect(descDialog).toBeVisible()
+
+  await root.getByRole('button', { name: 'Next short', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-2')
+  await expect(root.getByRole('dialog', { name: 'Description', exact: true })).toHaveCount(0)
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-3')
+
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-2')
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-1')
+  await expect(root.getByRole('dialog', { name: 'Description', exact: true })).toHaveCount(0)
+})

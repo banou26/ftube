@@ -45,6 +45,9 @@ describe('parseStoryboards', () => {
     const sanitized = parseStoryboards('https://i.ytimg.com/sb/abc/L$L/$N.jpg|160#90#25#5#5#1000#M$M")url(#rs')
     expect(sanitized[0]?.templateUrl).not.toMatch(/["'()\s]/)
     expect(sanitized[0]?.templateUrl).toContain('/M$Murl.jpg')
+
+    const literalDollar = parseStoryboards('https://i.ytimg.com/sb/abc/L$L/$N.jpg|160#90#25#5#5#1000#M$$M#rs')
+    expect(literalDollar[0]?.templateUrl).toContain('/M$$M.jpg')
   })
 })
 

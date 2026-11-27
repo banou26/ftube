@@ -44,7 +44,7 @@ export const parseStoryboards = (spec: string | undefined): Storyboard[] => {
     const levelUrl = new URL(url.toString())
     if (sigh) levelUrl.searchParams.set('sigh', sigh)
     const safeName = (name ?? '').replace(/[^A-Za-z0-9._~$!-]/g, '')
-    const templateUrl = levelUrl.toString().replace('$L', String(level)).replace('$N', safeName)
+    const templateUrl = levelUrl.toString().replace('$L', String(level)).replace('$N', () => safeName)
     if (/["'()\\\s]/.test(templateUrl)) return []
     return [{
       templateUrl,

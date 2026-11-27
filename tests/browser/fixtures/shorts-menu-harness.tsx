@@ -110,9 +110,16 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
     render(null, app)
     app.hidden = true
   }
+  document.documentElement.style.fontSize = '62.5%'
+  document.documentElement.style.setProperty('--header-height', '5.6rem')
+  document.documentElement.style.setProperty('--z-popup', '2200')
+  document.documentElement.style.setProperty('--z-dialog', '2300')
+  document.documentElement.style.setProperty('--z-toast', '2400')
+  document.body.style.margin = '0'
   document.querySelectorAll('[data-shorts-menu-harness]').forEach(node => node.remove())
   const host = document.createElement('div')
   host.setAttribute('data-shorts-menu-harness', 'true')
+  if (mode === 'full') host.style.paddingTop = 'var(--header-height)'
   document.body.append(host)
 
   const addedToPlaylist: { playlistId: string, videoIds: string[] }[] = []
@@ -131,9 +138,37 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
       items: [
         { id: 'short-1', poster: null, title: 'The AI Model Iceberg' },
         { id: 'short-2', poster: null, title: 'Second Short' },
+        { id: 'short-3', poster: null, title: 'Third Short' },
       ],
     }),
     watch: async (id: string) => {
+      if (id === 'short-3') {
+        return {
+          id: 'short-3',
+          title: 'Third Short',
+          viewCountText: '85K views',
+          shortViewCountText: '85K views',
+          publishedDateText: 'Nov 10, 2026',
+          relativeDateText: '2 weeks ago',
+          hashtags: ['#three'],
+          likeCountText: '2.9K',
+          commentCountText: '41',
+          description: 'Third short description.',
+          descriptionRuns: [{ text: 'Third short description.' }],
+          channel: {
+            id: 'UCthree',
+            name: 'Third Channel',
+            avatar: AVATAR_SVG,
+            handle: '@third',
+            isSubscribed: false,
+            notificationLevel: null,
+            isVerified: false,
+            isVerifiedArtist: false,
+          },
+          chapters: [],
+          cardTeasers: [],
+        }
+      }
       if (id === 'short-2') {
         return {
           id: 'short-2',

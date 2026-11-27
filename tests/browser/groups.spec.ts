@@ -220,6 +220,7 @@ test('nests subfolders, collapses in the guide, rolls up child uploads on the pa
   await page.keyboard.press('Escape')
 
   // parent folder shows subfolder chip and aggregates child channel uploads
+  await guide.getByRole('button', { name: 'Groups', exact: true }).click()
   await guide.getByRole('link', { name: 'Graphics' }).click()
   await expect(page.locator('h1')).toHaveText('Graphics')
   await expect(page.getByText('1 channel • 1 subfolder')).toBeVisible()

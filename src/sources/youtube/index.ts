@@ -840,6 +840,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const homeContinuations = createContinuations<SourceHomePage>()
   // Home filter tokens rotate per getHomeFeed() response, so remember each chip's owning feed instead of re-fetching Home to match the id.
   const homeFilters = new Map<string, { feed: HomeFeedResponse, filter: FilterChip, chips: SourceFeedChip[] }>()
+  let homeFiltersSignedIn = signedIn?.()
   const rememberHomeFilters = (feed: HomeFeedResponse, raw: FilterChip[], chips: SourceFeedChip[]) => {
     for (const candidate of raw) {
       const id = chipId(candidate)
@@ -1517,20 +1518,29 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         const next = await homeContinuations.resolve(kind, cursor)
         return { items: next.items, shorts: next.shorts, chips: [], cursor: next.cursor }
       }
+      const currentSignedIn = signedIn?.()
+      if (currentSignedIn !== homeFiltersSignedIn) {
+        homeFilters.clear()
+        homeFiltersSignedIn = currentSignedIn
+      }
       if (chip) {
         const remembered = homeFilters.get(chip)
         if (remembered) {
           homeFilters.delete(chip)
-          homeFilters.set(chip, remembered)
-          const filtered = remembered.feed.applyFilter
-            ? await remembered.feed.applyFilter(remembered.filter)
-            : remembered.feed
-          const result = homePage(kind, filtered)
-          return {
-            items: result.items,
-            shorts: result.shorts,
-            chips: remembered.chips.map((entry) => ({ ...entry, selected: entry.id === chip })),
-            cursor: result.cursor,
+          try {
+            const filtered = remembered.feed.applyFilter
+              ? await remembered.feed.applyFilter(remembered.filter)
+              : remembered.feed
+            homeFilters.set(chip, remembered)
+            const result = homePage(kind, filtered)
+            return {
+              items: result.items,
+              shorts: result.shorts,
+              chips: remembered.chips.map((entry) => ({ ...entry, selected: entry.id === chip })),
+              cursor: result.cursor,
+            }
+          } catch {
+            // Stale or expired filter continuation: fall through to a fresh Home fetch.
           }
         }
       }

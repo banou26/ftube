@@ -96,7 +96,6 @@ const TAG_FILLER_WORDS = new Set([
   'stream',
   'streaming',
   'subscribe',
-  'switch',
   'switching',
   'test',
   'the',

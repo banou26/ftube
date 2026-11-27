@@ -377,4 +377,15 @@ describe('suggestGroups', () => {
       tags: ['gaming', 'trailers'],
     }, joined)).toEqual([{ kind: 'existing', group: joined[1] }])
   })
+
+  it('keeps Nintendo Switch suggestible while still dropping switching-filler tags', () => {
+    const suggestions = suggestGroups({
+      id: 'UCnintendo',
+      name: 'Gamer Zone',
+      tags: ['nintendo switch', 'switch to linux', 'zelda'],
+    }, [])
+    const names = suggestions.map(item => item.kind === 'new' ? item.name : item.group.name)
+    expect(names).toContain('Nintendo Switch')
+    expect(names).not.toContain('Switch To Linux')
+  })
 })

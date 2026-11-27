@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { cloneElement } from 'preact'
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { hashtagHrefFor, RichText } from '../components/rich-text'
@@ -163,13 +163,20 @@ export const ShortsOptionsMenu = ({
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const openRef = useRef(false)
+  openRef.current = open
   const notifyRef = useRef(onOpenChange)
   notifyRef.current = onOpenChange
 
   const changeOpen = useCallback((next: boolean) => {
+    openRef.current = next
     setOpen(next)
     if (!next) setPanel('root')
     notifyRef.current?.(next)
+  }, [])
+
+  useEffect(() => () => {
+    if (openRef.current) notifyRef.current?.(false)
   }, [])
 
   const close = useCallback(() => changeOpen(false), [changeOpen])
@@ -235,6 +242,7 @@ export const ShortsOptionsMenu = ({
                     icon={TextAlignStart}
                     onSelect={() => {
                       close()
+                      triggerRef.current?.focus({ preventScroll: true })
                       actions?.onDescription?.()
                     }}
                   >
@@ -634,16 +642,59 @@ export const ShortsDescriptionPanel = ({
   hasAutoDubbed?: boolean
   onClose: () => void
 }) => {
-  useEffect(() => {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useLayoutEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeBtnRef.current?.focus({ preventScroll: true })
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const dialog = dialogRef.current
+      if (!dialog) return
+      const focusables = [...dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0)
+      if (focusables.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      const first = focusables[0]!
+      const last = focusables[focusables.length - 1]!
+      const index = activeEl ? focusables.indexOf(activeEl) : -1
+      if (event.shiftKey) {
+        if (index <= 0) {
+          event.preventDefault()
+          last.focus({ preventScroll: true })
+        }
+        return
+      }
+      if (index === -1 || index >= focusables.length - 1) {
+        event.preventDefault()
+        first.focus({ preventScroll: true })
+      }
     }
     window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      const activeEl = document.activeElement
+      if (
+        previousFocus?.isConnected
+        && (!activeEl || activeEl === document.body || dialogRef.current?.contains(activeEl))
+      ) {
+        previousFocus.focus({ preventScroll: true })
+      }
+    }
+  }, [])
 
   const likeValue = formatShortStatValue(likeCountText)
   const viewValue = formatShortStatValue(shortViewCountText ?? viewCountText)
@@ -662,6 +713,7 @@ export const ShortsDescriptionPanel = ({
       }}
     >
       <div
+        ref={dialogRef}
         className='desc-card'
         role='dialog'
         aria-modal='true'
@@ -670,7 +722,7 @@ export const ShortsDescriptionPanel = ({
       >
         <div className='desc-head'>
           <h2 className='desc-title'>{title || 'Description'}</h2>
-          <button type='button' className='desc-close' aria-label='Close description' onClick={onClose}>
+          <button ref={closeBtnRef} type='button' className='desc-close' aria-label='Close description' onClick={onClose}>
             <X size={20} strokeWidth={1.75} aria-hidden='true' />
           </button>
         </div>
