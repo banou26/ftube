@@ -2,11 +2,11 @@ import type { ShortsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 import { ChevronDown, ChevronUp, MessageCircle, MoreVertical, Share2, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useRoute } from 'wouter'
 
-import { useDocumentTitle } from '../app'
+import { useDocumentTitle, useMediaQuery } from '../app'
 import { Comments } from '../components/comments'
 import { DataFailure } from '../components/data-failure'
 import { dismissChannel, dismissVideo, undismissChannel, undismissVideo, useDismissed } from '../components/dismissed-videos'
@@ -76,6 +76,7 @@ const style = css`
   }
 
   .slide {
+    box-sizing: border-box;
     height: 100%;
     scroll-snap-align: center;
     scroll-snap-stop: always;
@@ -102,10 +103,13 @@ const style = css`
   /* The 9:16 box IS the player element, so the quality the player asks for is
      derived from the size the video is actually shown at. Sizing the element to
      the whole slide and letterboxing inside it would make it request a stream
-     far larger than any pixel on screen. */
+     far larger than any pixel on screen.
+     Explicit width is derived from the slide's inner height so WebKit does not
+     fall back to max-width when computing the flex width of .reel. */
   .stage {
     position: relative;
     height: 100%;
+    width: min(calc((100vh - var(--header-height, 5.6rem) - 2.4rem) * 9 / 16), calc(100vw - 10rem));
     aspect-ratio: 9 / 16;
     max-width: calc(100vw - 10rem);
     flex: none;
@@ -367,6 +371,7 @@ const style = css`
     }
 
     .stage {
+      width: min(calc((100vh - var(--header-height, 5.6rem) - 2.4rem) * 9 / 16), 100vw);
       max-width: 100%;
     }
 
@@ -436,6 +441,10 @@ const style = css`
       height: auto;
       margin: 0 auto;
     }
+
+    .slide:not([data-active='true']) .comments-panel {
+      display: none;
+    }
   }
 `
 
@@ -453,10 +462,12 @@ const Slide = (
     fallbackTitle,
     active,
     preload,
+    commentsOpen,
     shortcutsDisabled,
     descriptionOpen,
     onReady,
     onComments,
+    onCloseComments,
     onShare,
     onDescription,
     onCloseDescription,
@@ -464,7 +475,6 @@ const Slide = (
     onNotInterested,
     onDontRecommend,
     onMenuOpenChange,
-    onCommentCount,
     onTitle,
     onRefused,
   }: {
@@ -473,10 +483,12 @@ const Slide = (
     fallbackTitle?: string | null
     active: boolean
     preload: boolean
+    commentsOpen: boolean
     shortcutsDisabled?: boolean
     descriptionOpen: boolean
     onReady?: (ready: boolean) => void
     onComments: () => void
+    onCloseComments: () => void
     onShare: () => void
     onDescription: () => void
     onCloseDescription: () => void
@@ -484,7 +496,6 @@ const Slide = (
     onNotInterested: () => void
     onDontRecommend: (channelId?: string, channelName?: string) => void
     onMenuOpenChange?: (open: boolean) => void
-    onCommentCount?: (count?: string) => void
     onTitle?: (title?: string) => void
     onRefused?: () => void
   },
@@ -493,10 +504,11 @@ const Slide = (
   const ambientMode = useSetting('ambientMode')
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
   const [mediaState, setMediaState] = useState<ShortsMediaState | undefined>(undefined)
+  const commentsPanelRef = useRef<HTMLElement>(null)
   const [{ data }] = useQuery({
     query: SHORT_META_QUERY,
     variables: { id },
-    pause: !active && !preload,
+    pause: !active && !preload && !commentsOpen,
   })
   const meta = data?.watch
   const title = meta?.title || fallbackTitle || undefined
@@ -508,9 +520,9 @@ const Slide = (
     ? meta.channel.handle.startsWith('@') ? meta.channel.handle : `@${meta.channel.handle}`
     : undefined
 
-  useEffect(() => {
-    if (active) onCommentCount?.(meta?.commentCountText ?? undefined)
-  }, [active, meta?.commentCountText, onCommentCount])
+  useLayoutEffect(() => {
+    if (commentsPanelRef.current) commentsPanelRef.current.inert = !active
+  }, [active, commentsOpen])
 
   useEffect(() => {
     if (active) onTitle?.(title)
@@ -526,6 +538,7 @@ const Slide = (
   }), [id, meta?.channel?.id, meta?.channel?.name, navigate, onDescription, onDontRecommend, onNotInterested, onSave])
 
   return (
+    <>
     <div className='reel'>
       <div className='stage'>
         <AmbientGlow
@@ -651,6 +664,33 @@ const Slide = (
           : undefined}
       </div>
     </div>
+    {commentsOpen && active
+      ? <div className='comments-scrim' onClick={onCloseComments} />
+      : undefined}
+    {commentsOpen
+      ? (
+        <aside
+          className='comments-panel'
+          aria-label='Comments'
+          aria-hidden={active ? undefined : true}
+          ref={commentsPanelRef}
+        >
+          <header>
+            <span className='comments-title'>
+              Comments
+              {meta?.commentCountText ? <span className='comments-count'>{meta.commentCountText}</span> : undefined}
+            </span>
+            <button type='button' className='icon-button' aria-label='Close comments' onClick={onCloseComments}>
+              <X size={24} strokeWidth={1.5} />
+            </button>
+          </header>
+          <div className='body'>
+            <Comments videoId={id} />
+          </div>
+        </aside>
+      )
+      : undefined}
+    </>
   )
 }
 
@@ -665,7 +705,8 @@ export const ShortsPage = () => {
   const [activeId, setActiveId] = useState<string | undefined>(seed)
   const [readyIds, setReadyIds] = useState<ReadonlySet<string>>(() => new Set())
   const [showComments, setShowComments] = useState(false)
-  const [activeCommentCount, setActiveCommentCount] = useState<string | undefined>(undefined)
+  const narrowViewport = useMediaQuery('(max-width: 900px)')
+  const closeComments = useCallback(() => setShowComments(false), [])
   const [activeTitle, setActiveTitle] = useState<string | undefined>(undefined)
   const [sharing, setSharing] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState<string | undefined>(undefined)
@@ -851,20 +892,24 @@ export const ShortsPage = () => {
       {items.map((short, index) => {
         const isActive = short.id === activeId
         const isNext = activeIndex >= 0 && index === activeIndex + 1
+        const isAdjacent = activeIndex >= 0 && Math.abs(index - activeIndex) === 1
         // gate starting a preload on active readiness so the current Short never competes for bandwidth, while keeping an already-loaded next slide warm after scrolling up
         const shouldPreload = isNext && (activeReady || readyIds.has(short.id))
+        const commentsOpen = showComments && (isActive || (!narrowViewport && isAdjacent))
         return (
-          <section className='slide' key={short.id} data-short-id={short.id}>
+          <section className='slide' key={short.id} data-short-id={short.id} data-active={isActive ? 'true' : undefined}>
             <Slide
               id={short.id}
               poster={short.poster}
               fallbackTitle={short.title}
               active={isActive}
               preload={shouldPreload}
+              commentsOpen={commentsOpen}
               shortcutsDisabled={overlayOpen}
               descriptionOpen={isActive && descriptionOpen}
               onReady={(isReady: boolean) => setSlideReady(short.id, isReady)}
               onComments={() => setShowComments(value => !value)}
+              onCloseComments={closeComments}
               onShare={() => setSharing(short.id)}
               onDescription={() => setDescriptionFor(current => (current === short.id ? undefined : short.id))}
               onCloseDescription={() => setDescriptionFor(undefined)}
@@ -873,31 +918,9 @@ export const ShortsPage = () => {
               onDontRecommend={(channelId?: string, channelName?: string) =>
                 handleDontRecommend(short.id, channelId, channelName)}
               onMenuOpenChange={setMenuOpen}
-              onCommentCount={setActiveCommentCount}
               onTitle={setActiveTitle}
               onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
             />
-            {showComments && isActive
-              ? (
-                <>
-                  <div className='comments-scrim' onClick={() => setShowComments(false)} />
-                  <aside className='comments-panel' aria-label='Comments'>
-                    <header>
-                      <span className='comments-title'>
-                        Comments
-                        {activeCommentCount ? <span className='comments-count'>{activeCommentCount}</span> : undefined}
-                      </span>
-                      <button type='button' className='icon-button' aria-label='Close comments' onClick={() => setShowComments(false)}>
-                        <X size={24} strokeWidth={1.5} />
-                      </button>
-                    </header>
-                    <div className='body'>
-                      <Comments videoId={short.id} />
-                    </div>
-                  </aside>
-                </>
-              )
-              : undefined}
           </section>
         )
       })}

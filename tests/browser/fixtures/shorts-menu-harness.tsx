@@ -230,7 +230,19 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
       return { id: playlistId, title: 'Favorites' }
     },
     subscribedChannels: async () => [],
-    comments: async () => ({ items: [] }),
+    comments: async (videoId: string) => ({
+      items: [
+        {
+          id: `comment-${videoId}-1`,
+          author: { id: `UC-commenter-${videoId}`, name: `Commenter ${videoId}`, handle: `@${videoId}` },
+          text: `Comment on ${videoId}`,
+          runs: [{ text: `Comment on ${videoId}` }],
+          publishedText: '1 hour ago',
+          likeCountText: '12',
+          replyCount: 0,
+        },
+      ],
+    }),
   } as unknown as SourceApi
 
   const yoga = createYoga<{ source: SourceApi }>({
