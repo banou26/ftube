@@ -17,6 +17,7 @@ import { clock } from './controls'
 import { computeHoverDwellMs } from './hover-dwell'
 import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
+import { bindSmoothPlaybackLoop } from './smooth-progress'
 
 import type { startShakaPlayback } from './shaka'
 
@@ -150,6 +151,11 @@ export const hoverPreviewStyle = css`
     position: absolute;
     inset: 0 auto 0 0;
     background: var(--brand-red);
+    transition: width 80ms linear;
+  }
+
+  .scrubber.scrubbing .fill {
+    transition: none;
   }
 
   /* hidden at rest, as youtube.com's playhead dot is */
@@ -159,12 +165,16 @@ export const hoverPreviewStyle = css`
     transform: translate(-50%, -50%);
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: left 80ms linear, opacity 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber:hover .knob,
   .scrubber.scrubbing .knob {
     opacity: 1;
+  }
+
+  .scrubber.scrubbing .knob {
+    transition: opacity 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber.scrubbing .track {
@@ -179,7 +189,7 @@ export const hoverPreviewStyle = css`
     opacity: 1;
     transform: translateX(-50%) scale(1);
     transform-origin: center bottom;
-    transition: transform 0.12s ease;
+    transition: left 80ms linear, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber:hover .knob[data-seek-handle='emoji'],
@@ -187,6 +197,19 @@ export const hoverPreviewStyle = css`
   .scrubber:hover .knob[data-seek-handle='icon'],
   .scrubber.scrubbing .knob[data-seek-handle='icon'] {
     transform: translateX(-50%) scale(1.15);
+  }
+
+  .scrubber.scrubbing .knob[data-seek-handle='emoji'],
+  .scrubber.scrubbing .knob[data-seek-handle='icon'] {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .track,
+    .fill,
+    .knob {
+      transition: none;
+    }
   }
 
   /* a storyboard tile scaled up to the whole preview while a drag is held, the video seeking only on release */
@@ -488,7 +511,7 @@ export const HoverPreview = (
         }
       }
     }
-    video.addEventListener('timeupdate', onTime)
+    const unbindProgress = bindSmoothPlaybackLoop(video, onTime, () => !abort.signal.aborted && token === activeToken)
     video.addEventListener('progress', onTime)
 
     const onPainted = () => {
@@ -501,7 +524,7 @@ export const HoverPreview = (
     return () => {
       clearTimeout(timer)
       abort.abort()
-      video.removeEventListener('timeupdate', onTime)
+      unbindProgress()
       video.removeEventListener('progress', onTime)
       video.removeEventListener('loadeddata', onPainted)
       if (ownedSession) {

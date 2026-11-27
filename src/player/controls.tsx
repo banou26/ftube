@@ -203,6 +203,11 @@ const style = css`
 
   .played {
     background: var(--brand-red);
+    transition: width 80ms linear;
+  }
+
+  .scrubber.scrubbing .played {
+    transition: none;
   }
 
   /* SponsorBlock's own colour for sponsors */
@@ -218,12 +223,24 @@ const style = css`
     top: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
-    transition: transform 0.1s ease;
+    transition: left 80ms linear, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber:hover .knob,
   .scrubber.scrubbing .knob {
     transform: translate(-50%, -50%) scale(1.3);
+  }
+
+  .scrubber.scrubbing .knob {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .part,
+    .played,
+    .knob {
+      transition: none;
+    }
   }
 
   .preview {

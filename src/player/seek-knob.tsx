@@ -26,6 +26,11 @@ const handleStyle = css`
   justify-content: center;
   pointer-events: none;
   user-select: none;
+  will-change: left, transform;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none !important;
+  }
 
   &[data-seek-handle='default'] {
     width: 1.2rem;

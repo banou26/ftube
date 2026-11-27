@@ -23,6 +23,7 @@ import { getFullscreenElement, isVideoFullscreen, subscribeFullscreen, togglePla
 import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
 import { ShortsOptionsMenu } from './shorts-menu'
+import { bindSmoothPlaybackLoop } from './smooth-progress'
 
 const playerStyle = css`
   position: relative;
@@ -281,6 +282,11 @@ const playerStyle = css`
     position: relative;
     height: 100%;
     background: var(--brand-red);
+    transition: width 80ms linear;
+  }
+
+  .scrubber.scrubbing .fill {
+    transition: none;
   }
 
   .scrubber .knob {
@@ -288,12 +294,16 @@ const playerStyle = css`
     top: 50%;
     transform: translate(-50%, -50%) scale(0);
     pointer-events: none;
-    transition: transform 0.12s ease;
+    transition: left 80ms linear, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber:hover .knob,
   .scrubber.scrubbing .knob {
     transform: translate(-50%, -50%) scale(1);
+  }
+
+  .scrubber.scrubbing .knob {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   /* Custom emoji/icon handles stay visible above the bottom-flush track (rather than hover-only) inside overflow: hidden. */
@@ -303,6 +313,7 @@ const playerStyle = css`
     bottom: 0.35rem;
     transform: translateX(-50%) scale(1);
     transform-origin: center bottom;
+    transition: left 80ms linear, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .scrubber:hover .knob[data-seek-handle='emoji'],
@@ -310,6 +321,19 @@ const playerStyle = css`
   .scrubber:hover .knob[data-seek-handle='icon'],
   .scrubber.scrubbing .knob[data-seek-handle='icon'] {
     transform: translateX(-50%) scale(1.15);
+  }
+
+  .scrubber.scrubbing .knob[data-seek-handle='emoji'],
+  .scrubber.scrubbing .knob[data-seek-handle='icon'] {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scrubber .track,
+    .scrubber .fill,
+    .scrubber .knob {
+      transition: none;
+    }
   }
 
   @media (max-width: 600px) {
@@ -680,7 +704,7 @@ const ShortsPlayer = (
     video.addEventListener('play', sync)
     video.addEventListener('pause', sync)
     video.addEventListener('volumechange', sync)
-    video.addEventListener('timeupdate', tick)
+    const unbindProgress = bindSmoothPlaybackLoop(video, tick, () => active && !scrubbing)
     const unsubscribe = subscribeSettings((next) => {
       if (next.playbackRate === playbackRateRef.current) return
       const el = videoRef.current
@@ -691,10 +715,10 @@ const ShortsPlayer = (
       video.removeEventListener('play', sync)
       video.removeEventListener('pause', sync)
       video.removeEventListener('volumechange', sync)
-      video.removeEventListener('timeupdate', tick)
+      unbindProgress()
       unsubscribe()
     }
-  }, [scrubbing, attempt])
+  }, [active, scrubbing, attempt])
 
   const seekToPointer = (event: TargetedPointerEvent<HTMLDivElement>) => {
     const video = videoRef.current
