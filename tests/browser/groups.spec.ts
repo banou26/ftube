@@ -332,3 +332,55 @@ test('shows multiple suggestions including top 3 relevant tags in Groups menu an
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByText('Added to Linux')).toBeVisible()
 })
+
+test('allows removing icons on hover in the group dialog, persists across reloads, and keeps the last icon', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/feed/groups')
+  await page.evaluate(() => {
+    localStorage.setItem('yt-client:groups', JSON.stringify([{
+      id: 'g-edit',
+      name: 'Play',
+      emoji: '🎮',
+      channels: [],
+      updatedAt: Date.now(),
+    }]))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'yt-client:groups' }))
+  })
+  await page.getByRole('button', { name: 'Edit Play' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Edit group' })
+  await expect(dialog).toBeVisible()
+
+  const starRadio = dialog.getByRole('radio', { name: '⭐' })
+  const removeStar = dialog.getByRole('button', { name: 'Remove ⭐ icon' })
+  await expect(starRadio).toBeVisible()
+  await expect(removeStar).toHaveCSS('opacity', '0')
+
+  await starRadio.hover()
+  await expect(removeStar).toHaveCSS('opacity', '1')
+  await removeStar.click()
+  await expect(dialog.getByRole('radio', { name: '⭐' })).toHaveCount(0)
+
+  // Removing the currently active icon falls back to the first remaining icon cleanly.
+  const gameRadio = dialog.getByRole('radio', { name: '🎮' })
+  await expect(gameRadio).toHaveAttribute('aria-checked', 'true')
+  await gameRadio.hover()
+  await dialog.getByRole('button', { name: 'Remove 🎮 icon' }).click()
+  await expect(dialog.getByRole('radio', { name: '🎮' })).toHaveCount(0)
+  await expect(dialog.getByRole('radio', { name: '📁' })).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Edit Play' }).click()
+  await expect(dialog.getByRole('radio', { name: '⭐' })).toHaveCount(0)
+  await expect(dialog.getByRole('radio', { name: '🎮' })).toHaveCount(0)
+  await expect(dialog.getByRole('radio', { name: '📁' })).toHaveAttribute('aria-checked', 'true')
+
+  // Never offers remove button when only one icon remains in the list.
+  await page.evaluate(() => {
+    localStorage.setItem('yt-client:group-icons', JSON.stringify(['📁']))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'yt-client:group-icons' }))
+  })
+  await expect(dialog.getByRole('radio', { name: '📁' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Remove 📁 icon' })).toHaveCount(0)
+})

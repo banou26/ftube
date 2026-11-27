@@ -8,6 +8,7 @@ import { useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { gql } from '../generated'
+import { addGroupIcon, removeGroupIcon, useGroupIcons } from '../groups/icons'
 import { DEFAULT_EMOJI, groupStore, groupTreeOrder, isDescendant, NAME_LIMIT, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
@@ -26,11 +27,6 @@ const GROUP_SUBSCRIPTIONS_QUERY = gql(`
     }
   }
 `)
-
-const EMOJI = [
-  DEFAULT_EMOJI, '⭐', '🎵', '🎮', '💻', '🎬', '📚', '🍳', '⚽', '🏀', '🚗', '✈️',
-  '🔬', '🎨', '📰', '💼', '😂', '🐶', '🌱', '🏋️', '🎧', '🎤', '📷', '🛠️',
-]
 
 const style = css`
   display: flex;
@@ -94,6 +90,50 @@ const style = css`
   .emoji[aria-checked='true'] {
     border-color: var(--text-primary);
     background: var(--bg-selected);
+  }
+
+  .emoji-item {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .emoji-remove {
+    position: absolute;
+    top: -0.5rem;
+    right: -0.5rem;
+    width: 1.8rem;
+    height: 1.8rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-subtle);
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--text-secondary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .emoji-item:hover .emoji-remove,
+  .emoji-item:focus-within .emoji-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (hover: none) {
+    .emoji-remove {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
+  .emoji-remove:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
   }
 
   .select-all {
@@ -405,18 +445,37 @@ export const GroupDialog = (
   const latestClose = useRef(onClose)
   latestClose.current = onClose
   const close = useCallback(() => latestClose.current(), [])
+  const storedIcons = useGroupIcons()
   const [name, setName] = useState(group?.name ?? initialName ?? '')
-  const [emoji, setEmoji] = useState(group?.emoji ?? initialEmoji ?? DEFAULT_EMOJI)
+  const [emoji, setEmoji] = useState(group?.emoji ?? initialEmoji ?? storedIcons[0] ?? DEFAULT_EMOJI)
+  const [extraIcon, setExtraIcon] = useState<string | undefined>(() =>
+    storedIcons.includes(emoji) ? undefined : emoji,
+  )
   const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
-  const [choices, setChoices] = useState(() => EMOJI.includes(emoji) ? EMOJI : [emoji, ...EMOJI])
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
+
+  const choices = extraIcon && !storedIcons.includes(extraIcon) ? [extraIcon, ...storedIcons] : storedIcons
 
   const pickGroupEmoji = (picked: string) => {
     const next = picked.trim()
     if (!next) return
     setEmoji(next)
-    setChoices(current => current.includes(next) ? current : [next, ...current])
+    if (next === extraIcon) setExtraIcon(undefined)
+    addGroupIcon(next)
+  }
+
+  const onRemoveIcon = (choice: string) => {
+    if (choices.length <= 1) return
+    if (choice === extraIcon) setExtraIcon(undefined)
+    const nextStored = removeGroupIcon(choice)
+    const remaining = extraIcon && extraIcon !== choice && !nextStored.includes(extraIcon)
+      ? [extraIcon, ...nextStored]
+      : nextStored
+    if (choice === emoji) {
+      const fallback = remaining[0]
+      if (fallback) setEmoji(fallback)
+    }
   }
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const parentOptions = groupTreeOrder(allGroups)
@@ -526,17 +585,30 @@ export const GroupDialog = (
             <div className='emoji-controls'>
               <div className='emoji-row' role='radiogroup' aria-labelledby={iconLabel}>
                 {choices.map(choice => (
-                  <button
-                    key={choice}
-                    type='button'
-                    className='emoji'
-                    role='radio'
-                    aria-checked={choice === emoji}
-                    aria-label={choice}
-                    onClick={() => setEmoji(choice)}
-                  >
-                    {choice}
-                  </button>
+                  <span key={choice} className='emoji-item'>
+                    <button
+                      type='button'
+                      className='emoji'
+                      role='radio'
+                      aria-checked={choice === emoji}
+                      aria-label={choice}
+                      onClick={() => setEmoji(choice)}
+                    >
+                      {choice}
+                    </button>
+                    {choices.length > 1
+                      ? (
+                        <button
+                          type='button'
+                          className='emoji-remove'
+                          aria-label={`Remove ${choice} icon`}
+                          onClick={() => onRemoveIcon(choice)}
+                        >
+                          <X size={12} strokeWidth={2.2} aria-hidden='true' />
+                        </button>
+                      )
+                      : undefined}
+                  </span>
                 ))}
               </div>
               <EmojiButton label='More emojis' closeOnPick onPick={pickGroupEmoji} />
