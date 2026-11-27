@@ -5,7 +5,7 @@ import type { LiveChatEmoji, RelatedVideosQuery } from '../generated/graphql'
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { Download, Ellipsis, Flag, FolderPlus, ListPlus, Share2 } from 'lucide-react'
+import { Bookmark, Download, Ellipsis, Flag, FolderPlus, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useClient, useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
@@ -21,7 +21,7 @@ import { matchesGlobalFeedRules } from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { parseStartSeconds } from '../components/format'
 import { GroupsDialog } from '../components/groups-button'
-import { LikePill } from '../components/like-pill'
+import { actionTooltipStyle, LikePill } from '../components/like-pill'
 import LiveChat, { LiveChatTeaser } from '../components/live-chat'
 import { openDownloadDialog } from '../downloads/store'
 import PlaylistPanel from '../components/playlist-panel'
@@ -437,8 +437,23 @@ const style = css`
   }
 
   .action-slot {
+    position: relative;
     display: inline-flex;
     flex: none;
+  }
+
+  ${actionTooltipStyle}
+
+  .action-slot-end > .action-tooltip {
+    right: 0;
+    left: auto;
+    transform: none;
+  }
+
+  .action-slot:not(:has([data-open='true'])):hover > .action-tooltip,
+  .action-slot:not(:has([data-open='true'])):has(:focus-visible) > .action-tooltip {
+    opacity: 1;
+    visibility: visible;
   }
 
   @media (max-width: 600px) {
@@ -457,26 +472,6 @@ const style = css`
       width: 100%;
       margin-left: 0;
     }
-  }
-
-  .pill {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    height: var(--action-height, 3.6rem);
-    padding: 0 1.6rem;
-    border: none;
-    border-radius: calc(var(--action-height, 3.6rem) / 2);
-    background: var(--bg-chip);
-    color: var(--text-primary);
-    font-size: 1.4rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .pill:hover {
-    background: var(--bg-chip-hover);
   }
 
   .round {
@@ -978,44 +973,54 @@ const WatchPage = () => {
                   {actionsLayout.inline.map((id) => {
                     if (id === 'share') {
                       return (
-                        <button
-                          key='share'
-                          ref={setActionRef('share')}
-                          type='button'
-                          className='pill'
-                          onClick={() => setSharing(true)}
-                        >
-                          <Share2 size={20} strokeWidth={1.5} />
-                          Share
-                        </button>
+                        <div key='share' className='action-slot' ref={setActionRef('share')}>
+                          <button
+                            type='button'
+                            className='round'
+                            aria-label='Share'
+                            onClick={() => setSharing(true)}
+                          >
+                            <Share2 size={20} strokeWidth={1.5} aria-hidden='true' />
+                          </button>
+                          <span className='action-tooltip' role='tooltip'>Share</span>
+                        </div>
                       )
                     }
                     if (id === 'save') {
                       return (
-                        <span key='save' className='action-slot' ref={setActionRef('save')}>
-                          <SaveMenu videoId={videoId} />
-                        </span>
+                        <div key='save' className='action-slot' ref={setActionRef('save')}>
+                          <SaveMenu
+                            videoId={videoId}
+                            trigger={(
+                              <button type='button' className='round' aria-label='Save'>
+                                <Bookmark size={20} strokeWidth={1.5} aria-hidden='true' />
+                              </button>
+                            )}
+                          />
+                          <span className='action-tooltip' role='tooltip'>Save</span>
+                        </div>
                       )
                     }
                     return (
-                      <button
-                        key='download'
-                        ref={setActionRef('download')}
-                        type='button'
-                        className='pill'
-                        onClick={() => openDownloadDialog({
-                          videoId,
-                          title: watch.title ?? 'Video',
-                          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                          channelName: channel?.name ?? watch.byline?.map(part => part.text).join(' '),
-                        })}
-                      >
-                        <Download size={20} strokeWidth={1.5} />
-                        Download
-                      </button>
+                      <div key='download' className='action-slot' ref={setActionRef('download')}>
+                        <button
+                          type='button'
+                          className='round'
+                          aria-label='Download'
+                          onClick={() => openDownloadDialog({
+                            videoId,
+                            title: watch.title ?? 'Video',
+                            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                            channelName: channel?.name ?? watch.byline?.map(part => part.text).join(' '),
+                          })}
+                        >
+                          <Download size={20} strokeWidth={1.5} aria-hidden='true' />
+                        </button>
+                        <span className='action-tooltip' role='tooltip'>Download</span>
+                      </div>
                     )
                   })}
-                  <div className='action-slot' ref={moreWrapRef}>
+                  <div className='action-slot action-slot-end' ref={moreWrapRef}>
                     <Menu
                       label='More actions'
                       trigger={
@@ -1025,7 +1030,7 @@ const WatchPage = () => {
                       }
                     >
                       {actionsLayout.overflow.includes('save')
-                        ? <MenuItem icon={ListPlus} label='Save' onSelect={() => setSaving(true)} />
+                        ? <MenuItem icon={Bookmark} label='Save' onSelect={() => setSaving(true)} />
                         : undefined}
                       {actionsLayout.overflow.includes('download')
                         ? (
@@ -1052,6 +1057,7 @@ const WatchPage = () => {
                         }}
                       />
                     </Menu>
+                    <span className='action-tooltip' role='tooltip'>More actions</span>
                   </div>
                 </div>
               </div>

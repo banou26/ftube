@@ -4,9 +4,9 @@ export type WatchActionId = 'share' | 'save' | 'download'
 export const WATCH_ACTION_PRIORITY: readonly WatchActionId[] = ['share', 'save', 'download']
 
 export const DEFAULT_WATCH_ACTION_WIDTHS: Record<WatchActionId, number> = {
-  share: 98,
-  save: 88,
-  download: 120,
+  share: 40,
+  save: 40,
+  download: 40,
 }
 
 export type WatchActionLayoutInput = {

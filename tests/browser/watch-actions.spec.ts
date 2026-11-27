@@ -105,11 +105,63 @@ test('keeps desktop owner row single-line, uses compact subscribed bell, moves G
   await page.keyboard.press('Escape')
 })
 
+test('renders icon-only watch action buttons with labels revealed only on hover', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const host = await mount(page, {
+    subscribed: false,
+    channelName: 'Harness Creator Studio',
+  })
+
+  const actions = host.locator('.owner-row .actions')
+  for (const name of ['Share', 'Save', 'Download', 'More actions'] as const) {
+    const button = actions.getByRole('button', { name, exact: true })
+    await expect(button).toBeVisible()
+    const metrics = await button.evaluate((el) => {
+      const rect = el.getBoundingClientRect()
+      return {
+        text: (el.textContent ?? '').trim(),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      }
+    })
+    expect(metrics.text).toBe('')
+    expect(Math.abs(metrics.width - metrics.height)).toBeLessThanOrEqual(2)
+  }
+
+  const likeBtn = actions.getByRole('button', { name: 'Like', exact: true })
+  const dislikeBtn = actions.getByRole('button', { name: 'Dislike', exact: true })
+  await expect(actions.getByRole('tooltip', { name: 'I like this', exact: true })).toBeHidden()
+  await expect(actions.getByRole('tooltip', { name: 'Share', exact: true })).toBeHidden()
+
+  const hoverAndCheck = async (target: import('@playwright/test').Locator, label: string) => {
+    await target.hover()
+    const tip = actions.getByRole('tooltip', { name: label, exact: true })
+    await expect(tip).toBeVisible()
+    const [btnBox, tipBox] = await Promise.all([target.boundingBox(), tip.boundingBox()])
+    expect(btnBox).not.toBeNull()
+    expect(tipBox).not.toBeNull()
+    expect(tipBox!.y).toBeGreaterThanOrEqual(btnBox!.y + btnBox!.height)
+    expect(tipBox!.x + tipBox!.width).toBeLessThanOrEqual(1280)
+  }
+
+  await hoverAndCheck(likeBtn, 'I like this')
+  await hoverAndCheck(dislikeBtn, 'I dislike this')
+  await hoverAndCheck(actions.getByRole('button', { name: 'Share', exact: true }), 'Share')
+  await hoverAndCheck(actions.getByRole('button', { name: 'Save', exact: true }), 'Save')
+  await hoverAndCheck(actions.getByRole('button', { name: 'Download', exact: true }), 'Download')
+  await hoverAndCheck(actions.getByRole('button', { name: 'More actions', exact: true }), 'More actions')
+
+  await actions.getByRole('button', { name: 'More actions', exact: true }).click()
+  await expect(actions.getByRole('tooltip', { name: 'More actions', exact: true })).toBeHidden()
+  await page.keyboard.press('Escape')
+})
+
 test('overflows lower-priority actions cleanly on narrower desktop widths and two-row phone viewports', async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 800 })
+  await page.setViewportSize({ width: 700, height: 800 })
   const host = await mount(page, {
     subscribed: false,
     channelName: 'Very Long Channel Name That Should Truncate Smoothly On Desktop',
+    likeCountText: '12,345,678',
   })
 
   const ownerRow = host.locator('.owner-row')
@@ -128,24 +180,32 @@ test('overflows lower-priority actions cleanly on narrower desktop widths and tw
   await expect(moreMenu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
   await page.keyboard.press('Escape')
 
+  await page.setViewportSize({ width: 630, height: 800 })
+  await expect.poll(async () => (await rowMetrics(host)).overflow).toBe(false)
+  expect((await rowMetrics(host)).buttonTopSpread).toBeLessThanOrEqual(4)
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Share', exact: true })).toBeVisible()
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toHaveCount(0)
+
+  await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()
+  await expect(moreMenu.getByRole('menuitem', { name: 'Share' })).toHaveCount(0)
+  await expect(moreMenu.getByRole('menuitem', { name: 'Save' })).toBeVisible()
+  await expect(moreMenu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
   await page.setViewportSize({ width: 412, height: 915 })
   await expect.poll(async () => (await rowMetrics(host)).actionsTop).toBeGreaterThanOrEqual((await rowMetrics(host)).ownerBottom ?? 0)
   const mobile = await rowMetrics(host)
   expect(mobile.overflow).toBe(false)
   expect(mobile.buttonTopSpread).toBeLessThanOrEqual(4)
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Share', exact: true })).toBeVisible()
-  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toHaveCount(0)
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toBeVisible()
 
-  await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()
-  await expect(moreMenu.getByRole('menuitem', { name: 'Share' })).toHaveCount(0)
-  await expect(moreMenu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
-  await page.keyboard.press('Escape')
-
-  await page.setViewportSize({ width: 360, height: 800 })
+  await page.setViewportSize({ width: 320, height: 800 })
   await expect.poll(async () => (await rowMetrics(host)).overflow).toBe(false)
   expect((await rowMetrics(host)).buttonTopSpread).toBeLessThanOrEqual(4)
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Share', exact: true })).toBeVisible()
-  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toHaveCount(0)
 
   await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()
