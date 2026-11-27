@@ -109,3 +109,21 @@ test('omits missing Likes row and shows Video details immediately inside open pa
   await expect(panelDetails).toBeVisible()
   await expect(panelDetails.locator('.detail-value')).toHaveText(['Nov 26, 2026', '99,962', '3,746'])
 })
+
+test('omits Likes row when creator hides like count', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const host = await mountWatch(page, {
+    publishedDateText: 'Nov 26, 2026',
+    viewCountText: '99,962 views',
+    likeCount: null,
+    likeCountText: 'Like',
+  })
+
+  const about = host.locator('.about')
+  await about.getByRole('button', { name: '...more', exact: true }).click()
+  const details = about.getByRole('region', { name: 'Video details' })
+  await expect(details).toBeVisible()
+  await expect(details.locator('.detail-row')).toHaveCount(2)
+  await expect(details.locator('.detail-label')).toHaveText(['Date', 'Views'])
+  await expect(details.locator('.detail-value')).toHaveText(['Nov 26, 2026', '99,962'])
+})

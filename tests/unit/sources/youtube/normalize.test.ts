@@ -1166,7 +1166,18 @@ describe('youtube normalization', () => {
     const negativeMemo = new Map<string, unknown[]>([
       ['SegmentedLikeDislikeButtonView', [{ like_count: -5 }]],
     ])
-    expect(normalizeWatchMeta({ contents_memo: negativeMemo }, 'v4')?.likeCount).toBeUndefined()
+    expect(normalizeWatchMeta({ contents_memo: negativeMemo }, 'v4')).toMatchObject({
+      likeCount: undefined,
+      likeCountText: undefined,
+    })
+
+    const hiddenLikesMemo = new Map<string, unknown[]>([
+      ['SegmentedLikeDislikeButtonView', [{ like_count: Number.NaN, short_like_count: 'Like' }]],
+    ])
+    expect(normalizeWatchMeta({ contents_memo: hiddenLikesMemo }, 'v5')).toMatchObject({
+      likeCount: undefined,
+      likeCountText: 'Like',
+    })
   })
 
   it('normalizes comment threads', () => {

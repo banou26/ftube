@@ -105,7 +105,7 @@ test('keeps desktop owner row single-line, uses compact subscribed bell, moves G
   await page.keyboard.press('Escape')
 })
 
-test('renders icon-only watch action buttons with labels revealed only on hover', async ({ page }) => {
+test('renders icon-only watch action buttons with labels revealed only on hover', async ({ page, browserName }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   const host = await mount(page, {
     subscribed: false,
@@ -154,6 +154,13 @@ test('renders icon-only watch action buttons with labels revealed only on hover'
   await actions.getByRole('button', { name: 'More actions', exact: true }).click()
   await expect(actions.getByRole('tooltip', { name: 'More actions', exact: true })).toBeHidden()
   await page.keyboard.press('Escape')
+
+  await page.mouse.move(0, 0)
+  await dislikeBtn.focus()
+  await page.keyboard.press(process.platform === 'darwin' && browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
+  const shareBtn = actions.getByRole('button', { name: 'Share', exact: true })
+  await expect(shareBtn).toBeFocused()
+  await expect(actions.getByRole('tooltip', { name: 'Share', exact: true })).toBeVisible()
 })
 
 test('overflows lower-priority actions cleanly on narrower desktop widths and two-row phone viewports', async ({ page }) => {
@@ -206,6 +213,7 @@ test('overflows lower-priority actions cleanly on narrower desktop widths and tw
   await expect.poll(async () => (await rowMetrics(host)).overflow).toBe(false)
   expect((await rowMetrics(host)).buttonTopSpread).toBeLessThanOrEqual(4)
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Share', exact: true })).toBeVisible()
+  await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toHaveCount(0)
 
   await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()

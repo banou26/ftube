@@ -110,6 +110,16 @@ describe('video details', () => {
     ])
 
     expect(videoDetailsOf({
+      publishedDateText: 'Nov 26, 2026',
+      viewCountText: '99,962 views',
+      likeCount: undefined,
+      likeCountText: 'Like',
+    })).toEqual([
+      { key: 'date', label: 'Date', value: 'Nov 26, 2026' },
+      { key: 'views', label: 'Views', value: '99,962' },
+    ])
+
+    expect(videoDetailsOf({
       publishedDateText: '   ',
       viewCountText: null,
       likeCount: -1,

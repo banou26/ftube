@@ -2163,14 +2163,15 @@ export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta 
   const author = owner?.author
   const collaboration = authorByline(author)
   const rawLikeCount = likeView?.like_count ?? likeLegacy?.like_button?.like_count
-  const exactLikeCount = typeof rawLikeCount === 'number' && Number.isFinite(rawLikeCount) && rawLikeCount >= 0 && rawLikeCount <= 2_147_483_647
-    ? Math.trunc(rawLikeCount)
+  const finiteLikeCount = typeof rawLikeCount === 'number' && Number.isFinite(rawLikeCount) && rawLikeCount >= 0
+    ? rawLikeCount
+    : undefined
+  const exactLikeCount = finiteLikeCount !== undefined && finiteLikeCount <= 2_147_483_647
+    ? Math.trunc(finiteLikeCount)
     : undefined
   const likeCount = likeView?.short_like_count
     ?? likeLegacy?.like_button?.short_like_count
-    ?? [rawLikeCount]
-      .filter((count): count is number => Number.isFinite(count))
-      .map(String)[0]
+    ?? (finiteLikeCount !== undefined ? String(finiteLikeCount) : undefined)
   const related = [
     ...(memo.get('CompactVideo') ?? []).map(normalizeFeedVideo),
     ...(memo.get('LockupView') ?? []).map((node) => normalizeLockupVideo(node)),

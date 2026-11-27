@@ -132,9 +132,12 @@ export const videoDetailsOf = (
     ? (/^no\s+views?$/i.test(rawViews) ? '0' : rawViews.replace(/\s+views?$/i, '').trim())
     : undefined
   if (views) rows.push({ key: 'views', label: 'Views', value: views })
+  const fallbackLikes = likeCountText?.trim()
   const likes = typeof likeCount === 'number' && Number.isFinite(likeCount) && likeCount >= 0
     ? exactNumber.format(Math.trunc(likeCount))
-    : likeCountText?.trim()
+    : fallbackLikes && /\d/.test(fallbackLikes)
+      ? fallbackLikes
+      : undefined
   if (likes) rows.push({ key: 'likes', label: 'Likes', value: likes })
   return rows
 }
