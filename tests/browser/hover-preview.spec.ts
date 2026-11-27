@@ -858,11 +858,29 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
 
   const videoCard = page.locator('[data-previews="seek-video"] article')
   const shortTile = page.locator('[data-previews="seek-short"] article.tile')
+  const shelfTile = page.locator('[data-previews="seek-short-shelf"] article.tile')
   await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
   await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+  await expect(shelfTile.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+
+  for (const card of [videoCard, shortTile, shelfTile]) {
+    const layout = await card.locator('a.thumb .scrubber').evaluate((scrubber) => {
+      const track = scrubber.querySelector('.track')!
+      const csTrack = getComputedStyle(track)
+      return {
+        scrubberZ: Number(getComputedStyle(scrubber).zIndex) || 0,
+        overflowX: csTrack.overflowX,
+        overflowY: csTrack.overflowY,
+      }
+    })
+    expect(layout.scrubberZ).toBeGreaterThanOrEqual(2)
+    expect(layout.overflowX).toBe('visible')
+    expect(layout.overflowY).toBe('visible')
+  }
 
   const assertInsideThumb = async (card: Locator, expectedKind: 'icon' | 'emoji') => {
     const thumb = card.locator('a.thumb')
+    await thumb.scrollIntoViewIfNeeded()
     const scrubber = thumb.locator('.scrubber')
     const knob = scrubber.locator(`.knob[data-seek-handle="${expectedKind}"]`)
 
@@ -902,25 +920,37 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
 
   await assertInsideThumb(videoCard, 'icon')
   await assertInsideThumb(shortTile, 'icon')
+  await assertInsideThumb(shelfTile, 'icon')
 
   await page.evaluate(() => {
     (window as unknown as { __previewSeekHarness: { setSeekHandle: (handle: { kind: string, value?: string }) => void } }).__previewSeekHarness.setSeekHandle({ kind: 'emoji', value: '🚀' })
   })
   await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
   await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+  await expect(shelfTile.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
 
   await assertInsideThumb(videoCard, 'emoji')
   await assertInsideThumb(shortTile, 'emoji')
+  await assertInsideThumb(shelfTile, 'emoji')
 
-  // Default dot remains hidden at rest and appears only when hovering the scrubber bar.
+  // Default dot remains hidden at rest and appears inside the thumbnail when hovering the scrubber bar.
   await page.evaluate(() => {
     (window as unknown as { __previewSeekHarness: { setSeekHandle: (handle: { kind: string }) => void } }).__previewSeekHarness.setSeekHandle({ kind: 'default' })
   })
-  const defaultKnob = videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="default"]')
-  await expect(defaultKnob).toBeAttached()
-  await page.mouse.move(0, 0)
-  await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
-  const bar = (await videoCard.locator('a.thumb .scrubber').boundingBox())!
-  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height - 2)
-  await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+  for (const card of [videoCard, shelfTile]) {
+    const thumb = card.locator('a.thumb')
+    await thumb.scrollIntoViewIfNeeded()
+    const defaultKnob = thumb.locator('.scrubber .knob[data-seek-handle="default"]')
+    await expect(defaultKnob).toBeAttached()
+    await page.mouse.move(0, 0)
+    await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
+    const bar = (await thumb.locator('.scrubber').boundingBox())!
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height - 2)
+    await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+    const [thumbBox, knobBox] = [await thumb.boundingBox(), await defaultKnob.boundingBox()]
+    expect(thumbBox).toBeTruthy()
+    expect(knobBox).toBeTruthy()
+    expect(knobBox!.y).toBeGreaterThanOrEqual(thumbBox!.y)
+    expect(knobBox!.y + knobBox!.height).toBeLessThanOrEqual(thumbBox!.y + thumbBox!.height)
+  }
 })

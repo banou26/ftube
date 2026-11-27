@@ -104,7 +104,7 @@ const style = css`
     display: none;
   }
 
-  .track {
+  .chips > .track {
     display: flex;
     gap: 1.2rem;
   }

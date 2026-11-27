@@ -378,12 +378,15 @@ const HoverSeekHarnessView = () => {
   const [position, setPosition] = useState(0)
   const [videoThumb, setVideoThumb] = useState<HTMLElement | null>(null)
   const [shortThumb, setShortThumb] = useState<HTMLElement | null>(null)
+  const [shelfThumb, setShelfThumb] = useState<HTMLElement | null>(null)
   const videoRef = useRef<HTMLElement>(null)
   const shortRef = useRef<HTMLElement>(null)
+  const shelfRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     setVideoThumb(videoRef.current?.querySelector('a.thumb') as HTMLElement | null)
     setShortThumb(shortRef.current?.querySelector('a.thumb') as HTMLElement | null)
+    setShelfThumb(shelfRef.current?.querySelector('a.thumb') as HTMLElement | null)
     const win = window as unknown as {
       __previewSeekHarness?: {
         setPosition: (ratio: number) => void
@@ -416,18 +419,27 @@ const HoverSeekHarnessView = () => {
     isUpcoming: true,
     badges: [],
   }
+  const shelfShortTile = {
+    ...shortTile,
+    id: 'seek-short-shelf-0',
+    title: 'Shorts shelf preview seek handle check',
+  }
 
   return (
     <>
       <section ref={videoRef} data-previews='seek-video' style={{ width: '360px', marginBottom: '24px' }}>
         <VideoCard video={videoCard} />
       </section>
-      <section ref={shortRef} data-previews='seek-short' style={{ width: '210px' }}>
+      <section ref={shortRef} data-previews='seek-short' style={{ width: '210px', marginBottom: '24px' }}>
         <ShortsTile short={shortTile} />
+      </section>
+      <section ref={shelfRef} data-previews='seek-short-shelf' style={{ width: '600px' }}>
+        <ShortsShelf shorts={[shelfShortTile]} />
       </section>
       {videoThumb
         ? createPortal(
           <div css={hoverPreviewStyle} data-painted=''>
+            <video muted playsInline aria-hidden='true' />
             <HoverPreviewScrubber seekHandle={seekHandle} position={position} buffered={0.65} scrubbing={false} />
           </div>,
           videoThumb,
@@ -436,9 +448,19 @@ const HoverSeekHarnessView = () => {
       {shortThumb
         ? createPortal(
           <div css={hoverPreviewStyle} data-painted=''>
+            <video muted playsInline aria-hidden='true' />
             <HoverPreviewScrubber seekHandle={seekHandle} position={position} buffered={0.65} scrubbing={false} />
           </div>,
           shortThumb,
+        )
+        : undefined}
+      {shelfThumb
+        ? createPortal(
+          <div css={hoverPreviewStyle} data-painted=''>
+            <video muted playsInline aria-hidden='true' />
+            <HoverPreviewScrubber seekHandle={seekHandle} position={position} buffered={0.65} scrubbing={false} />
+          </div>,
+          shelfThumb,
         )
         : undefined}
     </>

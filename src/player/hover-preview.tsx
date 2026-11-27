@@ -117,6 +117,7 @@ export const hoverPreviewStyle = css`
     left: 0;
     right: 0;
     bottom: 0;
+    z-index: 2;
     height: 2.4rem;
     display: flex;
     align-items: flex-end;
@@ -124,10 +125,11 @@ export const hoverPreviewStyle = css`
     touch-action: none;
   }
 
-  .track {
+  .scrubber .track {
     position: relative;
     width: 100%;
     height: 0.4rem;
+    overflow: visible;
     background: rgba(255, 255, 255, 0.3);
     transition: height 0.12s ease;
   }
@@ -179,6 +181,12 @@ export const hoverPreviewStyle = css`
 
   .scrubber.scrubbing .track {
     height: 0.6rem;
+  }
+
+  .scrubber .knob[data-seek-handle='default'] {
+    top: auto;
+    bottom: 0;
+    transform: translateX(-50%);
   }
 
   /* Custom emoji/icon handles stay visible above the bottom-flush track inside the card's overflow: hidden. */

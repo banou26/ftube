@@ -9,7 +9,7 @@ const style = css`
   min-width: 0;
   max-width: 100%;
 
-  .track {
+  & > .track {
     --card-hover-inset: 0;
     --card-hover-radius: 1.2rem;
     display: flex;
@@ -23,11 +23,11 @@ const style = css`
     scroll-snap-type: x proximity;
   }
 
-  .track::-webkit-scrollbar {
+  & > .track::-webkit-scrollbar {
     display: none;
   }
 
-  .track:has(> .tile) {
+  & > .track:has(> .tile) {
     --card-hover-inset: -1rem;
     --card-hover-radius: 1.6rem;
     gap: var(--rail-gap, 2rem);
@@ -40,7 +40,7 @@ const style = css`
     overflow-x: clip;
   }
 
-  .track > * {
+  & > .track > * {
     flex: none;
     scroll-snap-align: start;
   }
