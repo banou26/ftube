@@ -164,18 +164,26 @@ test('group edit selects all filtered channels, previews a channel on hover and 
   await expect(dialog.getByRole('checkbox', { name: 'Alpha Tech' })).not.toBeChecked()
   await expect(dialog.getByRole('button', { name: 'Remove Gamma Music' })).toBeVisible()
 
-  // hovering a channel shows its page preview card with stats and latest video
-  const alphaLink = dialog.getByRole('link', { name: 'Alpha Tech' })
-  await alphaLink.hover()
+  // hovering a subscription row shows its page preview card with stats and latest video
+  const alphaRow = dialog.locator('.channel-option', { hasText: 'Alpha Tech' })
+  await alphaRow.hover()
   const preview = page.locator('[data-channel-preview="UCaaaaaaaaaaaaaaaaaaaaaa"]')
   await expect(preview).toBeVisible({ timeout: 10_000 })
   await expect(preview).toContainText('120K subscribers')
   await expect(preview).toContainText('Alpha Tech latest video')
   await expect(preview).toContainText('5:25')
 
-  // clicking a channel goes to its channel page and closes the dialog
-  await alphaLink.click()
-  await expect(page).toHaveURL('/channel/UCaaaaaaaaaaaaaaaaaaaaaa')
+  // clicking a channel in the subscription list toggles its checkbox without navigating away
+  await alphaRow.getByText('Alpha Tech', { exact: true }).click()
+  await expect(page).toHaveURL('/privacy')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: 'Alpha Tech' })).toBeChecked()
+  await alphaRow.getByText('Alpha Tech', { exact: true }).click()
+  await expect(dialog.getByRole('checkbox', { name: 'Alpha Tech' })).not.toBeChecked()
+
+  // clicking a channel in the selected list above still goes to its channel page and closes the dialog
+  await dialog.getByRole('link', { name: 'Gamma Music' }).click()
+  await expect(page).toHaveURL('/channel/UCcccccccccccccccccccccc')
   await expect(dialog).toHaveCount(0)
 })
 

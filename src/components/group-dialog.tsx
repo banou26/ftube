@@ -155,8 +155,25 @@ const style = css`
     transition: background 0.15s ease;
   }
 
-  .channel-link:hover {
+  .channel-link:hover,
+  .channel-option:hover {
     background: var(--bg-hover);
+  }
+
+  .channel-option {
+    cursor: pointer;
+    padding: 0 0.6rem;
+    margin: 0 -0.6rem;
+    border-radius: 0.8rem;
+    transition: background 0.15s ease;
+  }
+
+  .channel-option-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
   }
 
   .avatar {
@@ -341,15 +358,24 @@ const SubscriptionPicker = (
         {entries.map(entry => {
           const checked = chosenIds.has(entry.id)
           return (
-            <div key={entry.id} className='channel'>
+            <label
+              key={entry.id}
+              className='channel channel-option'
+              onPointerEnter={(event: PointerEvent) => {
+                if (event.pointerType === 'mouse') preview.onEnter(entry, event.currentTarget as HTMLElement)
+              }}
+              onPointerLeave={preview.onLeave}
+            >
               <input
                 type='checkbox'
                 checked={checked}
-                aria-label={entry.name}
                 onChange={() => onToggle(entry, !checked)}
               />
-              <ChannelLink channel={entry} preview={preview} />
-            </div>
+              <span className='channel-option-body'>
+                <Avatar channel={entry} />
+                <span className='channel-name'>{entry.name}</span>
+              </span>
+            </label>
           )
         })}
       </div>
