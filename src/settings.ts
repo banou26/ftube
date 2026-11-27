@@ -6,6 +6,7 @@ import type { SeekHandle } from './theme/seek-handle'
 
 import { useEffect, useState } from 'preact/hooks'
 
+import { normalizeLanguageCode } from './frame/captions'
 import { CAPTION_OPTIONS } from './player/caption-style'
 import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
@@ -32,6 +33,8 @@ export type Settings = {
   captionsEnabled: boolean
   // a track's language, or the language of the last Auto-translate, which youtube.com remembers the same way
   captionsLanguage?: string
+  // normalized BCP-47 languages where captions stay suppressed automatically unless toggled manually
+  captionsSkipLanguages: string[]
   // set once a person turns captions on or off; until then each video shows the track YouTube recommends for it, if any
   captionsChosen?: boolean
   // the Subtitles Options panel's rows: fonts, colors and edges by name, opacities as fractions, the size in percent
@@ -74,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quality: 'auto',
   stableVolume: false,
   captionsEnabled: false,
+  captionsSkipLanguages: [],
   captionFont: 'Proportional Sans-Serif',
   captionColor: 'White',
   captionSize: 100,
@@ -101,6 +105,22 @@ const STORAGE_KEY = 'yt-client:settings'
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value))
 
+const coerceSkipLanguages = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const next: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const code = normalizeLanguageCode(item)
+    if (!code) continue
+    const key = code.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    next.push(code)
+  }
+  return next
+}
+
 // storage is user-editable and survives across versions of this code, so one bad entry must not take out the whole store
 const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
   const theme = stored.theme
@@ -125,7 +145,8 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
       : DEFAULT_SETTINGS.quality,
     stableVolume: typeof stored.stableVolume === 'boolean' ? stored.stableVolume : DEFAULT_SETTINGS.stableVolume,
     captionsEnabled: typeof stored.captionsEnabled === 'boolean' ? stored.captionsEnabled : DEFAULT_SETTINGS.captionsEnabled,
-    captionsLanguage: typeof captionsLanguage === 'string' ? captionsLanguage : undefined,
+    captionsLanguage: typeof captionsLanguage === 'string' ? normalizeLanguageCode(captionsLanguage) : undefined,
+    captionsSkipLanguages: coerceSkipLanguages(stored.captionsSkipLanguages),
     // an off stored without the mark is the default every write saves, not a choice; an on could only have been chosen
     captionsChosen: stored.captionsChosen === true || stored.captionsEnabled === true ? true : undefined,
     ...Object.fromEntries(CAPTION_OPTIONS.map(({ key, choices }) => [
@@ -191,6 +212,8 @@ export const useSetting = <Key extends keyof Settings>(key: Key): Settings[Key] 
 export const updateSettings = (patch: Partial<Settings>) => {
   const normalizedPatch: Partial<Settings> = {
     ...patch,
+    ...('captionsLanguage' in patch ? { captionsLanguage: normalizeLanguageCode(patch.captionsLanguage) } : {}),
+    ...('captionsSkipLanguages' in patch ? { captionsSkipLanguages: coerceSkipLanguages(patch.captionsSkipLanguages) } : {}),
     ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
     ...('theater' in patch ? { theater: coerceTheaterMode(patch.theater) } : {}),
     ...('miniplayerWidth' in patch ? { miniplayerWidth: coerceMiniplayerWidth(patch.miniplayerWidth) } : {}),

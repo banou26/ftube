@@ -14,7 +14,7 @@ import type { UpNext } from './up-next'
 import type { startShakaPlayback } from './shaka'
 
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
-import { defaultTrack, startingCaption } from '../frame/captions'
+import { defaultTrack, detectVideoLanguage, startingCaption } from '../frame/captions'
 
 import { css } from '@emotion/react'
 import { createPortal } from 'preact/compat'
@@ -309,6 +309,8 @@ const VideoPlayer = (
   const qualityRef = useRef(quality)
   const selectQualityRef = useRef<((height: number | 'auto') => Promise<void>) | undefined>(undefined)
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const audioTracksRef = useRef<AudioTrack[]>([])
+  audioTracksRef.current = audioTracks
   const [audioTrackId, setAudioTrackId] = useState<string | undefined>(undefined)
   const audioTrackIdRef = useRef<string | undefined>(undefined)
   const [hasDrc, setHasDrc] = useState(false)
@@ -317,6 +319,7 @@ const VideoPlayer = (
   const stableVolumeRef = useRef(stableVolume)
   const selectAudioRef = useRef<((trackId: string | undefined, drc: boolean) => Promise<void>) | undefined>(undefined)
   const lastSettingsRef = useRef(getSettings())
+  const selfCaptionWriteRef = useRef(false)
   const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
   const captionTracksRef = useRef<CaptionTrack[]>([])
   captionTracksRef.current = captionTracks
@@ -638,7 +641,8 @@ const VideoPlayer = (
       setCaptionTracks(controller.captionTracks)
       setTranslationLanguages(controller.translationLanguages)
       selectCaptionRef.current = controller.selectCaption
-      const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, getSettings(), navigator.language)
+      const videoLanguage = detectVideoLanguage(controller.audioTracks, controller.captionTracks)
+      const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, getSettings(), navigator.language, videoLanguage)
       setCaption(wanted)
       if (wanted) {
         const selectCaption = controller.selectCaption
@@ -709,7 +713,10 @@ const VideoPlayer = (
       setStableVolume(next.stableVolume)
       void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
     }
-    const sync = planPlayerSettingsSync(prev, next, { hasCaption: Boolean(captionRef.current) })
+    const sync = planPlayerSettingsSync(prev, next, {
+      hasCaption: Boolean(captionRef.current),
+      selfWrite: selfCaptionWriteRef.current,
+    })
     const el = videoRef.current
     if (el) {
       if (sync.playbackRate !== undefined && (el.playbackRate !== sync.playbackRate || el.defaultPlaybackRate !== sync.playbackRate)) {
@@ -724,12 +731,17 @@ const VideoPlayer = (
       captionRef.current = undefined
       setCaption(undefined)
       void selectCaptionRef.current?.(undefined).catch(() => {})
-    } else if (sync.captionAction === 'enable-default') {
-      const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language)
+    } else if (sync.captionAction === 'enable-default' || sync.captionAction === 'refresh') {
+      const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
+      const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language, videoLanguage)
       if (wanted) {
         captionRef.current = wanted
         setCaption(wanted)
         void selectCaptionRef.current?.(wanted.trackId, wanted.translateTo).catch(() => {})
+      } else if (sync.captionAction === 'refresh' && captionRef.current) {
+        captionRef.current = undefined
+        setCaption(undefined)
+        void selectCaptionRef.current?.(undefined).catch(() => {})
       }
     }
   }), [])
@@ -747,10 +759,18 @@ const VideoPlayer = (
 
   // stores the LANGUAGE rather than the track id, since ids are per video and the next video would not recognize one
   const applyCaption = useCallback((next: CaptionPick | undefined) => {
+    const updateCaptionSettings = (patch: Partial<Pick<ReturnType<typeof getSettings>, 'captionsEnabled' | 'captionsLanguage'>>) => {
+      selfCaptionWriteRef.current = true
+      try {
+        updateSettings(patch)
+      } finally {
+        selfCaptionWriteRef.current = false
+      }
+    }
     if (!next) {
       captionRef.current = undefined
       setCaption(undefined)
-      updateSettings({ captionsEnabled: false })
+      updateCaptionSettings({ captionsEnabled: false })
       void selectCaptionRef.current?.(undefined).catch(() => {})
       return
     }
@@ -759,7 +779,7 @@ const VideoPlayer = (
         () => {
           captionRef.current = next
           setCaption(next)
-          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
+          updateCaptionSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
         },
         () => {
           showToast('Auto-translate is not available right now')
@@ -770,7 +790,7 @@ const VideoPlayer = (
     captionRef.current = next
     setCaption(next)
     const picked = captionTracks.find((track) => track.id === next.trackId)
-    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
+    if (picked) updateCaptionSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
     void selectCaptionRef.current?.(next.trackId).catch(() => {
       setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')

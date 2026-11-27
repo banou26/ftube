@@ -5,8 +5,11 @@ export type PlayerSettingsSyncPlan = {
   volume?: number
   muted?: boolean
   clearAutoMuted: boolean
-  captionAction: 'none' | 'disable' | 'enable-default'
+  captionAction: 'none' | 'disable' | 'enable-default' | 'refresh'
 }
+
+const sameLanguageList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
 
 /**
  * Computes which live player updates must run when `Settings` transitions from `prev` to `next`.
@@ -15,7 +18,7 @@ export type PlayerSettingsSyncPlan = {
 export const planPlayerSettingsSync = (
   prev: Settings,
   next: Settings,
-  current: { hasCaption: boolean },
+  current: { hasCaption: boolean, selfWrite?: boolean },
 ): PlayerSettingsSyncPlan => {
   const volumeChanged = next.volume !== prev.volume
   const mutedChanged = next.muted !== prev.muted
@@ -26,6 +29,12 @@ export const planPlayerSettingsSync = (
     } else if (!current.hasCaption) {
       captionAction = 'enable-default'
     }
+  } else if (
+    next.captionsEnabled
+    && !current.selfWrite
+    && (next.captionsLanguage !== prev.captionsLanguage || !sameLanguageList(next.captionsSkipLanguages, prev.captionsSkipLanguages))
+  ) {
+    captionAction = 'refresh'
   }
   return {
     playbackRate: next.playbackRate !== prev.playbackRate ? next.playbackRate : undefined,

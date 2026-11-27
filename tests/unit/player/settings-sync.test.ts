@@ -35,4 +35,17 @@ describe('planPlayerSettingsSync', () => {
     expect(planPlayerSettingsSync(off, on, { hasCaption: false }).captionAction).toBe('enable-default')
     expect(planPlayerSettingsSync(on, off, { hasCaption: true }).captionAction).toBe('disable')
   })
+
+  it('refreshes captions when external Settings change language or skip list, while skipping self-writes', () => {
+    const enabledEn = { ...DEFAULT_SETTINGS, captionsEnabled: true, captionsLanguage: 'en', captionsSkipLanguages: [] }
+    const enabledFr = { ...enabledEn, captionsLanguage: 'fr' }
+    const skipEn = { ...enabledEn, captionsSkipLanguages: ['en'] }
+
+    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true }).captionAction).toBe('refresh')
+    expect(planPlayerSettingsSync(enabledEn, skipEn, { hasCaption: true }).captionAction).toBe('refresh')
+    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true, selfWrite: true }).captionAction).toBe('none')
+
+    const disabledEn = { ...enabledEn, captionsEnabled: false }
+    expect(planPlayerSettingsSync(disabledEn, { ...disabledEn, captionsSkipLanguages: ['en'] }, { hasCaption: false }).captionAction).toBe('none')
+  })
 })

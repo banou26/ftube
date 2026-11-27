@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { showToast } from '../components/ui/toast'
 import { startEngine } from '../engine/client'
-import { defaultTrack, startingCaption } from '../frame/captions'
+import { defaultTrack, detectVideoLanguage, startingCaption } from '../frame/captions'
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { AmbientBars } from './ambient-glow'
@@ -22,6 +22,7 @@ import { pictureOf } from './end-screen-layout'
 import { getFullscreenElement, isVideoFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
+import { planPlayerSettingsSync } from './settings-sync'
 import { ShortsOptionsMenu } from './shorts-menu'
 import { bindSmoothPlaybackLoop } from './smooth-progress'
 import { bindWheelVolume } from './volume'
@@ -440,6 +441,7 @@ const ShortsPlayer = (
   const playbackRateRef = useRef(playbackRate)
   playbackRateRef.current = playbackRate
   const lastSettingsRef = useRef(getSettings())
+  const selfCaptionWriteRef = useRef(false)
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
   const [fullscreen, setFullscreen] = useState(false)
@@ -447,11 +449,19 @@ const ShortsPlayer = (
   const [scrubbing, setScrubbing] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
+  const captionTracksRef = useRef<CaptionTrack[]>([])
+  captionTracksRef.current = captionTracks
   const [translationLanguages, setTranslationLanguages] = useState<TranslationLanguage[]>([])
+  const translationLanguagesRef = useRef<TranslationLanguage[]>([])
+  translationLanguagesRef.current = translationLanguages
   const [caption, setCaption] = useState<CaptionPick | undefined>(undefined)
+  const captionRef = useRef<CaptionPick | undefined>(undefined)
+  captionRef.current = caption
   const lastCaption = useRef<CaptionPick | undefined>(undefined)
   if (caption) lastCaption.current = caption
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const audioTracksRef = useRef<AudioTrack[]>([])
+  audioTracksRef.current = audioTracks
   const [audioTrackId, setAudioTrackId] = useState<string | undefined>(undefined)
   const selectAudioRef = useRef<((trackId: string | undefined, drc: boolean) => Promise<void>) | undefined>(undefined)
   const [cueStyle, setCueStyle] = useState('')
@@ -646,7 +656,8 @@ const ShortsPlayer = (
     setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
-    const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, settings, navigator.language)
+    const videoLanguage = detectVideoLanguage(controller.audioTracks, controller.captionTracks)
+    const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, settings, navigator.language, videoLanguage)
     setCaption(wanted)
     if (wanted) {
       const selectCaption = controller.selectCaption
@@ -711,19 +722,41 @@ const ShortsPlayer = (
     const unsubscribe = subscribeSettings((next) => {
       const prev = lastSettingsRef.current
       lastSettingsRef.current = next
+      const sync = planPlayerSettingsSync(prev, next, {
+        hasCaption: Boolean(captionRef.current),
+        selfWrite: selfCaptionWriteRef.current,
+      })
       const el = videoRef.current
-      if (next.playbackRate !== playbackRateRef.current) {
-        if (el) el.playbackRate = next.playbackRate
-        setPlaybackRate(next.playbackRate)
+      if (sync.playbackRate !== undefined) {
+        if (el) el.playbackRate = sync.playbackRate
+        setPlaybackRate(sync.playbackRate)
       }
       if (el) {
-        if (next.volume !== prev.volume && Math.abs(el.volume - next.volume) > 0.001) {
-          el.volume = next.volume
-          setVolume(next.volume)
+        if (sync.volume !== undefined && Math.abs(el.volume - sync.volume) > 0.001) {
+          el.volume = sync.volume
+          setVolume(sync.volume)
         }
-        if (next.muted !== prev.muted && el.muted !== next.muted) {
-          el.muted = next.muted
-          setMuted(next.muted)
+        if (sync.muted !== undefined && el.muted !== sync.muted) {
+          el.muted = sync.muted
+          setMuted(sync.muted)
+        }
+      }
+      const controller = controllerRef.current
+      if (sync.captionAction === 'disable') {
+        captionRef.current = undefined
+        setCaption(undefined)
+        void controller?.selectCaption(undefined).catch(() => {})
+      } else if (sync.captionAction === 'enable-default' || sync.captionAction === 'refresh') {
+        const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
+        const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language, videoLanguage)
+        if (wanted) {
+          captionRef.current = wanted
+          setCaption(wanted)
+          void controller?.selectCaption(wanted.trackId, wanted.translateTo).catch(() => {})
+        } else if (sync.captionAction === 'refresh' && captionRef.current) {
+          captionRef.current = undefined
+          setCaption(undefined)
+          void controller?.selectCaption(undefined).catch(() => {})
         }
       }
     })
@@ -787,17 +820,27 @@ const ShortsPlayer = (
 
   const applyCaption = useCallback((next: CaptionPick | undefined) => {
     const controller = controllerRef.current
+    const updateCaptionSettings = (patch: Partial<Pick<ReturnType<typeof getSettings>, 'captionsEnabled' | 'captionsLanguage'>>) => {
+      selfCaptionWriteRef.current = true
+      try {
+        updateSettings(patch)
+      } finally {
+        selfCaptionWriteRef.current = false
+      }
+    }
     if (!next) {
+      captionRef.current = undefined
       setCaption(undefined)
-      updateSettings({ captionsEnabled: false })
+      updateCaptionSettings({ captionsEnabled: false })
       void controller?.selectCaption(undefined).catch(() => {})
       return
     }
     if (next.translateTo) {
       void controller?.selectCaption(next.trackId, next.translateTo).then(
         () => {
+          captionRef.current = next
           setCaption(next)
-          updateSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
+          updateCaptionSettings({ captionsEnabled: true, captionsLanguage: next.translateTo })
         },
         () => {
           showToast('Auto-translate is not available right now')
@@ -805,9 +848,10 @@ const ShortsPlayer = (
       )
       return
     }
+    captionRef.current = next
     setCaption(next)
     const picked = captionTracks.find((track) => track.id === next.trackId)
-    if (picked) updateSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
+    if (picked) updateCaptionSettings({ captionsEnabled: true, captionsLanguage: picked.languageCode })
     void controller?.selectCaption(next.trackId).catch(() => {
       setCaption((current) => (current?.trackId === next.trackId && !current.translateTo ? undefined : current))
       showToast('Subtitles are not available for this video right now')

@@ -18,6 +18,7 @@ import {
   updateFeedViewSettings,
   useFeedViewSettings,
 } from '../feeds/settings'
+import { COMMON_CAPTION_LANGUAGES, normalizeLanguageCode } from '../frame/captions'
 import { getSleepTimer, setSleepTimer, SLEEP_MINUTES, sleepDuration, subscribeSleepTimer } from '../player/sleep-timer'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
@@ -282,6 +283,61 @@ const page = css`
     font-size: 1.35rem;
   }
 
+  .select,
+  .lang-input {
+    height: 3.4rem;
+    padding: 0 1rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.8rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1.35rem;
+  }
+
+  .lang-input {
+    width: 12rem;
+  }
+
+  .select:focus-visible,
+  .lang-input:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: 2px;
+  }
+
+  .lang-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .lang-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    height: 3rem;
+    padding: 0 0.8rem 0 1rem;
+    border: none;
+    border-radius: 999px;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1.3rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .lang-chip:hover {
+    background: var(--bg-chip-hover);
+  }
+
+  .inline-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
   @media (max-width: 860px) {
     grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
@@ -402,6 +458,9 @@ export const SettingsPage = () => {
   const [sleepTimer, setSleepTimerState] = useState<SleepTimer | undefined>(getSleepTimer)
   const [, setClockTick] = useState(0)
   const [copiedHandle, setCopiedHandle] = useState(false)
+  const [customLangOpen, setCustomLangOpen] = useState(false)
+  const [customLangDraft, setCustomLangDraft] = useState('')
+  const [skipLangDraft, setSkipLangDraft] = useState('')
   const extension = useExtensionExposed()
   const dismissed = useDismissed()
   const feedSettings = useFeedViewSettings()
@@ -793,6 +852,148 @@ export const SettingsPage = () => {
                             checked={settings.captionsEnabled}
                             onChange={() => set({ captionsEnabled: !settings.captionsEnabled })}
                           />
+                          <div className='row'>
+                            <div className='row-label'>Preferred subtitle language</div>
+                            <div className='inline-fields'>
+                              <select
+                                className='select'
+                                aria-label='Preferred subtitle language'
+                                value={customLangOpen ? '__custom__' : (settings.captionsLanguage ?? '')}
+                                onChange={(event: { currentTarget: HTMLSelectElement }) => {
+                                  const nextValue = event.currentTarget.value
+                                  if (nextValue === '__custom__') {
+                                    setCustomLangDraft(settings.captionsLanguage ?? '')
+                                    setCustomLangOpen(true)
+                                    return
+                                  }
+                                  setCustomLangOpen(false)
+                                  set({ captionsLanguage: nextValue || undefined })
+                                }}
+                              >
+                                <option value=''>Auto (browser language)</option>
+                                {COMMON_CAPTION_LANGUAGES.map(lang => (
+                                  <option key={lang.code} value={lang.code}>
+                                    {`${lang.label} (${lang.code})`}
+                                  </option>
+                                ))}
+                                {settings.captionsLanguage
+                                  && !COMMON_CAPTION_LANGUAGES.some(lang => lang.code === settings.captionsLanguage)
+                                  ? <option value={settings.captionsLanguage}>{settings.captionsLanguage}</option>
+                                  : undefined}
+                                <option value='__custom__'>Custom code…</option>
+                              </select>
+                              {customLangOpen
+                                ? (
+                                  <>
+                                    <input
+                                      type='text'
+                                      className='lang-input'
+                                      aria-label='Custom preferred subtitle language code'
+                                      placeholder='e.g. pt-BR'
+                                      value={customLangDraft}
+                                      onInput={(event: { currentTarget: HTMLInputElement }) => setCustomLangDraft(event.currentTarget.value)}
+                                    />
+                                    <button
+                                      type='button'
+                                      className='choice'
+                                      onClick={() => {
+                                        const normalized = normalizeLanguageCode(customLangDraft)
+                                        if (!normalized) {
+                                          showToast('Enter a valid language code (for example en or pt-BR)')
+                                          return
+                                        }
+                                        set({ captionsLanguage: normalized })
+                                        setCustomLangOpen(false)
+                                      }}
+                                    >
+                                      Apply
+                                    </button>
+                                    <button
+                                      type='button'
+                                      className='choice'
+                                      onClick={() => setCustomLangOpen(false)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                )
+                                : undefined}
+                            </div>
+                          </div>
+                          <div className='row'>
+                            <div>
+                              <div className='row-label'>Never show subtitles for video languages</div>
+                              <p className='sub-note'>Skip automatic subtitles when the video speaks one of these languages.</p>
+                            </div>
+                            <div className='inline-fields'>
+                              <select
+                                className='select'
+                                aria-label='Add skipped video language'
+                                value=''
+                                onChange={(event: { currentTarget: HTMLSelectElement }) => {
+                                  const nextCode = event.currentTarget.value
+                                  if (!nextCode) return
+                                  set({ captionsSkipLanguages: [...settings.captionsSkipLanguages, nextCode] })
+                                }}
+                              >
+                                <option value=''>Add language…</option>
+                                {COMMON_CAPTION_LANGUAGES
+                                  .filter(lang => !settings.captionsSkipLanguages.some(entry => entry.toLowerCase() === lang.code.toLowerCase()))
+                                  .map(lang => (
+                                    <option key={lang.code} value={lang.code}>
+                                      {`${lang.label} (${lang.code})`}
+                                    </option>
+                                  ))}
+                              </select>
+                              <input
+                                type='text'
+                                className='lang-input'
+                                aria-label='Custom skipped video language code'
+                                placeholder='e.g. pt-BR'
+                                value={skipLangDraft}
+                                onInput={(event: { currentTarget: HTMLInputElement }) => setSkipLangDraft(event.currentTarget.value)}
+                              />
+                              <button
+                                type='button'
+                                className='choice'
+                                onClick={() => {
+                                  const normalized = normalizeLanguageCode(skipLangDraft)
+                                  if (!normalized) {
+                                    showToast('Enter a valid language code (for example en or pt-BR)')
+                                    return
+                                  }
+                                  set({ captionsSkipLanguages: [...settings.captionsSkipLanguages, normalized] })
+                                  setSkipLangDraft('')
+                                }}
+                              >
+                                Add
+                              </button>
+                            </div>
+                          </div>
+                          {settings.captionsSkipLanguages.length > 0
+                            ? (
+                              <div className='lang-chips' role='list' aria-label='Skipped video languages'>
+                                {settings.captionsSkipLanguages.map(code => {
+                                  const known = COMMON_CAPTION_LANGUAGES.find(lang => lang.code.toLowerCase() === code.toLowerCase())
+                                  const display = known ? `${known.label} (${code})` : code
+                                  return (
+                                    <button
+                                      key={code}
+                                      type='button'
+                                      className='lang-chip'
+                                      aria-label={`Remove ${display} from skipped subtitle languages`}
+                                      onClick={() => set({
+                                        captionsSkipLanguages: settings.captionsSkipLanguages.filter(entry => entry !== code),
+                                      })}
+                                    >
+                                      <span>{display}</span>
+                                      <span aria-hidden='true'>×</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )
+                            : undefined}
                         </div>
                       </div>
                     </>

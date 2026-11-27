@@ -128,3 +128,40 @@ test('supports legacy ?tab=appearance / #custom-appearance deep links and zero h
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true)
 })
+
+test('configures preferred subtitle language and video-language skip list with persistence', async ({ page }) => {
+  const main = await openSettings(page, '/settings?section=playback')
+
+  const preferredSelect = main.getByLabel('Preferred subtitle language', { exact: true })
+  await expect(preferredSelect).toHaveValue('')
+  await preferredSelect.selectOption('ja')
+  await expect(preferredSelect).toHaveValue('ja')
+
+  await preferredSelect.selectOption('__custom__')
+  const customInput = main.getByLabel('Custom preferred subtitle language code', { exact: true })
+  await customInput.fill('pt_br')
+  await main.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(preferredSelect).toHaveValue('pt-BR')
+
+  await main.getByLabel('Add skipped video language', { exact: true }).selectOption('en')
+  await main.getByLabel('Custom skipped video language code', { exact: true }).fill('fr_fr')
+  await main.getByRole('button', { name: 'Add', exact: true }).click()
+
+  await expect(main.getByRole('button', { name: 'Remove English (en) from skipped subtitle languages' })).toBeVisible()
+  await expect(main.getByRole('button', { name: 'Remove fr-FR from skipped subtitle languages' })).toBeVisible()
+
+  await page.reload()
+  await expect(main.getByLabel('Preferred subtitle language', { exact: true })).toHaveValue('pt-BR')
+  await expect(main.getByRole('button', { name: 'Remove English (en) from skipped subtitle languages' })).toBeVisible()
+  await expect(main.getByRole('button', { name: 'Remove fr-FR from skipped subtitle languages' })).toBeVisible()
+
+  await main.getByRole('button', { name: 'Remove English (en) from skipped subtitle languages' }).click()
+  await expect(main.getByRole('button', { name: 'Remove English (en) from skipped subtitle languages' })).toHaveCount(0)
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}') as {
+    captionsLanguage?: string
+    captionsSkipLanguages?: string[]
+  })
+  expect(stored.captionsLanguage).toBe('pt-BR')
+  expect(stored.captionsSkipLanguages).toEqual(['fr-FR'])
+})

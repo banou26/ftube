@@ -3,11 +3,11 @@ import { Captions, CaptionsOff, Radio, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter'
 
-import type { CaptionTrack, Storyboard } from '../frame/protocol'
+import type { AudioTrack, CaptionTrack, Storyboard } from '../frame/protocol'
 import type { StoryboardFrame } from '../frame/storyboard'
 import type { SeekHandle } from '../theme/seek-handle'
 
-import { preferredTrack } from '../frame/captions'
+import { detectVideoLanguage, languageMatches, preferredTrack } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { startEngine } from '../engine/client'
@@ -31,9 +31,21 @@ const PREVIEW_BUFFER_GOAL = 10
 // carried between previews and deliberately NOT persisted: a feed may never start talking on its own
 let preferMuted = true
 
-// on by default, as youtube.com's previews are, in the viewer's language; the switch is not carried to the next card
-const previewCaption = (tracks: CaptionTrack[]) =>
-  preferredTrack(tracks, getSettings().captionsLanguage ?? navigator.language)
+// on by default, as youtube.com's previews are, in the viewer's language unless skipped for the video's spoken language
+const previewCaption = (
+  tracks: CaptionTrack[],
+  audioTracks: readonly AudioTrack[] = [],
+  respectSkip = false,
+) => {
+  const currentSettings = getSettings()
+  if (respectSkip) {
+    const videoLanguage = detectVideoLanguage(audioTracks, tracks)
+    if (videoLanguage && currentSettings.captionsSkipLanguages.some((entry) => languageMatches(videoLanguage, entry))) {
+      return undefined
+    }
+  }
+  return preferredTrack(tracks, currentSettings.captionsLanguage ?? navigator.language)
+}
 
 // the preview sits inside the card's watch link, so an unguarded press or click on a control opens the video
 const guard = (event: Event) => {
@@ -498,7 +510,7 @@ export const HoverPreview = (
         selectCaption.current = controller.selectCaption
         setLive(controller.isLive)
         setReady(true)
-        const wanted = previewCaption(controller.captionTracks)
+        const wanted = previewCaption(controller.captionTracks, controller.audioTracks, true)
         if (wanted) {
           setCaption(wanted.id)
           void controller.selectCaption(wanted.id).catch(() => setCaption(undefined))

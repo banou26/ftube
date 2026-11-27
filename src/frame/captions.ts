@@ -1,3 +1,5 @@
+import type { AudioTrack } from './formats'
+
 export type CaptionTrack = {
   // `id` is YouTube's own `vss_id` and the app hands it straight back to ask for cues, so the frame never accepts a URL from the app realm
   id: string
@@ -72,6 +74,78 @@ export const parseTranslationLanguages = (tracklist: RawTracklist | undefined): 
   (tracklist?.translation_languages ?? []).flatMap(({ language_code: languageCode, language_name: name }) =>
     languageCode ? [{ languageCode, label: nameOf(name) || languageCode }] : [])
 
+/** A common language option offered in subtitle preferences. */
+export type CaptionLanguageOption = { code: string, label: string }
+
+/** Curated set of 20 common BCP-47 caption languages for quick selection in Settings. */
+export const COMMON_CAPTION_LANGUAGES: CaptionLanguageOption[] = [
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'it', label: 'Italian' },
+  { code: 'nl', label: 'Dutch' },
+  { code: 'pl', label: 'Polish' },
+  { code: 'tr', label: 'Turkish' },
+  { code: 'ar', label: 'Arabic' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'vi', label: 'Vietnamese' },
+  { code: 'id', label: 'Indonesian' },
+  { code: 'uk', label: 'Ukrainian' },
+  { code: 'sv', label: 'Swedish' },
+  { code: 'th', label: 'Thai' },
+]
+
+const LANGUAGE_CODE_RE = /^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/
+
+/** Normalizes a BCP-47 language tag (accepting underscores/mixed case) or returns undefined when invalid. */
+export const normalizeLanguageCode = (raw: string | undefined): string | undefined => {
+  if (!raw) return undefined
+  const trimmed = raw.trim().replaceAll('_', '-')
+  if (!trimmed || !LANGUAGE_CODE_RE.test(trimmed)) return undefined
+  return trimmed
+    .split('-')
+    .map((part, index) => {
+      if (index === 0) return part.toLowerCase()
+      if (/^[a-zA-Z]{2}$/.test(part)) return part.toUpperCase()
+      if (/^[a-zA-Z]{4}$/.test(part)) return `${part[0]!.toUpperCase()}${part.slice(1).toLowerCase()}`
+      return part.toLowerCase()
+    })
+    .join('-')
+}
+
+/** Matches two BCP-47 tags cleanly, allowing base-language tags (like `en`) to match regional variants (like `en-US`). */
+export const languageMatches = (candidate: string | undefined, target: string | undefined): boolean => {
+  const left = normalizeLanguageCode(candidate)?.toLowerCase()
+  const right = normalizeLanguageCode(target)?.toLowerCase()
+  if (!left || !right) return false
+  if (left === right) return true
+  const [leftBase, leftSub] = left.split('-')
+  const [rightBase, rightSub] = right.split('-')
+  if (!leftBase || leftBase !== rightBase) return false
+  return !leftSub || !rightSub
+}
+
+/** Infers the video's spoken language from original/first audio tracks, else ASR or single caption tracks. */
+export const detectVideoLanguage = (
+  audioTracks: readonly Pick<AudioTrack, 'language' | 'original'>[],
+  captionTracks: readonly CaptionTrack[],
+): string | undefined => {
+  const originalAudio = audioTracks.find((track) => track.original && normalizeLanguageCode(track.language))
+  if (originalAudio) return normalizeLanguageCode(originalAudio.language)
+  const firstAudio = audioTracks.find((track) => normalizeLanguageCode(track.language))
+  if (firstAudio) return normalizeLanguageCode(firstAudio.language)
+  const asr = captionTracks.find((track) => track.auto && normalizeLanguageCode(track.languageCode))
+  if (asr) return normalizeLanguageCode(asr.languageCode)
+  if (captionTracks.length === 1) return normalizeLanguageCode(captionTracks[0]?.languageCode)
+  return undefined
+}
+
 export const preferredTrack = (tracks: CaptionTrack[], language: string | undefined) => {
   if (tracks.length === 0) return undefined
   const rank = (track: CaptionTrack) => (track.auto ? 1 : 0)
@@ -92,10 +166,26 @@ export const preferredTrack = (tracks: CaptionTrack[], language: string | undefi
 export const defaultTrack = (tracks: CaptionTrack[], browserLanguage: string | undefined) =>
   tracks.find((track) => track.recommended) ?? preferredTrack(tracks, browserLanguage) ?? preferredTrack(tracks, undefined)
 
-type CaptionChoice = { captionsChosen?: boolean, captionsEnabled: boolean, captionsLanguage?: string }
+type CaptionChoice = {
+  captionsChosen?: boolean
+  captionsEnabled: boolean
+  captionsLanguage?: string
+  captionsSkipLanguages?: readonly string[]
+}
 
-/** The track a video starts with: the person's own choice once they turned captions on or off, else the one YouTube recommends, if any. */
-export const startingTrack = (tracks: CaptionTrack[], choice: CaptionChoice, browserLanguage: string | undefined) => {
+const shouldSkipCaptions = (
+  videoLanguage: string | undefined,
+  skipLanguages: readonly string[] | undefined,
+): boolean => Boolean(videoLanguage && skipLanguages?.some((entry) => languageMatches(videoLanguage, entry)))
+
+/** The track a video starts with: respects video-language skip list, else the viewer's choice, else YouTube's recommendation. */
+export const startingTrack = (
+  tracks: CaptionTrack[],
+  choice: CaptionChoice,
+  browserLanguage: string | undefined,
+  videoLanguage?: string,
+) => {
+  if (shouldSkipCaptions(videoLanguage, choice.captionsSkipLanguages)) return undefined
   if (!choice.captionsChosen) return tracks.find((track) => track.recommended)
   if (!choice.captionsEnabled) return undefined
   return choice.captionsLanguage ? preferredTrack(tracks, choice.captionsLanguage) : defaultTrack(tracks, browserLanguage)
@@ -127,7 +217,9 @@ export const startingCaption = (
   translations: TranslationLanguage[],
   choice: CaptionChoice,
   browserLanguage: string | undefined,
+  videoLanguage?: string,
 ): CaptionPick | undefined => {
+  if (shouldSkipCaptions(videoLanguage, choice.captionsSkipLanguages)) return undefined
   if (!choice.captionsChosen) {
     const recommended = tracks.find((track) => track.recommended)
     return recommended ? { trackId: recommended.id } : undefined

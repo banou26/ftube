@@ -1,7 +1,7 @@
 import { YTNodes } from 'youtubei.js'
 import { describe, expect, it } from 'vite-plus/test'
 
-import { captionLabel, defaultTrack, json3ToWebVtt, parseCaptionTracks, parseJson3, parseTranslationLanguages, preferredCaption, preferredTrack, signedTextUrl, startingCaption, startingTrack, timedTextUrl } from '../../../src/frame/captions'
+import { captionLabel, COMMON_CAPTION_LANGUAGES, defaultTrack, detectVideoLanguage, json3ToWebVtt, languageMatches, normalizeLanguageCode, parseCaptionTracks, parseJson3, parseTranslationLanguages, preferredCaption, preferredTrack, signedTextUrl, startingCaption, startingTrack, timedTextUrl } from '../../../src/frame/captions'
 import answers from '../fixtures/caption-advice.json'
 
 // youtubei.js parses `name` into a Text node, so the label arrives as an object
@@ -333,5 +333,66 @@ describe('json3ToWebVtt', () => {
 
   it('is still a valid file when the track has no cues', () => {
     expect(json3ToWebVtt('{}')).toBe('WEBVTT\n')
+  })
+})
+
+describe('subtitle language preferences and video-language skipping', () => {
+  const tracks = parseCaptionTracks(TRACKLIST)
+  const translations = parseTranslationLanguages({
+    translation_languages: [
+      { language_code: 'de', language_name: 'German' },
+      { language_code: 'ja', language_name: 'Japanese' },
+    ],
+  })
+
+  it('exposes common languages, normalizes tags, and matches base vs regional codes', () => {
+    expect(COMMON_CAPTION_LANGUAGES).toHaveLength(20)
+    expect(normalizeLanguageCode(' pt_br ')).toBe('pt-BR')
+    expect(normalizeLanguageCode('ZH_hans_cn')).toBe('zh-Hans-CN')
+    expect(normalizeLanguageCode('invalid language!')).toBeUndefined()
+
+    expect(languageMatches('en-US', 'en')).toBe(true)
+    expect(languageMatches('en', 'en-US')).toBe(true)
+    expect(languageMatches('pt-BR', 'pt-PT')).toBe(false)
+    expect(languageMatches('fr', 'de')).toBe(false)
+  })
+
+  it('detects video language from original audio, first audio, ASR caption, or sole caption track', () => {
+    expect(detectVideoLanguage(
+      [
+        { language: 'en', original: false },
+        { language: 'ja', original: true },
+      ],
+      tracks,
+    )).toBe('ja')
+
+    expect(detectVideoLanguage(
+      [{ language: 'fr_FR', original: false }],
+      tracks,
+    )).toBe('fr-FR')
+
+    expect(detectVideoLanguage([], tracks)).toBe('en')
+    expect(detectVideoLanguage([], [tracks[2]!])).toBe('fr')
+    expect(detectVideoLanguage([], [tracks[0]!, tracks[2]!])).toBeUndefined()
+  })
+
+  it('suppresses automatic subtitles for skipped video languages, overriding captionsEnabled and YouTube recommended', () => {
+    const enabledChoice = { captionsChosen: true, captionsEnabled: true, captionsLanguage: 'en', captionsSkipLanguages: ['en', 'fr-FR'] }
+    expect(startingTrack(tracks, enabledChoice, 'en-US', 'en-US')).toBeUndefined()
+    expect(startingCaption(tracks, translations, enabledChoice, 'en-US', 'en-US')).toBeUndefined()
+    expect(startingCaption(tracks, translations, enabledChoice, 'en-US', 'fr')).toBeUndefined()
+
+    // Non-matching video language still starts subtitles normally.
+    expect(startingCaption(tracks, translations, enabledChoice, 'en-US', 'ja')).toStrictEqual({ trackId: '.en' })
+
+    // Even when captions were never chosen manually, skip list suppresses YouTube recommended tracks.
+    const recommendedTracks = parseCaptionTracks(new YTNodes.PlayerCaptionsTracklist(answers.japaneseViewer.playerCaptionsTracklistRenderer))
+    expect(startingCaption(
+      recommendedTracks,
+      [],
+      { captionsEnabled: false, captionsSkipLanguages: ['ja'] },
+      'en-US',
+      'ja-JP',
+    )).toBeUndefined()
   })
 })
