@@ -12,6 +12,7 @@ import { Link } from 'wouter'
 import { gql } from '../generated'
 import { AddToPlaylistDocument, SavePlaylistsDocument } from '../generated/graphql'
 import { openDownloadDialog } from '../downloads/store'
+import { normalizeDescriptionText, useVideoDescription } from '../feeds/descriptions'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor, shortsLink } from '../player/links'
@@ -822,8 +823,15 @@ export const VideoCard = (
   const hasChannel = byline === 'channel' && Boolean(video.channel && channelHref)
   const hasMeta = Boolean(video.viewCount || video.publishedText)
   const hasSubline = hasNames || hasChannel || hasMeta
+  const articleRef = useRef<HTMLElement>(null)
   const duration = showDuration ? formatDuration(video.durationSeconds) : undefined
-  const descriptionText = video.descriptionSnippet?.trim() || video.description?.trim() || ''
+  const inlineDescription = normalizeDescriptionText(video.descriptionSnippet) || normalizeDescriptionText(video.description)
+  const lazyDescription = useVideoDescription(
+    video.id,
+    articleRef,
+    Boolean(showDescription && descriptionLines > 0 && !inlineDescription),
+  )
+  const descriptionText = inlineDescription || lazyDescription
   const progress = resumePercent(video.progressPercent)
   const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
   const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)
@@ -846,6 +854,7 @@ export const VideoCard = (
   const avatar = variant === undefined || variant === 'carousel'
   return (
     <article
+      ref={articleRef}
       css={style}
       className={classes || undefined}
       style={hover.tintStyle}

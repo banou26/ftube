@@ -29,6 +29,7 @@ const CHANNEL_UPLOADS_QUERY = gql(`
     channelUploads(channelId: $channelId) {
       id
       title
+      description
       thumbnail
       durationSeconds
       viewCount

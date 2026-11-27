@@ -24,6 +24,12 @@ describe('channel uploads feed', () => {
     expect(videos[0]).toEqual({
       id: 'NDgS__J1U-M',
       title: 'The Private Key Mistake! (TLS Key set to "4") - Computerphile',
+      description: [
+        "You actually have to work quite hard to set a private key to the number 4! - Dr Tim Muller takes us through the problems with 'randomly' assigning a 120 digit number to the value '4'",
+        'Computerphile is supported by Jane Street. Learn more about them (and exciting career opportunities) at: https://jane-st.co/computerphile',
+        'This video was filmed and edited by Sean Riley.',
+        "Computerphile is a sister project to Brady Haran's Numberphile. More at https://www.bradyharanblog.com",
+      ].join('\n\n'),
       thumbnail: 'https://i3.ytimg.com/vi/NDgS__J1U-M/hqdefault.jpg',
       viewCount: '173007',
       publishedAt: '2026-10-30T15:47:25.000Z',
@@ -49,7 +55,7 @@ describe('channel uploads feed', () => {
       entry('<yt:videoId>not an id</yt:videoId><title>Bad id</title>'),
       entry('<yt:videoId>lmnopqrstuv</yt:videoId><title>Kept</title><published>soon</published>'),
     ].join(''))
-    expect(videos).toEqual([{ id: 'lmnopqrstuv', title: 'Kept', badges: [], publishedAt: undefined, thumbnail: undefined, viewCount: undefined, channel: undefined }])
+    expect(videos).toEqual([{ id: 'lmnopqrstuv', title: 'Kept', description: undefined, badges: [], publishedAt: undefined, thumbnail: undefined, viewCount: undefined, channel: undefined }])
   })
 
   it('reads an empty feed as no videos', () => {

@@ -188,6 +188,14 @@ const CHANNEL_VIDEOS = [
     publishedText: '3 weeks ago',
     descriptionSnippet: 'Second channel video description.',
   }),
+  makeChannelVideo({
+    id: 'ch-video-3',
+    title: 'Channel Video Gamma',
+    durationSeconds: 600,
+    publishedText: '1 month ago',
+    description: null,
+    descriptionSnippet: null,
+  }),
 ]
 
 const CHANNEL_SPAM = {
@@ -210,8 +218,20 @@ const HASHTAG_SHORTS = [
 ]
 
 let homeRequests = 0
+let videoDescriptionRequests: string[] = []
 
 const answers = (operationName: string, variables: Record<string, unknown> = {}): unknown => {
+  if (operationName === 'VideoDescription') {
+    const id = typeof variables.id === 'string' ? variables.id : ''
+    videoDescriptionRequests.push(id)
+    return {
+      video: {
+        __typename: 'Video',
+        id,
+        description: `Lazy description for ${id}\n\nwith   normalized   whitespace.`,
+      },
+    }
+  }
   if (operationName === 'HomeFeed') {
     const cursor = typeof variables.cursor === 'string' ? variables.cursor : undefined
     const pageNum = cursor ? Number(cursor.replace('home-p', '')) : 0
@@ -355,9 +375,11 @@ const prepareHost = (name: string) => {
 }
 
 export const getHomeRequestCount = () => homeRequests
+export const getVideoDescriptionRequests = () => [...videoDescriptionRequests]
 
 export const mountApp = (initialUrl = '/feed/subscriptions') => {
   if (initialUrl === '/') homeRequests = 0
+  videoDescriptionRequests = []
   history.replaceState(null, '', initialUrl)
   const host = prepareHost('app')
   const client = createMockClient()

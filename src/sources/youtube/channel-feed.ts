@@ -49,9 +49,11 @@ const parseEntry = (entry: string): SourceVideo | undefined => {
   const views = attribute(entry, 'media:statistics', 'views')
   const channelId = element(entry, 'yt:channelId')
   const channelName = element(entry, 'name')
+  const rawDescription = element(entry, 'media:description')
   return {
     id,
     title,
+    description: rawDescription || undefined,
     thumbnail: attribute(entry, 'media:thumbnail', 'url'),
     viewCount: views && /^\d+$/.test(views) ? views : undefined,
     publishedAt: Number.isNaN(published) ? undefined : new Date(published).toISOString(),

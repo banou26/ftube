@@ -299,3 +299,43 @@ test('keeps Subscriptions toggles local, skips channel block on own channel, avo
   }, HARNESS)
   expect(requestCount).toBe(5)
 })
+
+test('lazily loads missing video descriptions only when descriptions are enabled on Subscriptions and Channel Videos', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const root = await openFeedPage(page, '/feed/subscriptions')
+
+  await expect(root.locator('article .description')).toHaveCount(0)
+  expect(await page.evaluate(async (path) => {
+    const harness = await import(path) as typeof import('./fixtures/feed-view-harness')
+    return harness.getVideoDescriptionRequests()
+  }, HARNESS)).toEqual([])
+
+  await root.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+  const panel = root.getByRole('complementary', { name: 'Feed display settings' })
+  await panel.getByRole('group', { name: 'Description length' }).getByRole('button', { name: '2', exact: true }).click()
+
+  const premiereCard = root.locator('article', { hasText: 'Premiere Release Trailer' })
+  await expect(premiereCard.locator('.description')).toContainText('Lazy description for sub-premiere with normalized whitespace.')
+  expect(await page.evaluate(async (path) => {
+    const harness = await import(path) as typeof import('./fixtures/feed-view-harness')
+    return harness.getVideoDescriptionRequests()
+  }, HARNESS)).toContain('sub-premiere')
+
+  // Reset global Description length back to Off before verifying Channel Videos' own toggle.
+  await panel.getByRole('group', { name: 'Description length' }).getByRole('button', { name: 'Off', exact: true }).click()
+
+  const channelRoot = await openFeedPage(page, '/channel/UC_DEMO/videos')
+  await expect(channelRoot.getByText('Channel Video Gamma')).toBeVisible()
+  await expect(channelRoot.locator('article .description')).toHaveCount(0)
+  expect(await page.evaluate(async (path) => {
+    const harness = await import(path) as typeof import('./fixtures/feed-view-harness')
+    return harness.getVideoDescriptionRequests()
+  }, HARNESS)).toEqual([])
+
+  await channelRoot.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+  await channelRoot.getByLabel('Show descriptions on channel Videos').check()
+
+  const gammaCard = channelRoot.locator('article', { hasText: 'Channel Video Gamma' })
+  await expect(gammaCard.locator('.description')).toContainText('Lazy description for ch-video-3 with normalized whitespace.')
+})
