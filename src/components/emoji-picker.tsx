@@ -864,8 +864,8 @@ export const EmojiButton = ({
 
   useDismiss({ open, onClose: close, rootRef, panelRef, triggerRef })
 
-  // Capture Escape ahead of parent Dialog listeners so only this floating picker closes
-  useEffect(() => {
+  // Capture Escape synchronously before paint ahead of parent Dialog listeners so only this floating picker closes
+  useLayoutEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
