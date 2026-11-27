@@ -299,7 +299,7 @@ type RawMembersBadge = {
   }
 }
 
-const extractRawPostMembersOnly = (node: {
+export const extractRawPostMembersOnly = (node: {
   sponsorsOnlyBadge?: RawMembersBadge
   sponsorOnlyBadge?: RawMembersBadge
   badges?: RawMembersBadge[]

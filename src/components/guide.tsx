@@ -13,6 +13,7 @@ import { warmShaka } from '../player/prefetch'
 import { atHandle, useSession } from '../session'
 import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
+import { sortGuideSubscriptions } from '../sources/youtube/normalize'
 import { Logo } from './header'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from './playlist'
 
@@ -93,18 +94,6 @@ const GuideLink = ({ entry }: { entry: GuideEntry }) => {
 
 const SUBSCRIPTIONS_COLLAPSED_LIMIT = 7
 
-const sortSubscriptions = <T extends { isLive?: boolean | null, hasNewContent?: boolean | null }>(channels: readonly T[]): T[] => {
-  const live: T[] = []
-  const fresh: T[] = []
-  const rest: T[] = []
-  for (const channel of channels) {
-    if (channel.isLive) live.push(channel)
-    else if (channel.hasNewContent) fresh.push(channel)
-    else rest.push(channel)
-  }
-  return [...live, ...fresh, ...rest]
-}
-
 const SubscriptionRail = () => {
   const { signedIn } = useSession()
   const [path] = useLocation()
@@ -112,7 +101,7 @@ const SubscriptionRail = () => {
   const [{ data }] = useQuery({ query: GUIDE_SUBSCRIPTIONS_QUERY, pause: !signedIn })
   const channels = data?.subscribedChannels ?? []
 
-  const sorted = sortSubscriptions(channels)
+  const sorted = sortGuideSubscriptions(channels)
   const visible = expanded ? sorted : sorted.slice(0, SUBSCRIPTIONS_COLLAPSED_LIMIT)
   const subscriptionsActive = isActive('/feed/subscriptions', path, '')
 
@@ -142,12 +131,12 @@ const SubscriptionRail = () => {
             <span className='label channel-name'>{channel.name}</span>
             {channel.isLive
               ? (
-                <span className='sub-live-icon' aria-label='Live' title='Live'>
+                <span className='sub-live-icon' role='img' aria-label='Live' title='Live'>
                   <Radio size={16} strokeWidth={2} aria-hidden='true' />
                 </span>
               )
               : channel.hasNewContent
-                ? <span className='sub-new-dot' aria-label='New content' title='New content' />
+                ? <span className='sub-new-dot' role='img' aria-label='New content' title='New content' />
                 : undefined}
           </Link>
         )

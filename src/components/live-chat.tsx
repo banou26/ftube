@@ -27,7 +27,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { lineFor } from './data-failure'
@@ -1452,6 +1452,8 @@ export const LiveChat = ({
     hideChat,
   } = useLiveChatSession({ videoId, subscribed, onHide })
   const [reactionsHovered, setReactionsHovered] = useState(false)
+  const reactionControlRef = useRef<HTMLDivElement>(null)
+  const reactionToggleRef = useRef<HTMLButtonElement>(null)
   const onCustomEmojisRef = useRef(onCustomEmojis)
   onCustomEmojisRef.current = onCustomEmojis
 
@@ -1461,13 +1463,56 @@ export const LiveChat = ({
 
   const reactionsVisible = !ended && (reactionsOpen || reactionsHovered)
 
+  useLayoutEffect(() => {
+    if (!reactionsVisible || ended) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setReactionsOpen(false)
+      setReactionsHovered(false)
+      reactionToggleRef.current?.focus()
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!reactionsOpen) return
+      const target = event.target as Node | null
+      if (target && reactionControlRef.current?.contains(target)) return
+      setReactionsOpen(false)
+      setReactionsHovered(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [reactionsVisible, reactionsOpen, ended, setReactionsOpen])
+
   const reactionControl = !ended
     ? (
       <div
+        ref={reactionControlRef}
         className='reaction-control'
         onMouseEnter={() => setReactionsHovered(true)}
         onMouseLeave={() => setReactionsHovered(false)}
       >
+        <button
+          ref={reactionToggleRef}
+          type='button'
+          className='reaction-toggle'
+          aria-label='Reactions'
+          aria-expanded={reactionsVisible}
+          onClick={() => {
+            if (reactionsOpen) {
+              setReactionsOpen(false)
+              setReactionsHovered(false)
+            } else {
+              setReactionsOpen(true)
+            }
+          }}
+        >
+          <Heart size={18} strokeWidth={1.5} />
+        </button>
         {reactionsVisible
           ? (
             <div className='reaction-tray' role='group' aria-label='Local reactions'>
@@ -1485,22 +1530,6 @@ export const LiveChat = ({
             </div>
           )
           : undefined}
-        <button
-          type='button'
-          className='reaction-toggle'
-          aria-label='Reactions'
-          aria-expanded={reactionsVisible}
-          onClick={() => {
-            if (reactionsOpen) {
-              setReactionsOpen(false)
-              setReactionsHovered(false)
-            } else {
-              setReactionsOpen(true)
-            }
-          }}
-        >
-          <Heart size={18} strokeWidth={1.5} />
-        </button>
       </div>
     )
     : undefined

@@ -757,6 +757,253 @@ describe('youtube channel tabs', () => {
     expect(foreignResult.channel.liveVideoId).toBeUndefined()
   })
 
+  it('ignores Home shelf live videos without matching channel id (APP-956)', async () => {
+    const homeFeaturedForeign = createFakeClient()
+    const baseChannel = await homeFeaturedForeign.getChannel()
+    homeFeaturedForeign.getChannel = async () => ({
+      ...baseChannel,
+      has_home: true,
+      current_tab: {
+        endpoint: { metadata: { url: '/channel/c/featured' } },
+        content: {
+          contents: [{
+            contents: [{
+              type: 'Shelf',
+              title: { text: 'Featured Channels' },
+              content: {
+                items: [{
+                  type: 'GridVideo',
+                  id: 'foreign-live-1',
+                  title: { text: 'Someone else is streaming' },
+                  is_live: true,
+                }],
+              },
+            }],
+          }],
+        },
+      },
+    })
+    const foreignSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => homeFeaturedForeign })
+    const foreignHome = await foreignSource.channel('c', 'HOME')
+    expect(foreignHome.channel.isLive).toBeUndefined()
+    expect(foreignHome.channel.liveVideoId).toBeUndefined()
+
+    const homeOwnLive = createFakeClient()
+    const ownChannel = await homeOwnLive.getChannel()
+    homeOwnLive.getChannel = async () => ({
+      ...ownChannel,
+      has_home: true,
+      current_tab: {
+        endpoint: { metadata: { url: '/channel/c/featured' } },
+        content: {
+          contents: [{
+            contents: [{
+              type: 'Shelf',
+              title: { text: 'Happening now' },
+              content: {
+                items: [{
+                  type: 'GridVideo',
+                  id: 'own-live-1',
+                  title: { text: 'Creator stream' },
+                  is_live: true,
+                  author: { id: 'c', name: 'Channel' },
+                }],
+              },
+            }],
+          }],
+        },
+      },
+    })
+    const ownSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => homeOwnLive })
+    const ownHome = await ownSource.channel('c', 'HOME')
+    expect(ownHome.channel.isLive).toBe(true)
+    expect(ownHome.channel.liveVideoId).toBe('own-live-1')
+  })
+
+  it('preserves members-only badges on parsed Posts tab and Home post shelf items (APP-957)', async () => {
+    const rawPostsBrowse = {
+      header: {
+        c4TabbedHeaderRenderer: {
+          channelId: 'UC-posts',
+          title: 'Posts Creator',
+        },
+      },
+      contents: {
+        twoColumnBrowseResultsRenderer: {
+          tabs: [{
+            tabRenderer: {
+              title: 'Posts',
+              selected: true,
+              endpoint: { commandMetadata: { webCommandMetadata: { url: '/channel/UC-posts/posts' } } },
+              content: {
+                sectionListRenderer: {
+                  contents: [{
+                    itemSectionRenderer: {
+                      contents: [
+                        {
+                          backstagePostThreadRenderer: {
+                            post: {
+                              backstagePostRenderer: {
+                                postId: 'Ugkx-tab-members',
+                                authorText: { runs: [{ text: 'Posts Creator' }] },
+                                authorEndpoint: { browseEndpoint: { browseId: 'UC-posts' } },
+                                contentText: { runs: [{ text: 'Members post on Posts tab' }] },
+                                publishedTimeText: { runs: [{ text: '1 day ago' }] },
+                                sponsorsOnlyBadge: {
+                                  sponsorsOnlyBadgeRenderer: {
+                                    label: { simpleText: 'Members only' },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                        {
+                          backstagePostThreadRenderer: {
+                            post: {
+                              backstagePostRenderer: {
+                                postId: 'Ugkx-tab-public',
+                                authorText: { runs: [{ text: 'Posts Creator' }] },
+                                authorEndpoint: { browseEndpoint: { browseId: 'UC-posts' } },
+                                contentText: { runs: [{ text: 'Public post on Posts tab' }] },
+                                publishedTimeText: { runs: [{ text: '2 days ago' }] },
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  }],
+                },
+              },
+            },
+          }],
+        },
+      },
+    }
+
+    const postsSource = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => ({
+        getChannel: async () => new YT.Channel(undefined as never, Parser.parseResponse(rawPostsBrowse as never), true),
+      }) as never,
+    })
+
+    const tabPage = await postsSource.channel('UC-posts', 'COMMUNITY')
+    expect(tabPage.posts?.items.map((item) => ({
+      id: item.id,
+      isMembersOnly: item.isMembersOnly,
+      membersOnlyLabel: item.membersOnlyLabel,
+    }))).toEqual([
+      { id: 'Ugkx-tab-members', isMembersOnly: true, membersOnlyLabel: 'Members only' },
+      { id: 'Ugkx-tab-public', isMembersOnly: undefined, membersOnlyLabel: undefined },
+    ])
+
+    const directPosts = await postsSource.communityPosts('UC-posts')
+    expect(directPosts.items[0]).toMatchObject({
+      id: 'Ugkx-tab-members',
+      isMembersOnly: true,
+      membersOnlyLabel: 'Members only',
+    })
+    expect(directPosts.items[1]?.isMembersOnly).toBeUndefined()
+
+    const rawHomeBrowse = {
+      header: {
+        c4TabbedHeaderRenderer: {
+          channelId: 'UC-home-posts',
+          title: 'Home Creator',
+        },
+      },
+      contents: {
+        twoColumnBrowseResultsRenderer: {
+          tabs: [{
+            tabRenderer: {
+              title: 'Home',
+              selected: true,
+              endpoint: { commandMetadata: { webCommandMetadata: { url: '/channel/UC-home-posts/featured' } } },
+              content: {
+                sectionListRenderer: {
+                  contents: [{
+                    itemSectionRenderer: {
+                      contents: [{
+                        shelfRenderer: {
+                          title: { runs: [{ text: 'Latest posts' }] },
+                          content: {
+                            horizontalListRenderer: {
+                              items: [
+                                {
+                                  postRenderer: {
+                                    postId: 'Ugkx-home-members',
+                                    authorText: { runs: [{ text: 'Home Creator' }] },
+                                    authorEndpoint: { browseEndpoint: { browseId: 'UC-home-posts' } },
+                                    contentText: { runs: [{ text: 'Members post on Home shelf' }] },
+                                    publishedTimeText: { runs: [{ text: '3 hours ago' }] },
+                                    sponsorsOnlyBadge: {
+                                      sponsorsOnlyBadgeRenderer: {
+                                        label: { simpleText: 'Members only' },
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  backstagePostRenderer: {
+                                    postId: 'Ugkx-home-backstage-members',
+                                    authorText: { runs: [{ text: 'Home Creator' }] },
+                                    authorEndpoint: { browseEndpoint: { browseId: 'UC-home-posts' } },
+                                    contentText: { runs: [{ text: 'Members backstage post on Home' }] },
+                                    publishedTimeText: { runs: [{ text: '4 hours ago' }] },
+                                    badges: [{
+                                      metadataBadgeRenderer: {
+                                        style: 'BADGE_STYLE_TYPE_MEMBERS_ONLY',
+                                        label: 'Members only',
+                                      },
+                                    }],
+                                  },
+                                },
+                                {
+                                  postRenderer: {
+                                    postId: 'Ugkx-home-public',
+                                    authorText: { runs: [{ text: 'Home Creator' }] },
+                                    authorEndpoint: { browseEndpoint: { browseId: 'UC-home-posts' } },
+                                    contentText: { runs: [{ text: 'Public post on Home shelf' }] },
+                                    publishedTimeText: { runs: [{ text: '5 hours ago' }] },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      }],
+                    },
+                  }],
+                },
+              },
+            },
+          }],
+        },
+      },
+    }
+
+    const homeSource = createYoutubeSource({
+      fetch: globalThis.fetch,
+      createClient: async () => ({
+        getChannel: async () => new YT.Channel(undefined as never, Parser.parseResponse(rawHomeBrowse as never), true),
+      }) as never,
+    })
+
+    const homePage = await homeSource.channel('UC-home-posts', 'HOME')
+    expect(homePage.home?.shelves).toHaveLength(1)
+    expect(homePage.home?.shelves[0]?.posts.map((item) => ({
+      id: item.id,
+      isMembersOnly: item.isMembersOnly,
+      membersOnlyLabel: item.membersOnlyLabel,
+    }))).toEqual([
+      { id: 'Ugkx-home-members', isMembersOnly: true, membersOnlyLabel: 'Members only' },
+      { id: 'Ugkx-home-backstage-members', isMembersOnly: true, membersOnlyLabel: 'Members only' },
+      { id: 'Ugkx-home-public', isMembersOnly: undefined, membersOnlyLabel: undefined },
+    ])
+  })
+
   // youtube.com's signed-out answer for a channel id nobody holds, read 2026-11-10, less its tracking fields
   it('rejects with upstream\'s own line for a channel that does not exist, marked apart from any other failure', async () => {
     const answer = {

@@ -7,7 +7,7 @@ import { Innertube, Parser, Utils, YTNodes } from 'youtubei.js/web'
 import { isMostRelevantShelfTitle } from '../../feeds/filter'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
-import { collectMembersOnlyPosts, extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
+import { collectMembersOnlyPosts, extractParsedPostActions, extractRawPostMembersOnly, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
 import { approximateCount, chatReplayToken, EMOJI_WIDTH, extractRelatedChips, httpsUrl, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions, thumbnail } from './normalize'
@@ -673,10 +673,14 @@ const channelHome = (feed: ChannelFeed): SourceChannelHome => {
   return home
 }
 
-const enrichChannelLive = (channel: SourceChannel, candidates: readonly SourceVideo[]): SourceChannel => {
+const enrichChannelLive = (
+  channel: SourceChannel,
+  candidates: readonly SourceVideo[],
+  { allowMissingChannel = false }: { allowMissingChannel?: boolean } = {},
+): SourceChannel => {
   if (channel.isLive && channel.liveVideoId) return channel
   const live = candidates.find(
-    (video) => video.isLive === true && (!video.channel?.id || video.channel.id === channel.id),
+    (video) => video.isLive === true && (video.channel?.id === channel.id || (allowMissingChannel && !video.channel?.id)),
   )
   if (!live) return channel
   return {
@@ -735,7 +739,69 @@ const requireSignIn = (client: { session: { logged_in: boolean } }, action: stri
   if (!client.session.logged_in) throw new Error(`youtube: sign in to ${action}`)
 }
 
+let postParsersInstalled = false
+
+const attachMembersOnlyFields = (
+  target: { is_members_only?: boolean, members_only_label?: string },
+  data: unknown,
+) => {
+  const info = extractRawPostMembersOnly(data as Parameters<typeof extractRawPostMembersOnly>[0])
+  if (!info) return
+  target.is_members_only = true
+  if (info.label) target.members_only_label = info.label
+}
+
+export const installPostMembersOnlyParsers = () => {
+  if (postParsersInstalled) return
+  postParsersInstalled = true
+
+  class MembersAwareBackstagePost extends YTNodes.BackstagePost {
+    static override type = 'BackstagePost'
+    is_members_only?: boolean
+    members_only_label?: string
+
+    constructor(data: ConstructorParameters<typeof YTNodes.BackstagePost>[0]) {
+      super(data)
+      attachMembersOnlyFields(this, data)
+    }
+  }
+
+  class MembersAwarePost extends YTNodes.Post {
+    static override type = 'Post'
+    is_members_only?: boolean
+    members_only_label?: string
+
+    constructor(data: ConstructorParameters<typeof YTNodes.Post>[0]) {
+      super(data)
+      attachMembersOnlyFields(this, data)
+    }
+  }
+
+  class MembersAwareSharedPost extends YTNodes.SharedPost {
+    static override type = 'SharedPost'
+    is_members_only?: boolean
+    members_only_label?: string
+
+    constructor(data: ConstructorParameters<typeof YTNodes.SharedPost>[0]) {
+      super(data)
+      attachMembersOnlyFields(this, data)
+      const original = this.original_post as { is_members_only?: boolean, members_only_label?: string } | undefined
+      if (!this.is_members_only && original?.is_members_only) {
+        this.is_members_only = true
+        if (original.members_only_label) this.members_only_label = original.members_only_label
+      }
+    }
+  }
+
+  Parser.addRuntimeParser('BackstagePost', MembersAwareBackstagePost as never)
+  Parser.addRuntimeParser('Post', MembersAwarePost as never)
+  Parser.addRuntimeParser('SharedPost', MembersAwareSharedPost as never)
+}
+
+installPostMembersOnlyParsers()
+
 export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSeed }: YoutubeSourceOptions): Source => {
+  installPostMembersOnlyParsers()
   const client = createClient?.() ?? Innertube.create({ fetch, retrieve_player: false }) as unknown as Promise<YoutubeClient>
   const videoContinuations = createContinuations<SourceVideoPage>()
   const relatedContinuations = createContinuations<SourceVideoPage>()
@@ -1166,11 +1232,10 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   }
 
   const postPage = (kind: string, feed: PostsFeed): SourcePostPage => {
-    const membersMap = collectMembersOnlyPosts((feed as { page?: unknown }).page)
     const result: SourcePostPage = {
       items: [...(feed.posts ?? [])].flatMap((node) => {
         const post = normalizeCommunityPost(node)
-        return post ? [withPostActionToken(mergeMembersOnly(post, membersMap), extractParsedPostActions(node))] : []
+        return post ? [withPostActionToken(post, extractParsedPostActions(node))] : []
       }),
     }
     if (feed.has_continuation) {
@@ -1641,7 +1706,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
         return { ...rest, channel, videos: { items: [], playlists: [] }, posts: postPage(`community:${id}`, feed as PostsFeed) }
       }
       const videos = page(kind, feed, { own: true })
-      const liveChannel = enrichChannelLive(channel, videos.items)
+      const liveChannel = enrichChannelLive(channel, videos.items, { allowMissingChannel: true })
       channels.set(id, { channel: liveChannel, page: rest })
       return { ...rest, channel: liveChannel, videos }
     },

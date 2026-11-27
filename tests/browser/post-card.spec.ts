@@ -32,11 +32,17 @@ test('clicking a post single image opens full-size lightbox and closes via Escap
 
   const viewer = page.getByRole('dialog', { name: 'Post image viewer' })
   await expect(viewer).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.overflow)).toBe('hidden')
   await expect(viewer.locator('img')).toHaveAttribute('src', /Single%20Full%20Size/)
   await expect(viewer.getByRole('button', { name: 'Next image' })).toHaveCount(0)
 
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[aria-label="Post image viewer"]') !== null)).toBe(true)
+
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.overflow)).toBe('')
 
   await trigger.click()
   await expect(viewer).toBeVisible()

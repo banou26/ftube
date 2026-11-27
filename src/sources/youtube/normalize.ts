@@ -907,9 +907,8 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
     published?: Text
     vote_count?: Text
     vote_status?: string
-    sponsors_only_badge?: { label?: string | Text, tooltip?: string | Text }
-    sponsor_only_badge?: { label?: string | Text, tooltip?: string | Text }
-    badges?: { style?: string, label?: string, icon_type?: string }[]
+    is_members_only?: boolean
+    members_only_label?: string
     action_buttons?: {
       like_button?: { is_toggled?: boolean }
       dislike_button?: { is_toggled?: boolean }
@@ -957,10 +956,8 @@ export const normalizeCommunityPost = (input: unknown): SourcePost | undefined =
         })),
       }
     : undefined
-  const sponsorsBadge = node?.sponsors_only_badge ?? node?.sponsor_only_badge
-  const memberBadge = node?.badges?.find((badge) => badge.style === 'BADGE_STYLE_TYPE_MEMBERS_ONLY' || badge.icon_type === 'SPONSORSHIP_STAR')
-  const isMembersOnly = Boolean(sponsorsBadge || memberBadge)
-  const membersOnlyLabel = presentText(sponsorsBadge?.label) ?? presentText(sponsorsBadge?.tooltip) ?? memberBadge?.label
+  const isMembersOnly = node?.is_members_only === true
+  const membersOnlyLabel = node?.members_only_label?.trim() || undefined
   return {
     id,
     author: authorChannel(node?.author),
@@ -1482,7 +1479,7 @@ export const normalizeChannelShelf = (input: unknown): SourceChannelShelf | unde
     } else if (type === 'GameCard') {
       const game = normalizeGame(item)
       if (game) shelf.games.push(game)
-    } else if (type === 'Post') {
+    } else if (type === 'Post' || type === 'BackstagePost' || type === 'SharedPost') {
       const post = normalizeCommunityPost(item)
       if (post) shelf.posts.push(post)
     }

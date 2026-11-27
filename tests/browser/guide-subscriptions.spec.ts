@@ -59,10 +59,12 @@ test('caps subscriptions at 7, sorts live then new-content first, renders indica
 
   const liveRow = host.locator('a[href="/channel/UC03"]')
   await expect(liveRow.locator('.sub-live-icon')).toBeVisible()
+  await expect(liveRow.getByRole('img', { name: 'Live' })).toBeVisible()
   await expect(liveRow.locator('.sub-new-dot')).toHaveCount(0)
 
   const freshRow = host.locator('a[href="/channel/UC02"]')
   await expect(freshRow.locator('.sub-new-dot')).toBeVisible()
+  await expect(freshRow.getByRole('img', { name: 'New content' })).toBeVisible()
   await expect(freshRow.locator('.sub-live-icon')).toHaveCount(0)
 
   const plainRow = host.locator('a[href="/channel/UC01"]')

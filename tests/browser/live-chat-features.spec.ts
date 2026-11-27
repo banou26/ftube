@@ -237,4 +237,20 @@ test('opens reactions tray vertically above trigger on hover, collapses on leave
 
   await toggle.click()
   await expect(tray).toHaveCount(0)
+
+  // Keyboard flow: toggle comes before tray in DOM so Tab moves into tray, Escape closes and refocuses toggle
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(tray).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('.reaction-tray') !== null)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(tray).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('reaction-toggle') ?? false)).toBe(true)
+
+  // Clicking outside a pinned tray closes it
+  await toggle.click()
+  await expect(tray).toBeVisible()
+  await chat.locator('.head').click()
+  await expect(tray).toHaveCount(0)
 })

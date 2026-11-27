@@ -4,6 +4,8 @@ import type { SourceApi } from '../../../src/sources/types'
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
+import { Router } from 'wouter'
+import { memoryLocation } from 'wouter/memory-location'
 
 import { createCache } from '../../../src/graphql'
 import { setTheater as setPlayerTheater } from '../../../src/player/session'
@@ -19,6 +21,7 @@ export type WatchHarnessOptions = {
   channelName?: string
   likeCountText?: string
   isLive?: boolean
+  hasChatReplay?: boolean
   theater?: boolean
   longDescription?: boolean
   withChips?: boolean
@@ -45,7 +48,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const app = document.getElementById('app')
   if (app) app.hidden = true
   document.querySelectorAll('[data-watch-harness]').forEach(node => node.remove())
-  history.replaceState(null, '', `/watch?v=${videoId}`)
+  const { hook, searchHook } = memoryLocation({ path: `/watch?v=${videoId}` })
 
   const baseRelated = [
     makeRelatedVideo('rel-all-1', 'All Related Video 1', 'Alpha Channel'),
@@ -75,6 +78,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       id,
       title: `Harness Video ${id}`,
       isLive: options.isLive ?? false,
+      hasChatReplay: options.hasChatReplay ?? false,
       commentsHidden: true,
       viewCountText: '12,345 views',
       shortViewCountText: '12K views',
@@ -134,6 +138,17 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       closePoll?.()
       return true
     },
+    liveChatReplay: async () => ({
+      items: [{
+        id: 'cr-1',
+        kind: 'TEXT',
+        offsetMs: 0,
+        text: 'Hello chat replay!',
+        runs: [{ text: 'Hello chat replay!' }],
+        author: { id: 'UC-replayer', name: 'Replayer', handle: '@replayer' },
+      }],
+      view: 'TOP',
+    }),
     relatedVideos: async (cursor: string) => {
       const delay = options.chipDelays?.[cursor] ?? 0
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
@@ -178,5 +193,12 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const host = document.createElement('div')
   host.setAttribute('data-watch-harness', videoId)
   document.body.append(host)
-  render(<Provider value={client}><WatchPage /></Provider>, host)
+  render(
+    <Router hook={hook} searchHook={searchHook}>
+      <Provider value={client}>
+        <WatchPage />
+      </Provider>
+    </Router>,
+    host,
+  )
 }

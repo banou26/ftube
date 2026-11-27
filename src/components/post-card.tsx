@@ -435,6 +435,8 @@ const PostImageLightbox = (
 
   useLayoutEffect(() => {
     const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
     viewerRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       const { index: cur, total, onChange: step, onClose: close } = latest.current
@@ -442,6 +444,22 @@ const PostImageLightbox = (
         event.preventDefault()
         event.stopPropagation()
         close()
+      } else if (event.key === 'Tab') {
+        const root = viewerRef.current
+        if (!root) return
+        const focusables = [...root.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+          .filter((el) => !el.hidden && el.getClientRects().length > 0)
+        event.preventDefault()
+        if (focusables.length === 0) {
+          root.focus()
+          return
+        }
+        const active = document.activeElement as HTMLElement | null
+        const currentIndex = active ? focusables.indexOf(active) : -1
+        const nextIndex = currentIndex === -1
+          ? (event.shiftKey ? focusables.length - 1 : 0)
+          : (currentIndex + (event.shiftKey ? -1 : 1) + focusables.length) % focusables.length
+        focusables[nextIndex]?.focus()
       } else if (total > 1 && event.key === 'ArrowLeft') {
         event.preventDefault()
         step((cur - 1 + total) % total)
@@ -453,6 +471,7 @@ const PostImageLightbox = (
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
+      document.documentElement.style.overflow = previousOverflow
       if (previous?.isConnected) previous.focus()
     }
   }, [])

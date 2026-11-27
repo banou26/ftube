@@ -165,7 +165,8 @@ describe('youtube normalization', () => {
       id: 'UgkxMemberNode',
       author: { id: 'UC1', name: 'Chan' },
       content: { text: 'VIP update' },
-      sponsors_only_badge: { label: { text: 'Members only' } },
+      is_members_only: true,
+      members_only_label: 'Members only',
     })).toMatchObject({
       id: 'UgkxMemberNode',
       isMembersOnly: true,
