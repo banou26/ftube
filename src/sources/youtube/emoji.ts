@@ -9,24 +9,22 @@ export type EmojiCategoryMeta = {
   lockReason?: string
 }
 
-type RawPickerCategory = {
-  emojiPickerCategoryRenderer?: {
-    categoryId?: string
-    categoryType?: string
-    emojiIds?: string[]
-  }
-  emojiPickerUpsellCategoryRenderer?: {
-    categoryId?: string
-    upsell?: unknown
-    emojiTooltip?: string
-    emojiIds?: string[]
-  }
-  type?: string
+type PickerFields = {
+  categoryId?: string
+  categoryType?: string
+  emojiIds?: string[]
+  upsell?: unknown
+  emojiTooltip?: string
   category_id?: string
   category_type?: string
   emoji_ids?: string[]
-  upsell?: unknown
   emoji_tooltip?: string
+}
+
+type RawPickerCategory = PickerFields & {
+  emojiPickerCategoryRenderer?: PickerFields
+  emojiPickerUpsellCategoryRenderer?: PickerFields
+  type?: string
 }
 
 const textOf = (value: unknown): string | undefined => {
