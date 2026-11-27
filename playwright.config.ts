@@ -16,6 +16,8 @@ const findWebkitExecutable = (): string | undefined => {
 }
 
 const webkitExecutable = findWebkitExecutable()
+const nixChrome = '/etc/profiles/per-user/banou/bin/google-chrome'
+const chromiumExecutable = existsSync(nixChrome) ? nixChrome : undefined
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -32,7 +34,7 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         launchOptions: {
-          executablePath: '/etc/profiles/per-user/banou/bin/google-chrome',
+          ...(chromiumExecutable ? { executablePath: chromiumExecutable } : {}),
           args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required'],
         },
       },
