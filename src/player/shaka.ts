@@ -7,6 +7,7 @@ import { captionLabel } from '../frame/captions'
 import { audioManifestLabel, audioManifestRole, audioRepresentationId, audioTracksOf, pickAudioFormat, trackHasDrc } from '../frame/formats'
 import { codecsOf } from '../frame/protocol'
 import { markStartup } from '../perf'
+import { resolveQualityHeight } from './quality'
 import { createStallWatch, isStreamRefusal } from './restart'
 
 type Bridge = {
@@ -560,8 +561,10 @@ export const startShakaPlayback = async ({
       else await play()
     }
 
+    const supportedVideo = session.videoFormats.filter((format) => MediaSource.isTypeSupported(format.mimeType))
+    const videoPool = supportedVideo.length > 0 ? supportedVideo : session.videoFormats
     const heights = [...new Set(
-      session.videoFormats
+      videoPool
         .map((format) => format.height)
         .filter((height): height is number => typeof height === 'number' && height > 0),
     )].sort((a, b) => b - a)
@@ -578,8 +581,10 @@ export const startShakaPlayback = async ({
         activePlayer.configure({ abr: { enabled: true, restrictToElementSize: true, restrictions: { minHeight: 0, maxHeight: Infinity } } })
         return
       }
-      const format = session.videoFormats
-        .filter((candidate) => candidate.height === height)
+      const targetHeight = resolveQualityHeight(heights, height)
+      if (targetHeight === undefined) return
+      const format = videoPool
+        .filter((candidate) => candidate.height === targetHeight)
         .sort((a, b) => b.bitrate - a.bitrate)[0]
       if (!format) return
       // Drain in-flight init/index fetches before switching tracks (same Shaka 4.16.37 StreamingEngine.onUpdate_ bug
@@ -598,13 +603,13 @@ export const startShakaPlayback = async ({
       const sameAudio = activeAudioId != null
         ? variants.filter((candidate) => candidate.audioId === activeAudioId)
         : variants
-      const pool = sameAudio.some((candidate) => candidate.height === height) ? sameAudio : variants
+      const pool = sameAudio.some((candidate) => candidate.height === targetHeight) ? sameAudio : variants
       const track = pool
-        .filter((candidate) => candidate.height === height)
+        .filter((candidate) => candidate.height === targetHeight)
         .sort((a, b) => b.bandwidth - a.bandwidth)[0]
       if (!track) return
       // going UP drops the already-buffered lower quality and refetches, with SAFE_MARGIN of decoded video left in front of the playhead
-      const upgrade = (video.videoHeight || 0) > 0 && height > video.videoHeight
+      const upgrade = (video.videoHeight || 0) > 0 && targetHeight > video.videoHeight
       activePlayer.selectVariantTrack(track, upgrade, upgrade ? SAFE_MARGIN_SECONDS : 0)
     }
 

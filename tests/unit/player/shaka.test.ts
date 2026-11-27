@@ -612,4 +612,33 @@ describe('startup ABR alignment and cache reporting in Shaka', () => {
     })
     await controller.destroy()
   })
+
+  it('falls back to the highest available tier when selectQuality receives an unavailable preference', async () => {
+    const formats = [
+      { key: '299:', itag: 299, mimeType: 'video/mp4; codecs="avc1.640028"', bitrate: 4_000_000, width: 1_920, height: 1_080 },
+      { key: '136:', itag: 136, mimeType: 'video/mp4; codecs="avc1.4d401f"', bitrate: 2_000_000, width: 1_280, height: 720 },
+    ]
+    const { api, controller, player } = await start({
+      videoFormats: formats,
+      audioFormats,
+      selectedVideoKey: '136:',
+      selectedAudioKey: '251:',
+    })
+    player.variants = [
+      { active: true, audioId: 1, height: 720, bandwidth: 2_000_000 },
+      { active: false, audioId: 1, height: 1_080, bandwidth: 4_000_000 },
+    ]
+
+    expect(controller.heights).toEqual([1_080, 720])
+    await controller.selectQuality(2_160)
+
+    expect(api.selectVideoFormat).toHaveBeenCalledWith('playback:1', '299:')
+    expect(player.abrEnabled).toBe(false)
+    expect(player.selectedVariantCalls).toContainEqual([
+      expect.objectContaining({ height: 1_080 }),
+      true,
+      1,
+    ])
+    await controller.destroy()
+  })
 })

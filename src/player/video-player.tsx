@@ -304,6 +304,7 @@ const VideoPlayer = (
   const [endScreen, setEndScreen] = useState<EndScreenElement[]>([])
   const [isLive, setIsLive] = useState(false)
   const [quality, setQuality] = useState<'auto' | number>(() => getSettings().quality)
+  const qualityRef = useRef(quality)
   const selectQualityRef = useRef<((height: number | 'auto') => Promise<void>) | undefined>(undefined)
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
   const [audioTrackId, setAudioTrackId] = useState<string | undefined>(undefined)
@@ -560,6 +561,8 @@ const VideoPlayer = (
       const settings = getSettings()
       const startTime = resumeAt.current
       const storedQuality = settings.quality
+      qualityRef.current = storedQuality
+      setQuality(storedQuality)
       const elementHeight = Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
       // In auto mode at t = 0, cap segment 0 at 720p so the prewarmed opening segment paints fast over WebVPN;
       // Shaka unlocks full ABR on loadeddata and steps up to 1080p/1440p cleanly on segment 1.
@@ -676,12 +679,18 @@ const VideoPlayer = (
   }, [attempt, videoId, playerParams])
 
   const applyQuality = useCallback((value: 'auto' | number) => {
+    qualityRef.current = value
     setQuality(value)
     updateSettings({ quality: value })
     void selectQualityRef.current?.(value).catch(() => {})
   }, [])
 
   useEffect(() => subscribeSettings((next) => {
+    if (next.quality !== qualityRef.current) {
+      qualityRef.current = next.quality
+      setQuality(next.quality)
+      void selectQualityRef.current?.(next.quality).catch(() => {})
+    }
     if (next.stableVolume === stableVolumeRef.current) return
     stableVolumeRef.current = next.stableVolume
     setStableVolume(next.stableVolume)

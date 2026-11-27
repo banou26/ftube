@@ -15,6 +15,7 @@ export type PlayerState = {
   playbackRate: number
   buffering: boolean
   seeking: boolean
+  videoHeight?: number
   // a live stream's DVR window, in the same presentation time as currentTime
   liveWindow?: SeekWindow
 }
@@ -30,9 +31,10 @@ const EMPTY: PlayerState = {
   playbackRate: 1,
   buffering: false,
   seeking: false,
+  videoHeight: 0,
 }
 
-const read = (video: HTMLVideoElement, player: shaka.Player | undefined, buffering: boolean): PlayerState => ({
+const read = (video: HTMLVideoElement, player: shaka.Player | undefined, buffering: boolean, variantHeight: number): PlayerState => ({
   paused: video.paused,
   ended: video.ended,
   currentTime: video.currentTime,
@@ -43,6 +45,7 @@ const read = (video: HTMLVideoElement, player: shaka.Player | undefined, bufferi
   playbackRate: video.playbackRate,
   buffering,
   seeking: video.seeking,
+  videoHeight: video.videoHeight > 0 ? video.videoHeight : variantHeight,
   liveWindow: player?.isLive() ? player.seekRange() : undefined,
 })
 
@@ -53,10 +56,14 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
   useEffect(() => {
     if (!video) return
     let buffering = false
+    let variantHeight = 0
     let frame = 0
     let running = true
 
-    const sync = () => setState(read(video, player, buffering))
+    const readVariantHeight = () => player?.getVariantTracks?.().find((track) => track.active)?.height ?? 0
+    variantHeight = readVariantHeight()
+
+    const sync = () => setState(read(video, player, buffering, variantHeight))
 
     let liveRead = 0
     const tick = () => {
@@ -74,10 +81,16 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       buffering = Boolean((event as Event & { buffering?: boolean }).buffering)
       sync()
     }
+    const onVariant = () => {
+      variantHeight = readVariantHeight()
+      sync()
+    }
 
-    const events = ['play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange', 'ratechange', 'durationchange', 'loadedmetadata', 'progress', 'timeupdate', 'emptied']
+    const events = ['play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange', 'ratechange', 'durationchange', 'loadedmetadata', 'resize', 'progress', 'timeupdate', 'emptied']
     for (const event of events) video.addEventListener(event, sync)
     player?.addEventListener('buffering', onBuffering)
+    player?.addEventListener('adaptation', onVariant)
+    player?.addEventListener('variantchanged', onVariant)
     sync()
     frame = requestAnimationFrame(tick)
 
@@ -86,6 +99,8 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       cancelAnimationFrame(frame)
       for (const event of events) video.removeEventListener(event, sync)
       player?.removeEventListener('buffering', onBuffering)
+      player?.removeEventListener('adaptation', onVariant)
+      player?.removeEventListener('variantchanged', onVariant)
     }
   }, [video, player])
 

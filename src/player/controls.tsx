@@ -22,6 +22,7 @@ import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } 
 import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
+import { resolveQualityDisplay } from './quality'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { SeekKnob } from './seek-knob'
@@ -1036,7 +1037,8 @@ export const PlayerControls = (
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
   const activeCaptionLabel = captionLabel(captionTracks, translationLanguages, caption)
   const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
-  const activeLabel = video.videoHeight > 0 ? `${video.videoHeight}p` : undefined
+  const playingHeight = state.videoHeight && state.videoHeight > 0 ? state.videoHeight : video.videoHeight
+  const resolvedQuality = resolveQualityDisplay({ preference: quality, heights, playingHeight })
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is
   const barClock = (time: number) => (live ? `-${clock(duration - time)}` : clock(time))
@@ -1356,7 +1358,7 @@ export const PlayerControls = (
                   </MenuItem>
                   <MenuItem
                     icon={SlidersHorizontal}
-                    detail={quality === 'auto' ? `Auto${activeLabel ? ` (${activeLabel})` : ''}` : `${quality}p`}
+                    detail={resolvedQuality.detail}
                     disabled={heights.length === 0}
                     submenu
                     onSelect={() => setMenu('quality')}
@@ -1454,8 +1456,8 @@ export const PlayerControls = (
                     ? (
                       <Popup label='Quality' class='settings-menu'>
                         <MenuItem
-                          icon={quality === 'auto' ? Check : undefined}
-                          detail={activeLabel}
+                          icon={resolvedQuality.selected === 'auto' ? Check : undefined}
+                          detail={resolvedQuality.activeLabel}
                           onSelect={() => {
                             onQuality('auto')
                             setMenu(undefined)
@@ -1466,7 +1468,7 @@ export const PlayerControls = (
                         {heights.map(height => (
                           <MenuItem
                             key={height}
-                            icon={quality === height ? Check : undefined}
+                            icon={resolvedQuality.selected === height ? Check : undefined}
                             onSelect={() => {
                               onQuality(height)
                               setMenu(undefined)
