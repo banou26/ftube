@@ -29,6 +29,8 @@ export const parseStoryboards = (spec: string | undefined): Storyboard[] => {
   } catch {
     return []
   }
+  if (url.protocol === 'http:') url.protocol = 'https:'
+  if (url.protocol !== 'https:') return []
   return parts.flatMap((part, level) => {
     const [width, height, count, columns, rows, interval, name, sigh] = part.split('#')
     const thumbnailWidth = Number(width)
@@ -39,9 +41,13 @@ export const parseStoryboards = (spec: string | undefined): Storyboard[] => {
     const intervalMs = Number(interval)
     if ([thumbnailWidth, thumbnailHeight, thumbnailCount, columnCount, rowCount, intervalMs]
       .some((value) => !Number.isFinite(value) || value <= 0)) return []
-    if (sigh) url.searchParams.set('sigh', sigh)
+    const levelUrl = new URL(url.toString())
+    if (sigh) levelUrl.searchParams.set('sigh', sigh)
+    const safeName = (name ?? '').replace(/[^A-Za-z0-9._~$!-]/g, '')
+    const templateUrl = levelUrl.toString().replace('$L', String(level)).replace('$N', safeName)
+    if (/["'()\\\s]/.test(templateUrl)) return []
     return [{
-      templateUrl: url.toString().replace('$L', String(level)).replace('$N', name ?? ''),
+      templateUrl,
       thumbnailWidth,
       thumbnailHeight,
       thumbnailCount,

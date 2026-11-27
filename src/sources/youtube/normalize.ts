@@ -1384,6 +1384,7 @@ export const normalizeFeaturedVideo = (input: unknown): SourceVideo | undefined 
     duration?: { seconds?: number, text?: string }
     length_text?: Text
     inline_player_params?: string
+    is_live?: boolean
   } | undefined
   const id = node?.id
   const title = presentText(node?.title)
@@ -1406,6 +1407,7 @@ export const normalizeFeaturedVideo = (input: unknown): SourceVideo | undefined 
     viewCount: presentText(node?.view_count),
     publishedText: presentText(node?.published_time),
     inlinePlayerParams: inlinePlayerParams(node?.inline_player_params),
+    ...(node?.is_live === true ? { isLive: true } : {}),
     badges: [],
   }
 }

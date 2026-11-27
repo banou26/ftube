@@ -14,6 +14,7 @@ const style = css`
   min-width: 0;
   max-width: 100%;
   margin: 1.6rem 0 2.4rem;
+  --rail-arrow-right: -1.6rem;
 
   .shelf-head {
     display: flex;

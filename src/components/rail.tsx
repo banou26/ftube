@@ -32,7 +32,12 @@ const style = css`
     --card-hover-radius: 1.6rem;
     gap: var(--rail-gap, 2rem);
     padding: 1rem;
-    margin: -1rem 0;
+    margin: -1rem;
+    scroll-padding-inline: 1rem;
+  }
+
+  @media (max-width: 792px) {
+    overflow-x: clip;
   }
 
   .track > * {

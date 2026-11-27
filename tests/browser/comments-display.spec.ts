@@ -4,7 +4,7 @@ const HARNESS = '/tests/browser/fixtures/comments-harness.tsx'
 
 test('renders creator hearts, vertical reply thread connectors, creator pills, and emoji picker in both composers', async ({ page }) => {
   test.setTimeout(180_000)
-  await page.goto('/settings')
+  await page.goto('/privacy')
   await expect(page.locator('html')).toHaveAttribute('data-engine', 'ready', { timeout: 90_000 })
 
   const root = page.locator('[data-comments-harness="true"]')
@@ -171,16 +171,32 @@ test('opens mini profile card when clicking top-level or reply commenter avatar'
   await subBtn.click()
   await expect(card.getByRole('button', { name: 'Subscribed', exact: true })).toBeVisible()
 
+  await page.setViewportSize({ width: 1280, height: 360 })
+  await expect.poll(async () => card.evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    overflowY: getComputedStyle(el).overflowY,
+  }))).toEqual(expect.objectContaining({ overflowY: 'auto' }))
+  expect((await card.boundingBox())!.height).toBeLessThanOrEqual(360 - 14)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
   await page.keyboard.press('Escape')
   await expect(card).toHaveCount(0)
 
-  await firstComment.getByRole('button', { name: '2 replies', exact: true }).click()
+  const repliesToggle = firstComment.getByRole('button', { name: '2 replies', exact: true })
+  await repliesToggle.click()
   await firstComment.getByRole('button', { name: 'View @reply1 profile', exact: true }).click()
   const replyCard = page.locator('[data-comment-profile-card="UC2"]')
   await expect(replyCard).toBeVisible()
   await expect(replyCard).toContainText('Reply Author')
 
-  await page.mouse.click(8, 8)
+  // Collapsing the reply thread removes the anchor and must close the floating card cleanly.
+  await repliesToggle.click()
+  await expect(replyCard).toHaveCount(0)
+
+  await repliesToggle.click()
+  await firstComment.getByRole('button', { name: 'View @reply1 profile', exact: true }).click()
+  await expect(replyCard).toBeVisible()
+  await root.locator('h2').click()
   await expect(replyCard).toHaveCount(0)
 })
 

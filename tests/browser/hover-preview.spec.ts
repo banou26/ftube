@@ -615,7 +615,11 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   await page.mouse.move(0, 0)
   await expect.poll(() => beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
 
-  // Shelf tile sits inside <Rail>, which must keep padded rounded backdrop without clipping or vertical overflow.
+  // Shelf tile sits inside <Rail>, which must align flush with .shelf-title, keep padded hover headroom without clipping, and snap with left scroll padding.
+  const shelfHeadBox = (await page.locator('[data-previews="shorts-shelf"] .shelf-head').boundingBox())!
+  const firstTileBox = (await shelfTile.boundingBox())!
+  expect(Math.abs(firstTileBox.x - shelfHeadBox.x)).toBeLessThanOrEqual(2)
+
   await shelfTile.locator('.details').hover()
   await expect.poll(() => beforeOf(shelfTile)).not.toBe('rgba(0, 0, 0, 0)')
   const shelfInset = await shelfTile.evaluate((el) => {
@@ -632,6 +636,7 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   expect(shelfInset.bottom).toBeLessThanOrEqual(-6)
   expect(shelfInset.left).toBeLessThanOrEqual(-6)
   expect(await railTrack.evaluate((el) => el.scrollHeight - el.clientHeight)).toBe(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
 
   // Skeleton tiles reuse shortsTileStyle with aria-hidden="true" and must stay transparent even after transition duration.
   await skeleton.hover()
@@ -643,6 +648,19 @@ test('hovering or focusing a Shorts tile paints a stationary rounded backdrop wi
   await expect.poll(() => beforeOf(gridTile)).toBe('rgba(0, 0, 0, 0)')
   await gridTile.locator('.title a').focus()
   await expect.poll(() => beforeOf(gridTile)).not.toBe('rgba(0, 0, 0, 0)')
+
+  const scrollPaddingLeft = await railTrack.evaluate((el) => Number.parseFloat(getComputedStyle(el).scrollPaddingLeft))
+  expect(scrollPaddingLeft).toBeGreaterThanOrEqual(10)
+  const rightArrow = page.locator('[data-previews="shorts-shelf"]').getByRole('button', { name: 'More shorts' })
+  await rightArrow.click()
+  await expect.poll(() => railTrack.evaluate((el) => el.scrollLeft)).toBeGreaterThan(50)
+  const snappedClearance = await railTrack.evaluate((el) => {
+    const trackRect = el.getBoundingClientRect()
+    const visibleTile = [...el.querySelectorAll<HTMLElement>('article.tile')]
+      .find((tile) => tile.getBoundingClientRect().left >= trackRect.left)
+    return visibleTile ? visibleTile.getBoundingClientRect().left - trackRect.left : -1
+  })
+  expect(snappedClearance).toBeGreaterThanOrEqual(8)
 
   await page.setViewportSize({ width: 360, height: 800 })
   await gridTile.locator('.details').hover()

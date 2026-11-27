@@ -248,6 +248,20 @@ test('opens reactions tray vertically above trigger on hover, collapses on leave
   await expect(tray).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('reaction-toggle') ?? false)).toBe(true)
 
+  // Hover-only Escape dismisses the tray without stopping Escape from reaching page listeners
+  await chat.locator('.head').hover()
+  await page.evaluate(() => {
+    ;(window as unknown as { __escCount?: number }).__escCount = 0
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') (window as unknown as { __escCount: number }).__escCount += 1
+    })
+  })
+  await toggle.hover()
+  await expect(tray).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(tray).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __escCount?: number }).__escCount ?? 0)).toBe(1)
+
   // Clicking outside a pinned tray closes it
   await toggle.click()
   await expect(tray).toBeVisible()

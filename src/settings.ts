@@ -59,6 +59,7 @@ export type Settings = {
   customThemeColor?: string
   seekHandle: SeekHandle
   appIcon: AppIconId
+  appIconChosen?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -143,6 +144,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     customThemeColor: normalizeHexColor(stored.customThemeColor),
     seekHandle: coerceSeekHandle(stored.seekHandle),
     appIcon: coerceAppIcon(stored.appIcon),
+    appIconChosen: stored.appIconChosen === true ? true : undefined,
   }
 }
 
@@ -192,9 +194,9 @@ export const updateSettings = (patch: Partial<Settings>) => {
   }
   const hasCustomColor = 'customThemeColor' in patch
   const autoAppIcon = hasCustomColor && !('appIcon' in patch)
-    ? normalizedPatch.customThemeColor && !current.customThemeColor && current.appIcon === 'default'
+    ? normalizedPatch.customThemeColor && !current.customThemeColor && current.appIcon === 'default' && !current.appIconChosen
       ? { appIcon: 'theme' as AppIconId }
-      : !normalizedPatch.customThemeColor && current.customThemeColor && current.appIcon === 'theme'
+      : !normalizedPatch.customThemeColor && current.customThemeColor && current.appIcon === 'theme' && !current.appIconChosen
         ? { appIcon: 'default' as AppIconId }
         : {}
     : {}
@@ -204,6 +206,7 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...autoAppIcon,
     ...('theme' in patch ? { themeChosen: 'themeChosen' in patch ? patch.themeChosen : true } : {}),
     ...('captionsEnabled' in patch ? { captionsChosen: true } : {}),
+    ...('appIcon' in patch ? { appIconChosen: 'appIconChosen' in patch ? patch.appIconChosen : true } : {}),
   }
   current = next
   try {
@@ -222,6 +225,7 @@ export const resetCustomAppearance = () =>
     customThemeColor: undefined,
     seekHandle: { ...DEFAULT_SETTINGS.seekHandle },
     appIcon: DEFAULT_SETTINGS.appIcon,
+    appIconChosen: undefined,
   })
 
 const prefersLight = () => {

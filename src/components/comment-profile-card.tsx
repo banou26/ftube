@@ -6,6 +6,7 @@ import { Link } from 'wouter'
 
 import { gql } from '../generated'
 import { signIn } from '../sign-in'
+import { lineFor } from './data-failure'
 import { formatDuration } from './format'
 import { useToggleSubscription } from './subscribe-button'
 import { Thumbnail } from './thumbnail'
@@ -61,9 +62,12 @@ const style = css`
   z-index: calc(var(--z-dialog) + 1);
   width: 34rem;
   max-width: calc(100vw - 1.6rem);
+  max-height: calc(100vh - 1.6rem);
+  max-height: calc(100dvh - 1.6rem);
   border: 1px solid var(--border-subtle);
   border-radius: 1.2rem;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg-menu);
   box-shadow: var(--shadow-menu);
   color: var(--text-primary);
@@ -297,6 +301,8 @@ export const CommentProfileCard = (
   },
 ) => {
   const cardRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const { fetching: subscribing, toggle } = useToggleSubscription()
   const [subscribedOverride, setSubscribedOverride] = useState<boolean | undefined>(undefined)
 
@@ -312,16 +318,28 @@ export const CommentProfileCard = (
   useLayoutEffect(() => {
     const card = cardRef.current
     if (!card) return
-    const update = () => placeBeside(card, anchor)
+    const update = () => {
+      if (!anchor.isConnected) {
+        onCloseRef.current()
+        return
+      }
+      placeBeside(card, anchor)
+    }
     update()
     window.addEventListener('scroll', update, { capture: true, passive: true })
     window.addEventListener('resize', update)
-    const observer = new ResizeObserver(update)
-    observer.observe(card)
+    const resizeObserver = new ResizeObserver(update)
+    resizeObserver.observe(card)
+    resizeObserver.observe(anchor)
+    const mutationObserver = new MutationObserver(() => {
+      if (!anchor.isConnected) onCloseRef.current()
+    })
+    if (document.body) mutationObserver.observe(document.body, { childList: true, subtree: true })
     return () => {
       window.removeEventListener('scroll', update, { capture: true })
       window.removeEventListener('resize', update)
-      observer.disconnect()
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
     }
   }, [anchor])
 
@@ -418,7 +436,7 @@ export const CommentProfileCard = (
       </div>
       {details?.description ? <p className='description'>{details.description}</p> : undefined}
       {error && !data
-        ? <p className='note'>Could not load profile details</p>
+        ? <p className='note'>{lineFor(error)}</p>
         : videos.length > 0
           ? (
             <div className='videos'>

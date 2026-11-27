@@ -1045,7 +1045,9 @@ export const PlayerControls = (
       )
       video.currentTime = base + nextTime
       cancelFilmstrip()
+      return
     }
+    setPreview(undefined)
   }
 
   /* Shaka holds the video at rate 0 while it buffers, when the speed chosen is the stored one. Read off the video rather

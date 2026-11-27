@@ -1467,11 +1467,15 @@ export const LiveChat = ({
     if (!reactionsVisible || ended) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      setReactionsOpen(false)
-      setReactionsHovered(false)
-      reactionToggleRef.current?.focus()
+      if (reactionsOpen) {
+        event.preventDefault()
+        event.stopPropagation()
+        setReactionsOpen(false)
+        setReactionsHovered(false)
+        reactionToggleRef.current?.focus()
+      } else {
+        setReactionsHovered(false)
+      }
     }
     const onPointerDown = (event: PointerEvent) => {
       if (!reactionsOpen) return

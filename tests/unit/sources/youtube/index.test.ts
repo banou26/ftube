@@ -788,9 +788,9 @@ describe('youtube channel tabs', () => {
     expect(foreignHome.channel.isLive).toBeUndefined()
     expect(foreignHome.channel.liveVideoId).toBeUndefined()
 
-    const homeOwnLive = createFakeClient()
-    const ownChannel = await homeOwnLive.getChannel()
-    homeOwnLive.getChannel = async () => ({
+    const ownHome = createFakeClient()
+    const ownChannel = await ownHome.getChannel()
+    ownHome.getChannel = async () => ({
       ...ownChannel,
       has_home: true,
       current_tab: {
@@ -800,13 +800,13 @@ describe('youtube channel tabs', () => {
             contents: [{
               type: 'Shelf',
               title: { text: 'Happening now' },
+              endpoint: { payload: { browseId: 'c' } },
               content: {
                 items: [{
                   type: 'GridVideo',
                   id: 'own-live-1',
-                  title: { text: 'Creator stream' },
+                  title: { text: 'Creator stream without byline' },
                   is_live: true,
-                  author: { id: 'c', name: 'Channel' },
                 }],
               },
             }],
@@ -814,10 +814,66 @@ describe('youtube channel tabs', () => {
         },
       },
     })
-    const ownSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => homeOwnLive })
-    const ownHome = await ownSource.channel('c', 'HOME')
-    expect(ownHome.channel.isLive).toBe(true)
-    expect(ownHome.channel.liveVideoId).toBe('own-live-1')
+    const ownSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => ownHome })
+    const ownResult = await ownSource.channel('c', 'HOME')
+    expect(ownResult.channel.isLive).toBe(true)
+    expect(ownResult.channel.liveVideoId).toBe('own-live-1')
+
+    const featuredHome = createFakeClient()
+    const featuredChannel = await featuredHome.getChannel()
+    featuredHome.getChannel = async () => ({
+      ...featuredChannel,
+      has_home: true,
+      current_tab: {
+        endpoint: { metadata: { url: '/channel/c/featured' } },
+        content: {
+          contents: [{
+            contents: [{
+              type: 'ChannelVideoPlayer',
+              id: 'featured-live-1',
+              title: { text: 'Channel trailer live stream' },
+              is_live: true,
+            }],
+          }],
+        },
+      },
+    })
+    const featuredSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => featuredHome })
+    const featuredResult = await featuredSource.channel('c', 'HOME')
+    expect(featuredResult.channel.isLive).toBe(true)
+    expect(featuredResult.channel.liveVideoId).toBe('featured-live-1')
+
+    const ownCollabForeign = createFakeClient()
+    const collabChannel = await ownCollabForeign.getChannel()
+    ownCollabForeign.getChannel = async () => ({
+      ...collabChannel,
+      has_home: true,
+      current_tab: {
+        endpoint: { metadata: { url: '/channel/c/featured' } },
+        content: {
+          contents: [{
+            contents: [{
+              type: 'Shelf',
+              title: { text: 'Collaborations' },
+              endpoint: { payload: { browseId: 'c' } },
+              content: {
+                items: [{
+                  type: 'GridVideo',
+                  id: 'guest-live-1',
+                  title: { text: 'Guest stream on own shelf' },
+                  is_live: true,
+                  author: { id: 'UC_other', name: 'Guest Creator' },
+                }],
+              },
+            }],
+          }],
+        },
+      },
+    })
+    const collabSource = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => ownCollabForeign })
+    const collabResult = await collabSource.channel('c', 'HOME')
+    expect(collabResult.channel.isLive).toBeUndefined()
+    expect(collabResult.channel.liveVideoId).toBeUndefined()
   })
 
   it('preserves members-only badges on parsed Posts tab and Home post shelf items (APP-957)', async () => {
@@ -2736,5 +2792,50 @@ describe('youtube source', () => {
 
     client.actions.execute = async () => ({ data: { feedbackResponses: [{ isProcessed: false }] } }) as never
     await expect(source.submitFeedback('fb-token-2')).rejects.toThrow('could not update your recommendations')
+  })
+
+  it('deduplicates clips feed entries across node types and pages via continuation_contents_memo', async () => {
+    const client = createFakeClient()
+    let execCalls = 0
+    let contCalls = 0
+    client.actions.execute = async (endpoint: string, args: unknown) => {
+      execCalls += 1
+      expect(endpoint).toBe('/browse')
+      expect(args).toMatchObject({ browseId: 'FEclips', parse: true })
+      return {
+        contents_memo: new Map<string, unknown[]>([
+          ['Video', [{ video_id: 'clip-1', title: { text: 'Clip One' } }]],
+          ['GridVideo', [
+            { id: 'clip-1', title: { text: 'Duplicate Clip One' } },
+            { id: 'clip-2', title: { text: 'Clip Two' } },
+          ]],
+          ['LockupView', [
+            { content_id: 'clip-2', content_type: 'VIDEO', metadata: { title: { text: 'Duplicate Clip Two' } } },
+            { content_id: 'clip-3', content_type: 'VIDEO', metadata: { title: { text: 'Clip Three' } } },
+          ]],
+          ['ContinuationItem', [{
+            endpoint: {
+              call: async () => {
+                contCalls += 1
+                return {
+                  continuation_contents_memo: new Map<string, unknown[]>([
+                    ['Video', [{ video_id: 'clip-4', title: { text: 'Clip Page Two' } }]],
+                  ]),
+                }
+              },
+            },
+          }]],
+        ]),
+      } as never
+    }
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
+    const first = await source.clips()
+    expect(execCalls).toBe(1)
+    expect(first.items.map((item) => item.id)).toEqual(['clip-1', 'clip-2', 'clip-3'])
+    expect(first.cursor).toBeTruthy()
+    const second = await source.clips(first.cursor)
+    expect(contCalls).toBe(1)
+    expect(second.items.map((item) => item.id)).toEqual(['clip-4'])
+    expect(second.cursor).toBeUndefined()
   })
 })

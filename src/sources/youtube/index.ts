@@ -642,17 +642,43 @@ const CHANNEL_PATH = /^(?:@|c\/|user\/)/
 
 const HOME_SHELVES = new Set(['Shelf', 'ReelShelf', 'RichShelf', 'HorizontalCardList'])
 
+type ShelfEndpointTitle = {
+  endpoint?: { payload?: { browseId?: string } }
+  runs?: { endpoint?: { payload?: { browseId?: string } } }[]
+}
+
+const shelfOwnerBrowseId = (node: unknown) => {
+  const shelf = node as {
+    endpoint?: { payload?: { browseId?: string } }
+    title?: ShelfEndpointTitle
+    header?: { title?: ShelfEndpointTitle }
+  } | undefined
+  const title = shelf?.title ?? shelf?.header?.title
+  return shelf?.endpoint?.payload?.browseId
+    ?? title?.endpoint?.payload?.browseId
+    ?? title?.runs?.find((run) => run.endpoint?.payload?.browseId)?.endpoint?.payload?.browseId
+}
+
 // Walked rather than read off the memo, which files shelves and Shorts shelves under separate keys and so loses their order.
 // A section list holds its rows in item sections, a topic channel's rich grid one row per rich section.
-const channelHome = (feed: ChannelFeed): SourceChannelHome => {
+const channelHome = (
+  feed: ChannelFeed,
+  channelId?: string,
+): { home: SourceChannelHome, ownShelfVideos: SourceVideo[], otherShelfVideos: SourceVideo[] } => {
   const home: SourceChannelHome = { shelves: [] }
+  const ownShelfVideos: SourceVideo[] = []
+  const otherShelfVideos: SourceVideo[] = []
   for (const section of feed.current_tab?.content?.contents ?? []) {
     for (const node of section.contents ?? [section.content]) {
       const type = (node as { type?: string } | undefined)?.type
       if (type === 'ChannelVideoPlayer') home.featured ??= normalizeFeaturedVideo(node)
       if (type === 'BackgroundPromo') home.message ??= (node as { body_text?: { text?: string } }).body_text?.text
       const shelf = type && HOME_SHELVES.has(type) ? normalizeChannelShelf(node) : undefined
-      if (shelf) home.shelves.push(shelf)
+      if (shelf) {
+        home.shelves.push(shelf)
+        const target = channelId && shelfOwnerBrowseId(node) === channelId ? ownShelfVideos : otherShelfVideos
+        target.push(...shelf.videos)
+      }
     }
   }
   // ChannelVideoPlayer carries no length or still of its own; borrow both when the same video sits in a Home row
@@ -670,7 +696,7 @@ const channelHome = (feed: ChannelFeed): SourceChannelHome => {
       }
     }
   }
-  return home
+  return { home, ownShelfVideos, otherShelfVideos }
 }
 
 const enrichChannelLive = (
@@ -1687,12 +1713,12 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
       const rest = { availableTabs, tab: selected, sortOptions, appliedSort, sortMenu: chips.menu, filterOptions, appliedFilter }
       if (selected === 'HOME') {
-        const home = channelHome(feed)
-        const candidates = [
-          ...(home.featured ? [home.featured] : []),
-          ...home.shelves.flatMap((shelf) => shelf.videos),
-        ]
-        const liveChannel = enrichChannelLive(channel, candidates)
+        const { home, ownShelfVideos, otherShelfVideos } = channelHome(feed, channel.id)
+        const ownCandidates = [...(home.featured ? [home.featured] : []), ...ownShelfVideos]
+        const liveChannel = enrichChannelLive(
+          enrichChannelLive(channel, ownCandidates, { allowMissingChannel: true }),
+          otherShelfVideos,
+        )
         channels.set(id, { channel: liveChannel, page: rest })
         return { ...rest, channel: liveChannel, videos: { items: [], playlists: [] }, home }
       }

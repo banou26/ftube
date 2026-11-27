@@ -257,16 +257,14 @@ export const mountShorts = () => {
       badges: [],
     },
   ]
-  const shelfShorts = [
-    {
-      id: 'short-shelf-0',
-      title: 'A shelf Short',
-      viewCount: '42K views',
-      isShort: true,
-      shortsSequence: 'shelf-seq-1',
-      badges: [],
-    },
-  ]
+  const shelfShorts = Array.from({ length: 10 }, (_, index) => ({
+    id: `short-shelf-${index}`,
+    title: `A shelf Short ${index + 1}`,
+    viewCount: `${42 + index}K views`,
+    isShort: true,
+    shortsSequence: 'shelf-seq-1',
+    badges: [],
+  }))
   const carouselShort = {
     id: 'carousel-short-0',
     title: 'A carousel Short',
@@ -289,7 +287,7 @@ export const mountShorts = () => {
       <section data-previews='shorts-skeletons'>
         <ShortsGrid shorts={[]} fetching />
       </section>
-      <section data-previews='shorts-shelf'>
+      <section data-previews='shorts-shelf' style={{ padding: '0 1.6rem' }}>
         <ShortsShelf shorts={shelfShorts} />
       </section>
       <section data-previews='carousel-short' style={{ width: '36rem' }}>

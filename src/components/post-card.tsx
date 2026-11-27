@@ -447,8 +447,9 @@ const PostImageLightbox = (
       } else if (event.key === 'Tab') {
         const root = viewerRef.current
         if (!root) return
-        const focusables = [...root.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
-          .filter((el) => !el.hidden && el.getClientRects().length > 0)
+        const focusables = [...root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )].filter((el) => !el.hidden && el.getClientRects().length > 0)
         event.preventDefault()
         if (focusables.length === 0) {
           root.focus()

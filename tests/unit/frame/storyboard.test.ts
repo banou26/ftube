@@ -34,6 +34,18 @@ describe('parseStoryboards', () => {
     expect(parseStoryboards('not a url|48#27#100#10#10#1000#M$M#rs')).toEqual([])
     expect(parseStoryboards('https://i.ytimg.com/sb/x.jpg|a#b#c#d#e#f#g#h')).toEqual([])
   })
+
+  it('enforces https storyboard URLs and strips CSS-breaking characters from sheet names', () => {
+    const upgraded = parseStoryboards('http://i.ytimg.com/sb/abc/storyboard3_L$L/$N.jpg?sqp=x|160#90#25#5#5#1000#M$M#rs$c')
+    expect(upgraded[0]?.templateUrl).toMatch(/^https:\/\//)
+
+    expect(parseStoryboards('javascript:alert(1)|160#90#25#5#5#1000#M$M#rs')).toEqual([])
+    expect(parseStoryboards('data:text/plain,hi|160#90#25#5#5#1000#M$M#rs')).toEqual([])
+
+    const sanitized = parseStoryboards('https://i.ytimg.com/sb/abc/L$L/$N.jpg|160#90#25#5#5#1000#M$M")url(#rs')
+    expect(sanitized[0]?.templateUrl).not.toMatch(/["'()\s]/)
+    expect(sanitized[0]?.templateUrl).toContain('/M$Murl.jpg')
+  })
 })
 
 describe('bestStoryboard', () => {
