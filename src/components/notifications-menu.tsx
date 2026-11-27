@@ -7,6 +7,11 @@ import { useMutation, useQuery } from 'urql'
 import { useLocation } from 'wouter'
 
 import { gql } from '../generated'
+import {
+  clearDismissedNotifications,
+  dismissNotificationIds,
+  useDismissedNotifications,
+} from '../notifications/dismissed'
 import { useSession } from '../session'
 import { lineFor, MenuDataFailure } from './data-failure'
 import { Menu, MenuItem } from './ui/menu'
@@ -42,6 +47,12 @@ const UNSEEN_COUNT_QUERY = gql(`
 const MARK_READ = gql(`
   mutation MarkNotificationRead($id: ID!) {
     markNotificationRead(id: $id)
+  }
+`)
+
+const DISMISS_NOTIFICATIONS = gql(`
+  mutation DismissNotifications($ids: [ID!]!) {
+    dismissNotifications(ids: $ids)
   }
 `)
 
@@ -89,6 +100,48 @@ const panelStyle = css`
   &.anchored {
     width: min(48rem, calc(100vw - 2.4rem));
     max-height: min(64rem, calc(100vh - 8rem));
+  }
+
+  .panel-header {
+    position: sticky;
+    top: -0.8rem;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.2rem;
+    margin-top: -0.8rem;
+    margin-bottom: 0.4rem;
+    padding: 1rem 1.6rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-menu);
+  }
+
+  .panel-title {
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .dismiss-all {
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 1.6rem;
+    background: transparent;
+    color: var(--accent);
+    font-size: 1.3rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .dismiss-all:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .dismiss-all:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   [role='menuitem'] {
@@ -177,7 +230,14 @@ export const NotificationsMenu = () => {
   const { ready, signedIn } = useSession()
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState<NotificationPage[]>([])
+  const [dismissing, setDismissing] = useState(false)
+  const dismissedIds = useDismissedNotifications()
   const [, markRead] = useMutation(MARK_READ)
+  const [, dismissNotifications] = useMutation(DISMISS_NOTIFICATIONS)
+
+  useEffect(() => {
+    if (ready && !signedIn) clearDismissedNotifications()
+  }, [ready, signedIn])
 
   const [{ data: countData }, refetchCount] = useQuery({
     query: UNSEEN_COUNT_QUERY,
@@ -207,6 +267,7 @@ export const NotificationsMenu = () => {
     pages: page ? [...loaded, page] : loaded,
     key: notification => notification.id,
   })
+  const visibleItems = items.filter(notification => !dismissedIds.has(notification.id))
 
   if (ready && !signedIn) return null
 
@@ -217,6 +278,23 @@ export const NotificationsMenu = () => {
       if (result.error) showToast(lineFor(result.error))
     })
     if (videoId) navigate(watchHrefFor(videoId))
+  }
+
+  const onDismissAll = () => {
+    if (dismissing || visibleItems.length === 0) return
+    const ids = visibleItems.map(notification => notification.id)
+    setDismissing(true)
+    void dismissNotifications({ ids }).then((result) => {
+      setDismissing(false)
+      if (result.error) {
+        showToast(lineFor(result.error))
+        return
+      }
+      dismissNotificationIds(result.data?.dismissNotifications ?? ids)
+      setLoaded([])
+      reexecute({ requestPolicy: 'network-only' })
+      refetchCount({ requestPolicy: 'network-only' })
+    })
   }
 
   return (
@@ -233,11 +311,26 @@ export const NotificationsMenu = () => {
           </button>
         }
       >
-        {fetching && items.length === 0 ? <MenuItem label='Loading…' disabled /> : undefined}
-        {!fetching && !error && items.length === 0
+        <div className='panel-header'>
+          <span className='panel-title'>Notifications</span>
+          {visibleItems.length > 0
+            ? (
+              <button
+                type='button'
+                className='dismiss-all'
+                onClick={onDismissAll}
+                disabled={dismissing}
+              >
+                {dismissing ? 'Dismissing…' : 'Dismiss all'}
+              </button>
+            )
+            : undefined}
+        </div>
+        {fetching && visibleItems.length === 0 ? <MenuItem label='Loading…' disabled /> : undefined}
+        {!fetching && !error && visibleItems.length === 0
           ? <MenuItem label='No notifications' disabled />
           : undefined}
-        {items.map(notification => (
+        {visibleItems.map(notification => (
           <MenuItem
             key={notification.id}
             onSelect={() => onSelect(notification.id, notification.videoId)}
@@ -259,7 +352,7 @@ export const NotificationsMenu = () => {
           />
         ))}
         {error && !fetching ? <MenuDataFailure error={error} reexecute={reexecute} /> : undefined}
-        {cursor && !fetching && !error
+        {visibleItems.length > 0 && cursor && !fetching && !error
           ? (
             <MenuItem
               label='Show more'

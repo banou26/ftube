@@ -33,6 +33,10 @@ const KEPT: { title: string, what: string }[] = [
     what: 'Channel IDs visited while signed in, stored locally for up to 24 hours so opened blue new-content dots in the left guide stay hidden until YouTube clears them or you sign out.',
   },
   {
+    title: 'Dismissed notifications',
+    what: 'Up to 500 notification IDs you cleared with Dismiss all, stored locally in this browser so dismissed items stay hidden across reloads until you sign out or switch channels.',
+  },
+  {
     title: 'Your YouTube visitor ID',
     what: 'The ID YouTube gives this browser, and the YouTube video server it last used. Replaced when you sign in or sign out.',
   },

@@ -81,6 +81,7 @@ const source = {
   transcript: () => request('get_transcript', { sections: [{ lines }], searchToken: 'transcript-search' }),
   transcriptSearch: () => request('get_transcript', { sections: [{ lines }] }),
   markNotificationRead: (id: string) => request('notification/record_interactions', id),
+  dismissNotifications: (ids: string[]) => request('notification/record_interactions', ids),
   addToPlaylist: (id: string) => request('browse/edit_playlist', { id, title: 'Playlist 1' }),
   createPlaylist: (title: string) => request('playlist/create', { id: 'PL-3', title }),
   setSubscribed: (id: string, isSubscribed: boolean) => request('subscription/subscribe', { id, name: 'Channel 1', isSubscribed }),
@@ -325,4 +326,61 @@ export const mountChannelHeader = (mode: 'own-flag' | 'own-handle' | 'other' | '
     </Provider>,
     host,
   )
+}
+
+/** Renders NotificationsMenu with unread badge, two notification items, and controllable dismiss failure/persistence. */
+export const mountNotificationsDismissHarness = (failDismiss = false) => {
+  const host = document.createElement('div')
+  host.setAttribute('data-notifications-dismiss-harness', 'true')
+  host.style.cssText = 'position: fixed; inset: 6rem 2rem auto auto; z-index: 10000; display: flex; justify-content: flex-end; width: 60rem; background: var(--bg)'
+  document.body.append(host)
+  let unseenCount = 2
+  const dismissedCalls: string[][] = []
+  ;(window as unknown as { __dismissCalls?: string[][] }).__dismissCalls = dismissedCalls
+  const notifSource = {
+    session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
+    unseenNotificationCount: async () => unseenCount,
+    notifications: async () => ({
+      items: [
+        {
+          id: 'notif-a',
+          message: 'Alpha channel uploaded a video',
+          sentText: '1 hour ago',
+          avatar: NOTIF_AVATAR,
+          thumbnail: NOTIF_THUMB,
+          videoId: 'dQw4w9WgXcQ',
+          read: false,
+        },
+        {
+          id: 'notif-b',
+          message: 'Beta channel started streaming',
+          sentText: '2 hours ago',
+          avatar: NOTIF_AVATAR,
+          thumbnail: NOTIF_THUMB,
+          videoId: 'dQw4w9WgXcQ',
+          read: false,
+        },
+      ],
+      cursor: 'page-2',
+    }),
+    markNotificationRead: async (id: string) => id,
+    dismissNotifications: async (ids: string[]) => {
+      if (failDismiss) throw new Error('dismiss failed')
+      dismissedCalls.push(ids)
+      unseenCount = 0
+      return ids
+    },
+  } as unknown as SourceApi
+  const yoga = createYoga<{ source: SourceApi }>({
+    graphqlEndpoint: '/graphql',
+    maskedErrors: false,
+    schema: createSchema({ typeDefs, resolvers }),
+  })
+  const client = new Client({
+    url: `http://notifications-dismiss-${failDismiss ? 'err' : 'ok'}-${Date.now()}.local/graphql`,
+    exchanges: [createCache(), fetchExchange],
+    fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source: notifSource }),
+  })
+  document.documentElement.dataset.engine = 'ready'
+  render(<Provider value={client}><NotificationsMenu /></Provider>, host)
 }

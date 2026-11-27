@@ -2896,4 +2896,61 @@ describe('youtube source', () => {
     expect(second.items.map((item) => item.id)).toEqual(['clip-4'])
     expect(second.cursor).toBeUndefined()
   })
+
+  it('dismisses notifications via hide menu endpoint while never firing channel-mute items, falling back to recordClick', async () => {
+    const client = createFakeClient()
+    const called: string[] = []
+    const emptyPage: FakeNotifications = { contents: [], getContinuation: async () => emptyPage }
+    client.getNotifications = async () => ({
+      contents: [
+        {
+          notification_id: 'n-hide',
+          short_message: { text: 'Upload 1' },
+          sent_time: { text: '1m ago' },
+          endpoint: { payload: { videoId: 'v1' } },
+          record_click_endpoint: { call: async () => { called.push('click:n-hide') } },
+          menu: {
+            items: [
+              {
+                text: 'Turn off all from Channel',
+                endpoint: {
+                  metadata: { apiUrl: '/youtubei/v1/notification/modify_channel_preference' },
+                  call: async () => { called.push('mute:n-hide') },
+                },
+              },
+              {
+                text: 'Hide this notification',
+                icon_type: 'EYE_OFF',
+                endpoint: {
+                  metadata: { apiUrl: '/youtubei/v1/notification/record_interactions' },
+                  call: async () => { called.push('hide:n-hide') },
+                },
+              },
+            ],
+          },
+          read: false,
+        },
+        {
+          notification_id: 'n-click-only',
+          short_message: { text: 'Upload 2' },
+          sent_time: { text: '2m ago' },
+          endpoint: { payload: { videoId: 'v2' } },
+          record_click_endpoint: { call: async () => { called.push('click:n-click-only') } },
+          read: false,
+        },
+      ],
+      getContinuation: async () => emptyPage,
+    })
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
+    await source.notifications()
+    await expect(source.dismissNotifications(['n-hide', 'n-click-only', 'n-hide', 'n-missing'])).resolves.toEqual([
+      'n-hide',
+      'n-click-only',
+      'n-missing',
+    ])
+    expect(called.sort()).toEqual(['click:n-click-only', 'hide:n-hide'])
+
+    client.session.logged_in = false
+    await expect(source.dismissNotifications(['n-hide'])).rejects.toThrow('sign in to dismiss notifications')
+  })
 })

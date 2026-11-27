@@ -1182,6 +1182,8 @@ type Mutation {
   ratePost(actionsToken: String!, status: LikeStatus!): Post!
   # Resolves to the notification id so the cache can mark just that row read.
   markNotificationRead(id: ID!): ID!
+  # Resolves to the dismissed notification ids so the cache can drop them and refresh the badge.
+  dismissNotifications(ids: [ID!]!): [ID!]!
   setSubscribed(channelId: ID!, subscribed: Boolean!): Channel!
   setNotificationLevel(channelId: ID!, level: NotificationLevel!): Channel!
   addToPlaylist(playlistId: ID!, videoIds: [ID!]!): Playlist!

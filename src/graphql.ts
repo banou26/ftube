@@ -65,6 +65,7 @@ export const createCache = () => cacheExchange({
     PlaylistItem: () => null,
     PlaylistPage: () => null,
     PlaylistListPage: () => null,
+    NotificationPage: () => null,
     // a wrapper DESPITE carrying a real playlist id: keyed on it, every video in one playlist would share one `currentIndex`
     WatchPlaylist: () => null,
     Chapter: () => null,
@@ -110,6 +111,10 @@ export const createCache = () => cacheExchange({
         invalidatePlaylistList(cache)
       },
       clearHistory: (_result, _args, cache) => invalidateQueryField(cache, 'history', () => true),
+      dismissNotifications: (_result, _args, cache) => {
+        invalidateQueryField(cache, 'notifications', () => true)
+        invalidateQueryField(cache, 'unseenNotificationCount', () => true)
+      },
     },
   },
 })

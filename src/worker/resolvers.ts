@@ -82,6 +82,7 @@ export const resolvers = {
     clearHistory: (_, _args, context) => context.source.clearHistory(),
     submitFeedback: (_, { token }, context) => context.source.submitFeedback(token),
     markNotificationRead: (_, { id }, context) => context.source.markNotificationRead(id),
+    dismissNotifications: (_, { ids }, context) => context.source.dismissNotifications(ids),
     postComment: (_, { videoId, text }, context) => context.source.postComment(videoId, text),
     commentOnPost: (_, { postId, channelId, text }, context) =>
       context.source.commentOnPost(postId, channelId, text),

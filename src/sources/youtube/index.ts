@@ -1159,6 +1159,47 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   }
 
   const notificationClicks = new Map<string, EndpointNode>()
+  const notificationDismissals = new Map<string, EndpointNode>()
+
+  const notificationDismissEndpoint = (node: unknown): EndpointNode | undefined => {
+    type MenuItemNode = {
+      text?: unknown
+      label?: unknown
+      tooltip?: unknown
+      icon_type?: unknown
+      endpoint?: EndpointNode & {
+        payload?: { serializedRecordNotificationInteractionsRequest?: unknown }
+        metadata?: { apiUrl?: unknown }
+      }
+    }
+    const items = (node as { menu?: { items?: MenuItemNode[] } }).menu?.items
+    if (!Array.isArray(items)) return undefined
+    for (const item of items) {
+      const endpoint = item?.endpoint
+      if (!endpoint || typeof endpoint.call !== 'function') continue
+      const apiUrl = typeof endpoint.metadata?.apiUrl === 'string' ? endpoint.metadata.apiUrl : ''
+      if (apiUrl.includes('modify_channel_preference')) continue
+      const label = [item.text, item.label, item.tooltip]
+        .map((part) => (typeof part === 'string' ? part : (part as { text?: string } | undefined)?.text ?? ''))
+        .join(' ')
+        .trim()
+        .toLowerCase()
+      if (/\b(turn off|unsubscribe|mute)\b/.test(label)) continue
+      const iconType = typeof item.icon_type === 'string' ? item.icon_type.toUpperCase() : ''
+      if (
+        iconType === 'HIDE'
+        || iconType === 'EYE_OFF'
+        || iconType === 'VISIBILITY_OFF'
+        || iconType === 'NOT_INTERESTED'
+        || /\b(hide|dismiss|remove)\b/.test(label)
+        || typeof endpoint.payload?.serializedRecordNotificationInteractionsRequest === 'string'
+        || apiUrl.includes('record_interactions')
+      ) {
+        return endpoint
+      }
+    }
+    return undefined
+  }
 
   const notificationPage = (feed: NotificationsFeed): SourceNotificationPage => {
     const items = [...(feed.contents ?? [])].flatMap((node) => {
@@ -1166,6 +1207,8 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (!notification) return []
       const click = (node as { record_click_endpoint?: EndpointNode }).record_click_endpoint
       if (click) notificationClicks.set(notification.id, click)
+      const dismiss = notificationDismissEndpoint(node)
+      if (dismiss) notificationDismissals.set(notification.id, dismiss)
       return [notification]
     })
     const result: SourceNotificationPage = { items }
@@ -2269,6 +2312,24 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const endpoint = notificationClicks.get(id)
       if (endpoint) await endpoint.call(active.actions)
       return id
+    },
+    dismissNotifications: async (ids) => {
+      const active = await client
+      requireSignIn(active, 'dismiss notifications')
+      const uniqueIds = [...new Set(ids.filter(Boolean))]
+      if (uniqueIds.length === 0) return []
+      const remaining = [...uniqueIds]
+      const workers = Array.from({ length: Math.min(4, remaining.length) }, async () => {
+        while (remaining.length > 0) {
+          const id = remaining.shift()!
+          const endpoint = notificationDismissals.get(id) ?? notificationClicks.get(id)
+          if (endpoint) await endpoint.call(active.actions)
+          notificationDismissals.delete(id)
+          notificationClicks.delete(id)
+        }
+      })
+      await Promise.all(workers)
+      return uniqueIds
     },
     // Signed-in state comes from the session the engine booted with; the accounts_list call only decorates it, so its failure
     // must not read back as signed out, but an answer that says the session ended (`signedIn` turns false) does.
