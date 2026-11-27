@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter'
 
 import type { CaptionTrack, Storyboard } from '../frame/protocol'
+import type { StoryboardFrame } from '../frame/storyboard'
+import type { SeekHandle } from '../theme/seek-handle'
 
 import { preferredTrack } from '../frame/captions'
 import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
@@ -51,7 +53,8 @@ const previewStoryboard = (boards: Storyboard[], stripWidth: number) => {
   )
 }
 
-const style = css`
+/** Styling shared by inline card video previews and their scrubber overlay. */
+export const hoverPreviewStyle = css`
   position: absolute;
   inset: 0;
   background: #000;
@@ -168,6 +171,24 @@ const style = css`
     height: 0.6rem;
   }
 
+  /* Custom emoji/icon handles stay visible above the bottom-flush track inside the card's overflow: hidden. */
+  .scrubber .knob[data-seek-handle='emoji'],
+  .scrubber .knob[data-seek-handle='icon'] {
+    top: auto;
+    bottom: calc(100% - 0.05rem);
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+    transform-origin: center bottom;
+    transition: transform 0.12s ease;
+  }
+
+  .scrubber:hover .knob[data-seek-handle='emoji'],
+  .scrubber.scrubbing .knob[data-seek-handle='emoji'],
+  .scrubber:hover .knob[data-seek-handle='icon'],
+  .scrubber.scrubbing .knob[data-seek-handle='icon'] {
+    transform: translateX(-50%) scale(1.15);
+  }
+
   /* a storyboard tile scaled up to the whole preview while a drag is held, the video seeking only on release */
   .scrub-frame {
     position: absolute;
@@ -274,6 +295,85 @@ const style = css`
     background: rgba(0, 0, 0, 0.8);
   }
 `
+
+export type HoverPreviewScrubberProps = {
+  seekHandle: SeekHandle
+  position: number
+  buffered: number
+  scrubbing: boolean
+  hover?: { time: number }
+  frame?: StoryboardFrame
+  previewLeft?: number
+  onPointerLeave?: () => void
+  onPointerDown?: (event: PointerEvent) => void
+  onPointerMove?: (event: PointerEvent) => void
+  onPointerUp?: (event: PointerEvent) => void
+  onPointerCancel?: () => void
+  onClick?: (event: Event) => void
+}
+
+/** Interactive progress bar and seek knob rendered along the bottom edge of a card preview. */
+export const HoverPreviewScrubber = (
+  {
+    seekHandle,
+    position,
+    buffered,
+    scrubbing,
+    hover,
+    frame,
+    previewLeft = 0,
+    onPointerLeave,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onClick,
+  }: HoverPreviewScrubberProps,
+) => (
+  <div
+    className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
+    onPointerLeave={onPointerLeave}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    onPointerCancel={onPointerCancel}
+    onClick={onClick}
+  >
+    <div className='track'>
+      <div className='buffered' style={{ width: `${Math.round(buffered * 100)}%` }} />
+      <div className='fill' style={{ width: `${position * 100}%` }} />
+      <SeekKnob
+        handle={seekHandle}
+        size={14}
+        style={{
+          left: seekHandle.kind === 'default'
+            ? `${position * 100}%`
+            : `clamp(1.4rem, ${position * 100}%, calc(100% - 1.4rem))`,
+        }}
+      />
+    </div>
+    {hover && !scrubbing
+      ? (
+        <div className='preview' style={{ left: `${previewLeft}px` }}>
+          {frame
+            ? (
+              <div
+                className='preview-frame'
+                style={{
+                  width: `${frame.width}px`,
+                  height: `${frame.height}px`,
+                  backgroundImage: `url("${frame.url}")`,
+                  backgroundPosition: `-${frame.x}px -${frame.y}px`,
+                }}
+              />
+            )
+            : undefined}
+          <div className='preview-time'>{clock(hover.time)}</div>
+        </div>
+      )
+      : undefined}
+  </div>
+)
 
 /**
  * A muted inline preview drawn over a card thumbnail.
@@ -475,7 +575,7 @@ export const HoverPreview = (
     : 0
 
   return (
-    <div css={style} data-painted={painted ? '' : undefined} onClick={openAtTime}>
+    <div css={hoverPreviewStyle} data-painted={painted ? '' : undefined} onClick={openAtTime}>
       {/* No preload='none': an element told not to preload never runs its resource selection, so the MediaSource sits at networkState 0 forever */}
       <video ref={videoRef} muted playsInline tabIndex={-1} aria-hidden='true' />
       {scrubFrame
@@ -537,8 +637,14 @@ export const HoverPreview = (
         : undefined}
       {ready && !live
         ? (
-          <div
-            className={scrub ? 'scrubber scrubbing' : 'scrubber'}
+          <HoverPreviewScrubber
+            seekHandle={seekHandle}
+            position={position}
+            buffered={buffered}
+            scrubbing={Boolean(scrub)}
+            hover={hover}
+            frame={frame}
+            previewLeft={previewLeft}
             onPointerLeave={() => setHover(undefined)}
             onPointerDown={(event: PointerEvent) => {
               guard(event)
@@ -554,33 +660,7 @@ export const HoverPreview = (
             }}
             onPointerCancel={() => setScrub(undefined)}
             onClick={guard}
-          >
-            <div className='track'>
-              <div className='buffered' style={{ width: `${Math.round(buffered * 100)}%` }} />
-              <div className='fill' style={{ width: `${position * 100}%` }} />
-              <SeekKnob handle={seekHandle} style={{ left: `${position * 100}%` }} size={14} />
-            </div>
-            {hover && !scrub
-              ? (
-                <div className='preview' style={{ left: `${previewLeft}px` }}>
-                  {frame
-                    ? (
-                      <div
-                        className='preview-frame'
-                        style={{
-                          width: `${frame.width}px`,
-                          height: `${frame.height}px`,
-                          backgroundImage: `url("${frame.url}")`,
-                          backgroundPosition: `-${frame.x}px -${frame.y}px`,
-                        }}
-                      />
-                    )
-                    : undefined}
-                  <div className='preview-time'>{clock(hover.time)}</div>
-                </div>
-              )
-              : undefined}
-          </div>
+          />
         )
         : undefined}
     </div>

@@ -1,19 +1,25 @@
 import type { SearchCardData } from '../../../src/components/search-card'
 import type { SourceApi, SourceChannelPage, SourceVideoPage } from '../../../src/sources/types'
+import type { SeekHandle } from '../../../src/theme/seek-handle'
 
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
+import { createPortal } from 'preact/compat'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { Client, fetchExchange, Provider } from 'urql'
 
 import { SearchCard } from '../../../src/components/search-card'
 import { ShortsGrid } from '../../../src/components/shorts-grid'
 import { ShortsShelf } from '../../../src/components/shorts-shelf'
+import { ShortsTile } from '../../../src/components/shorts-tile'
 import { VideoCard } from '../../../src/components/video-card'
 import { createCache } from '../../../src/graphql'
+import { HoverPreviewScrubber, hoverPreviewStyle } from '../../../src/player/hover-preview'
 import { ChannelPage } from '../../../src/routes/channel'
 import SubscriptionsFeedPage from '../../../src/routes/feed-subscriptions'
 import HomePage from '../../../src/routes/home'
 import SearchPage from '../../../src/routes/search'
+import { updateSettings, useSetting } from '../../../src/settings'
 import { createYoutubeSource } from '../../../src/sources/youtube'
 import { resolvers } from '../../../src/worker/resolvers'
 import typeDefs from '../../../src/worker/schema.gql?raw'
@@ -364,6 +370,104 @@ export const mountHoverTints = () => {
       <section data-previews='tinted-search-card' style={{ marginTop: '24px' }}>
         <SearchCard card={tintedSearchCard} />
       </section>
+    </Provider>,
+    host,
+  )
+}
+
+const HoverSeekHarnessView = () => {
+  const seekHandle = useSetting('seekHandle')
+  const [position, setPosition] = useState(0)
+  const [videoThumb, setVideoThumb] = useState<HTMLElement | null>(null)
+  const [shortThumb, setShortThumb] = useState<HTMLElement | null>(null)
+  const videoRef = useRef<HTMLElement>(null)
+  const shortRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    setVideoThumb(videoRef.current?.querySelector('a.thumb') as HTMLElement | null)
+    setShortThumb(shortRef.current?.querySelector('a.thumb') as HTMLElement | null)
+    const win = window as unknown as {
+      __previewSeekHarness?: {
+        setPosition: (ratio: number) => void
+        setSeekHandle: (handle: SeekHandle) => void
+      }
+    }
+    win.__previewSeekHarness = {
+      setPosition,
+      setSeekHandle: (handle: SeekHandle) => updateSettings({ seekHandle: handle }),
+    }
+    return () => {
+      delete win.__previewSeekHarness
+    }
+  }, [])
+
+  const videoCard = {
+    id: 'seek-video-0',
+    title: 'Preview seek handle check',
+    thumbnail: solidSvgThumb('#1f2937', 320, 180),
+    durationSeconds: 320,
+    channel,
+    badges: [],
+  }
+  const shortTile = {
+    id: 'seek-short-0',
+    title: 'Shorts preview seek handle check',
+    thumbnail: solidSvgThumb('#312e81', 180, 270),
+    viewCount: '15K views',
+    isShort: true,
+    isUpcoming: true,
+    badges: [],
+  }
+
+  return (
+    <>
+      <section ref={videoRef} data-previews='seek-video' style={{ width: '360px', marginBottom: '24px' }}>
+        <VideoCard video={videoCard} />
+      </section>
+      <section ref={shortRef} data-previews='seek-short' style={{ width: '210px' }}>
+        <ShortsTile short={shortTile} />
+      </section>
+      {videoThumb
+        ? createPortal(
+          <div css={hoverPreviewStyle} data-painted=''>
+            <HoverPreviewScrubber seekHandle={seekHandle} position={position} buffered={0.65} scrubbing={false} />
+          </div>,
+          videoThumb,
+        )
+        : undefined}
+      {shortThumb
+        ? createPortal(
+          <div css={hoverPreviewStyle} data-painted=''>
+            <HoverPreviewScrubber seekHandle={seekHandle} position={position} buffered={0.65} scrubbing={false} />
+          </div>,
+          shortThumb,
+        )
+        : undefined}
+    </>
+  )
+}
+
+/**
+ * Mounts VideoCard and ShortsTile with HoverPreviewScrubber portaled into each `.thumb`
+ * so custom seek handle visibility and clipping can be measured without network playback.
+ */
+export const mountHoverSeekHandle = () => {
+  document.getElementById('app')!.hidden = true
+  document.querySelector('[data-preview-harness]')?.remove()
+  const host = document.createElement('div')
+  host.setAttribute('data-preview-harness', '')
+  host.style.width = '800px'
+  host.style.padding = '24px'
+  document.body.append(host)
+  const client = new Client({
+    url: '/preview-harness',
+    exchanges: [fetchExchange],
+    fetch: async () => new Response(JSON.stringify({ data: null }), { headers: { 'content-type': 'application/json' } }),
+    preferGetMethod: false,
+  })
+  render(
+    <Provider value={client}>
+      <HoverSeekHarnessView />
     </Provider>,
     host,
   )

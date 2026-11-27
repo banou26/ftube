@@ -822,3 +822,87 @@ test('video and Shorts cards adapt hover backdrop tint to their thumbnails in da
   expect(reducedRgba.b).toBeGreaterThan(reducedRgba.r)
   expect(reduced.transitionDuration).toBe('0s')
 })
+
+test('keeps custom icon and emoji seek handles visible and uncropped inside video and Shorts preview cards', async ({ page }) => {
+  test.setTimeout(120_000)
+  await hideFknNotice(page)
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.addInitScript(() => {
+    localStorage.setItem('yt-client:settings', JSON.stringify({ seekHandle: { kind: 'icon', value: 'Ghost' } }))
+  })
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/preview-harness.tsx'
+    const module = await import(harness) as { mountHoverSeekHandle: () => void }
+    module.mountHoverSeekHandle()
+  })
+
+  const videoCard = page.locator('[data-previews="seek-video"] article')
+  const shortTile = page.locator('[data-previews="seek-short"] article.tile')
+  await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+  await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+
+  const assertInsideThumb = async (card: Locator, expectedKind: 'icon' | 'emoji') => {
+    const thumb = card.locator('a.thumb')
+    const scrubber = thumb.locator('.scrubber')
+    const knob = scrubber.locator(`.knob[data-seek-handle="${expectedKind}"]`)
+
+    for (const ratio of [0, 0.35, 1]) {
+      await page.evaluate((pos) => {
+        (window as unknown as { __previewSeekHarness: { setPosition: (ratio: number) => void } }).__previewSeekHarness.setPosition(pos)
+      }, ratio)
+
+      await page.mouse.move(0, 0)
+      await page.waitForTimeout(160)
+      await expect.poll(() => knob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+      const [restThumb, restKnob] = [await thumb.boundingBox(), await knob.boundingBox()]
+      expect(restThumb).toBeTruthy()
+      expect(restKnob).toBeTruthy()
+      expect(restKnob!.width).toBeGreaterThanOrEqual(12)
+      expect(restKnob!.height).toBeGreaterThanOrEqual(12)
+      expect(restKnob!.x).toBeGreaterThanOrEqual(restThumb!.x)
+      expect(restKnob!.x + restKnob!.width).toBeLessThanOrEqual(restThumb!.x + restThumb!.width)
+      expect(restKnob!.y).toBeGreaterThanOrEqual(restThumb!.y)
+      expect(restKnob!.y + restKnob!.height).toBeLessThanOrEqual(restThumb!.y + restThumb!.height)
+
+      const bar = (await scrubber.boundingBox())!
+      await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height - 2)
+      await page.waitForTimeout(160)
+      await expect.poll(() => knob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+      const [hoverThumb, hoverKnob] = [await thumb.boundingBox(), await knob.boundingBox()]
+      expect(hoverKnob).toBeTruthy()
+      expect(hoverKnob!.width).toBeGreaterThanOrEqual(12)
+      expect(hoverKnob!.height).toBeGreaterThanOrEqual(12)
+      expect(hoverKnob!.x).toBeGreaterThanOrEqual(hoverThumb!.x)
+      expect(hoverKnob!.x + hoverKnob!.width).toBeLessThanOrEqual(hoverThumb!.x + hoverThumb!.width)
+      expect(hoverKnob!.y).toBeGreaterThanOrEqual(hoverThumb!.y)
+      expect(hoverKnob!.y + hoverKnob!.height).toBeLessThanOrEqual(hoverThumb!.y + hoverThumb!.height)
+    }
+    await page.mouse.move(0, 0)
+  }
+
+  await assertInsideThumb(videoCard, 'icon')
+  await assertInsideThumb(shortTile, 'icon')
+
+  await page.evaluate(() => {
+    (window as unknown as { __previewSeekHarness: { setSeekHandle: (handle: { kind: string, value?: string }) => void } }).__previewSeekHarness.setSeekHandle({ kind: 'emoji', value: '🚀' })
+  })
+  await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+  await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+
+  await assertInsideThumb(videoCard, 'emoji')
+  await assertInsideThumb(shortTile, 'emoji')
+
+  // Default dot remains hidden at rest and appears only when hovering the scrubber bar.
+  await page.evaluate(() => {
+    (window as unknown as { __previewSeekHarness: { setSeekHandle: (handle: { kind: string }) => void } }).__previewSeekHarness.setSeekHandle({ kind: 'default' })
+  })
+  const defaultKnob = videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="default"]')
+  await expect(defaultKnob).toBeAttached()
+  await page.mouse.move(0, 0)
+  await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
+  const bar = (await videoCard.locator('a.thumb .scrubber').boundingBox())!
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height - 2)
+  await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+})
