@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import {
   filterAndSortChannels,
   formatLocalDateInput,
+  inactiveThresholdMs,
   parseDateRange,
   parseSubscribers,
   relativeDateRange,
@@ -192,5 +193,56 @@ describe('filterAndSortChannels', () => {
       includePending: true,
       now: NOW,
     })).toEqual([])
+  })
+
+  it('filters custom inactive durations across days, months, years and rejects invalid amounts', () => {
+    expect(inactiveThresholdMs({ amount: 30, unit: 'days' })).toBe(30 * 86_400_000)
+    expect(inactiveThresholdMs({ amount: 3, unit: 'months' })).toBe(90 * 86_400_000)
+    expect(inactiveThresholdMs({ amount: 2, unit: 'years' })).toBe(730 * 86_400_000)
+    expect(inactiveThresholdMs({ amount: 0, unit: 'months' })).toBeUndefined()
+    expect(inactiveThresholdMs({ amount: -4, unit: 'days' })).toBeUndefined()
+    expect(inactiveThresholdMs({ amount: Number.NaN, unit: 'years' })).toBeUndefined()
+
+    // UC1: 2d, UC2: 20d, UC3: 120d, UC4: 400d
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 90, unit: 'days' },
+    }).map(c => c.id)).toEqual(['UC3', 'UC4'])
+
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 6, unit: 'months' },
+    }).map(c => c.id)).toEqual(['UC4'])
+
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 15, unit: 'days' },
+    }).map(c => c.id)).toEqual(['UC2', 'UC3', 'UC4'])
+
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 0, unit: 'months' },
+    })).toEqual([])
+
+    // Treats null upload history as inactive and excludes pending when includePending is false.
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 3, unit: 'months' },
+      lastUploadAt: { UC1: daysAgo(2), UC4: null },
+      includePending: false,
+    }).map(c => c.id)).toEqual(['UC4'])
+
+    expect(filterAndSortChannels(channels, {
+      ...base,
+      activity: 'inactive-custom',
+      inactiveRange: { amount: 3, unit: 'months' },
+      lastUploadAt: { UC1: daysAgo(2), UC4: null },
+      includePending: true,
+    }).map(c => c.id)).toEqual(['UC4', 'UC2', 'UC3'])
   })
 })

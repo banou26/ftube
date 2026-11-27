@@ -4,7 +4,16 @@ import { groupChannelsWithDescendants } from '../groups/store'
 
 export type ChannelSort = 'default' | 'name-asc' | 'name-desc' | 'subscribers' | 'latest-upload' | 'oldest-upload'
 
-export type ActivityWindow = 'all' | '7d' | '30d' | '90d' | '365d' | 'inactive-365d' | 'custom'
+export type ActivityWindow = 'all' | '7d' | '30d' | '90d' | '365d' | 'inactive-365d' | 'inactive-custom' | 'custom'
+
+export type InactiveUnit = 'days' | 'months' | 'years'
+
+export type InactiveRange = {
+  amount: number
+  unit: InactiveUnit
+}
+
+export const DEFAULT_INACTIVE_RANGE: InactiveRange = { amount: 6, unit: 'months' }
 
 export type UploadDateRange = {
   from?: string
@@ -32,11 +41,24 @@ export type SubscribedChannelItem = {
 
 const DAY_MS = 86_400_000
 
-const WINDOW_DAYS: Record<Exclude<ActivityWindow, 'all' | 'inactive-365d' | 'custom'>, number> = {
+const WINDOW_DAYS: Record<Exclude<ActivityWindow, 'all' | 'inactive-365d' | 'inactive-custom' | 'custom'>, number> = {
   '7d': 7,
   '30d': 30,
   '90d': 90,
   '365d': 365,
+}
+
+const INACTIVE_UNIT_DAYS: Record<InactiveUnit, number> = {
+  days: 1,
+  months: 30,
+  years: 365,
+}
+
+/** Converts a custom inactivity duration to milliseconds, returning undefined for non-positive or invalid values. */
+export const inactiveThresholdMs = (range?: InactiveRange): number | undefined => {
+  if (!range || !Number.isFinite(range.amount) || range.amount <= 0) return undefined
+  const days = INACTIVE_UNIT_DAYS[range.unit]
+  return days ? range.amount * days * DAY_MS : undefined
 }
 
 const SUFFIX: Record<string, number> = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }
@@ -57,6 +79,7 @@ export type ChannelFilterOptions = {
   groupId: string
   groups: readonly Group[]
   activity: ActivityWindow
+  inactiveRange?: InactiveRange
   dateRange?: UploadDateRange
   sort: ChannelSort
   /** Channel id -> ISO timestamp of newest upload, or null when checked and empty. Undefined means not loaded yet. */
@@ -124,7 +147,7 @@ const uploadMs = (iso: string | null | undefined) => {
 /** Filters subscribed channels by name/handle/description, group membership and last upload date, then sorts them. */
 export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
   channels: readonly Channel[],
-  { query, groupId, groups, activity, dateRange, sort, lastUploadAt, includePending = false, now = Date.now() }: ChannelFilterOptions,
+  { query, groupId, groups, activity, inactiveRange, dateRange, sort, lastUploadAt, includePending = false, now = Date.now() }: ChannelFilterOptions,
 ): Channel[] => {
   const needle = query.trim().toLowerCase()
   const groupedIds = groupId === 'ungrouped'
@@ -140,7 +163,16 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
     && !customRange.inverted
     && (customRange.fromMs !== undefined || customRange.toMs !== undefined),
   )
-  const hasDateFilter = (activity !== 'all' && activity !== 'custom') || hasCustomBounds
+  const inactiveMs = activity === 'inactive-365d'
+    ? 365 * DAY_MS
+    : activity === 'inactive-custom'
+      ? inactiveThresholdMs(inactiveRange)
+      : undefined
+  const hasDateFilter = activity === 'custom'
+    ? hasCustomBounds
+    : activity === 'inactive-custom'
+      ? inactiveMs !== undefined
+      : activity !== 'all'
 
   const filtered = channels.filter(channel => {
     if (needle) {
@@ -159,15 +191,17 @@ export const filterAndSortChannels = <Channel extends SubscribedChannelItem>(
         if (customRange.fromMs !== undefined && at < customRange.fromMs) return false
         if (customRange.toMs !== undefined && at > customRange.toMs) return false
       }
+    } else if (activity === 'inactive-365d' || activity === 'inactive-custom') {
+      if (inactiveMs === undefined) return false
+      const entry = lastUploadAt[channel.id]
+      if (entry === undefined) return includePending
+      const at = uploadMs(entry)
+      if (at !== undefined && now - at < inactiveMs) return false
     } else if (activity !== 'all') {
       const entry = lastUploadAt[channel.id]
       if (entry === undefined) return includePending
       const at = uploadMs(entry)
-      if (activity === 'inactive-365d') {
-        if (at !== undefined && now - at < 365 * DAY_MS) return false
-      } else {
-        if (at === undefined || now - at > WINDOW_DAYS[activity] * DAY_MS) return false
-      }
+      if (at === undefined || now - at > WINDOW_DAYS[activity] * DAY_MS) return false
     }
     return true
   })

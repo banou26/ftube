@@ -252,10 +252,15 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUpl
       }
       return uploadsByChannel[channelId] ?? []
     },
-    setSubscribed: async (id: string, isSubscribed: boolean) => ({
-      ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
-      isSubscribed,
-    }),
+    setSubscribed: async (id: string, isSubscribed: boolean) => {
+      const target = (window as unknown as { __channelSubCalls?: { id: string, isSubscribed: boolean }[] })
+      target.__channelSubCalls ??= []
+      target.__channelSubCalls.push({ id, isSubscribed })
+      return {
+        ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
+        isSubscribed,
+      }
+    },
     setNotificationLevel: async (id: string, notificationLevel: string) => ({
       ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
       notificationLevel,

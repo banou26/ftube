@@ -204,3 +204,75 @@ test('keeps the subscription list populated and updates matches dynamically whil
   await expect(progress).toHaveCount(0)
   await expect(harness.locator('.count')).toHaveText('1 of 3 channels')
 })
+
+test('supports custom inactive durations and bulk unsubscribe with confirmation and undo', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/feed/channels')
+  await expect(async () => {
+    const host = page.locator('[data-channels-harness]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelsSurface()
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+
+  const harness = page.locator('[data-channels-harness]')
+  const rows = harness.locator('.list .row')
+  await expect(rows).toHaveCount(3)
+
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-custom')
+  const amountInput = harness.getByLabel('Inactive duration', { exact: true })
+  const unitSelect = harness.getByLabel('Inactive duration unit', { exact: true })
+  await expect(amountInput).toHaveValue('6')
+  await expect(unitSelect).toHaveValue('months')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Old Archive')
+  await expect(harness.getByRole('button', { name: 'Unsubscribe all (1)' })).toBeVisible()
+
+  // Changing custom duration to 10 days matches both Beta Music (20d) and Old Archive (450d).
+  await amountInput.fill('10')
+  await unitSelect.selectOption('days')
+  await expect(rows).toHaveCount(2)
+  await expect(harness.getByRole('button', { name: 'Unsubscribe all (2)' })).toBeVisible()
+
+  // Entering 0 surfaces validation error and clears matches + bulk button.
+  await amountInput.fill('0')
+  await expect(harness.getByRole('alert')).toContainText('Enter a number greater than 0')
+  await expect(rows).toHaveCount(0)
+  await expect(harness.getByRole('button', { name: /^Unsubscribe all/ })).toHaveCount(0)
+
+  // Preset 30 days leaves Old Archive and lets user preview + cancel + confirm bulk unsubscribe + undo.
+  await harness.getByRole('button', { name: '30 days', exact: true }).click()
+  await expect(rows).toHaveCount(1)
+  await harness.getByRole('button', { name: 'Unsubscribe all (1)' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Unsubscribe from inactive channels?' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('Old Archive')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+
+  await harness.getByRole('button', { name: 'Unsubscribe all (1)' }).click()
+  await dialog.getByRole('button', { name: 'Unsubscribe 1', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(rows.first().getByRole('button', { name: 'Subscribe', exact: true })).toBeVisible()
+  await expect(harness.getByRole('button', { name: /^Unsubscribe all/ })).toHaveCount(0)
+
+  const subCallsAfterUnsub = await page.evaluate(() => (window as unknown as { __channelSubCalls?: { id: string, isSubscribed: boolean }[] }).__channelSubCalls ?? [])
+  expect(subCallsAfterUnsub).toEqual([{ id: 'UCcccccccccccccccccccccc', isSubscribed: false }])
+
+  const undoBtn = page.getByRole('status').getByRole('button', { name: 'Undo' })
+  await expect(undoBtn).toBeVisible()
+  await undoBtn.click()
+  await expect(rows.first().getByRole('button', { name: 'Subscribed' })).toBeVisible()
+  await expect(harness.getByRole('button', { name: 'Unsubscribe all (1)' })).toBeVisible()
+
+  const subCallsAfterUndo = await page.evaluate(() => (window as unknown as { __channelSubCalls?: { id: string, isSubscribed: boolean }[] }).__channelSubCalls ?? [])
+  expect(subCallsAfterUndo).toEqual([
+    { id: 'UCcccccccccccccccccccccc', isSubscribed: false },
+    { id: 'UCcccccccccccccccccccccc', isSubscribed: true },
+  ])
+})

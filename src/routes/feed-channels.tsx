@@ -1,27 +1,32 @@
 import type { TargetedEvent } from 'preact'
 
-import type { ActivityWindow, ChannelSort, UploadDateRange } from './feed-channels-filter'
+import type { ActivityWindow, ChannelSort, InactiveRange, InactiveUnit, UploadDateRange } from './feed-channels-filter'
 
 import { css } from '@emotion/react'
 import { CircleUserRound } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { useClient, useQuery } from 'urql'
+import { useClient, useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
-import { DataFailure } from '../components/data-failure'
+import { DataFailure, lineFor } from '../components/data-failure'
 import { formatAgo, formatCount } from '../components/format'
 import { GroupsButton } from '../components/groups-button'
-import { SubscribeButton } from '../components/subscribe-button'
+import { SET_SUBSCRIBED, SubscribeButton } from '../components/subscribe-button'
+import { Dialog } from '../components/ui/dialog'
+import { showToast } from '../components/ui/toast'
 import { VerifiedBadge } from '../components/verified-badge'
 import { gql } from '../generated'
 import { groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { signIn } from '../sign-in'
+import { showUndoableToast } from '../undo'
 import {
   calendarYearRange,
+  DEFAULT_INACTIVE_RANGE,
   filterAndSortChannels,
   formatLocalDateInput,
+  inactiveThresholdMs,
   parseDateRange,
   relativeDateRange,
 } from './feed-channels-filter'
@@ -135,6 +140,57 @@ const style = css`
   .check-dates:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  .unsubscribe-all {
+    height: 3.6rem;
+    padding: 0 1.4rem;
+    border: 1px solid var(--danger);
+    border-radius: 1.8rem;
+    background: transparent;
+    color: var(--danger);
+    font-size: 1.3rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .unsubscribe-all:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .unsubscribe-all:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .duration-input {
+    width: 7.2rem;
+    height: 3.2rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.6rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.3rem;
+  }
+
+  .duration-input:focus {
+    outline: none;
+    border-color: var(--accent-focus);
+  }
+
+  .duration-unit {
+    height: 3.2rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.6rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.3rem;
+    cursor: pointer;
   }
 
   .date-progress {
@@ -368,6 +424,95 @@ const style = css`
   }
 `
 
+const BULK_CONCURRENCY = 4
+
+const INACTIVE_PRESETS: { label: string, range: InactiveRange }[] = [
+  { label: '30 days', range: { amount: 30, unit: 'days' } },
+  { label: '3 months', range: { amount: 3, unit: 'months' } },
+  { label: '6 months', range: { amount: 6, unit: 'months' } },
+  { label: '1 year', range: { amount: 1, unit: 'years' } },
+  { label: '2 years', range: { amount: 2, unit: 'years' } },
+]
+
+const formatInactiveSummary = (activity: ActivityWindow, range: InactiveRange): string => {
+  if (activity === 'inactive-365d') return '1+ year'
+  const unit = range.amount === 1 ? range.unit.slice(0, -1) : range.unit
+  return `${range.amount} ${unit}`
+}
+
+const runWithConcurrency = async <T,>(
+  items: readonly T[],
+  limit: number,
+  workerFn: (item: T) => Promise<void>,
+) => {
+  let index = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const item = items[index++]!
+      await workerFn(item)
+    }
+  })
+  await Promise.all(workers)
+}
+
+const bulkDialogStyle = css`
+  .bulk-note {
+    margin: 0 0 1.2rem;
+    font-size: 1.4rem;
+    line-height: 2rem;
+    color: var(--text-secondary);
+  }
+
+  .bulk-preview {
+    margin: 0 0 2rem;
+    padding-left: 2rem;
+    font-size: 1.3rem;
+    line-height: 2rem;
+    color: var(--text-primary);
+  }
+
+  .bulk-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.8rem;
+  }
+
+  .bulk-cancel,
+  .bulk-confirm {
+    height: 3.6rem;
+    padding: 0 1.6rem;
+    border: none;
+    border-radius: 1.8rem;
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .bulk-cancel {
+    background: transparent;
+    color: var(--text-primary);
+  }
+
+  .bulk-cancel:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .bulk-confirm {
+    background: var(--danger);
+    color: #fff;
+  }
+
+  .bulk-confirm:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .bulk-cancel:disabled,
+  .bulk-confirm:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+`
+
 const newestUpload = (uploads: { publishedAt?: string | null }[]) => {
   let latest: string | null = null
   let latestMs = -Infinity
@@ -390,12 +535,22 @@ const FeedChannelsPage = () => {
   const [query, setQuery] = useState('')
   const [groupId, setGroupId] = useState('all')
   const [activity, setActivity] = useState<ActivityWindow>('all')
+  const [inactiveAmountRaw, setInactiveAmountRaw] = useState(String(DEFAULT_INACTIVE_RANGE.amount))
+  const [inactiveUnit, setInactiveUnit] = useState<InactiveUnit>(DEFAULT_INACTIVE_RANGE.unit)
   const [dateRange, setDateRange] = useState<UploadDateRange>({})
   const [sort, setSort] = useState<ChannelSort>('default')
   const [loadDates, setLoadDates] = useState(false)
   const [lastUploadAt, setLastUploadAt] = useState<Record<string, string | null>>({})
+  const [confirmBulkOpen, setConfirmBulkOpen] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number, total: number } | undefined>(undefined)
+  const [unsubscribedIds, setUnsubscribedIds] = useState<Set<string>>(() => new Set())
+  const [, setSubscribedMutation] = useMutation(SET_SUBSCRIBED)
   const lastUploadAtRef = useRef(lastUploadAt)
   lastUploadAtRef.current = lastUploadAt
+
+  const parsedInactiveAmount = inactiveAmountRaw.trim() === '' ? Number.NaN : Number(inactiveAmountRaw)
+  const inactiveRange: InactiveRange = { amount: parsedInactiveAmount, unit: inactiveUnit }
 
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: ALL_SUBSCRIBED_CHANNELS_QUERY,
@@ -475,9 +630,12 @@ const FeedChannelsPage = () => {
   const checkedCount = baseChannels.filter(channel => channel.id in lastUploadAt).length
   const datesLoading = needsDates && baseChannels.length > 0 && checkedCount < baseChannels.length
   const parsedRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
+  const inactiveMs = activity === 'inactive-custom' ? inactiveThresholdMs(inactiveRange) : undefined
   const hasDateFilter = activity === 'custom'
     ? Boolean(parsedRange && !parsedRange.inverted && (parsedRange.fromMs !== undefined || parsedRange.toMs !== undefined))
-    : activity !== 'all'
+    : activity === 'inactive-custom'
+      ? inactiveMs !== undefined
+      : activity !== 'all'
   const todayYmd = formatLocalDateInput(Date.now())
   const datePresets: { label: string, range: UploadDateRange }[] = activity === 'custom'
     ? [
@@ -493,12 +651,79 @@ const FeedChannelsPage = () => {
     groupId,
     groups,
     activity,
+    inactiveRange,
     dateRange,
     sort,
     lastUploadAt,
     includePending: datesLoading,
   })
   const confirmedCount = shown.filter(channel => channel.id in lastUploadAt).length
+  const isInactiveFilter = activity === 'inactive-365d' || activity === 'inactive-custom'
+  const bulkTargets = isInactiveFilter
+    ? shown.filter(channel =>
+        channel.id in lastUploadAt
+        && channel.isSubscribed !== false
+        && !unsubscribedIds.has(channel.id))
+    : []
+  const inactiveSummary = formatInactiveSummary(activity, inactiveRange)
+
+  const onBulkUnsubscribe = async () => {
+    if (bulkBusy || bulkTargets.length === 0) return
+    const targets = [...bulkTargets]
+    setBulkBusy(true)
+    setBulkProgress({ done: 0, total: targets.length })
+    const succeeded: string[] = []
+    let failedCount = 0
+    let lastError: unknown
+    await runWithConcurrency(targets, BULK_CONCURRENCY, async (channel) => {
+      const result = await setSubscribedMutation({ channelId: channel.id, subscribed: false })
+      if (result.error) {
+        failedCount += 1
+        lastError = result.error
+      } else {
+        succeeded.push(channel.id)
+      }
+      setBulkProgress(current => current ? { ...current, done: current.done + 1 } : undefined)
+    })
+    setBulkBusy(false)
+    setBulkProgress(undefined)
+    setConfirmBulkOpen(false)
+    if (succeeded.length === 0) {
+      if (lastError) showToast(lineFor(lastError))
+      return
+    }
+    const succeededSet = new Set(succeeded)
+    setUnsubscribedIds(current => {
+      const next = new Set(current)
+      for (const id of succeeded) next.add(id)
+      return next
+    })
+    const countLabel = formatCount(succeeded.length, 'channel')
+    const message = failedCount > 0
+      ? `Unsubscribed from ${countLabel} (${failedCount} failed)`
+      : `Unsubscribed from ${countLabel}`
+    showUndoableToast(message, {
+      label: `Unsubscribe from ${countLabel}`,
+      undo: async () => {
+        const restored: string[] = []
+        let undoError: unknown
+        await runWithConcurrency(succeeded, BULK_CONCURRENCY, async (channelId) => {
+          const reverted = await setSubscribedMutation({ channelId, subscribed: true })
+          if (reverted.error) undoError = reverted.error
+          else restored.push(channelId)
+        })
+        if (restored.length > 0) {
+          setUnsubscribedIds(current => {
+            const next = new Set(current)
+            for (const id of restored) next.delete(id)
+            return next
+          })
+        }
+        if (undoError && restored.length < succeededSet.size) throw undoError
+      },
+      undoneMessage: `Re-subscribed to ${countLabel}`,
+    })
+  }
 
   return (
     <main css={style}>
@@ -553,6 +778,7 @@ const FeedChannelsPage = () => {
           <option value='90d'>Posted in last 90 days</option>
           <option value='365d'>Posted in last year</option>
           <option value='inactive-365d'>Inactive (1+ year)</option>
+          <option value='inactive-custom'>Inactive (custom)…</option>
           <option value='custom'>Custom date range…</option>
         </select>
         <select
@@ -575,7 +801,69 @@ const FeedChannelsPage = () => {
             </button>
           )
           : undefined}
+        {isInactiveFilter && bulkTargets.length > 0
+          ? (
+            <button
+              type='button'
+              className='unsubscribe-all'
+              disabled={bulkBusy}
+              onClick={() => setConfirmBulkOpen(true)}
+            >
+              {`Unsubscribe all (${bulkTargets.length})`}
+            </button>
+          )
+          : undefined}
       </div>
+      {activity === 'inactive-custom'
+        ? (
+          <div className='date-range-bar'>
+            <label className='date-field'>
+              <span>Inactive for at least</span>
+              <input
+                type='number'
+                min={1}
+                max={9999}
+                className='duration-input'
+                aria-label='Inactive duration'
+                value={inactiveAmountRaw}
+                onInput={(event: TargetedEvent<HTMLInputElement>) => setInactiveAmountRaw(event.currentTarget.value)}
+              />
+            </label>
+            <select
+              className='duration-unit'
+              aria-label='Inactive duration unit'
+              value={inactiveUnit}
+              onChange={(event: TargetedEvent<HTMLSelectElement>) => setInactiveUnit(event.currentTarget.value as InactiveUnit)}
+            >
+              <option value='days'>days</option>
+              <option value='months'>months</option>
+              <option value='years'>years</option>
+            </select>
+            <div className='range-presets'>
+              {INACTIVE_PRESETS.map(preset => {
+                const active = parsedInactiveAmount === preset.range.amount && inactiveUnit === preset.range.unit
+                return (
+                  <button
+                    key={preset.label}
+                    type='button'
+                    className={active ? 'range-chip active' : 'range-chip'}
+                    aria-pressed={active}
+                    onClick={() => {
+                      setInactiveAmountRaw(String(preset.range.amount))
+                      setInactiveUnit(preset.range.unit)
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
+            </div>
+            {inactiveMs === undefined
+              ? <span className='range-error' role='alert'>Enter a number greater than 0</span>
+              : undefined}
+          </div>
+        )
+        : undefined}
       {activity === 'custom'
         ? (
           <div className='date-range-bar'>
@@ -657,7 +945,13 @@ const FeedChannelsPage = () => {
       {fetching && channels.length === 0 ? <p className='notice'>Loading…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {!fetching && !error && channels.length > 0 && shown.length === 0
-        ? <p className='notice'>{datesLoading && !parsedRange?.inverted ? 'Checking channel upload dates…' : 'No matching channels'}</p>
+        ? (
+          <p className='notice'>
+            {datesLoading && !parsedRange?.inverted && !(activity === 'inactive-custom' && inactiveMs === undefined)
+              ? 'Checking channel upload dates…'
+              : 'No matching channels'}
+          </p>
+        )
         : undefined}
       {!fetching && !error && data && channels.length === 0
         ? <p className='notice'>No subscriptions yet</p>
@@ -706,7 +1000,7 @@ const FeedChannelsPage = () => {
                 />
                 <SubscribeButton
                   channelId={channel.id}
-                  subscribed={channel.isSubscribed ?? true}
+                  subscribed={unsubscribedIds.has(channel.id) ? false : (channel.isSubscribed ?? true)}
                   notificationLevel={channel.notificationLevel}
                 />
               </div>
@@ -714,6 +1008,44 @@ const FeedChannelsPage = () => {
           )
         })}
       </div>
+      {confirmBulkOpen
+        ? (
+          <Dialog
+            title='Unsubscribe from inactive channels?'
+            onClose={() => { if (!bulkBusy) setConfirmBulkOpen(false) }}
+          >
+            <div css={bulkDialogStyle}>
+              <p className='bulk-note'>
+                {`Unsubscribe from ${formatCount(bulkTargets.length, 'channel')} inactive for ${inactiveSummary}?`}
+              </p>
+              <ul className='bulk-preview'>
+                {bulkTargets.slice(0, 5).map(channel => <li key={channel.id}>{channel.name}</li>)}
+                {bulkTargets.length > 5 ? <li>{`and ${bulkTargets.length - 5} more`}</li> : undefined}
+              </ul>
+              <div className='bulk-actions'>
+                <button
+                  type='button'
+                  className='bulk-cancel'
+                  disabled={bulkBusy}
+                  onClick={() => setConfirmBulkOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type='button'
+                  className='bulk-confirm'
+                  disabled={bulkBusy || bulkTargets.length === 0}
+                  onClick={() => void onBulkUnsubscribe()}
+                >
+                  {bulkProgress
+                    ? `Unsubscribing ${bulkProgress.done} of ${bulkProgress.total}…`
+                    : `Unsubscribe ${bulkTargets.length}`}
+                </button>
+              </div>
+            </div>
+          </Dialog>
+        )
+        : undefined}
     </main>
   )
 }
