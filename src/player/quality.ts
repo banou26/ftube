@@ -1,5 +1,16 @@
 import type { QualityPreference } from '../settings'
 
+export type QualityBadge = '8K' | '4K' | 'HD'
+
+/** Returns the compact quality badge shown on the player Settings button for the active playing height. */
+export const qualityBadgeLabel = (height: number | undefined): QualityBadge | undefined => {
+  if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return undefined
+  if (height >= 4320) return '8K'
+  if (height >= 2160) return '4K'
+  if (height >= 720) return 'HD'
+  return undefined
+}
+
 export type ResolvedQuality = {
   selected: 'auto' | number | undefined
   detail: string | undefined

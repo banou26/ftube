@@ -22,7 +22,7 @@ import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } 
 import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
-import { resolveQualityDisplay } from './quality'
+import { qualityBadgeLabel, resolveQualityDisplay } from './quality'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { SeekKnob } from './seek-knob'
@@ -293,6 +293,21 @@ const style = css`
     background: transparent;
     color: #ffffff;
     cursor: pointer;
+  }
+
+  .quality-badge {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.45rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+    background: var(--brand-red);
+    color: var(--brand-mark-ink, #ffffff);
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    pointer-events: none;
   }
 
   /* after .control, whose transparent background would otherwise win on a control that is its own group */
@@ -629,6 +644,13 @@ const style = css`
     .control > svg {
       width: 2rem;
       height: 2rem;
+    }
+
+    .quality-badge {
+      top: 0.35rem;
+      right: 0.1rem;
+      padding: 0.05rem 0.2rem;
+      font-size: 0.8rem;
     }
 
     .autoplay,
@@ -1039,6 +1061,10 @@ export const PlayerControls = (
   const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
   const playingHeight = state.videoHeight && state.videoHeight > 0 ? state.videoHeight : video.videoHeight
   const resolvedQuality = resolveQualityDisplay({ preference: quality, heights, playingHeight })
+  const badgeHeight = playingHeight > 0
+    ? playingHeight
+    : (typeof resolvedQuality.selected === 'number' ? resolvedQuality.selected : undefined)
+  const qualityBadge = qualityBadgeLabel(badgeHeight)
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is
   const barClock = (time: number) => (live ? `-${clock(duration - time)}` : clock(time))
@@ -1266,6 +1292,9 @@ export const PlayerControls = (
               onClick={() => setMenu(value => (value === undefined ? 'root' : undefined))}
             >
               <Settings size={24} strokeWidth={1.8} />
+              {qualityBadge
+                ? <span className='quality-badge' data-quality-badge={qualityBadge} aria-hidden='true'>{qualityBadge}</span>
+                : undefined}
             </button>
             {menu === 'root'
               ? (
