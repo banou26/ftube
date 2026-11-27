@@ -225,11 +225,7 @@ const answers = (operationName: string, variables: Record<string, unknown> = {})
     const id = typeof variables.id === 'string' ? variables.id : ''
     videoDescriptionRequests.push(id)
     return {
-      video: {
-        __typename: 'Video',
-        id,
-        description: `Lazy description for ${id}\n\nwith   normalized   whitespace.`,
-      },
+      videoDescription: `Lazy description for ${id}\n\nwith   normalized   whitespace.`,
     }
   }
   if (operationName === 'HomeFeed') {

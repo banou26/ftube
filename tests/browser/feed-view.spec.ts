@@ -316,6 +316,7 @@ test('lazily loads missing video descriptions only when descriptions are enabled
   await panel.getByRole('group', { name: 'Description length' }).getByRole('button', { name: '2', exact: true }).click()
 
   const premiereCard = root.locator('article', { hasText: 'Premiere Release Trailer' })
+  await premiereCard.scrollIntoViewIfNeeded()
   await expect(premiereCard.locator('.description')).toContainText('Lazy description for sub-premiere with normalized whitespace.')
   expect(await page.evaluate(async (path) => {
     const harness = await import(path) as typeof import('./fixtures/feed-view-harness')

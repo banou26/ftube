@@ -10,7 +10,7 @@ import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo
 import { collectMembersOnlyPosts, extractParsedPostActions, extractRawPostMembersOnly, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
 import { liveChatToken, parseLiveChatLeaderboard } from './live-chat'
 import { createLiveChatManager } from './live-chat-session'
-import { approximateCount, chatReplayToken, EMOJI_WIDTH, extractRelatedChips, httpsUrl, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions, thumbnail } from './normalize'
+import { approximateCount, chatReplayToken, EMOJI_WIDTH, extractRelatedChips, httpsUrl, normalizeChannel, normalizeChannelShelf, normalizeChannelTags, normalizeCommentThread, normalizeCommentView, normalizeFeedChannel, normalizeFeedVideo, normalizeGridPlaylist, normalizeGridShow, normalizeLiveChatMessage, normalizeLockupVideo, normalizeNotification, normalizePlaylistDetails, normalizePlaylistItem, normalizePlaylistLockup, normalizePlaylistLockupItem, normalizeChannelAbout, normalizeCommunityPost, normalizeFeaturedVideo, normalizeSearchCard, normalizeSearchChannel, normalizeSearchShelf, normalizeSearchTopic, normalizeSession, normalizeShortsLockup, normalizeStoreShelf, normalizeTranscript, normalizeVideoDetails, normalizeWatchDescription, normalizeWatchMeta, parseGuideSubscriptions, sortGuideSubscriptions, thumbnail } from './normalize'
 import { base64Bytes, encodeHashtagParams, protoField } from './protobuf'
 import { readSearchSuggestions, searchSuggestionsUrl } from './suggestions'
 
@@ -880,6 +880,17 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const notificationContinuations = createContinuations<SourceNotificationPage>()
   const liveChatContinuations = createContinuations<SourceLiveChatPage>()
   const paceFeed = createPacer(FEED_INTERVAL_MS)
+  const VIDEO_DESCRIPTION_TTL_MS = 15 * 60_000
+  const VIDEO_DESCRIPTION_CACHE_MAX = 500
+  const paceDescription = createPacer(150)
+  const videoDescriptions = new Map<string, { at: number, text: string }>()
+  const cacheVideoDescription = (id: string, text: string) => {
+    if (videoDescriptions.size >= VIDEO_DESCRIPTION_CACHE_MAX && !videoDescriptions.has(id)) {
+      const oldest = videoDescriptions.keys().next().value
+      if (oldest !== undefined) videoDescriptions.delete(oldest)
+    }
+    videoDescriptions.set(id, { at: Date.now(), text })
+  }
 
   const liveChat = createLiveChatManager({
     getClient: () => client,
@@ -1699,6 +1710,19 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
     },
     video: async (id) => normalizeVideoDetails((await (await client).getBasicInfo(id)).basic_info),
+    videoDescription: async (id) => {
+      const cached = videoDescriptions.get(id)
+      if (cached && Date.now() - cached.at < VIDEO_DESCRIPTION_TTL_MS) return cached.text || undefined
+      const response = await paceDescription(async () => (await client).actions.execute('/next', {
+        videoId: id,
+        racyCheckOk: true,
+        contentCheckOk: true,
+        parse: true,
+      }))
+      const description = normalizeWatchDescription(response) ?? ''
+      cacheVideoDescription(id, description)
+      return description || undefined
+    },
     channel: async (id, tab, sort, query, cursor, filter) => {
       const kind = `channel:${id}:${tab ?? 'DEFAULT'}:${sort ?? ''}:${query ?? ''}:${filter ?? ''}`
       const known = channels.get(id)
@@ -1901,6 +1925,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       })
       const meta = normalizeWatchMeta(response, id)
       if (!meta) return undefined
+      cacheVideoDescription(id, meta.description ?? '')
       liveChat.seedFromWatch(id, meta.channel?.id, liveChatToken(response))
       const replay = chatReplayToken(response)
       if (replay && !chatReplayViews.has(id)) chatReplayViews.set(id, { TOP: replay })

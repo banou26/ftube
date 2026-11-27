@@ -2107,6 +2107,13 @@ export const extractRelatedChips = (
   return []
 }
 
+/** Extracts plain description text from a YouTube `/next` WatchNext payload. */
+export const normalizeWatchDescription = (input: unknown): string | undefined => {
+  const memo = (input as WatchNextResponse | undefined)?.contents_memo
+  const secondary = memo?.get('VideoSecondaryInfo')?.[0] as { description?: Text } | undefined
+  return presentText(secondary?.description)
+}
+
 export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta | undefined => {
   const memo = (input as WatchNextResponse | undefined)?.contents_memo
   if (!memo) return undefined

@@ -1086,6 +1086,7 @@ type Query {
   # is one tunneled round trip per call and callers must debounce.
   searchSuggestions(query: String!, previousQuery: String): [SearchSuggestion!]!
   video(id: ID!): Video
+  videoDescription(id: ID!): String
   # `tab` defaults to the channel's own landing tab. `query` only applies to the
   # SEARCH tab and is ignored elsewhere. `sort` is one of the page's own
   # `sortOptions` labels and `filter` one of its `filterOptions`. `id` may also

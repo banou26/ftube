@@ -95,8 +95,9 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       sync()
     }
     const onVariantChanged = () => {
-      variantHeight = readVariantHeight()
-      preferVariant = variantHeight > 0
+      const nextHeight = readVariantHeight()
+      preferVariant = nextHeight > 0 && nextHeight !== variantHeight && nextHeight !== video.videoHeight
+      variantHeight = nextHeight
       sync()
     }
     const onResize = () => {

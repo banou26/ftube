@@ -6,22 +6,28 @@ import { useClient } from 'urql'
 
 import { gql } from '../generated'
 
-// Select only `id` and `description` so graphcache never overwrites other Video fields on shared entities.
 const VIDEO_DESCRIPTION_QUERY = gql(`
   query VideoDescription($id: ID!) {
-    video(id: $id) {
-      id
-      description
-    }
+    videoDescription(id: $id)
   }
 `)
 
-const MAX_CONCURRENT = 3
+const MAX_CONCURRENT = 2
+const DWELL_MS = 150
+export const FAILED_COOLDOWN_MS = 60_000
+
+type InflightRequest = {
+  promise: Promise<string>
+  started: boolean
+  cancelled: boolean
+  callers: number
+  cancelQueued?: () => void
+}
 
 type DescriptionStore = {
   cache: Map<string, string>
-  inflight: Map<string, Promise<string>>
-  failed: Set<string>
+  inflight: Map<string, InflightRequest>
+  failedUntil: Map<string, number>
   active: number
   queue: (() => void)[]
 }
@@ -34,7 +40,7 @@ const storeOf = (client: Client): DescriptionStore => {
     store = {
       cache: new Map(),
       inflight: new Map(),
-      failed: new Set(),
+      failedUntil: new Map(),
       active: 0,
       queue: [],
     }
@@ -43,61 +49,113 @@ const storeOf = (client: Client): DescriptionStore => {
   return store
 }
 
-const enqueue = <T>(store: DescriptionStore, task: () => Promise<T>): Promise<T> =>
-  new Promise<T>((resolve, reject) => {
-    const run = () => {
-      store.active += 1
-      void task().then(resolve, reject).finally(() => {
-        store.active -= 1
-        const next = store.queue.shift()
-        if (next) next()
-      })
-    }
-    if (store.active < MAX_CONCURRENT) run()
-    else store.queue.push(run)
-  })
-
 /** Collapses newlines and extra whitespace into single-line card description text. */
 export const normalizeDescriptionText = (raw: string | null | undefined): string =>
   raw ? raw.replace(/\s+/g, ' ').trim() : ''
 
 /**
- * Fetches and caches a single video's description per urql Client with bounded concurrency (`<= 3`),
- * returning an empty string cleanly on error or when missing.
+ * Fetches and caches a single video's description per urql Client with bounded concurrency (`<= 2`),
+ * abortable queued work, and temporary failure cooldown.
  */
-export const fetchVideoDescription = (client: Client, videoId: string): Promise<string> => {
+export const fetchVideoDescription = (
+  client: Client,
+  videoId: string,
+  options?: { signal?: AbortSignal, now?: () => number },
+): Promise<string> => {
+  const signal = options?.signal
+  const now = options?.now ?? (() => Date.now())
   const store = storeOf(client)
-  if (!videoId) return Promise.resolve('')
+  if (!videoId || signal?.aborted) return Promise.resolve('')
   if (store.cache.has(videoId)) return Promise.resolve(store.cache.get(videoId) ?? '')
-  if (store.failed.has(videoId)) return Promise.resolve('')
-  const pending = store.inflight.get(videoId)
-  if (pending) return pending
 
-  const request = enqueue(store, async () => {
-    try {
-      const result = await client
-        .query(VIDEO_DESCRIPTION_QUERY, { id: videoId }, { requestPolicy: 'cache-first' })
-        .toPromise()
-      if (result.error) {
-        store.failed.add(videoId)
-        return ''
-      }
-      const text = normalizeDescriptionText(result.data?.video?.description)
-      store.cache.set(videoId, text)
-      return text
-    } catch {
-      store.failed.add(videoId)
-      return ''
-    } finally {
-      store.inflight.delete(videoId)
+  const retryAt = store.failedUntil.get(videoId)
+  if (retryAt !== undefined) {
+    if (now() < retryAt) return Promise.resolve('')
+    store.failedUntil.delete(videoId)
+  }
+
+  let entry = store.inflight.get(videoId)
+  let execute: (() => void) | undefined
+  if (!entry) {
+    let resolvePromise!: (text: string) => void
+    const promise = new Promise<string>((resolve) => {
+      resolvePromise = resolve
+    })
+    const created: InflightRequest = {
+      promise,
+      started: false,
+      cancelled: false,
+      callers: 0,
     }
+    created.cancelQueued = () => {
+      created.cancelled = true
+      store.inflight.delete(videoId)
+      resolvePromise('')
+    }
+    store.inflight.set(videoId, created)
+    entry = created
+
+    execute = () => {
+      if (created.cancelled) return
+      created.started = true
+      store.active += 1
+      void (async () => {
+        try {
+          const result = await client
+            .query(VIDEO_DESCRIPTION_QUERY, { id: videoId }, { requestPolicy: 'cache-first' })
+            .toPromise()
+          if (result.error) {
+            store.failedUntil.set(videoId, now() + FAILED_COOLDOWN_MS)
+            return ''
+          }
+          const text = normalizeDescriptionText(result.data?.videoDescription)
+          store.cache.set(videoId, text)
+          store.failedUntil.delete(videoId)
+          return text
+        } catch {
+          store.failedUntil.set(videoId, now() + FAILED_COOLDOWN_MS)
+          return ''
+        } finally {
+          store.inflight.delete(videoId)
+          store.active -= 1
+          while (store.queue.length > 0 && store.active < MAX_CONCURRENT) {
+            const next = store.queue.shift()
+            next?.()
+          }
+        }
+      })().then(resolvePromise)
+    }
+  }
+
+  entry.callers += 1
+  if (execute) {
+    if (store.active < MAX_CONCURRENT) execute()
+    else store.queue.push(execute)
+  }
+
+  if (!signal) return entry.promise
+
+  return new Promise<string>((resolve) => {
+    let settled = false
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      entry.callers = Math.max(0, entry.callers - 1)
+      if (!entry.started && entry.callers === 0) entry.cancelQueued?.()
+      resolve('')
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void entry.promise.then((text) => {
+      signal.removeEventListener('abort', onAbort)
+      if (settled) return
+      settled = true
+      resolve(text)
+    })
   })
-  store.inflight.set(videoId, request)
-  return request
 }
 
 /**
- * Lazily fetches a feed card's video description once the card nears the viewport and `enabled` is true.
+ * Lazily fetches a feed card's video description once the card dwells near the viewport while `enabled` is true.
  */
 export const useVideoDescription = (
   videoId: string,
@@ -123,8 +181,25 @@ export const useVideoDescription = (
     setLoaded({ id: videoId, text: '' })
 
     let active = true
+    let dwellTimer: ReturnType<typeof setTimeout> | undefined
+    let controller: AbortController | undefined
+
+    const cancelPending = () => {
+      if (dwellTimer !== undefined) {
+        clearTimeout(dwellTimer)
+        dwellTimer = undefined
+      }
+      if (controller) {
+        controller.abort()
+        controller = undefined
+      }
+    }
+
     const startFetch = () => {
-      void fetchVideoDescription(client, videoId).then((text) => {
+      if (!active || controller) return
+      const nextController = new AbortController()
+      controller = nextController
+      void fetchVideoDescription(client, videoId, { signal: nextController.signal }).then((text) => {
         if (active && text) setLoaded({ id: videoId, text })
       })
     }
@@ -134,20 +209,29 @@ export const useVideoDescription = (
       startFetch()
       return () => {
         active = false
+        cancelPending()
       }
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries.some(entry => entry.isIntersecting)) return
-        observer.disconnect()
-        startFetch()
+        const visible = entries.some(entry => entry.isIntersecting)
+        if (visible) {
+          if (dwellTimer !== undefined || controller) return
+          dwellTimer = setTimeout(() => {
+            dwellTimer = undefined
+            startFetch()
+          }, DWELL_MS)
+        } else {
+          cancelPending()
+        }
       },
-      { rootMargin: '200px 0px' },
+      { rootMargin: '120px 0px' },
     )
     observer.observe(node)
     return () => {
       active = false
+      cancelPending()
       observer.disconnect()
     }
   }, [client, elementRef, enabled, videoId])

@@ -599,7 +599,8 @@ export const startShakaPlayback = async ({
       // restrictToElementSize also restricts manual picks, so it has to come off before selecting a taller track
       activePlayer.configure({ abr: { enabled: false, restrictToElementSize: false, restrictions: { minHeight: 0, maxHeight: Infinity } } })
       const variants = activePlayer.getVariantTracks()
-      const activeAudioId = variants.find((candidate) => candidate.active)?.audioId
+      const activeTrack = variants.find((candidate) => candidate.active)
+      const activeAudioId = activeTrack?.audioId
       const sameAudio = activeAudioId != null
         ? variants.filter((candidate) => candidate.audioId === activeAudioId)
         : variants
@@ -609,7 +610,8 @@ export const startShakaPlayback = async ({
         .sort((a, b) => b.bandwidth - a.bandwidth)[0]
       if (!track) return
       // Changing manual quality drops already-buffered segments past SAFE_MARGIN so upgrades and downgrades take effect promptly.
-      const changed = (video.videoHeight || 0) > 0 && targetHeight !== video.videoHeight
+      const currentHeight = activeTrack?.height || video.videoHeight || 0
+      const changed = currentHeight > 0 && targetHeight !== currentHeight
       activePlayer.selectVariantTrack(track, changed, changed ? SAFE_MARGIN_SECONDS : 0)
     }
 

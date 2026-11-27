@@ -43,6 +43,7 @@ export const resolvers = {
     searchSuggestions: (_, { query, previousQuery }, context) =>
       context.source.searchSuggestions(query, previousQuery ?? undefined),
     video: (_, { id }, context) => context.source.video(id).then((video) => video ?? null),
+    videoDescription: (_, { id }, context) => context.source.videoDescription(id).then((text) => text ?? null),
     channel: (_, { id, tab, sort, query, cursor, filter }, context) =>
       context.source.channel(id, tab ?? undefined, sort ?? undefined, query ?? undefined, cursor ?? undefined, filter ?? undefined),
     channelLiveVideo: (_, { channelId }, context) =>

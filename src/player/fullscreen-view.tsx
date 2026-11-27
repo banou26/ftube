@@ -19,8 +19,9 @@ import { setPanel } from './session'
 
 // youtube.com's grid holds the first 12 related videos at every width (measured 2026-11-10 at 1024, 1280 and 1920 px)
 const GRID_SIZE = 12
-// the wheel travel that opens or closes the grid, so a trackpad's first few pixels do not
+// the upward wheel travel that closes an open grid, so a trackpad's first few pixels do not
 const WHEEL_PULL = 100
+const CLOSE_COOLDOWN_MS = 400
 
 const round = css`
   display: grid;
@@ -223,8 +224,8 @@ const style = css`
 
 /**
  * youtube.com's full screen view, drawn over the player while its frame is full screen: the title, like, comments,
- * share and save, and the grid of more videos that the wheel, the arrow or v opens. `shown` is the controls' own
- * visibility, which the title and the buttons share, and `settings` is whether a settings menu is open.
+ * share and save, and the grid of more videos that the arrow, v, or an upward wheel pull closes. `shown` is the
+ * controls' own visibility, which the title and the buttons share, and `settings` is whether a settings menu is open.
  */
 export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: boolean }) => {
   const frame = useFrame()!
@@ -236,16 +237,18 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
   const latest = useRef({ grid, setGrid, sharing })
   latest.current = { grid, setGrid, sharing }
 
-  // on the player rather than the sheet, so the wheel opens the grid from anywhere over the video
+  // on the player rather than the sheet, so an upward wheel pull from the top closes an open grid
   useEffect(() => {
     const surface = rootRef.current?.parentElement
     if (!surface) return
     let pull = 0
+    let closedAt = 0
     const onWheel = (event: WheelEvent) => {
       if ((event.target as Element).closest('[role="dialog"], [role="menu"]')) return
       const { grid: open, setGrid: toggle } = latest.current
       if (!open) {
         pull = 0
+        if (Date.now() - closedAt < CLOSE_COOLDOWN_MS) event.preventDefault()
         return
       }
       // an open grid scrolls its list, and closes on a pull up from the list's top
@@ -257,6 +260,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
       pull = Math.sign(pull) === Math.sign(event.deltaY) ? pull + event.deltaY : event.deltaY
       if (Math.abs(pull) < WHEEL_PULL) return
       pull = 0
+      closedAt = Date.now()
       toggle(false)
     }
     surface.addEventListener('wheel', onWheel, { passive: false })
