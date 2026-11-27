@@ -5,7 +5,7 @@ import type { LiveChatEmoji, RelatedVideosQuery } from '../generated/graphql'
 import type { VideoCardData } from '../components/video-card'
 
 import { css } from '@emotion/react'
-import { Download, Ellipsis, FolderPlus, ListPlus, Share2 } from 'lucide-react'
+import { Download, Ellipsis, Flag, FolderPlus, ListPlus, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useClient, useQuery } from 'urql'
 import { Link, useSearch } from 'wouter'
@@ -42,11 +42,11 @@ import { cardParamsIn } from '../player/card-params'
 import { prefetchPlayback } from '../player/prefetch'
 import { useQueue } from '../player/queue'
 import {
-  claimPlayer, closePlayer, getPlayerSession, openPlayer, setPanel, setTheater as setPlayerTheater, usePlayerSession,
+  claimPlayer, closePlayer, getPlayerSession, openPlayer, setPanel, usePlayerSession,
 } from '../player/session'
 import { descriptionOf, WATCH_META_QUERY } from '../player/watch-query'
 import { Menu, MenuItem } from '../components/ui/menu'
-import { getSettings, updateSettings, useSetting } from '../settings'
+import { useSetting } from '../settings'
 
 // youtube.com's one column, from 999 px down, which also opens the chat replay and chapters under the player
 const ONE_COLUMN = '(max-width: 999px)'
@@ -655,9 +655,6 @@ const WatchPage = () => {
   })
   const playerSession = usePlayerSession()
   const theater = playerSession.theater
-  const toggleTheater = useCallback(() => {
-    setPlayerTheater(updateSettings({ theater: !getSettings().theater }).theater)
-  }, [])
 
   const client = useClient()
   const relatedRequestRef = useRef({ seq: 0, videoId })
@@ -1027,9 +1024,6 @@ const WatchPage = () => {
                         </button>
                       }
                     >
-                      {actionsLayout.overflow.includes('share')
-                        ? <MenuItem icon={Share2} label='Share' onSelect={() => setSharing(true)} />
-                        : undefined}
                       {actionsLayout.overflow.includes('save')
                         ? <MenuItem icon={ListPlus} label='Save' onSelect={() => setSaving(true)} />
                         : undefined}
@@ -1051,10 +1045,11 @@ const WatchPage = () => {
                         ? <MenuItem icon={FolderPlus} label='Groups' onSelect={() => setGrouping(true)} />
                         : undefined}
                       <MenuItem
-                        label='Theater mode'
-                        checked={theater}
-                        closeOnSelect
-                        onSelect={toggleTheater}
+                        icon={Flag}
+                        label='Report'
+                        onSelect={() => {
+                          window.open(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, '_blank', 'noopener,noreferrer')
+                        }}
                       />
                     </Menu>
                   </div>

@@ -20,23 +20,27 @@ export type WatchActionLayoutInput = {
 
 /**
  * Splits enabled watch actions into visible inline pills and overflow menu items based on available row width.
- * Always reserves room for `LikePill` + gap + `More actions` trigger, and never places an action in both lists.
+ * Always reserves room for `LikePill` + gap + `Share` (when enabled) + `More actions` trigger so `Share` never moves into `More actions`.
  */
 export const computeVisibleWatchActions = (
   { availableWidth, likeWidth, moreWidth, actionWidths = {}, enabled, gap = 8 }: WatchActionLayoutInput,
 ): { inline: WatchActionId[], overflow: WatchActionId[] } => {
   const enabledSet = new Set(enabled)
-  const orderedEnabled = WATCH_ACTION_PRIORITY.filter(id => enabledSet.has(id))
+  const shareInline = enabledSet.has('share')
+  const overflowable = WATCH_ACTION_PRIORITY.filter(id => id !== 'share' && enabledSet.has(id))
+  const inline: WatchActionId[] = shareInline ? ['share'] : []
   if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
-    return { inline: [], overflow: orderedEnabled }
+    return { inline, overflow: overflowable }
   }
 
   const safeGap = Math.max(0, gap)
   let used = Math.max(0, likeWidth) + safeGap + Math.max(0, moreWidth)
-  const inline: WatchActionId[] = []
+  if (shareInline) {
+    used += safeGap + Math.max(0, actionWidths.share ?? DEFAULT_WATCH_ACTION_WIDTHS.share)
+  }
   const overflow: WatchActionId[] = []
 
-  for (const id of orderedEnabled) {
+  for (const id of overflowable) {
     const itemWidth = Math.max(0, actionWidths[id] ?? DEFAULT_WATCH_ACTION_WIDTHS[id])
     const nextUsed = used + safeGap + itemWidth
     if (nextUsed <= availableWidth + 0.5) {

@@ -20,7 +20,7 @@ describe('computeVisibleWatchActions', () => {
     })
   })
 
-  it('overflows download first, then save, then share in priority order without duplication', () => {
+  it('overflows download first, then save while keeping share inline without duplication', () => {
     // 150 + 8 + 40 + (8 + 96) + (8 + 88) = 398, + (8 + 120) = 526
     expect(computeVisibleWatchActions({
       availableWidth: 450,
@@ -55,8 +55,8 @@ describe('computeVisibleWatchActions', () => {
       enabled: WATCH_ACTION_PRIORITY,
       gap: 8,
     })).toEqual({
-      inline: [],
-      overflow: ['share', 'save', 'download'],
+      inline: ['share'],
+      overflow: ['save', 'download'],
     })
   })
 
@@ -74,7 +74,7 @@ describe('computeVisibleWatchActions', () => {
     })
   })
 
-  it('handles zero or non-finite availableWidth without placing actions inline', () => {
+  it('handles zero or non-finite availableWidth while keeping share inline and overflowing lower-priority actions', () => {
     expect(computeVisibleWatchActions({
       availableWidth: 0,
       likeWidth: 150,
@@ -82,8 +82,8 @@ describe('computeVisibleWatchActions', () => {
       actionWidths,
       enabled: WATCH_ACTION_PRIORITY,
     })).toEqual({
-      inline: [],
-      overflow: ['share', 'save', 'download'],
+      inline: ['share'],
+      overflow: ['save', 'download'],
     })
   })
 })

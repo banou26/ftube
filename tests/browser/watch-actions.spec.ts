@@ -75,15 +75,31 @@ test('keeps desktop owner row single-line, uses compact subscribed bell, moves G
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Save', exact: true })).toBeVisible()
   await expect(ownerRow.locator('.actions').getByRole('button', { name: 'Download', exact: true })).toBeVisible()
 
-  // More actions includes Groups and Theater mode, and never duplicates Share/Save/Download already shown inline.
+  // More actions replaces redundant Share and Theater items with Report while preserving Groups.
+  await page.evaluate(() => {
+    const calls: unknown[][] = []
+    ;(window as unknown as { __openCalls?: unknown[][] }).__openCalls = calls
+    window.open = ((...args: unknown[]) => {
+      calls.push(args)
+      return null
+    }) as typeof window.open
+  })
   await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()
   const moreMenu = page.getByRole('menu', { name: 'More actions' })
   await expect(moreMenu.getByRole('menuitem', { name: 'Share' })).toHaveCount(0)
   await expect(moreMenu.getByRole('menuitem', { name: 'Save' })).toHaveCount(0)
   await expect(moreMenu.getByRole('menuitem', { name: 'Download' })).toHaveCount(0)
+  await expect(moreMenu.getByRole('menuitemcheckbox', { name: 'Theater mode' })).toHaveCount(0)
+  await expect(moreMenu.getByRole('menuitem', { name: 'Theater mode' })).toHaveCount(0)
   await expect(moreMenu.getByRole('menuitem', { name: 'Groups' })).toBeVisible()
-  await expect(moreMenu.getByRole('menuitemcheckbox', { name: 'Theater mode' })).toBeVisible()
+  await expect(moreMenu.getByRole('menuitem', { name: 'Report' })).toBeVisible()
 
+  await moreMenu.getByRole('menuitem', { name: 'Report' }).click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __openCalls?: unknown[][] }).__openCalls ?? [])).toEqual([
+    ['https://www.youtube.com/watch?v=watch-harness-1', '_blank', 'noopener,noreferrer'],
+  ])
+
+  await ownerRow.getByRole('button', { name: 'More actions', exact: true }).click()
   await moreMenu.getByRole('menuitem', { name: 'Groups' }).click()
   await expect(page.getByRole('dialog', { name: 'Groups' })).toBeVisible()
   await page.keyboard.press('Escape')
