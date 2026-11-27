@@ -1092,6 +1092,7 @@ type Query {
   # be a youtube.com channel path without its leading slash: `@handle`,
   # `c/<name>` or `user/<name>`.
   channel(id: ID!, tab: ChannelTab, sort: String, query: String, cursor: String, filter: String): ChannelPage!
+  channelLiveVideo(channelId: ID!): ID
   # Null when the channel publishes no About panel, which is an ordinary state
   # rather than a failure: `ChannelPage.availableTabs` is what says whether to
   # ask at all.

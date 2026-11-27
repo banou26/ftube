@@ -144,3 +144,63 @@ describe('subscribedChannels guide vs channels feed', () => {
     expect((await source.subscribedChannels()).map(ch => ch.id)).toEqual(['UCfeed'])
   })
 })
+
+describe('channelLiveVideo', () => {
+  it('resolves /live directly to a videoId for channel IDs and handle paths, with getChannel fallback', async () => {
+    const resolvedUrls: string[] = []
+    let getChannelCalls = 0
+    let resolveResult: unknown = { payload: { videoId: 'live-direct-1' } }
+    let channelResult: unknown = {
+      metadata: { external_id: 'UC_OFF' },
+      header: {},
+      has_live_streams: false,
+    }
+
+    const client = {
+      session: { logged_in: false, context: { client: { hl: 'en', gl: 'US' } } },
+      resolveURL: async (url: string) => {
+        resolvedUrls.push(url)
+        return resolveResult
+      },
+      getChannel: async () => {
+        getChannelCalls += 1
+        return channelResult
+      },
+    }
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client as never })
+    expect(await source.channelLiveVideo('UC_LIVE')).toBe('live-direct-1')
+    expect(await source.channelLiveVideo('@LiveHandle')).toBe('live-direct-1')
+    expect(resolvedUrls).toEqual([
+      'https://www.youtube.com/channel/UC_LIVE/live',
+      'https://www.youtube.com/@LiveHandle/live',
+    ])
+    expect(getChannelCalls).toBe(0)
+
+    // When resolveURL returns a channel browseEndpoint instead of a watch videoId, fall back to channel metadata/Live tab.
+    resolveResult = { payload: { browseId: 'UC_HEADER' } }
+    channelResult = {
+      metadata: { external_id: 'UC_HEADER' },
+      header: {
+        content: {
+          image: {
+            renderer_context: { command_context: { on_tap: { payload: { videoId: 'live-header-2' } } } },
+          },
+        },
+      },
+    }
+    expect(await source.channelLiveVideo('UC_HEADER')).toBe('live-header-2')
+    expect(getChannelCalls).toBe(1)
+
+    // Offline channels return undefined cleanly even when resolveURL errors.
+    client.resolveURL = async () => {
+      throw new Error('404')
+    }
+    channelResult = {
+      metadata: { external_id: 'UC_OFF' },
+      header: {},
+      has_live_streams: false,
+    }
+    expect(await source.channelLiveVideo('UC_OFF')).toBeUndefined()
+  })
+})

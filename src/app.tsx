@@ -22,6 +22,7 @@ import { getSettings, updateSettings, useSetting } from './settings'
 // HomePage is deliberately static while every other route is lazy: routing the landing page through Suspense would put a chunk fetch in front of the very first paint, the one navigation with no previous page to keep showing
 const ChannelPage = lazyRoute(() => import('./routes/channel'))
 const ChannelCommunityPage = lazyRoute(() => import('./routes/channel-community'))
+const ChannelLivePage = lazyRoute(() => import('./routes/channel-live'))
 const DownloadsPage = lazyRoute(() => import('./routes/downloads'))
 const FeedChannelsPage = lazyRoute(() => import('./routes/feed-channels'))
 const FeedClipsPage = lazyRoute(() => import('./routes/feed-clips'))
@@ -156,7 +157,9 @@ const ChannelRoute = ({ id, base, word }: { id: string, base: string, word?: str
     return <Redirect to={`${base}${path}${rest}`} replace />
   }
   if (word === undefined) return <ChannelPage id={id} base={base} />
-  if (safeDecode(word).toLowerCase() === 'community') return <ChannelCommunityPage id={id} base={base} />
+  const decodedWord = safeDecode(word).toLowerCase()
+  if (decodedWord === 'community') return <ChannelCommunityPage id={id} base={base} />
+  if (decodedWord === 'live') return <ChannelLivePage id={id} base={base} />
   const tab = channelTabFor(safeDecode(word))
   if (!tab) return <NotFound />
   if (hideShorts && tab === 'SHORTS') return <Redirect to={base} replace />

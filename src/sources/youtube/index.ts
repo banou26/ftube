@@ -277,7 +277,7 @@ export type YoutubeClient = {
   // `sequenceParams` is patched in: youtubei.js 18.3.0 always builds its own, which reads the general Shorts feed
   getShortsVideoInfo(id: string, client?: undefined, sequenceParams?: string): Promise<ShortsSequence>
   getChannel(id: string): Promise<ChannelFeed>
-  resolveURL(url: string): Promise<{ payload?: { browseId?: string, params?: string } }>
+  resolveURL(url: string): Promise<{ payload?: { browseId?: string, params?: string, videoId?: string } }>
   getComments(videoId: string, sortBy?: 'TOP_COMMENTS' | 'NEWEST_FIRST'): Promise<CommentsFeed>
   getPostComments(postId: string, channelId: string, sortBy?: 'TOP_COMMENTS' | 'NEWEST_FIRST'): Promise<CommentsFeed>
   getNotifications(): Promise<NotificationsFeed>
@@ -713,6 +713,18 @@ const enrichChannelLive = (
     ...channel,
     isLive: true,
     liveVideoId: channel.liveVideoId ?? live.id,
+  }
+}
+
+const enrichHomeChannelLive = (channel: SourceChannel, feed: ChannelFeed) => {
+  const { home, ownShelfVideos, otherShelfVideos } = channelHome(feed, channel.id)
+  const ownCandidates = [...(home.featured ? [home.featured] : []), ...ownShelfVideos]
+  return {
+    home,
+    channel: enrichChannelLive(
+      enrichChannelLive(channel, ownCandidates, { allowMissingChannel: true }),
+      otherShelfVideos,
+    ),
   }
 }
 
@@ -1723,12 +1735,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       }
       const rest = { availableTabs, tab: selected, sortOptions, appliedSort, sortMenu: chips.menu, filterOptions, appliedFilter }
       if (selected === 'HOME') {
-        const { home, ownShelfVideos, otherShelfVideos } = channelHome(feed, channel.id)
-        const ownCandidates = [...(home.featured ? [home.featured] : []), ...ownShelfVideos]
-        const liveChannel = enrichChannelLive(
-          enrichChannelLive(channel, ownCandidates, { allowMissingChannel: true }),
-          otherShelfVideos,
-        )
+        const { home, channel: liveChannel } = enrichHomeChannelLive(channel, feed)
         channels.set(id, { channel: liveChannel, page: rest })
         return { ...rest, channel: liveChannel, videos: { items: [], playlists: [] }, home }
       }
@@ -1745,6 +1752,33 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const liveChannel = enrichChannelLive(channel, videos.items, { allowMissingChannel: true })
       channels.set(id, { channel: liveChannel, page: rest })
       return { ...rest, channel: liveChannel, videos }
+    },
+    channelLiveVideo: async (channelId) => {
+      const liveUrl = CHANNEL_PATH.test(channelId)
+        ? `https://www.youtube.com/${channelId}/live`
+        : `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/live`
+      const active = await client
+      const resolved = await active.resolveURL(liveUrl).catch(() => undefined)
+      const directId = resolved?.payload?.videoId
+      if (directId) return directId
+      try {
+        const result = await fetchChannel(channelId)
+        const channel = normalizeChannel(result, channelId)
+        if (channel.liveVideoId) return channel.liveVideoId
+        const tabs = availableChannelTabs(result)
+        if (tabs.includes('HOME') && landedTab(result) === 'HOME') {
+          const { channel: homeChannel } = enrichHomeChannelLive(channel, result)
+          if (homeChannel.liveVideoId) return homeChannel.liveVideoId
+        }
+        if (tabs.includes('LIVE')) {
+          const livePage = page(`channel:${channelId}:LIVE:::`, await openChannelTab(result, 'LIVE', undefined), { own: true })
+          const liveVideo = livePage.items.find((video) => video.isLive === true)
+          if (liveVideo) return liveVideo.id
+        }
+      } catch {
+        return undefined
+      }
+      return undefined
     },
     channelAbout: async (id) => {
       const result = await fetchChannel(id)

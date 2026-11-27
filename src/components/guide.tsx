@@ -24,6 +24,7 @@ const GUIDE_SUBSCRIPTIONS_QUERY = gql(`
       name
       avatar
       isLive
+      liveVideoId
       hasNewContent
     }
   }
@@ -116,8 +117,13 @@ const SubscriptionRail = () => {
         <ChevronRight size={20} strokeWidth={1.5} />
       </Link>
       {visible.map(channel => {
-        const href = `/channel/${channel.id}`
-        const active = isActive(href, path, '')
+        const channelHref = `/channel/${channel.id}`
+        const href = channel.isLive && channel.liveVideoId
+          ? `/watch?v=${encodeURIComponent(channel.liveVideoId)}`
+          : channel.isLive
+            ? `${channelHref}/live`
+            : channelHref
+        const active = isActive(channelHref, path, '')
         return (
           <Link
             key={channel.id}

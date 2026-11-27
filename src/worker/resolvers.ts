@@ -45,6 +45,8 @@ export const resolvers = {
     video: (_, { id }, context) => context.source.video(id).then((video) => video ?? null),
     channel: (_, { id, tab, sort, query, cursor, filter }, context) =>
       context.source.channel(id, tab ?? undefined, sort ?? undefined, query ?? undefined, cursor ?? undefined, filter ?? undefined),
+    channelLiveVideo: (_, { channelId }, context) =>
+      context.source.channelLiveVideo(channelId).then((id) => id ?? null),
     channelAbout: (_, { id }, context) => context.source.channelAbout(id).then((about) => about ?? null),
     channelTags: (_, { id }, context) => context.source.channelTags(id),
     communityPosts: (_, { channelId, cursor }, context) =>

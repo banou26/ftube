@@ -820,6 +820,7 @@ export type Source = {
   video(id: string): Promise<SourceVideo | undefined>
   // `id` is a UC id or a youtube.com channel path without its leading slash: `@handle`, `c/<name>` or `user/<name>`
   channel(id: string, tab?: SourceChannelTab, sort?: string, query?: string, cursor?: string, filter?: string): Promise<SourceChannelPage>
+  channelLiveVideo(channelId: string): Promise<string | undefined>
   channelAbout(id: string): Promise<SourceChannelAbout | undefined>
   channelTags(id: string): Promise<string[]>
   communityPosts(channelId: string, cursor?: string): Promise<SourcePostPage>
@@ -892,6 +893,7 @@ export const SOURCE_METHODS = [
   'searchSuggestions',
   'video',
   'channel',
+  'channelLiveVideo',
   'channelAbout',
   'channelTags',
   'communityPosts',
@@ -980,6 +982,7 @@ export const SOURCE_REPLAY = {
   searchSuggestions: 'always',
   video: 'always',
   channel: 'unless-cursor',
+  channelLiveVideo: 'always',
   channelAbout: 'always',
   channelTags: 'always',
   communityPosts: 'unless-cursor',

@@ -57,10 +57,11 @@ test('caps subscriptions at 7, sorts live then new-content first, renders indica
     'Plain Eta',
   ])
 
-  const liveRow = host.locator('a[href="/channel/UC03"]')
+  const liveRow = host.locator('a[href="/channel/UC03/live"]')
   await expect(liveRow.locator('.sub-live-icon')).toBeVisible()
   await expect(liveRow.getByRole('img', { name: 'Live' })).toBeVisible()
   await expect(liveRow.locator('.sub-new-dot')).toHaveCount(0)
+  await expect(host.locator('a[href="/channel/UC06/live"]')).toBeVisible()
 
   const freshRow = host.locator('a[href="/channel/UC02"]')
   await expect(freshRow.locator('.sub-new-dot')).toBeVisible()
@@ -156,4 +157,41 @@ test('orders Home/Shorts, Subscriptions, collapsible Groups, and collapsible You
   await expect(youLess).toHaveAttribute('aria-expanded', 'true')
   await youLess.click()
   await expect(youSection.locator('a.item .label')).toHaveText(['Groups', 'History', 'Watch later', 'Downloads'])
+})
+
+test('links live subscriptions to /live or /watch and redirects /channel/:id/live to stream or channel fallback', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await page.goto('/privacy')
+
+  const host = page.locator('[data-guide-harness="subscriptions"]')
+  await expect(async () => {
+    if (await host.count() === 0) {
+      await page.evaluate(async ([path]) => {
+        const mod = await import(path) as typeof import('./fixtures/guide-harness')
+        mod.mountGuideWithSubscriptions([
+          { id: 'UC_LIVE_GUIDE', name: 'Guide Live', isLive: true },
+          { id: 'UC_LIVE_DIRECT', name: 'Known Live', isLive: true, liveVideoId: 'live-known-7' },
+        ])
+      }, [HARNESS] as const)
+    }
+    await expect(host.getByRole('link', { name: /Guide Live/ })).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+
+  await expect(host.getByRole('link', { name: /Guide Live/ })).toHaveAttribute('href', '/channel/UC_LIVE_GUIDE/live')
+  await expect(host.getByRole('link', { name: /Known Live/ })).toHaveAttribute('href', '/watch?v=live-known-7')
+
+  await page.evaluate(async ([path]) => {
+    const mod = await import(path) as typeof import('./fixtures/guide-harness')
+    mod.mountChannelLiveRedirect('UC_LIVE_GUIDE', '/channel/UC_LIVE_GUIDE', 'live-stream-42')
+  }, [HARNESS] as const)
+  await expect(page).toHaveURL('/watch?v=live-stream-42')
+
+  await page.evaluate(async ([path]) => {
+    const mod = await import(path) as typeof import('./fixtures/guide-harness')
+    mod.mountChannelLiveRedirect('UC_OFFLINE', '/channel/UC_OFFLINE', null)
+  }, [HARNESS] as const)
+  await expect(page).toHaveURL('/channel/UC_OFFLINE')
 })

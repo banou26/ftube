@@ -2,6 +2,7 @@ import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
 
 import { Guide } from '../../../src/components/guide'
+import { ChannelLiveRedirect } from '../../../src/routes/channel-live'
 
 type HarnessSession = 'signed-in' | 'signed-out' | 'pending'
 
@@ -35,6 +36,7 @@ export type GuideSubscriptionFixture = {
   name: string
   avatar?: string | null
   isLive?: boolean
+  liveVideoId?: string | null
   hasNewContent?: boolean
 }
 
@@ -63,6 +65,7 @@ export const mountGuideWithSubscriptions = (channels: GuideSubscriptionFixture[]
               name: ch.name,
               avatar: ch.avatar ?? null,
               isLive: ch.isLive ?? null,
+              liveVideoId: ch.liveVideoId ?? null,
               hasNewContent: ch.hasNewContent ?? null,
             })),
           },
@@ -74,4 +77,19 @@ export const mountGuideWithSubscriptions = (channels: GuideSubscriptionFixture[]
   }
   const client = new Client({ url: '/guide-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
   render(<Provider value={client}><Guide variant='expanded' /></Provider>, host)
+}
+
+export const mountChannelLiveRedirect = (id: string, base: string, liveVideoId: string | null) => {
+  document.documentElement.dataset.engine = 'ready'
+  const app = document.getElementById('app')
+  if (app) app.hidden = true
+  document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
+  history.replaceState(null, '', `${base}/live`)
+  const host = document.createElement('div')
+  host.setAttribute('data-guide-harness', 'live-redirect')
+  document.body.append(host)
+  const fetchAnswer = async () =>
+    new Response(JSON.stringify({ data: { channelLiveVideo: liveVideoId } }), { headers: { 'content-type': 'application/json' } })
+  const client = new Client({ url: '/guide-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  render(<Provider value={client}><ChannelLiveRedirect id={id} base={base} /></Provider>, host)
 }
