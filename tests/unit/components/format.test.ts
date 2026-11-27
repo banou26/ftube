@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { descriptionMeta, formatAgo, formatCompact, formatCount, parseStartSeconds } from '../../../src/components/format'
+import { descriptionMeta, formatAgo, formatCompact, formatCount, parseStartSeconds, videoDetailsOf } from '../../../src/components/format'
 
 describe('start offsets', () => {
   it('accepts both forms upstream mints for `t`', () => {
@@ -76,5 +76,44 @@ describe('compact counts', () => {
     expect(formatCompact(19496469)).toBe('19M')
     expect(formatCompact(1234)).toBe('1.2K')
     expect(formatCompact(0)).toBe('0')
+  })
+})
+
+describe('video details', () => {
+  it('formats exact Date, Views, and integer Likes rows in order', () => {
+    expect(videoDetailsOf({
+      publishedDateText: 'Nov 26, 2026',
+      viewCountText: '99,962 views',
+      shortViewCountText: '100K views',
+      likeCount: 3746,
+      likeCountText: '3.7K',
+    })).toEqual([
+      { key: 'date', label: 'Date', value: 'Nov 26, 2026' },
+      { key: 'views', label: 'Views', value: '99,962' },
+      { key: 'likes', label: 'Likes', value: '3,746' },
+    ])
+  })
+
+  it('falls back to compact counts and omits missing rows', () => {
+    expect(videoDetailsOf({
+      shortViewCountText: '1 view',
+      likeCountText: '1.2K',
+    })).toEqual([
+      { key: 'views', label: 'Views', value: '1' },
+      { key: 'likes', label: 'Likes', value: '1.2K' },
+    ])
+
+    expect(videoDetailsOf({
+      viewCountText: 'No views',
+    })).toEqual([
+      { key: 'views', label: 'Views', value: '0' },
+    ])
+
+    expect(videoDetailsOf({
+      publishedDateText: '   ',
+      viewCountText: null,
+      likeCount: -1,
+      likeCountText: undefined,
+    })).toEqual([])
   })
 })

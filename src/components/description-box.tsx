@@ -3,14 +3,14 @@ import type { PlayerChapter } from '../player/chapters'
 import type { RichTextRun } from './rich-text'
 
 import { css } from '@emotion/react'
-import { ArrowUpRight, Music2, SquarePlay, SquareUser } from 'lucide-react'
+import { ArrowUpRight, Calendar, Music2, SquarePlay, SquareUser, ThumbsUp } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { registerCards } from '../player/cards'
 import { seekTo } from '../player/seek'
 import { ChapterCards } from './chapters'
-import { descriptionMeta } from './format'
+import { descriptionMeta, videoDetailsOf } from './format'
 import { Rail } from './rail'
 import { hashtagHrefFor, RichText } from './rich-text'
 import { Thumbnail } from './thumbnail'
@@ -100,7 +100,8 @@ const style = css`
   .chapters,
   .music,
   .transcript,
-  .channel-card {
+  .channel-card,
+  .video-details {
     padding: 1.6rem 0;
   }
 
@@ -346,6 +347,41 @@ const style = css`
     font-weight: 500;
     cursor: pointer;
   }
+
+  .details-list {
+    display: grid;
+    gap: 1.4rem;
+    max-width: 46rem;
+    margin: 1.6rem 0 0;
+  }
+
+  .detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.6rem;
+    line-height: 2rem;
+  }
+
+  .detail-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 1.4rem;
+    min-width: 0;
+    color: var(--text-secondary);
+  }
+
+  .detail-label svg {
+    flex: none;
+  }
+
+  .detail-value {
+    margin: 0;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
 `
 
 const panelStyle = css`
@@ -382,15 +418,23 @@ const placeMore = (snippet: HTMLElement, limit: number) => {
   return total > limit
 }
 
+const DETAIL_ICON = {
+  date: Calendar,
+  views: SquarePlay,
+  likes: ThumbsUp,
+} as const
+
 export const DescriptionBox = (
   {
-    viewCountText, publishedDateText, shortViewCountText, relativeDateText, hashtags = [],
+    viewCountText, publishedDateText, shortViewCountText, relativeDateText, likeCount, likeCountText, hashtags = [],
     description, runs, videoId, chapters = [], currentChapter = -1, onViewChapters, onShowTranscript, music, channelCard, open = false,
   }: {
     viewCountText?: string | null
     publishedDateText?: string | null
     shortViewCountText?: string | null
     relativeDateText?: string | null
+    likeCount?: number | null
+    likeCountText?: string | null
     hashtags?: readonly string[]
     description?: string | null
     runs?: readonly RichTextRun[]
@@ -442,6 +486,7 @@ export const DescriptionBox = (
   const expand = () => setExpanded(true)
   const less = <button type='button' className='less' onClick={() => setExpanded(false)}>Show less</button>
   const counts = descriptionMeta({ expanded: full, viewCountText, shortViewCountText, publishedDateText, relativeDateText })
+  const details = videoDetailsOf({ publishedDateText, viewCountText, shortViewCountText, likeCount, likeCountText })
   return (
     <div
       css={open ? [style, panelStyle] : style}
@@ -575,7 +620,28 @@ export const DescriptionBox = (
           </section>
         )
         : undefined}
-      {description && expanded && !open ? less : undefined}
+      {full && details.length > 0
+        ? (
+          <section className='video-details' aria-label='Video details'>
+            <h2 className='chapters-heading'>Video details</h2>
+            <dl className='details-list'>
+              {details.map(detail => {
+                const Icon = DETAIL_ICON[detail.key]
+                return (
+                  <div key={detail.key} className='detail-row'>
+                    <dt className='detail-label'>
+                      <Icon size={20} strokeWidth={1.5} aria-hidden='true' />
+                      <span>{detail.label}</span>
+                    </dt>
+                    <dd className='detail-value'>{detail.value}</dd>
+                  </div>
+                )
+              })}
+            </dl>
+          </section>
+        )
+        : undefined}
+      {(description || details.length > 0) && expanded && !open ? less : undefined}
     </div>
   )
 }

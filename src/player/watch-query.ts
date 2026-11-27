@@ -24,6 +24,7 @@ export const WATCH_META_QUERY = gql(`
       shortViewCountText
       relativeDateText
       hashtags
+      likeCount
       likeCountText
       commentCountText
       description
@@ -97,6 +98,8 @@ export const descriptionOf = (watch: Watch) => ({
   publishedDateText: watch.publishedDateText,
   shortViewCountText: watch.shortViewCountText,
   relativeDateText: watch.relativeDateText,
+  likeCount: watch.likeCount,
+  likeCountText: watch.likeCountText,
   hashtags: watch.hashtags,
   description: watch.description,
   runs: watch.descriptionRuns,

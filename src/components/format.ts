@@ -109,3 +109,32 @@ export const parseStartSeconds = (value: string | null | undefined) => {
   if (hours === undefined && minutes === undefined && seconds === undefined) return undefined
   return Number(hours ?? 0) * 3600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0)
 }
+
+export type VideoDetailRow = { key: 'date' | 'views' | 'likes', label: string, value: string }
+
+const exactNumber = new Intl.NumberFormat('en-US')
+
+/** Structured facts for the expanded description's Video details footer. */
+export const videoDetailsOf = (
+  { publishedDateText, viewCountText, shortViewCountText, likeCount, likeCountText }: {
+    publishedDateText?: string | null
+    viewCountText?: string | null
+    shortViewCountText?: string | null
+    likeCount?: number | null
+    likeCountText?: string | null
+  },
+): VideoDetailRow[] => {
+  const rows: VideoDetailRow[] = []
+  const date = publishedDateText?.trim()
+  if (date) rows.push({ key: 'date', label: 'Date', value: date })
+  const rawViews = (viewCountText ?? shortViewCountText)?.trim()
+  const views = rawViews
+    ? (/^no\s+views?$/i.test(rawViews) ? '0' : rawViews.replace(/\s+views?$/i, '').trim())
+    : undefined
+  if (views) rows.push({ key: 'views', label: 'Views', value: views })
+  const likes = typeof likeCount === 'number' && Number.isFinite(likeCount) && likeCount >= 0
+    ? exactNumber.format(Math.trunc(likeCount))
+    : likeCountText?.trim()
+  if (likes) rows.push({ key: 'likes', label: 'Likes', value: likes })
+  return rows
+}

@@ -2162,9 +2162,13 @@ export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta 
   const owner = secondary?.owner
   const author = owner?.author
   const collaboration = authorByline(author)
+  const rawLikeCount = likeView?.like_count ?? likeLegacy?.like_button?.like_count
+  const exactLikeCount = typeof rawLikeCount === 'number' && Number.isFinite(rawLikeCount) && rawLikeCount >= 0 && rawLikeCount <= 2_147_483_647
+    ? Math.trunc(rawLikeCount)
+    : undefined
   const likeCount = likeView?.short_like_count
     ?? likeLegacy?.like_button?.short_like_count
-    ?? [likeView?.like_count ?? likeLegacy?.like_button?.like_count]
+    ?? [rawLikeCount]
       .filter((count): count is number => Number.isFinite(count))
       .map(String)[0]
   const related = [
@@ -2201,6 +2205,7 @@ export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta 
     hashtags: normalizeRuns(primary?.super_title_link)
       .map(run => run.text.trim())
       .filter(tag => tag.startsWith('#')),
+    likeCount: exactLikeCount,
     likeCountText: likeCount,
     commentCountText: text(commentsHeader?.comment_count) ?? text(commentsPanel?.header?.contextual_info),
     description: presentText(secondary?.description),

@@ -46,7 +46,7 @@ test('ends a music video\'s description with its song and its channel, the trans
   expect(own.length).toBeGreaterThan(0)
   for (const href of own) expect(href).toMatch(/^https?:\/\/(?!www\.youtube\.com\/redirect)/)
 
-  expect(await sections(box)).toEqual(['Music', 'Transcript', 'Channel'])
+  expect(await sections(box)).toEqual(['Music', 'Transcript', 'Channel', 'Video details'])
 
   await card.getByRole('link', { name: 'About' }).click()
   await expect(page).toHaveURL('/channel/UCuAXFkgsw1L7xaCfnd5JJOw/about')
@@ -59,5 +59,5 @@ test('ends a video without music with its chapters, the transcript and its chann
   const card = box.locator('section[aria-label="Channel"]')
   await expect(card.locator('.channel-name')).toHaveText('Marques Brownlee')
   await expect(card.getByRole('link', { name: 'Videos' })).toHaveAttribute('href', '/channel/UCBJycsmduvYEL83R_U4JriQ/videos')
-  expect(await sections(box)).toEqual(['Chapters', 'Transcript', 'Channel'])
+  expect(await sections(box)).toEqual(['Chapters', 'Transcript', 'Channel', 'Video details'])
 })

@@ -939,6 +939,7 @@ describe('youtube normalization', () => {
       shortViewCountText: '55M views',
       relativeDateText: '4 years ago',
       hashtags: [],
+      likeCount: 123456,
       likeCountText: '123K',
       commentCountText: '4.2K',
       description: 'Full description\nwith lines',
@@ -1135,6 +1136,37 @@ describe('youtube normalization', () => {
   it('returns undefined watch metadata without parsed contents', () => {
     expect(normalizeWatchMeta(undefined, 'abc')).toBeUndefined()
     expect(normalizeWatchMeta({}, 'abc')).toBeUndefined()
+  })
+
+  it('extracts exact integer likeCount from modern and legacy like buttons and drops invalid values', () => {
+    const viewMemo = new Map<string, unknown[]>([
+      ['SegmentedLikeDislikeButtonView', [{ like_count: 3746.9, short_like_count: '3.7K' }]],
+    ])
+    expect(normalizeWatchMeta({ contents_memo: viewMemo }, 'v1')).toMatchObject({
+      likeCount: 3746,
+      likeCountText: '3.7K',
+    })
+
+    const legacyMemo = new Map<string, unknown[]>([
+      ['SegmentedLikeDislikeButton', [{ like_button: { like_count: 987, short_like_count: '987' } }]],
+    ])
+    expect(normalizeWatchMeta({ contents_memo: legacyMemo }, 'v2')).toMatchObject({
+      likeCount: 987,
+      likeCountText: '987',
+    })
+
+    const overflowMemo = new Map<string, unknown[]>([
+      ['SegmentedLikeDislikeButtonView', [{ like_count: 2_147_483_648, short_like_count: '2.1B' }]],
+    ])
+    expect(normalizeWatchMeta({ contents_memo: overflowMemo }, 'v3')).toMatchObject({
+      likeCount: undefined,
+      likeCountText: '2.1B',
+    })
+
+    const negativeMemo = new Map<string, unknown[]>([
+      ['SegmentedLikeDislikeButtonView', [{ like_count: -5 }]],
+    ])
+    expect(normalizeWatchMeta({ contents_memo: negativeMemo }, 'v4')?.likeCount).toBeUndefined()
   })
 
   it('normalizes comment threads', () => {

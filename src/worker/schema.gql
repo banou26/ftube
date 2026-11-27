@@ -601,6 +601,7 @@ type WatchMeta {
   relativeDateText: String
   # The hashtags upstream lists beside the counts, each with its '#'.
   hashtags: [String!]!
+  likeCount: Int
   likeCountText: String
   commentCountText: String
   description: String

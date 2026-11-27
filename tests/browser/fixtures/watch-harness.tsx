@@ -19,7 +19,10 @@ export type WatchHarnessOptions = {
   subscribed?: boolean
   notificationLevel?: NotificationLevel
   channelName?: string
-  likeCountText?: string
+  likeCount?: number | null
+  likeCountText?: string | null
+  viewCountText?: string | null
+  publishedDateText?: string | null
   isLive?: boolean
   hasChatReplay?: boolean
   theater?: boolean
@@ -80,12 +83,13 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       isLive: options.isLive ?? false,
       hasChatReplay: options.hasChatReplay ?? false,
       commentsHidden: true,
-      viewCountText: '12,345 views',
+      viewCountText: 'viewCountText' in options ? options.viewCountText : '12,345 views',
       shortViewCountText: '12K views',
-      publishedDateText: 'Nov 1, 2026',
+      publishedDateText: 'publishedDateText' in options ? options.publishedDateText : 'Nov 1, 2026',
       relativeDateText: '3 weeks ago',
       hashtags: [],
-      likeCountText: options.likeCountText ?? '1.2K',
+      likeCount: 'likeCount' in options ? options.likeCount : 3746,
+      likeCountText: 'likeCountText' in options ? options.likeCountText : '1.2K',
       description: descriptionText,
       descriptionRuns: [{ text: descriptionText }],
       channel: {
