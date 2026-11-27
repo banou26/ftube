@@ -100,6 +100,11 @@ test('shows the title, opens a grid of the related videos, and plays one in full
   await expect(grid).toBeVisible()
   await page.mouse.wheel(0, -120)
   await expect(grid).toHaveCount(0)
+  // Inertia wheel events right after closing the grid must not leak into player volume.
+  const volAfterClose = await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)
+  await page.mouse.wheel(0, -120)
+  await page.waitForTimeout(100)
+  expect(await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBe(volAfterClose)
   await page.keyboard.press('v')
   await expect(grid).toBeVisible()
 

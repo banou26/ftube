@@ -263,8 +263,8 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
       closedAt = Date.now()
       toggle(false)
     }
-    surface.addEventListener('wheel', onWheel, { passive: false })
-    return () => surface.removeEventListener('wheel', onWheel)
+    surface.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    return () => surface.removeEventListener('wheel', onWheel, { capture: true })
   }, [])
 
   useEffect(() => {
