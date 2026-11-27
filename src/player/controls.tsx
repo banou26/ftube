@@ -1,8 +1,8 @@
 import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
-import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { CaptionOption } from './caption-style'
@@ -19,6 +19,7 @@ import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
 import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from '../settings'
 import { CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
+import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
 import { rateDetail } from './rates'
@@ -47,6 +48,107 @@ const style = css`
   &.visible {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  &.filmstrip-active {
+    padding-top: 2.8rem;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.72) 68%, rgba(0, 0, 0, 0) 100%);
+  }
+
+  .filmstrip-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 3.6rem;
+    margin-bottom: 0.6rem;
+    pointer-events: none;
+  }
+
+  .filmstrip-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.8rem;
+    max-width: min(36rem, calc(100% - 9.6rem));
+    height: 2.8rem;
+    padding: 0 1.2rem;
+    border-radius: 1.4rem;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(20, 20, 20, 0.92);
+    font-size: 1.4rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .filmstrip-chapter {
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.78);
+    text-overflow: ellipsis;
+  }
+
+  .filmstrip-close {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.6rem;
+    height: 3.6rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .filmstrip-close:hover,
+  .filmstrip-close:focus-visible {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .filmstrip-track {
+    position: relative;
+    height: 9.2rem;
+    margin: 0 -1.2rem;
+    padding: 0.7rem 0;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .filmstrip-track.dragging {
+    cursor: grabbing;
+  }
+
+  .filmstrip-tile {
+    position: absolute;
+    top: 0.7rem;
+    padding: 0;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.16);
+    background-color: #111111;
+    background-repeat: no-repeat;
+    cursor: pointer;
+  }
+
+  .filmstrip-playhead {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: #ffffff;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.85);
+    pointer-events: none;
+    z-index: 2;
   }
 
   .scrubber {
@@ -475,6 +577,10 @@ const style = css`
   @container player (max-width: 600px) {
     padding: 0 0.8rem;
 
+    .filmstrip-track {
+      margin: 0 -0.8rem;
+    }
+
     .bar {
       height: 4.8rem;
     }
@@ -607,14 +713,31 @@ export const PlayerControls = (
   }: ControlsProps,
 ) => {
   const [scrubbing, setScrubbing] = useState(false)
+  const [filmstrip, setFilmstrip] = useState(false)
+  const [stripDragging, setStripDragging] = useState(false)
   const [preview, setPreview] = useState<number | undefined>(undefined)
+  const [stripWidth, setStripWidth] = useState(800)
   const [hover, setHover] = useState<{ time: number, ratio: number } | undefined>(undefined)
   const [pip, setPip] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [menu, setMenu] = useState<'root' | 'audio' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
   const [settings, setSettings] = useState(getSettings)
   useEffect(() => subscribeSettings(setSettings), [])
+  const controlsRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const dragRef = useRef<{
+    source: 'scrubber' | 'strip'
+    startX: number
+    startY: number
+    anchorX: number
+    anchorTime: number
+    entered: boolean
+    startedOpen: boolean
+    moved: boolean
+    tileTime?: number
+  } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const [fullscreen, setFullscreen] = useState(false)
@@ -623,9 +746,17 @@ export const PlayerControls = (
   const menuOpen = menu !== undefined
   useDismiss({ open: menuOpen, onClose: closeMenu, rootRef: menuRef, triggerRef: menuTriggerRef })
   useEffect(() => {
-    onMenu?.(menuOpen)
+    onMenu?.(menuOpen || filmstrip)
     return () => onMenu?.(false)
-  }, [menuOpen])
+  }, [menuOpen, filmstrip])
+
+  const cancelFilmstrip = useCallback(() => {
+    dragRef.current = null
+    setScrubbing(false)
+    setStripDragging(false)
+    setFilmstrip(false)
+    setPreview(undefined)
+  }, [])
 
   const sleepMenuSeen = useRef(sleepMenu)
   useEffect(() => {
@@ -635,8 +766,37 @@ export const PlayerControls = (
   }, [sleepMenu])
 
   useEffect(() => {
-    if (docked) setMenu(undefined)
-  }, [docked])
+    if (docked) {
+      setMenu(undefined)
+      cancelFilmstrip()
+    }
+  }, [docked, cancelFilmstrip])
+
+  useLayoutEffect(() => {
+    const target = stripRef.current ?? controlsRef.current
+    if (!target) return
+    const syncWidth = () => {
+      const width = stripRef.current?.clientWidth || controlsRef.current?.clientWidth
+      if (width && width > 0) setStripWidth(width)
+    }
+    syncWidth()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(syncWidth)
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [filmstrip])
+
+  useEffect(() => {
+    if (!filmstrip) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      cancelFilmstrip()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [filmstrip, cancelFilmstrip])
 
   useEffect(() => {
     const onChange = () => setFullscreen(isPlayerFullscreen(video))
@@ -672,13 +832,33 @@ export const PlayerControls = (
     return timeAtOffset(parts, boxes, clientX)
   }
 
+  const board = bestStoryboard(storyboards)
+  const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
+  const filmstripAllowed = !isLive && board !== undefined && duration > 0
+  const filmWindow = filmstrip && filmstripAllowed
+    ? buildFilmstripWindow(board, duration, position, stripWidth, FILMSTRIP_TILE_HEIGHT)
+    : undefined
+
+  const clampPlayTime = (time: number) => Math.max(0, Math.min(duration, time))
+
   const onPointerDown = (event: PointerEvent) => {
     // a right-click opens the player menu rather than seeking
     if (duration <= 0 || event.button !== 0) return
     const target = event.currentTarget as HTMLElement
     target.setPointerCapture(event.pointerId)
+    const startPreview = filmstrip && preview !== undefined ? preview : timeAt(event.clientX)
+    dragRef.current = {
+      source: 'scrubber',
+      startX: event.clientX,
+      startY: event.clientY,
+      anchorX: event.clientX,
+      anchorTime: startPreview,
+      entered: filmstrip,
+      startedOpen: filmstrip,
+      moved: false,
+    }
     setScrubbing(true)
-    setPreview(timeAt(event.clientX))
+    setPreview(startPreview)
   }
 
   const onPointerMove = (event: PointerEvent) => {
@@ -690,17 +870,142 @@ export const PlayerControls = (
         ratio: Math.max(0, Math.min(1, (event.clientX - box.left) / box.width)),
       })
     }
-    if (!scrubbing) return
+    const drag = dragRef.current
+    if (!scrubbing || !drag || drag.source !== 'scrubber') return
+
+    if (filmstripAllowed && !drag.entered && drag.startY - event.clientY >= FILMSTRIP_PULL_UP_PX) {
+      const anchorTime = preview ?? timeAt(event.clientX)
+      drag.entered = true
+      drag.anchorX = event.clientX
+      drag.anchorTime = anchorTime
+      drag.moved = false
+      setFilmstrip(true)
+      setPreview(anchorTime)
+      return
+    }
+
+    if (drag.entered && filmstripAllowed) {
+      if (!drag.startedOpen && event.clientY - drag.startY >= FILMSTRIP_PULL_DOWN_PX) {
+        drag.entered = false
+        setFilmstrip(false)
+        setPreview(timeAt(event.clientX))
+        return
+      }
+      const deltaX = event.clientX - drag.anchorX
+      if (Math.abs(deltaX) >= 4) drag.moved = true
+      const activeWindow = buildFilmstripWindow(board, duration, drag.anchorTime, stripWidth, FILMSTRIP_TILE_HEIGHT)
+      const nextTime = clampPlayTime(
+        drag.anchorTime + filmstripTimeDelta(deltaX, activeWindow.tileWidth, activeWindow.secondsPerTile),
+      )
+      setPreview(nextTime)
+      return
+    }
+
     setPreview(timeAt(event.clientX))
   }
 
   const onPointerUp = (event: PointerEvent) => {
-    if (!scrubbing) return
+    const drag = dragRef.current
+    if (!scrubbing || !drag || drag.source !== 'scrubber') return
+    dragRef.current = null
     const target = event.currentTarget as HTMLElement
-    target.releasePointerCapture(event.pointerId)
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+
+    if (drag.entered) {
+      const closeBox = closeBtnRef.current?.getBoundingClientRect()
+      const releasedOverClose = Boolean(
+        closeBox
+        && event.clientX >= closeBox.left
+        && event.clientX <= closeBox.right
+        && event.clientY >= closeBox.top
+        && event.clientY <= closeBox.bottom,
+      )
+      if (releasedOverClose) {
+        cancelFilmstrip()
+        return
+      }
+      const activeWindow = board
+        ? buildFilmstripWindow(board, duration, drag.anchorTime, stripWidth, FILMSTRIP_TILE_HEIGHT)
+        : undefined
+      const finalTime = activeWindow
+        ? clampPlayTime(drag.anchorTime + filmstripTimeDelta(event.clientX - drag.anchorX, activeWindow.tileWidth, activeWindow.secondsPerTile))
+        : (preview ?? timeAt(event.clientX))
+      if (!drag.moved) {
+        setScrubbing(false)
+        setPreview(finalTime)
+        setFilmstrip(true)
+        return
+      }
+      video.currentTime = base + finalTime
+      cancelFilmstrip()
+      return
+    }
+
     video.currentTime = base + timeAt(event.clientX)
     setScrubbing(false)
     setPreview(undefined)
+  }
+
+  const onPointerCancel = (event: PointerEvent) => {
+    const drag = dragRef.current
+    const target = event.currentTarget as HTMLElement
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+    if (!scrubbing && !drag) return
+    cancelFilmstrip()
+  }
+
+  const onStripPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0 || !filmWindow) return
+    const tileEl = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tile-time]')
+    const rawTileTime = tileEl?.dataset.tileTime
+    const tileTime = rawTileTime !== undefined ? Number(rawTileTime) : undefined
+    const target = event.currentTarget as HTMLElement
+    target.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      source: 'strip',
+      startX: event.clientX,
+      startY: event.clientY,
+      anchorX: event.clientX,
+      anchorTime: position,
+      entered: true,
+      startedOpen: true,
+      moved: false,
+      tileTime: tileTime !== undefined && Number.isFinite(tileTime) ? tileTime : undefined,
+    }
+    setStripDragging(true)
+    setPreview(position)
+  }
+
+  const onStripPointerMove = (event: PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.source !== 'strip' || !filmstripAllowed) return
+    const deltaX = event.clientX - drag.anchorX
+    if (Math.abs(deltaX) >= 4) drag.moved = true
+    const activeWindow = buildFilmstripWindow(board, duration, drag.anchorTime, stripWidth, FILMSTRIP_TILE_HEIGHT)
+    setPreview(clampPlayTime(drag.anchorTime + filmstripTimeDelta(-deltaX, activeWindow.tileWidth, activeWindow.secondsPerTile)))
+  }
+
+  const onStripPointerUp = (event: PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.source !== 'strip') return
+    dragRef.current = null
+    const target = event.currentTarget as HTMLElement
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+    setStripDragging(false)
+    if (!drag.moved && drag.tileTime !== undefined) {
+      video.currentTime = base + clampPlayTime(drag.tileTime)
+      cancelFilmstrip()
+      return
+    }
+    if (drag.moved && filmstripAllowed) {
+      const deltaX = event.clientX - drag.anchorX
+      const activeWindow = buildFilmstripWindow(board, duration, drag.anchorTime, stripWidth, FILMSTRIP_TILE_HEIGHT)
+      const nextTime = clampPlayTime(
+        drag.anchorTime + filmstripTimeDelta(-deltaX, activeWindow.tileWidth, activeWindow.secondsPerTile),
+      )
+      video.currentTime = base + nextTime
+      cancelFilmstrip()
+    }
   }
 
   /* Shaka holds the video at rate 0 while it buffers, when the speed chosen is the stored one. Read off the video rather
@@ -727,9 +1032,6 @@ export const PlayerControls = (
     void toggleVideoPip(video)
   }
 
-  const board = bestStoryboard(storyboards)
-  const frame = board && hover ? storyboardFrame(board, hover.time) : undefined
-
   const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId)
   const activeTrack = caption && captionTracks.find((track) => track.id === caption.trackId)
   const activeCaptionLabel = captionLabel(captionTracks, translationLanguages, caption)
@@ -747,10 +1049,30 @@ export const PlayerControls = (
 
   return (
     <div
+      ref={controlsRef}
       css={style}
-      className={visible || scrubbing || menuOpen ? 'visible' : undefined}
+      className={[visible || scrubbing || menuOpen || filmstrip ? 'visible' : '', filmstrip ? 'filmstrip-active' : ''].filter(Boolean).join(' ') || undefined}
       style={{ '--player-height': `${video.clientHeight}px` }}
     >
+      {filmstrip && filmWindow
+        ? (
+          <div className='filmstrip-header'>
+            <div className='filmstrip-time'>
+              <span>{barClock(position)}</span>
+              {chapter ? <span className='filmstrip-chapter'>{chapter.title}</span> : undefined}
+            </div>
+            <button
+              ref={closeBtnRef}
+              type='button'
+              className='filmstrip-close'
+              aria-label='Close fine scrubbing'
+              onClick={cancelFilmstrip}
+            >
+              <X size={20} strokeWidth={2} aria-hidden='true' />
+            </button>
+          </div>
+        )
+        : undefined}
       <div
         className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
         role='slider'
@@ -763,7 +1085,7 @@ export const PlayerControls = (
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onPointerLeave={() => setHover(undefined)}
       >
         <div className='rail' ref={railRef}>
@@ -788,7 +1110,7 @@ export const PlayerControls = (
             : undefined}
           <SeekKnob handle={settings.seekHandle} style={{ left: offset(position) }} />
         </div>
-        {hover
+        {hover && !filmstrip
           ? (
             <div className='preview' style={{ left: `${hover.ratio * 100}%` }}>
               {frame
@@ -812,7 +1134,47 @@ export const PlayerControls = (
           )
           : undefined}
       </div>
-      <div className='bar'>
+      {filmstrip && filmWindow
+        ? (
+          <div
+            ref={stripRef}
+            className={stripDragging ? 'filmstrip-track dragging' : 'filmstrip-track'}
+            data-filmstrip='true'
+            role='region'
+            aria-label='Fine scrubbing filmstrip'
+            onPointerDown={onStripPointerDown}
+            onPointerMove={onStripPointerMove}
+            onPointerUp={onStripPointerUp}
+            onPointerCancel={cancelFilmstrip}
+          >
+            {filmWindow.tiles.map(tile => (
+              <button
+                key={tile.index}
+                type='button'
+                className='filmstrip-tile'
+                data-tile-time={String(tile.time)}
+                aria-label={`Seek to ${barClock(tile.time)}`}
+                style={{
+                  left: `${tile.leftPx}px`,
+                  width: `${filmWindow.tileWidth}px`,
+                  height: `${filmWindow.tileHeight}px`,
+                  backgroundImage: `url("${tile.url}")`,
+                  backgroundSize: `${filmWindow.sheetWidth}px auto`,
+                  backgroundPosition: `-${tile.bgX}px -${tile.bgY}px`,
+                }}
+                onClick={(event: MouseEvent) => {
+                  // Pointer clicks are handled in onStripPointerUp so strip drags stay reliable under setPointerCapture
+                  if (event.detail !== 0) return
+                  video.currentTime = base + clampPlayTime(tile.time)
+                  cancelFilmstrip()
+                }}
+              />
+            ))}
+            <div className='filmstrip-playhead' aria-hidden='true' />
+          </div>
+        )
+        : (
+          <div className='bar'>
         <div className='left'>
           <button
             type='button'
@@ -1202,6 +1564,7 @@ export const PlayerControls = (
           </button>
         </div>
       </div>
+        )}
     </div>
   )
 }
