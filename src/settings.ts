@@ -1,3 +1,4 @@
+import type { AmbientArea, AmbientFillMode } from './player/ambient-options'
 import type { CaptionLook } from './player/caption-style'
 import type { MiniplayerPosition } from './player/miniplayer-size'
 import type { TheaterMode } from './player/theater'
@@ -7,6 +8,14 @@ import type { SeekHandle } from './theme/seek-handle'
 import { useEffect, useState } from 'preact/hooks'
 
 import { normalizeLanguageCode } from './frame/captions'
+import {
+  AMBIENT_AREA_DEFAULT,
+  AMBIENT_FILL_MODE_DEFAULT,
+  AMBIENT_SPREAD_DEFAULT,
+  coerceAmbientArea,
+  coerceAmbientFillMode,
+  coerceAmbientSpread,
+} from './player/ambient-options'
 import { CAPTION_OPTIONS } from './player/caption-style'
 import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
@@ -48,6 +57,9 @@ export type Settings = {
   captionPosition?: CaptionPosition
   theater: TheaterMode
   ambientMode: boolean
+  ambientArea: AmbientArea
+  ambientSpread: number
+  ambientFillMode: AmbientFillMode
   annotations: boolean
   sleepTimerEnabled: boolean
   miniplayerWidth?: number
@@ -87,6 +99,9 @@ export const DEFAULT_SETTINGS: Settings = {
   captionOpacity: 1,
   theater: 'default',
   ambientMode: true,
+  ambientArea: AMBIENT_AREA_DEFAULT,
+  ambientSpread: AMBIENT_SPREAD_DEFAULT,
+  ambientFillMode: AMBIENT_FILL_MODE_DEFAULT,
   annotations: true,
   sleepTimerEnabled: true,
   miniplayerWidth: undefined,
@@ -156,6 +171,9 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     captionPosition,
     theater: coerceTheaterMode(stored.theater),
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
+    ambientArea: coerceAmbientArea(stored.ambientArea),
+    ambientSpread: coerceAmbientSpread(stored.ambientSpread),
+    ambientFillMode: coerceAmbientFillMode(stored.ambientFillMode),
     annotations: typeof stored.annotations === 'boolean' ? stored.annotations : DEFAULT_SETTINGS.annotations,
     sleepTimerEnabled: typeof stored.sleepTimerEnabled === 'boolean' ? stored.sleepTimerEnabled : DEFAULT_SETTINGS.sleepTimerEnabled,
     miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
@@ -214,6 +232,9 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...patch,
     ...('captionsLanguage' in patch ? { captionsLanguage: normalizeLanguageCode(patch.captionsLanguage) } : {}),
     ...('captionsSkipLanguages' in patch ? { captionsSkipLanguages: coerceSkipLanguages(patch.captionsSkipLanguages) } : {}),
+    ...('ambientArea' in patch ? { ambientArea: coerceAmbientArea(patch.ambientArea) } : {}),
+    ...('ambientSpread' in patch ? { ambientSpread: coerceAmbientSpread(patch.ambientSpread) } : {}),
+    ...('ambientFillMode' in patch ? { ambientFillMode: coerceAmbientFillMode(patch.ambientFillMode) } : {}),
     ...('customThemeColor' in patch ? { customThemeColor: normalizeHexColor(patch.customThemeColor) } : {}),
     ...('theater' in patch ? { theater: coerceTheaterMode(patch.theater) } : {}),
     ...('miniplayerWidth' in patch ? { miniplayerWidth: coerceMiniplayerWidth(patch.miniplayerWidth) } : {}),

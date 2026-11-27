@@ -4,13 +4,28 @@ vi.mock('@emotion/react', () => ({ css: () => '' }))
 vi.mock('@emotion/react/jsx-runtime', () => ({ jsx: () => null, jsxs: () => null }))
 vi.mock('@emotion/react/jsx-dev-runtime', () => ({ jsxDEV: () => null }))
 
+import type { AmbientDrawContext } from '../../../src/player/ambient-glow'
+
 import {
   ambientBarOpacity,
   ambientOpacity,
+  computeAverageFrameColor,
   computeContainedVideoRect,
   detectSymmetricBarCrop,
+  drawAmbientFrame,
   drawEdgeMatchedFrame,
 } from '../../../src/player/ambient-glow'
+import {
+  AMBIENT_AREA_DEFAULT,
+  AMBIENT_FILL_MODE_DEFAULT,
+  AMBIENT_SPREAD_DEFAULT,
+  AMBIENT_SPREAD_MAX,
+  AMBIENT_SPREAD_MIN,
+  coerceAmbientArea,
+  coerceAmbientFillMode,
+  coerceAmbientSpread,
+  computeAmbientGlowVars,
+} from '../../../src/player/ambient-options'
 
 const makePixels = (width: number, height: number, colorAt: (x: number, y: number) => [number, number, number]) => {
   const out = new Uint8ClampedArray(width * height * 4)
@@ -148,5 +163,82 @@ describe('drawEdgeMatchedFrame', () => {
     expect(drawCalls[6]).toMatchObject({ sx: 59, sy: 0, sw: 5, sh: 3, tx: 64, ty: 4, scaleX: -1, scaleY: -1 })
     expect(drawCalls[7]).toMatchObject({ sx: 0, sy: 33, sw: 5, sh: 3, tx: 10, ty: 36, scaleX: -1, scaleY: -1 })
     expect(drawCalls[8]).toMatchObject({ sx: 59, sy: 33, sw: 5, sh: 3, tx: 64, ty: 36, scaleX: -1, scaleY: -1 })
+  })
+})
+
+describe('ambient customization options', () => {
+  it('coerces invalid area, spread, and fillMode values safely', () => {
+    expect(coerceAmbientArea('sides')).toBe('sides')
+    expect(coerceAmbientArea('full-page')).toBe('full-page')
+    expect(coerceAmbientArea('bogus')).toBe(AMBIENT_AREA_DEFAULT)
+
+    expect(coerceAmbientSpread(150)).toBe(150)
+    expect(coerceAmbientSpread(5)).toBe(AMBIENT_SPREAD_MIN)
+    expect(coerceAmbientSpread(999)).toBe(AMBIENT_SPREAD_MAX)
+    expect(coerceAmbientSpread(Number.NaN)).toBe(AMBIENT_SPREAD_DEFAULT)
+
+    expect(coerceAmbientFillMode('vivid')).toBe('vivid')
+    expect(coerceAmbientFillMode('average')).toBe('average')
+    expect(coerceAmbientFillMode(42)).toBe(AMBIENT_FILL_MODE_DEFAULT)
+  })
+
+  it('computes placement-aware spread offsets, full-page fixed layout, and vivid boosts', () => {
+    const watchAround = computeAmbientGlowVars('around', 100, 'edge', 'watch')
+    const shortsAround = computeAmbientGlowVars('around', 100, 'edge', 'shorts')
+    expect(watchAround.position).toBe('absolute')
+    expect(shortsAround.position).toBe('absolute')
+    // Shorts side spread at 100% (-14rem) is wider than Watch (-6.4rem) so Shorts ambient glow isn't shy.
+    expect(Math.abs(Number.parseFloat(shortsAround.left))).toBeGreaterThan(Math.abs(Number.parseFloat(watchAround.left)))
+
+    const sides = computeAmbientGlowVars('sides', 150, 'edge', 'watch')
+    expect(sides.top).toBe('0px')
+    expect(sides.bottom).toBe('0px')
+    expect(sides.left).toBe('-14.40rem')
+
+    const topBottom = computeAmbientGlowVars('top-bottom', 100, 'edge', 'watch')
+    expect(topBottom.left).toBe('0px')
+    expect(topBottom.right).toBe('0px')
+    expect(topBottom.top).toBe('-6.40rem')
+
+    const fullPage = computeAmbientGlowVars('full-page', 120, 'vivid', 'shorts')
+    expect(fullPage.position).toBe('fixed')
+    expect(fullPage.top).toBe('0px')
+    expect(fullPage.right).toBe('0px')
+    expect(fullPage.bottom).toBe('0px')
+    expect(fullPage.left).toBe('0px')
+    expect(fullPage.mask).toBe('none')
+    expect(fullPage.filter).toContain('saturate(2.2)')
+    expect(fullPage.opacityScale).toBeGreaterThan(1)
+  })
+
+  it('computes cropped average color and dispatches fill modes in drawAmbientFrame', () => {
+    const pixels = makePixels(4, 4, (x) => (x === 0 || x === 3 ? [0, 0, 0] : [120, 60, 180]))
+    expect(computeAverageFrameColor(pixels, 4, 4, { x: 1, y: 0, w: 2, h: 4 })).toBe('rgb(120, 60, 180)')
+    expect(computeAverageFrameColor(pixels, 0, 4)).toBeUndefined()
+
+    const drawCalls: { sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number }[] = []
+    const clearCalls: [number, number, number, number][] = []
+    const fillRectCalls: [number, number, number, number][] = []
+    const ctx: AmbientDrawContext = {
+      clearRect: (x, y, width, height) => { clearCalls.push([x, y, width, height]) },
+      drawImage: (_img, sx, sy, sw, sh, dx, dy, dw, dh) => { drawCalls.push({ sx, sy, sw, sh, dx, dy, dw, dh }) },
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      scale: () => {},
+      fillStyle: '',
+      fillRect: (x: number, y: number, width: number, height: number) => {
+        fillRectCalls.push([x, y, width, height])
+      },
+    }
+
+    drawAmbientFrame(ctx, {} as CanvasImageSource, 64, 36, 64, 36, { x: 10, y: 0, width: 44, height: 36 }, { x: 4, y: 2, w: 56, h: 32 }, 'average', 'rgb(10, 20, 30)')
+    expect(ctx.fillStyle).toBe('rgb(10, 20, 30)')
+    expect(fillRectCalls).toEqual([[0, 0, 64, 36]])
+    expect(drawCalls).toHaveLength(0)
+
+    drawAmbientFrame(ctx, {} as CanvasImageSource, 64, 36, 64, 36, { x: 10, y: 0, width: 44, height: 36 }, { x: 4, y: 2, w: 56, h: 32 }, 'stretch', undefined)
+    expect(clearCalls).toHaveLength(2)
+    expect(drawCalls).toEqual([expect.objectContaining({ sx: 4, sy: 2, sw: 56, sh: 32, dx: 0, dy: 0, dw: 64, dh: 36 })])
   })
 })

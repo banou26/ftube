@@ -1,5 +1,15 @@
+import type { AmbientArea, AmbientFillMode, AmbientPlacement } from './ambient-options'
+
 import { css } from '@emotion/react'
 import { useEffect, useRef, useState } from 'preact/hooks'
+
+import { useSetting } from '../settings'
+import {
+  coerceAmbientArea,
+  coerceAmbientFillMode,
+  coerceAmbientSpread,
+  computeAmbientGlowVars,
+} from './ambient-options'
 
 const AMBIENT_WIDTH = 64
 const AMBIENT_HEIGHT = 36
@@ -55,6 +65,8 @@ export type AmbientDrawContext = {
   restore: () => void
   translate: (x: number, y: number) => void
   scale: (x: number, y: number) => void
+  fillStyle?: string | CanvasGradient | CanvasPattern
+  fillRect?: (x: number, y: number, width: number, height: number) => void
 }
 
 /**
@@ -274,10 +286,78 @@ export const drawEdgeMatchedFrame = (
   }
 }
 
+/** Computes the average RGB color across the cropped video frame for solid-fill ambient mode. */
+export const computeAverageFrameColor = (
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  crop?: AmbientCrop,
+): string | undefined => {
+  const safeWidth = Math.max(0, width)
+  const safeHeight = Math.max(0, height)
+  if (safeWidth === 0 || safeHeight === 0 || pixels.length < safeWidth * safeHeight * 4) return undefined
+  const sx = crop ? Math.max(0, Math.min(safeWidth, Math.floor(crop.x))) : 0
+  const sy = crop ? Math.max(0, Math.min(safeHeight, Math.floor(crop.y))) : 0
+  const sw = crop ? Math.max(1, Math.min(safeWidth - sx, Math.floor(crop.w))) : safeWidth
+  const sh = crop ? Math.max(1, Math.min(safeHeight - sy, Math.floor(crop.h))) : safeHeight
+  let rSum = 0
+  let gSum = 0
+  let bSum = 0
+  let count = 0
+  for (let py = sy; py < sy + sh; py += 1) {
+    const rowOffset = py * safeWidth
+    for (let px = sx; px < sx + sw; px += 1) {
+      const i = (rowOffset + px) * 4
+      rSum += pixels[i] ?? 0
+      gSum += pixels[i + 1] ?? 0
+      bSum += pixels[i + 2] ?? 0
+      count += 1
+    }
+  }
+  if (count === 0) return undefined
+  return `rgb(${Math.round(rSum / count)}, ${Math.round(gSum / count)}, ${Math.round(bSum / count)})`
+}
+
+/** Draws an ambient frame using edge matching, full-frame stretch, or averaged solid color. */
+export const drawAmbientFrame = (
+  ctx: AmbientDrawContext,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  videoRect: AmbientVideoRect,
+  crop: AmbientCrop | undefined,
+  fillMode: AmbientFillMode,
+  averageColor: string | undefined,
+  clear = true,
+) => {
+  if (fillMode === 'average' && averageColor && ctx.fillRect) {
+    if (clear) ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+    if (canvasWidth <= 0 || canvasHeight <= 0) return
+    ctx.fillStyle = averageColor
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+    return
+  }
+  if (fillMode === 'stretch') {
+    if (clear) ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+    if (canvasWidth <= 0 || canvasHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0) return
+    const sx = crop ? Math.max(0, Math.min(sourceWidth, crop.x)) : 0
+    const sy = crop ? Math.max(0, Math.min(sourceHeight, crop.y)) : 0
+    const sw = crop ? Math.max(1, Math.min(sourceWidth - sx, crop.w)) : sourceWidth
+    const sh = crop ? Math.max(1, Math.min(sourceHeight - sy, crop.h)) : sourceHeight
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvasWidth, canvasHeight)
+    return
+  }
+  drawEdgeMatchedFrame(ctx, source, sourceWidth, sourceHeight, canvasWidth, canvasHeight, videoRect, crop, clear)
+}
+
 type CanvasTarget = {
   canvas: HTMLCanvasElement
+  fillMode: AmbientFillMode
   seeded: boolean
   lastRectKey: string
+  lastFillMode?: AmbientFillMode
 }
 
 type VideoSampler = {
@@ -321,6 +401,7 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
   const scratchCtx = scratch.getContext('2d', { willReadFrequently: true })
   const targets = new Set<CanvasTarget>()
   let lastCrop: AmbientCrop = { x: 0, y: 0, w: AMBIENT_WIDTH, h: AMBIENT_HEIGHT }
+  let lastAverageColor: string | undefined
   let hasSample = false
   let frameId = 0
   let lastDrawn = 0
@@ -330,13 +411,14 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
     const ctx = target.canvas.getContext('2d')
     if (!ctx) return
     const { rect, key } = rectForTarget(video, target.canvas)
-    const snap = instant || !target.seeded || target.lastRectKey !== key
+    const snap = instant || !target.seeded || target.lastRectKey !== key || target.lastFillMode !== target.fillMode
     const previousAlpha = ctx.globalAlpha
     ctx.globalAlpha = snap ? 1 : BLEND_ALPHA
-    drawEdgeMatchedFrame(ctx, scratch, AMBIENT_WIDTH, AMBIENT_HEIGHT, target.canvas.width, target.canvas.height, rect, lastCrop, snap)
+    drawAmbientFrame(ctx, scratch, AMBIENT_WIDTH, AMBIENT_HEIGHT, target.canvas.width, target.canvas.height, rect, lastCrop, target.fillMode, lastAverageColor, snap)
     ctx.globalAlpha = previousAlpha
     target.seeded = true
     target.lastRectKey = key
+    target.lastFillMode = target.fillMode
   }
 
   const sample = (instant: boolean) => {
@@ -344,13 +426,16 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
     try {
       scratchCtx.drawImage(video, 0, 0, AMBIENT_WIDTH, AMBIENT_HEIGHT)
       let crop: AmbientCrop = { x: 0, y: 0, w: AMBIENT_WIDTH, h: AMBIENT_HEIGHT }
+      let averageColor: string | undefined
       try {
         const data = scratchCtx.getImageData(0, 0, AMBIENT_WIDTH, AMBIENT_HEIGHT).data
         crop = detectSymmetricBarCrop(data, AMBIENT_WIDTH, AMBIENT_HEIGHT)
+        averageColor = computeAverageFrameColor(data, AMBIENT_WIDTH, AMBIENT_HEIGHT, crop)
       } catch {
         // Fallback to full frame if pixel readback is blocked.
       }
       lastCrop = crop
+      lastAverageColor = averageColor
       hasSample = true
       for (const target of targets) drawTarget(target, instant)
     } catch {
@@ -414,13 +499,17 @@ const createVideoSampler = (video: HTMLVideoElement): VideoSampler => {
   }
 }
 
-const subscribeAmbientVideo = (video: HTMLVideoElement, canvas: HTMLCanvasElement) => {
+const subscribeAmbientVideo = (
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  fillMode: AmbientFillMode,
+) => {
   let sampler = samplers.get(video)
   if (!sampler) {
     sampler = createVideoSampler(video)
     samplers.set(video, sampler)
   }
-  const target: CanvasTarget = { canvas, seeded: false, lastRectKey: '' }
+  const target: CanvasTarget = { canvas, fillMode, seeded: false, lastRectKey: '' }
   sampler.targets.add(target)
   sampler.sample(true)
   sampler.drawTarget(target, true)
@@ -447,14 +536,17 @@ const clearCanvas = (canvas: HTMLCanvasElement | null) => {
 }
 
 const glowStyle = css`
-  position: absolute;
-  inset: -4.8rem -6.4rem -11.2rem;
+  position: var(--ambient-position, absolute);
+  top: var(--ambient-top, -4.8rem);
+  right: var(--ambient-right, -6.4rem);
+  bottom: var(--ambient-bottom, -11.2rem);
+  left: var(--ambient-left, -6.4rem);
   z-index: -1;
   pointer-events: none;
   opacity: var(--ambient-opacity, 0);
   transition: opacity 0.4s ease;
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 45%, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.75) 87%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 45%, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.75) 87%, transparent 100%);
+  mask-image: var(--ambient-mask, radial-gradient(ellipse 50% 50% at 50% 45%, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.75) 87%, transparent 100%));
+  -webkit-mask-image: var(--ambient-mask, radial-gradient(ellipse 50% 50% at 50% 45%, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.75) 87%, transparent 100%));
 
   :root[data-theme='light'] & {
     opacity: calc(var(--ambient-opacity, 0) * 0.35);
@@ -464,7 +556,7 @@ const glowStyle = css`
     display: block;
     width: 100%;
     height: 100%;
-    filter: blur(5.2rem) saturate(1.65) brightness(1.08);
+    filter: var(--ambient-filter, blur(5.2rem) saturate(1.65) brightness(1.08));
     transform: translateZ(0);
   }
 `
@@ -486,7 +578,7 @@ const barsStyle = css`
     display: block;
     width: calc(100% + 8rem);
     height: calc(100% + 8rem);
-    filter: blur(3.6rem) saturate(1.55) brightness(0.92);
+    filter: var(--ambient-bars-filter, blur(3.6rem) saturate(1.55) brightness(0.92));
     transform: translateZ(0);
   }
 `
@@ -511,18 +603,30 @@ const useReducedMotion = () => {
   return reducedMotion
 }
 
-/** Soft blurred color glow behind the watch player, sampled from the video element. */
+/** Soft blurred color glow behind the watch or shorts player, sampled from the video element. */
 export const AmbientGlow = (
-  { video, enabled, fullscreen, docked }: {
+  { video, enabled, fullscreen, docked, placement = 'watch', area, spread, fillMode }: {
     video: HTMLVideoElement | null
     enabled: boolean
     fullscreen: boolean
     docked: boolean
+    placement?: AmbientPlacement
+    area?: AmbientArea
+    spread?: number
+    fillMode?: AmbientFillMode
   },
 ) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reducedMotion = useReducedMotion()
-  const opacity = ambientOpacity({ enabled, fullscreen, docked, reducedMotion })
+  const settingArea = useSetting('ambientArea')
+  const settingSpread = useSetting('ambientSpread')
+  const settingFillMode = useSetting('ambientFillMode')
+  const resolvedArea = area !== undefined ? coerceAmbientArea(area) : settingArea
+  const resolvedSpread = spread !== undefined ? coerceAmbientSpread(spread) : settingSpread
+  const resolvedFillMode = fillMode !== undefined ? coerceAmbientFillMode(fillMode) : settingFillMode
+  const vars = computeAmbientGlowVars(resolvedArea, resolvedSpread, resolvedFillMode, placement)
+  const baseOpacity = ambientOpacity({ enabled, fullscreen, docked, reducedMotion })
+  const opacity = baseOpacity > 0 ? Math.min(0.95, baseOpacity * vars.opacityScale) : 0
   const active = opacity > 0
 
   useEffect(() => {
@@ -536,11 +640,11 @@ export const AmbientGlow = (
       return
     }
     if (!active || !canvas) return
-    const unsubscribe = subscribeAmbientVideo(video, canvas)
+    const unsubscribe = subscribeAmbientVideo(video, canvas, resolvedFillMode)
     return () => {
       unsubscribe()
     }
-  }, [active, video])
+  }, [active, video, resolvedFillMode])
 
   if (docked || fullscreen) return null
 
@@ -549,7 +653,20 @@ export const AmbientGlow = (
       css={glowStyle}
       data-ambient-glow=''
       data-active={active ? 'true' : 'false'}
-      style={{ '--ambient-opacity': String(opacity) }}
+      data-ambient-area={resolvedArea}
+      data-ambient-spread={String(resolvedSpread)}
+      data-ambient-fill-mode={resolvedFillMode}
+      data-ambient-placement={placement}
+      style={{
+        '--ambient-opacity': String(opacity),
+        '--ambient-position': vars.position,
+        '--ambient-top': vars.top,
+        '--ambient-right': vars.right,
+        '--ambient-bottom': vars.bottom,
+        '--ambient-left': vars.left,
+        '--ambient-mask': vars.mask,
+        '--ambient-filter': vars.filter,
+      }}
       aria-hidden='true'
     >
       <canvas ref={canvasRef} width={AMBIENT_WIDTH} height={AMBIENT_HEIGHT} />
@@ -562,17 +679,20 @@ export const AmbientGlow = (
  * coloring any left/right or top/bottom matte bars with a smooth gradient of the video.
  */
 export const AmbientBars = (
-  { video, enabled, fullscreen, docked, hasFrame, blocked }: {
+  { video, enabled, fullscreen, docked, hasFrame, blocked, fillMode }: {
     video: HTMLVideoElement | null
     enabled: boolean
     fullscreen: boolean
     docked: boolean
     hasFrame: boolean
     blocked: boolean
+    fillMode?: AmbientFillMode
   },
 ) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reducedMotion = useReducedMotion()
+  const settingFillMode = useSetting('ambientFillMode')
+  const resolvedFillMode = fillMode !== undefined ? coerceAmbientFillMode(fillMode) : settingFillMode
   const opacity = ambientBarOpacity({ enabled, fullscreen, docked, reducedMotion, hasFrame, blocked })
   const active = opacity > 0
 
@@ -587,8 +707,8 @@ export const AmbientBars = (
       return
     }
     if (!active || !canvas) return
-    return subscribeAmbientVideo(video, canvas)
-  }, [active, video])
+    return subscribeAmbientVideo(video, canvas, resolvedFillMode)
+  }, [active, video, resolvedFillMode])
 
   if (docked || fullscreen) return null
 
@@ -597,7 +717,13 @@ export const AmbientBars = (
       css={barsStyle}
       data-ambient-bars=''
       data-active={active ? 'true' : 'false'}
-      style={{ opacity }}
+      data-ambient-fill-mode={resolvedFillMode}
+      style={{
+        opacity,
+        '--ambient-bars-filter': resolvedFillMode === 'vivid'
+          ? 'blur(3.6rem) saturate(2.1) brightness(1.02)'
+          : 'blur(3.6rem) saturate(1.55) brightness(0.92)',
+      }}
       aria-hidden='true'
     >
       <canvas ref={canvasRef} width={AMBIENT_WIDTH} height={AMBIENT_HEIGHT} />

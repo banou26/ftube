@@ -19,6 +19,13 @@ import {
   useFeedViewSettings,
 } from '../feeds/settings'
 import { COMMON_CAPTION_LANGUAGES, normalizeLanguageCode } from '../frame/captions'
+import {
+  AMBIENT_AREA_OPTIONS,
+  AMBIENT_FILL_MODE_OPTIONS,
+  AMBIENT_SPREAD_MAX,
+  AMBIENT_SPREAD_MIN,
+  AMBIENT_SPREAD_PRESETS,
+} from '../player/ambient-options'
 import { getSleepTimer, setSleepTimer, SLEEP_MINUTES, sleepDuration, subscribeSleepTimer } from '../player/sleep-timer'
 import { SpeedPicker } from '../player/speed-picker'
 import { SPONSORBLOCK_URL } from '../player/sponsorblock'
@@ -336,6 +343,19 @@ const page = css`
     flex-wrap: wrap;
     align-items: center;
     gap: 0.8rem;
+  }
+
+  .spread-slider {
+    width: 14rem;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .spread-value {
+    min-width: 4.4rem;
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
   }
 
   @media (max-width: 860px) {
@@ -694,6 +714,80 @@ export const SettingsPage = () => {
                         checked={settings.ambientMode}
                         onChange={() => set({ ambientMode: !settings.ambientMode })}
                       />
+                      {settings.ambientMode
+                        ? (
+                          <>
+                            <div className='row'>
+                              <div className='row-label'>Ambient area</div>
+                              <div className='choices' role='group' aria-label='Ambient area'>
+                                {AMBIENT_AREA_OPTIONS.map(option => (
+                                  <button
+                                    type='button'
+                                    key={option.value}
+                                    className={settings.ambientArea === option.value ? 'choice active' : 'choice'}
+                                    aria-pressed={settings.ambientArea === option.value}
+                                    onClick={() => set({ ambientArea: option.value })}
+                                  >
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className='row'>
+                              <div>
+                                <div className='row-label'>Ambient spread</div>
+                                <p className='sub-note'>Controls how far ambient colors bleed around the player.</p>
+                              </div>
+                              <div className='inline-fields'>
+                                <input
+                                  type='range'
+                                  className='spread-slider'
+                                  min={AMBIENT_SPREAD_MIN}
+                                  max={AMBIENT_SPREAD_MAX}
+                                  step={5}
+                                  aria-label='Ambient spread'
+                                  value={settings.ambientSpread}
+                                  onInput={(event: { currentTarget: HTMLInputElement }) => set({
+                                    ambientSpread: Number(event.currentTarget.value),
+                                  })}
+                                />
+                                <span className='spread-value' data-ambient-spread-value='true'>
+                                  {`${settings.ambientSpread}%`}
+                                </span>
+                                <div className='choices' role='group' aria-label='Ambient spread presets'>
+                                  {AMBIENT_SPREAD_PRESETS.map(preset => (
+                                    <button
+                                      type='button'
+                                      key={preset}
+                                      className={settings.ambientSpread === preset ? 'choice active' : 'choice'}
+                                      aria-pressed={settings.ambientSpread === preset}
+                                      onClick={() => set({ ambientSpread: preset })}
+                                    >
+                                      {`${preset}%`}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <div className='row'>
+                              <div className='row-label'>Filling mode</div>
+                              <div className='choices' role='group' aria-label='Filling mode'>
+                                {AMBIENT_FILL_MODE_OPTIONS.map(option => (
+                                  <button
+                                    type='button'
+                                    key={option.value}
+                                    className={settings.ambientFillMode === option.value ? 'choice active' : 'choice'}
+                                    aria-pressed={settings.ambientFillMode === option.value}
+                                    onClick={() => set({ ambientFillMode: option.value })}
+                                  >
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )
+                        : undefined}
                     </div>
                   </div>
 

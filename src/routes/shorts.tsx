@@ -78,6 +78,8 @@ const style = css`
   }
 
   .slide {
+    position: relative;
+    isolation: isolate;
     box-sizing: border-box;
     height: 100%;
     scroll-snap-align: center;
@@ -115,10 +117,11 @@ const style = css`
     aspect-ratio: 9 / 16;
     max-width: calc(100vw - 10rem);
     flex: none;
-    isolation: isolate;
   }
 
   .rail {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -549,6 +552,7 @@ const Slide = (
           enabled={ambientMode && active}
           fullscreen={mediaState?.fullscreen ?? false}
           docked={false}
+          placement='shorts'
         />
         <ShortsPlayer
           videoId={id}
