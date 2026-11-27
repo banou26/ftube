@@ -608,9 +608,9 @@ export const startShakaPlayback = async ({
         .filter((candidate) => candidate.height === targetHeight)
         .sort((a, b) => b.bandwidth - a.bandwidth)[0]
       if (!track) return
-      // going UP drops the already-buffered lower quality and refetches, with SAFE_MARGIN of decoded video left in front of the playhead
-      const upgrade = (video.videoHeight || 0) > 0 && targetHeight > video.videoHeight
-      activePlayer.selectVariantTrack(track, upgrade, upgrade ? SAFE_MARGIN_SECONDS : 0)
+      // Changing manual quality drops already-buffered segments past SAFE_MARGIN so upgrades and downgrades take effect promptly.
+      const changed = (video.videoHeight || 0) > 0 && targetHeight !== video.videoHeight
+      activePlayer.selectVariantTrack(track, changed, changed ? SAFE_MARGIN_SECONDS : 0)
     }
 
     const supportedAudio = session.isLive

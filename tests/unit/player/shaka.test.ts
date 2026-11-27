@@ -641,4 +641,33 @@ describe('startup ABR alignment and cache reporting in Shaka', () => {
     ])
     await controller.destroy()
   })
+
+  it('clears buffer with safe margin when manually downgrading quality so videoHeight updates promptly', async () => {
+    const formats = [
+      { key: '313:', itag: 313, mimeType: 'video/mp4; codecs="vp09.00.51.08"', bitrate: 18_000_000, width: 3_840, height: 2_160 },
+      { key: '136:', itag: 136, mimeType: 'video/mp4; codecs="avc1.4d401f"', bitrate: 2_000_000, width: 1_280, height: 720 },
+    ]
+    const { api, controller, player, video } = await start({
+      videoFormats: formats,
+      audioFormats,
+      selectedVideoKey: '313:',
+      selectedAudioKey: '251:',
+    })
+    ;(video as { videoHeight: number }).videoHeight = 2_160
+    player.variants = [
+      { active: true, audioId: 1, height: 2_160, bandwidth: 18_000_000 },
+      { active: false, audioId: 1, height: 720, bandwidth: 2_000_000 },
+    ]
+
+    await controller.selectQuality(720)
+
+    expect(api.selectVideoFormat).toHaveBeenCalledWith('playback:1', '136:')
+    expect(player.abrEnabled).toBe(false)
+    expect(player.selectedVariantCalls.at(-1)).toEqual([
+      expect.objectContaining({ height: 720 }),
+      true,
+      1,
+    ])
+    await controller.destroy()
+  })
 })

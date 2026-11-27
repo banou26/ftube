@@ -12,6 +12,7 @@ export type QualityHarnessOptions = {
   heights: number[]
   initialVideoHeight: number
   variantHeight?: number
+  syncVideoHeightOnPick?: boolean
 }
 
 class FakeShakaPlayer extends EventTarget {
@@ -35,7 +36,7 @@ class FakeShakaPlayer extends EventTarget {
   }
 }
 
-const QualityHarness = ({ heights, initialVideoHeight, variantHeight = 0 }: QualityHarnessOptions) => {
+const QualityHarness = ({ heights, initialVideoHeight, variantHeight = 0, syncVideoHeightOnPick = true }: QualityHarnessOptions) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [quality, setQuality] = useState<QualityPreference>(() => getSettings().quality)
@@ -93,13 +94,15 @@ const QualityHarness = ({ heights, initialVideoHeight, variantHeight = 0 }: Qual
     const element = videoRef.current
     if (!element) return
     if (value === 'auto') {
-      videoHeightRef.current = initialVideoHeight
-      element.dispatchEvent(new Event('resize'))
-    } else if (heights.includes(value)) {
+      if (syncVideoHeightOnPick) {
+        videoHeightRef.current = initialVideoHeight
+        element.dispatchEvent(new Event('resize'))
+      }
+    } else if (syncVideoHeightOnPick && heights.includes(value)) {
       videoHeightRef.current = value
       element.dispatchEvent(new Event('resize'))
     }
-  }, [heights, initialVideoHeight])
+  }, [heights, initialVideoHeight, syncVideoHeightOnPick])
 
   return (
     <div

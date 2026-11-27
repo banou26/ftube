@@ -23,7 +23,7 @@ import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } 
 import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
-import { qualityBadgeLabel, resolveQualityDisplay } from './quality'
+import { qualityBadgeLabel, resolveQualityBadgeHeight, resolveQualityDisplay } from './quality'
 import { rateDetail } from './rates'
 import { atLiveEdge } from './seek-window'
 import { SeekKnob } from './seek-knob'
@@ -1081,9 +1081,7 @@ export const PlayerControls = (
   const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
   const playingHeight = state.videoHeight && state.videoHeight > 0 ? state.videoHeight : video.videoHeight
   const resolvedQuality = resolveQualityDisplay({ preference: quality, heights, playingHeight })
-  const badgeHeight = playingHeight > 0
-    ? playingHeight
-    : (typeof resolvedQuality.selected === 'number' ? resolvedQuality.selected : undefined)
+  const badgeHeight = resolveQualityBadgeHeight({ preference: quality, heights, playingHeight })
   const qualityBadge = qualityBadgeLabel(badgeHeight)
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is

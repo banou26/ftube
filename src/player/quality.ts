@@ -68,3 +68,19 @@ export const resolveQualityDisplay = ({
     activeLabel,
   }
 }
+
+/** Picks the height that drives the Settings button quality badge: manual selection immediately, playing height in Auto. */
+export const resolveQualityBadgeHeight = ({
+  preference,
+  heights,
+  playingHeight,
+}: {
+  preference: QualityPreference
+  heights: readonly number[]
+  playingHeight?: number
+}): number | undefined => {
+  const actual = typeof playingHeight === 'number' && playingHeight > 0 ? playingHeight : undefined
+  if (preference === 'auto') return actual
+  const resolved = resolveQualityDisplay({ preference, heights, playingHeight })
+  return typeof resolved.selected === 'number' ? resolved.selected : actual
+}

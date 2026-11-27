@@ -117,6 +117,12 @@ test('shows active playing quality badge (8K, 4K, HD) on the Settings button wit
   const setHeight = (h: number) => page.evaluate((height) => {
     (window as unknown as { __qualityHarness: { setVideoHeight: (val: number) => void } }).__qualityHarness.setVideoHeight(height)
   }, h)
+  const setQualitySetting = (q: 'auto' | number) => page.evaluate((next) => {
+    (window as unknown as { __qualityHarness: { setQualitySetting: (val: 'auto' | number) => void } }).__qualityHarness.setQualitySetting(next)
+  }, q)
+
+  // Dynamic ABR playingHeight updates (8K -> HD -> none) belong to Auto mode.
+  await setQualitySetting('auto')
 
   await setHeight(4320)
   await expect(badge).toHaveAttribute('data-quality-badge', '8K')
@@ -133,6 +139,7 @@ test('shows active playing quality badge (8K, 4K, HD) on the Settings button wit
   await expect(settingsBtn.locator('[data-quality-badge]')).toHaveCount(0)
 
   // Saved 2160 preference on a 1080p-max video shows HD (not 4K).
+  await setQualitySetting(2160)
   await page.evaluate(async () => {
     const harness = '/tests/browser/fixtures/quality-harness.tsx'
     const mod = await import(harness) as {
@@ -144,4 +151,70 @@ test('shows active playing quality badge (8K, 4K, HD) on the Settings button wit
     })
   })
   await expect(settingsBtn.locator('.quality-badge')).toHaveAttribute('data-quality-badge', 'HD')
+})
+
+test('immediately refreshes Settings button quality badge on manual quality switch even before decoded videoHeight drains', async ({ page }) => {
+  test.setTimeout(120_000)
+  await hideFknNotice(page)
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.addInitScript(() => {
+    localStorage.setItem('yt-client:settings', JSON.stringify({ quality: 'auto' }))
+  })
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/privacy')
+  await page.evaluate(async () => {
+    const harness = '/tests/browser/fixtures/quality-harness.tsx'
+    const mod = await import(harness) as {
+      mountQualityHarness: (opts: {
+        heights: number[]
+        initialVideoHeight: number
+        variantHeight?: number
+        syncVideoHeightOnPick?: boolean
+      }) => void
+    }
+    mod.mountQualityHarness({
+      heights: [2160, 1440, 1080, 720, 480, 360],
+      initialVideoHeight: 2160,
+      syncVideoHeightOnPick: false,
+    })
+  })
+
+  const harness = page.locator('[data-quality-harness]')
+  const settingsBtn = harness.getByRole('button', { name: 'Settings', exact: true })
+  await expect(settingsBtn).toBeVisible({ timeout: 60_000 })
+
+  const badge = settingsBtn.locator('.quality-badge')
+  await expect(badge).toHaveAttribute('data-quality-badge', '4K')
+
+  const pickQuality = async (label: string) => {
+    await settingsBtn.click()
+    await harness.getByRole('menu', { name: 'Player settings' }).getByRole('menuitem', { name: /Quality/ }).click()
+    await harness
+      .getByRole('menu', { name: 'Quality' })
+      .getByRole('menuitem', { name: label === 'Auto' ? /^Auto/ : label, exact: label !== 'Auto' })
+      .click()
+  }
+
+  await pickQuality('720p')
+  await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
+  await expect(badge).toHaveText('HD')
+
+  // Shaka variantchanged also refreshes Auto's active resolution label immediately while decoded videoHeight lags.
+  await page.evaluate(() => {
+    (window as unknown as { __qualityHarness: { setVariantHeight: (val: number) => void } }).__qualityHarness.setVariantHeight(720)
+  })
+  await settingsBtn.click()
+  await harness.getByRole('menu', { name: 'Player settings' }).getByRole('menuitem', { name: /Quality/ }).click()
+  await expect(harness.getByRole('menu', { name: 'Quality' }).getByRole('menuitem', { name: /^Auto/ }).locator('.detail')).toHaveText('720p')
+  await settingsBtn.click()
+
+  await pickQuality('480p')
+  await expect(settingsBtn.locator('[data-quality-badge]')).toHaveCount(0)
+
+  await pickQuality('2160p')
+  await expect(badge).toHaveAttribute('data-quality-badge', '4K')
+
+  await pickQuality('Auto')
+  await expect(badge).toHaveAttribute('data-quality-badge', 'HD')
 })

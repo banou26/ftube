@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { qualityBadgeLabel, resolveQualityDisplay, resolveQualityHeight } from '../../../src/player/quality'
+import { qualityBadgeLabel, resolveQualityBadgeHeight, resolveQualityDisplay, resolveQualityHeight } from '../../../src/player/quality'
 
 const STANDARD_HEIGHTS = [1080, 720, 480, 360, 240, 144]
 
@@ -140,5 +140,21 @@ describe('qualityBadgeLabel', () => {
     expect(qualityBadgeLabel(0)).toBeUndefined()
     expect(qualityBadgeLabel(undefined)).toBeUndefined()
     expect(qualityBadgeLabel(Number.NaN)).toBeUndefined()
+  })
+})
+
+describe('resolveQualityBadgeHeight', () => {
+  it('immediately reflects manual quality selections even while stale decoded frames are still draining', () => {
+    expect(resolveQualityBadgeHeight({ preference: 720, heights: [2160, 1440, 1080, 720, 480], playingHeight: 2160 })).toBe(720)
+    expect(resolveQualityBadgeHeight({ preference: 480, heights: [2160, 1440, 1080, 720, 480], playingHeight: 2160 })).toBe(480)
+    expect(resolveQualityBadgeHeight({ preference: 2160, heights: [2160, 1440, 1080, 720, 480], playingHeight: 720 })).toBe(2160)
+  })
+
+  it('tracks active playing height in Auto mode and resolves unavailable saved preferences cleanly', () => {
+    expect(resolveQualityBadgeHeight({ preference: 'auto', heights: STANDARD_HEIGHTS, playingHeight: 1080 })).toBe(1080)
+    expect(resolveQualityBadgeHeight({ preference: 'auto', heights: STANDARD_HEIGHTS, playingHeight: 480 })).toBe(480)
+    expect(resolveQualityBadgeHeight({ preference: 'auto', heights: STANDARD_HEIGHTS, playingHeight: 0 })).toBeUndefined()
+    expect(resolveQualityBadgeHeight({ preference: 2160, heights: STANDARD_HEIGHTS, playingHeight: 1080 })).toBe(1080)
+    expect(resolveQualityBadgeHeight({ preference: 2160, heights: [], playingHeight: 720 })).toBe(720)
   })
 })

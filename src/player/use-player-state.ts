@@ -34,7 +34,13 @@ const EMPTY: PlayerState = {
   videoHeight: 0,
 }
 
-const read = (video: HTMLVideoElement, player: shaka.Player | undefined, buffering: boolean, variantHeight: number): PlayerState => ({
+const read = (
+  video: HTMLVideoElement,
+  player: shaka.Player | undefined,
+  buffering: boolean,
+  variantHeight: number,
+  preferVariant: boolean,
+): PlayerState => ({
   paused: video.paused,
   ended: video.ended,
   currentTime: video.currentTime,
@@ -45,7 +51,9 @@ const read = (video: HTMLVideoElement, player: shaka.Player | undefined, bufferi
   playbackRate: video.playbackRate,
   buffering,
   seeking: video.seeking,
-  videoHeight: video.videoHeight > 0 ? video.videoHeight : variantHeight,
+  videoHeight: preferVariant && variantHeight > 0
+    ? variantHeight
+    : (video.videoHeight > 0 ? video.videoHeight : variantHeight),
   liveWindow: player?.isLive() ? player.seekRange() : undefined,
 })
 
@@ -57,13 +65,14 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
     if (!video) return
     let buffering = false
     let variantHeight = 0
+    let preferVariant = false
     let frame = 0
     let running = true
 
     const readVariantHeight = () => player?.getVariantTracks?.().find((track) => track.active)?.height ?? 0
     variantHeight = readVariantHeight()
 
-    const sync = () => setState(read(video, player, buffering, variantHeight))
+    const sync = () => setState(read(video, player, buffering, variantHeight, preferVariant))
 
     let liveRead = 0
     const tick = () => {
@@ -81,16 +90,32 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       buffering = Boolean((event as Event & { buffering?: boolean }).buffering)
       sync()
     }
-    const onVariant = () => {
+    const onAdaptation = () => {
+      variantHeight = readVariantHeight()
+      sync()
+    }
+    const onVariantChanged = () => {
+      variantHeight = readVariantHeight()
+      preferVariant = variantHeight > 0
+      sync()
+    }
+    const onResize = () => {
+      if (video.videoHeight > 0) preferVariant = false
+      sync()
+    }
+    const onEmptied = () => {
+      preferVariant = false
       variantHeight = readVariantHeight()
       sync()
     }
 
-    const events = ['play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange', 'ratechange', 'durationchange', 'loadedmetadata', 'resize', 'progress', 'timeupdate', 'emptied']
+    const events = ['play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange', 'ratechange', 'durationchange', 'loadedmetadata', 'progress', 'timeupdate']
     for (const event of events) video.addEventListener(event, sync)
+    video.addEventListener('resize', onResize)
+    video.addEventListener('emptied', onEmptied)
     player?.addEventListener('buffering', onBuffering)
-    player?.addEventListener('adaptation', onVariant)
-    player?.addEventListener('variantchanged', onVariant)
+    player?.addEventListener('adaptation', onAdaptation)
+    player?.addEventListener('variantchanged', onVariantChanged)
     sync()
     frame = requestAnimationFrame(tick)
 
@@ -98,9 +123,11 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       running = false
       cancelAnimationFrame(frame)
       for (const event of events) video.removeEventListener(event, sync)
+      video.removeEventListener('resize', onResize)
+      video.removeEventListener('emptied', onEmptied)
       player?.removeEventListener('buffering', onBuffering)
-      player?.removeEventListener('adaptation', onVariant)
-      player?.removeEventListener('variantchanged', onVariant)
+      player?.removeEventListener('adaptation', onAdaptation)
+      player?.removeEventListener('variantchanged', onVariantChanged)
     }
   }, [video, player])
 
