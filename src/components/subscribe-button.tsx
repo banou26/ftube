@@ -1,5 +1,5 @@
 import { css } from '@emotion/react'
-import { Bell, BellOff, BellRing, Check, ChevronDown, UserMinus } from 'lucide-react'
+import { Bell, BellOff, BellRing, ChevronDown, UserMinus } from 'lucide-react'
 import { useCallback, useRef, useState } from 'preact/hooks'
 import { useMutation } from 'urql'
 
@@ -148,13 +148,13 @@ export const SubscribeButton = (
     })
   }
 
-  const onCompactUnsubscribe = () => {
+  const onUnsubscribe = () => {
     setOpen(false)
     if (!channelId) return
     void toggle(channelId, true)
   }
 
-  if (compact && isSubscribed) {
+  if (isSubscribed) {
     return (
       <div css={subscribeStyle} ref={rootRef}>
         <div className='bell'>
@@ -162,13 +162,15 @@ export const SubscribeButton = (
             ref={triggerRef}
             type='button'
             className='subscribe subscribed'
-            aria-label={`Subscribed, notifications: ${level.label}`}
+            aria-label={compact ? `Subscribed, notifications: ${level.label}` : undefined}
+            title={compact ? undefined : `Notifications: ${level.label}`}
             aria-haspopup='menu'
             aria-expanded={open}
             disabled={pending}
             onClick={() => setOpen(value => !value)}
           >
             <level.Icon size={18} strokeWidth={1.5} />
+            {compact ? undefined : 'Subscribed'}
             <ChevronDown size={14} strokeWidth={1.5} />
           </button>
           {open
@@ -185,7 +187,7 @@ export const SubscribeButton = (
                   </MenuItem>
                 ))}
                 <MenuDivider />
-                <MenuItem icon={UserMinus} onSelect={onCompactUnsubscribe}>
+                <MenuItem icon={UserMinus} onSelect={onUnsubscribe}>
                   Unsubscribe
                 </MenuItem>
               </Popup>
@@ -200,48 +202,13 @@ export const SubscribeButton = (
     <div css={subscribeStyle} ref={rootRef}>
       <button
         type='button'
-        className={isSubscribed ? 'subscribe subscribed' : 'subscribe'}
+        className='subscribe'
         disabled={pending || !channelId}
-        aria-pressed={isSubscribed}
+        aria-pressed={false}
         onClick={onToggle}
       >
-        {isSubscribed ? <><Check size={18} strokeWidth={1.5} />Subscribed</> : 'Subscribe'}
+        Subscribe
       </button>
-      {isSubscribed
-        ? (
-          <div className='bell'>
-            <button
-              ref={triggerRef}
-              type='button'
-              className='subscribe subscribed'
-              aria-label={`Notifications: ${level.label}`}
-              aria-haspopup='menu'
-              aria-expanded={open}
-              disabled={pending}
-              onClick={() => setOpen(value => !value)}
-            >
-              <level.Icon size={18} strokeWidth={1.5} />
-              <ChevronDown size={14} strokeWidth={1.5} />
-            </button>
-            {open
-              ? (
-                <Popup label='Notifications' align='start'>
-                  {LEVELS.map(entry => (
-                    <MenuItem
-                      key={entry.level}
-                      icon={entry.Icon}
-                      selected={entry.level === level.level}
-                      onSelect={() => onLevel(entry.level)}
-                    >
-                      {entry.label}
-                    </MenuItem>
-                  ))}
-                </Popup>
-              )
-              : undefined}
-          </div>
-        )
-        : undefined}
     </div>
   )
 }

@@ -40,12 +40,20 @@ test('navigates to /feed/channels from Subscriptions feed and left guide categor
   const categoryLink = guide.locator('a.section-link', { hasText: 'Subscriptions' })
   await expect(categoryLink).toHaveAttribute('href', '/feed/subscriptions')
 
-  // 3. All 3 channels render with metadata
+  // 3. All 3 channels render with metadata and a single unified Subscribed + notification menu button
   const rows = harness.locator('.list .row')
   await expect(rows).toHaveCount(3)
   await expect(rows.nth(0)).toContainText('Alpha Tech')
   await expect(rows.nth(0)).toContainText('@alphatech')
   await expect(rows.nth(0)).toContainText('120K subscribers')
+  await expect(rows.nth(0).getByRole('button', { name: 'Subscribed', exact: true })).toHaveCount(1)
+  await expect(rows.nth(0).getByRole('button', { name: /^Notifications:/ })).toHaveCount(0)
+  await rows.nth(0).getByRole('button', { name: 'Subscribed', exact: true }).click()
+  const notifMenu = page.getByRole('menu', { name: 'Notifications', exact: true })
+  await expect(notifMenu.getByRole('menuitem', { name: 'All', exact: true })).toBeVisible()
+  await expect(notifMenu.getByRole('menuitem', { name: 'Unsubscribe', exact: true })).toBeVisible()
+  await notifMenu.getByRole('menuitem', { name: 'All', exact: true }).click()
+  await expect(rows.nth(0).getByRole('button', { name: 'Subscribed', exact: true })).toHaveAttribute('title', 'Notifications: All')
 
   // 4. Filter by name
   await harness.getByRole('searchbox', { name: 'Filter channels' }).fill('beta')

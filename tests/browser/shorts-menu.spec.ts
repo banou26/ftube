@@ -232,6 +232,9 @@ test('closing or leaving a Short with Description open keeps keyboard navigation
   await root.getByRole('button', { name: 'Next short', exact: true }).click()
   await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-2')
   await expect(root.getByRole('dialog', { name: 'Description', exact: true })).toHaveCount(0)
+  const short2 = root.locator('[data-short-id="short-2"]')
+  await expect(short2.getByRole('button', { name: 'Subscribed, notifications: Personalized', exact: true })).toBeVisible()
+  await expect(short2.getByRole('button', { name: 'Subscribed', exact: true })).toHaveCount(0)
 
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => page.evaluate(() => location.pathname)).toBe('/shorts/short-3')

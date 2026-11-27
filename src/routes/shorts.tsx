@@ -603,6 +603,7 @@ const Slide = (
               channelId={meta?.channel?.id}
               subscribed={meta?.channel?.isSubscribed}
               notificationLevel={meta?.channel?.notificationLevel}
+              compact
             />
           </div>
           <p className='short-title'>{title ?? ''}</p>

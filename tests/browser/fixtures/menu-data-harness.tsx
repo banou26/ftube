@@ -255,6 +255,10 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUpl
       ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
       isSubscribed,
     }),
+    setNotificationLevel: async (id: string, notificationLevel: string) => ({
+      ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
+      notificationLevel,
+    }),
   } as unknown as SourceApi
   const yoga = createYoga<{ source: SourceApi }>({
     graphqlEndpoint: '/graphql',

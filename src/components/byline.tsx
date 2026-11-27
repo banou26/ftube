@@ -155,7 +155,7 @@ const CollaboratorsDialog = (
             {subscribe ? undefined : <ChevronRight size={24} strokeWidth={1.5} aria-hidden='true' />}
           </Link>
           {subscribe
-            ? <SubscribeButton channelId={channel.id} subscribed={channel.isSubscribed} notificationLevel={channel.notificationLevel} />
+            ? <SubscribeButton channelId={channel.id} subscribed={channel.isSubscribed} notificationLevel={channel.notificationLevel} compact />
             : undefined}
         </li>
       ))}
