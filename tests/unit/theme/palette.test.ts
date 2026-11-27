@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { APP_ICONS, buildAppIconSvg } from '../../../src/theme/app-icon'
+import { APP_ICONS, buildAppIconSvg, resolveAppIconColors } from '../../../src/theme/app-icon'
 import { blendOver, contrastRatio, generateThemePalette, normalizeHexColor, pickContrastingInk, THEME_PRESETS } from '../../../src/theme/palette'
 
 const EDGE_COLORS = ['#ffff00', '#000000', '#ffffff', '#000044', '#00ff00', '#ff00ff', '#808080', '#ff0033']
@@ -67,6 +67,29 @@ describe('theme palette generator', () => {
     expect(pickContrastingInk('#ffdd00')).toBe('#0f0f0f')
     expect(pickContrastingInk('#ff0000')).toBe('#0f0f0f')
     expect(pickContrastingInk('#1d4ed8')).toBe('#ffffff')
+  })
+
+  it('keeps Ocean #2563eb header mark fill and white ink aligned with the theme favicon', () => {
+    for (const mode of ['dark', 'light'] as const) {
+      const p = generateThemePalette('#2563eb', mode)
+      expect(p['--brand-mark']).toBe('#2563eb')
+      expect(p['--brand-mark-ink']).toBe('#ffffff')
+      expect(resolveAppIconColors('theme', '#2563eb', mode)).toEqual({
+        pillFill: '#2563eb',
+        markColor: '#ffffff',
+      })
+    }
+
+    for (const hex of [...THEME_PRESETS.map(preset => preset.color), ...EDGE_COLORS]) {
+      for (const mode of ['dark', 'light'] as const) {
+        const p = generateThemePalette(hex, mode)
+        const svg = buildAppIconSvg('theme', hex, mode)
+        const pillMatch = svg.match(/M30\.37 8\.78[^>]*fill="([^"]+)"/)
+        const markMatch = svg.match(/M11\.4 20\.35[^>]*fill="([^"]+)"/)
+        expect(pillMatch?.[1], `${hex} ${mode} pill`).toBe(p['--brand-mark'])
+        expect(markMatch?.[1], `${hex} ${mode} ink`).toBe(p['--brand-mark-ink'])
+      }
+    }
   })
 })
 

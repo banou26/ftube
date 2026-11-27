@@ -8,6 +8,7 @@ import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { gql } from '../generated'
+import { BrandMark } from './brand-mark'
 import { AccountMenu } from './account-menu'
 import { DownloadsMenu } from './downloads-menu'
 import { ExtensionNotice } from './extension-notice'
@@ -48,22 +49,7 @@ const logoStyle = css`
 
 export const Logo = () => (
   <Link href='/' css={logoStyle} aria-label='FTube home'>
-    <svg className='mark' width='30' height='21' viewBox='0 0 30 21' aria-hidden='true'>
-      <path
-        d='M29.37 3.28A3.77 3.77 0 0 0 26.72.62C24.38 0 15 0 15 0S5.62 0 3.28.62A3.77 3.77 0 0 0 .63 3.28C0 5.63 0 10.5 0 10.5s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C5.62 21 15 21 15 21s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C30 15.37 30 10.5 30 10.5s0-4.87-.63-7.22Z'
-        fill='var(--brand-mark, #ff0000)'
-      />
-      <path d='M10.4 14.85V6.15L17.9 10.5l-7.5 4.35Z' fill='var(--brand-mark-ink, #ffffff)' />
-      <path
-        d='M18.6 6.75l3.2 3.75-3.2 3.75'
-        fill='none'
-        stroke='var(--brand-mark-ink, #ffffff)'
-        strokeWidth='2'
-        strokeLinecap='round'
-        strokeLinejoin='round'
-        opacity='0.9'
-      />
-    </svg>
+    <BrandMark className='mark' width={30} height={21} />
     <span className='wordmark'>FTube</span>
   </Link>
 )

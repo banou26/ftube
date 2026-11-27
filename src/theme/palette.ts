@@ -204,9 +204,21 @@ const ensureContrast = (
   return direction === 'lighter' ? '#ffffff' : '#000000'
 }
 
+const pickBrandMark = (
+  normalized: string,
+  h: number,
+  s: number,
+  l: number,
+  neutral: boolean,
+  bgBase: string,
+  direction: 'lighter' | 'darker',
+) => contrastRatio(normalized, bgBase) >= 3.0
+  ? normalized
+  : ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), l, [bgBase], 3.0, direction)
+
 export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePalette => {
   const normalized = normalizeHexColor(inputHex) ?? '#ff0033'
-  const { h, s } = rgbToHsl(hexToRgb(normalized))
+  const { h, s, l } = rgbToHsl(hexToRgb(normalized))
   const neutral = s < 0.06
   const bgSat = neutral ? 0 : mode === 'dark' ? clamp(s * 0.28, 0.06, 0.24) : clamp(s * 0.22, 0.04, 0.16)
   const accentSat = neutral ? 0 : clamp(Math.max(s, 0.55), 0.5, 0.92)
@@ -237,7 +249,7 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
     const accentInverse = ensureContrast(h, neutral ? 0 : clamp(s, 0.65, 0.95), 0.42, [bgInverse], 4.5, 'darker')
     const borderStrong = ensureContrast(h, bgSat * 0.4, 0.46, [bgBase], 3.0, 'lighter')
     const brandRed = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.58, ['#181818'], 3.0, 'lighter')
-    const brandMark = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.56, [bgBase], 3.0, 'lighter')
+    const brandMark = pickBrandMark(normalized, h, s, l, neutral, bgBase, 'lighter')
     const brandMarkInk = pickContrastingInk(brandMark)
 
     let tintAlpha = 0.2
@@ -307,7 +319,7 @@ export const generateThemePalette = (inputHex: string, mode: ThemeMode): ThemePa
   const accentInverse = ensureContrast(h, neutral ? 0 : clamp(s, 0.65, 0.95), 0.72, [bgInverse], 4.5, 'lighter')
   const borderStrong = ensureContrast(h, bgSat * 0.5, 0.52, [bgBase], 3.0, 'darker')
   const brandRed = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.58, ['#181818'], 3.0, 'lighter')
-  const brandMark = ensureContrast(h, neutral ? 0 : Math.max(s, 0.72), 0.46, [bgBase], 3.0, 'darker')
+  const brandMark = pickBrandMark(normalized, h, s, l, neutral, bgBase, 'darker')
   const brandMarkInk = pickContrastingInk(brandMark)
 
   let tintAlpha = 0.14

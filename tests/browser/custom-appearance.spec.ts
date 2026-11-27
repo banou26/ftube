@@ -304,6 +304,7 @@ test('adapts settings accent preview player to light, dark, and live device colo
 })
 
 test('refreshes the browser favicon immediately when picking a custom theme accent', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await page.route('https://www.youtube.com/**', route => route.abort())
   await page.route('**/__yt_engine__/**', route => route.abort())
@@ -312,15 +313,71 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
   const svgIcon = page.locator('link[rel="icon"][type="image/svg+xml"]')
   const fallbackIcon = page.locator('link[rel="icon"]:not([type="image/svg+xml"])')
 
+  const readAlignedMarks = async () => page.evaluate(async () => {
+    const readPaths = (root: ParentNode) => {
+      const paths = [...root.querySelectorAll('path')]
+      const p0 = getComputedStyle(paths[0]!)
+      const p1 = getComputedStyle(paths[1]!)
+      const p2 = getComputedStyle(paths[2]!)
+      return {
+        pillFill: p0.fill,
+        pillStroke: p0.stroke,
+        playFill: p1.fill,
+        chevronStroke: p2.stroke,
+        chevronOpacity: p2.opacity,
+        d: paths.map(p => p.getAttribute('d')),
+      }
+    }
+    const header = readPaths(document.querySelector('header svg.mark')!)
+    const preview = readPaths(document.querySelector('#custom-appearance .preview-brand-mark')!)
+    const href = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]')?.getAttribute('href') ?? ''
+    const svgText = href.startsWith('data:image/svg+xml')
+      ? decodeURIComponent(href.slice(href.indexOf(',') + 1))
+      : await fetch(href).then(r => r.text())
+    const scratch = document.createElement('div')
+    scratch.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none'
+    scratch.innerHTML = svgText
+    document.body.append(scratch)
+    const favicon = readPaths(scratch.querySelector('svg')!)
+    scratch.remove()
+    return { header, preview, favicon, href }
+  })
+
+  await custom.getByRole('button', { name: 'Ocean', exact: true }).click()
+  for (const mode of ['Dark', 'Light'] as const) {
+    await page.getByRole('button', { name: mode, exact: true }).click()
+    const ocean = await readAlignedMarks()
+    expect(ocean.href).toMatch(/data:image\/svg\+xml/i)
+    expect(ocean.header).toEqual(ocean.favicon)
+    expect(ocean.preview).toEqual(ocean.favicon)
+    expect(ocean.favicon.pillFill).toBe('rgb(37, 99, 235)')
+    expect(ocean.favicon.playFill).toBe('rgb(255, 255, 255)')
+    expect(ocean.favicon.chevronStroke).toBe('rgb(255, 255, 255)')
+  }
+
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
   await custom.getByRole('button', { name: 'Emerald', exact: true }).click()
   await expect(svgIcon).toHaveAttribute('href', /data:image\/svg\+xml.*%2310b981/i)
   await expect(fallbackIcon).not.toHaveAttribute('href', '/favicon.ico')
+  const emeraldDark = await readAlignedMarks()
+  expect(emeraldDark.header).toEqual(emeraldDark.favicon)
+  expect(emeraldDark.preview).toEqual(emeraldDark.favicon)
 
   const hexInput = custom.getByLabel('Custom primary color hex')
+  await hexInput.fill('#ffdd00')
+  const yellow = await readAlignedMarks()
+  expect(yellow.header).toEqual(yellow.favicon)
+  expect(yellow.preview).toEqual(yellow.favicon)
+
   await hexInput.fill('#2563eb')
   await expect(svgIcon).toHaveAttribute('href', /data:image\/svg\+xml.*%232563eb/i)
 
-  await custom.getByRole('button', { name: 'Classic icon', exact: true }).click()
+  for (const iconLabel of ['Dark icon', 'Light icon', 'Classic icon'] as const) {
+    await custom.getByRole('button', { name: iconLabel, exact: true }).click()
+    const aligned = await readAlignedMarks()
+    expect(aligned.header, `${iconLabel} header vs favicon`).toEqual(aligned.favicon)
+    expect(aligned.preview, `${iconLabel} preview vs favicon`).toEqual(aligned.favicon)
+  }
   await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
   await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')
 
@@ -328,6 +385,9 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
   await expect(svgIcon).toHaveAttribute('href', '/favicon.svg')
   await expect(fallbackIcon).toHaveAttribute('href', '/favicon.ico')
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
+  const reset = await readAlignedMarks()
+  expect(reset.header).toEqual(reset.favicon)
+  expect(reset.preview).toEqual(reset.favicon)
 })
 
 test('organizes Settings into side-menu sections and previews all accent-affected UI elements in Customization', async ({ page }) => {

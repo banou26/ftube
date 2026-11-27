@@ -25,39 +25,63 @@ export const isAppIconId = (value: unknown): value is AppIconId =>
 export const coerceAppIcon = (value: unknown): AppIconId =>
   isAppIconId(value) ? value : 'default'
 
+export const BRAND_PILL_PATH = 'M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z'
+export const BRAND_PLAY_PATH = 'M11.4 20.35V11.65L18.9 16l-7.5 4.35Z'
+export const BRAND_CHEVRON_PATH = 'M19.6 12.25l3.2 3.75-3.2 3.75'
+
+export type AppIconColors = {
+  pillFill: string
+  markColor: string
+  pillStroke?: string
+}
+
 const renderPillIconSvg = (pillFill: string, markColor: string, pillStroke?: string) => [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">',
-  `  <path d="M30.37 8.78A3.77 3.77 0 0 0 27.72 6.12C25.38 5.5 16 5.5 16 5.5S6.62 5.5 4.28 6.12A3.77 3.77 0 0 0 1.63 8.78C1 11.13 1 16 1 16s0 4.87.63 7.22a3.77 3.77 0 0 0 2.65 2.66C6.62 26.5 16 26.5 16 26.5s9.38 0 11.72-.62a3.77 3.77 0 0 0 2.65-2.66C31 20.87 31 16 31 16s0-4.87-.63-7.22Z" fill="${pillFill}"${pillStroke ? ` stroke="${pillStroke}" stroke-width="1"` : ''} />`,
-  `  <path d="M11.4 20.35V11.65L18.9 16l-7.5 4.35Z" fill="${markColor}" />`,
-  `  <path d="M19.6 12.25l3.2 3.75-3.2 3.75" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
+  `  <path d="${BRAND_PILL_PATH}" fill="${pillFill}"${pillStroke ? ` stroke="${pillStroke}" stroke-width="1"` : ''} />`,
+  `  <path d="${BRAND_PLAY_PATH}" fill="${markColor}" />`,
+  `  <path d="${BRAND_CHEVRON_PATH}" fill="none" stroke="${markColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`,
   '</svg>',
 ].join('\n')
 
-export const buildAppIconSvg = (id: AppIconId, accentColor?: string): string => {
-  const accent = normalizeHexColor(accentColor) ?? '#ff0000'
+/** Computes matching fill, inner ink, and optional outline stroke for the favicon and header logo. */
+export const resolveAppIconColors = (
+  id: AppIconId,
+  accentColor?: string,
+  mode?: ThemeMode,
+): AppIconColors => {
+  if (id === 'default') {
+    return { pillFill: '#ff0000', markColor: '#ffffff' }
+  }
+
+  const normalized = normalizeHexColor(accentColor)
+  const accent = normalized ?? '#ff0000'
 
   if (id === 'theme') {
-    return renderPillIconSvg(accent, pickContrastingInk(accent))
+    if (normalized && mode) {
+      const palette = generateThemePalette(normalized, mode)
+      return { pillFill: palette['--brand-mark'], markColor: palette['--brand-mark-ink'] }
+    }
+    return { pillFill: accent, markColor: pickContrastingInk(accent) }
   }
 
   if (id === 'dark') {
     const pillFill = '#141414'
     const markColor = contrastRatio(accent, pillFill) >= 3.0 ? accent : generateThemePalette(accent, 'dark')['--brand-red']
-    return renderPillIconSvg(pillFill, markColor, 'rgba(255,255,255,0.16)')
+    return { pillFill, markColor, pillStroke: 'rgba(255,255,255,0.16)' }
   }
 
-  if (id === 'light') {
-    const pillFill = '#f4f4f5'
-    const markColor = contrastRatio(accent, pillFill) >= 3.0 ? accent : generateThemePalette(accent, 'light')['--accent']
-    return renderPillIconSvg(pillFill, markColor, 'rgba(0,0,0,0.14)')
-  }
-
-  // Official FTube mark (matches public/favicon.svg)
-  return renderPillIconSvg('#ff0000', '#ffffff')
+  const pillFill = '#f4f4f5'
+  const markColor = contrastRatio(accent, pillFill) >= 3.0 ? accent : generateThemePalette(accent, 'light')['--accent']
+  return { pillFill, markColor, pillStroke: 'rgba(0,0,0,0.14)' }
 }
 
-export const buildAppIconDataUri = (id: AppIconId, accentColor?: string): string =>
-  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildAppIconSvg(id, accentColor))}`
+export const buildAppIconSvg = (id: AppIconId, accentColor?: string, mode?: ThemeMode): string => {
+  const { pillFill, markColor, pillStroke } = resolveAppIconColors(id, accentColor, mode)
+  return renderPillIconSvg(pillFill, markColor, pillStroke)
+}
+
+export const buildAppIconDataUri = (id: AppIconId, accentColor?: string, mode?: ThemeMode): string =>
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildAppIconSvg(id, accentColor, mode))}`
 
 let activeManifestBlobUrl: string | undefined
 let activeIconVersion = 0
@@ -141,6 +165,20 @@ export const applyAppIcon = (
   mode: ThemeMode,
 ) => {
   if (typeof document === 'undefined') return
+  const normalizedCustom = normalizeHexColor(customThemeColor)
+  const rootStyle = document.documentElement.style
+  if (iconId === 'default' && !normalizedCustom) {
+    rootStyle.removeProperty('--brand-mark')
+    rootStyle.removeProperty('--brand-mark-ink')
+    rootStyle.removeProperty('--brand-mark-stroke')
+  } else {
+    const colors = resolveAppIconColors(iconId, normalizedCustom, mode)
+    rootStyle.setProperty('--brand-mark', colors.pillFill)
+    rootStyle.setProperty('--brand-mark-ink', colors.markColor)
+    if (colors.pillStroke) rootStyle.setProperty('--brand-mark-stroke', colors.pillStroke)
+    else rootStyle.removeProperty('--brand-mark-stroke')
+  }
+
   const manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')
   const version = ++activeIconVersion
 
@@ -153,10 +191,8 @@ export const applyAppIcon = (
     return
   }
 
-  const normalizedCustom = normalizeHexColor(customThemeColor)
   const palette = normalizedCustom ? generateThemePalette(normalizedCustom, mode) : undefined
-  const accentForIcon = normalizedCustom ?? '#ff0000'
-  const dataUri = buildAppIconDataUri(iconId, accentForIcon)
+  const dataUri = buildAppIconDataUri(iconId, normalizedCustom, mode)
   const bgColor = palette?.['--bg-base'] ?? (mode === 'light' ? '#f9f9f9' : '#0f0f0f')
   const svgIcon: ManifestIcon = { src: dataUri, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
 
