@@ -14,6 +14,13 @@ import { atHandle, useSession } from '../session'
 import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
 import { sortGuideSubscriptions } from '../sources/youtube/normalize'
+import {
+  channelIdFromPath,
+  clearSeenSubscriptions,
+  markSubscriptionSeen,
+  reconcileSeenSubscriptions,
+  useSeenSubscriptions,
+} from '../subscriptions/seen'
 import { Logo } from './header'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from './playlist'
 
@@ -96,11 +103,25 @@ const GuideLink = ({ entry }: { entry: GuideEntry }) => {
 const SUBSCRIPTIONS_COLLAPSED_LIMIT = 7
 
 const SubscriptionRail = () => {
-  const { signedIn } = useSession()
+  const { ready, signedIn } = useSession()
   const [path] = useLocation()
   const [expanded, setExpanded] = useState(false)
+  const seen = useSeenSubscriptions()
   const [{ data }] = useQuery({ query: GUIDE_SUBSCRIPTIONS_QUERY, pause: !signedIn })
   const channels = data?.subscribedChannels ?? []
+
+  useEffect(() => {
+    if (ready && !signedIn) clearSeenSubscriptions()
+  }, [ready, signedIn])
+
+  useEffect(() => {
+    const channelId = channelIdFromPath(path)
+    if (channelId) markSubscriptionSeen(channelId)
+  }, [path])
+
+  useEffect(() => {
+    if (data?.subscribedChannels) reconcileSeenSubscriptions(data.subscribedChannels)
+  }, [data])
 
   const sorted = sortGuideSubscriptions(channels)
   const visible = expanded ? sorted : sorted.slice(0, SUBSCRIPTIONS_COLLAPSED_LIMIT)
@@ -130,6 +151,7 @@ const SubscriptionRail = () => {
             href={href}
             className={active ? 'item active' : 'item'}
             aria-current={active ? 'page' : undefined}
+            onClick={() => markSubscriptionSeen(channel.id)}
           >
             {channel.avatar
               ? <img className='avatar' src={channel.avatar} alt='' loading='lazy' referrerpolicy='no-referrer' />
@@ -141,7 +163,7 @@ const SubscriptionRail = () => {
                   <Radio size={16} strokeWidth={2} aria-hidden='true' />
                 </span>
               )
-              : channel.hasNewContent
+              : channel.hasNewContent && !seen.has(channel.id)
                 ? <span className='sub-new-dot' role='img' aria-label='New content' title='New content' />
                 : undefined}
           </Link>

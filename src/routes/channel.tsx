@@ -4,7 +4,7 @@ import type { ChannelTab, ChannelViewQuery, CommunityPostsQuery } from '../gener
 
 import { css } from '@emotion/react'
 import { ChevronDown, Link2, Search, Users } from 'lucide-react'
-import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
@@ -27,6 +27,7 @@ import { gql } from '../generated'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE } from '../sources/types'
+import { markSubscriptionSeen } from '../subscriptions/seen'
 import { CHANNEL_ABOUT_QUERY, ChannelAboutDialog } from './channel-about'
 import { ChannelHome } from './channel-home'
 import { visibleChannelShelves } from './channel-rows'
@@ -975,6 +976,9 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
   if (answer) lastAnswer.current = { key: feedKey, data: answer }
   const data = answer ?? (pages.length > 0 && lastAnswer.current?.key === feedKey ? lastAnswer.current.data : undefined)
   const channel = data?.channel.channel
+  useEffect(() => {
+    if (channel?.id) markSubscriptionSeen(channel.id)
+  }, [channel?.id])
   const unavailable = error?.graphQLErrors.find(entry => entry.message.startsWith(CHANNEL_UNAVAILABLE))
   const missing = error?.graphQLErrors.some(entry => entry.message === CHANNEL_NOT_FOUND) === true
   const page = data?.channel.videos

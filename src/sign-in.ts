@@ -6,6 +6,7 @@ import { resetEngine, startEngine } from './engine/client'
 import { loadedLib, startPlatform } from './engine/platform'
 import { clearSignedIn, markSignedIn, readChannel, readSignedIn, storeChannel } from './engine/signed-in'
 import { mountSignInModal } from './sign-in-modal'
+import { clearSeenSubscriptions } from './subscriptions/seen'
 import { clearUndo, setUndoAccountScope } from './undo'
 
 setUndoAccountScope(() => (
@@ -76,12 +77,14 @@ const landSignedIn = () => {
 const tabs = new BroadcastChannel(SIGNED_IN_CHANNEL)
 tabs.addEventListener('message', (event: MessageEvent) => {
   if (event.data === SIGNING_OUT) {
+    clearSeenSubscriptions()
     clearUndo()
     resetEngine()
     stopAgentHost()
     return
   }
   if (event.data === SIGNED_OUT || event.data === SWITCHED) {
+    clearSeenSubscriptions()
     clearUndo()
     location.reload()
     return
@@ -269,6 +272,7 @@ export const signIn = () => {
  */
 export const switchChannel = (brandPageId?: string) => {
   storeChannel(brandPageId)
+  clearSeenSubscriptions()
   clearUndo()
   tabs.postMessage(SWITCHED)
   location.assign('/')
@@ -293,6 +297,7 @@ export const signOut = async () => {
   const channel = readChannel()
   // cleared first, so an engine started meanwhile attaches its page on a jar of its own
   clearSignedIn()
+  clearSeenSubscriptions()
   clearUndo()
   resetEngine()
   stopAgentHost()

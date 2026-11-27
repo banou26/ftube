@@ -29,6 +29,10 @@ const KEPT: { title: string, what: string }[] = [
     what: 'A yes or no, so the next visit opens your YouTube session. Removed when you sign out, or when YouTube says the session has ended.',
   },
   {
+    title: 'Seen subscription indicators',
+    what: 'Up to 24 hours of subscribed channel IDs whose blue new-content dot in the left guide you opened, stored locally in this browser so opened dots stay hidden until YouTube clears them or you sign out.',
+  },
+  {
     title: 'Your YouTube visitor ID',
     what: 'The ID YouTube gives this browser, and the YouTube video server it last used. Replaced when you sign in or sign out.',
   },

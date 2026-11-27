@@ -195,3 +195,43 @@ test('links live subscriptions to /live or /watch and redirects /channel/:id/liv
   }, [HARNESS] as const)
   await expect(page).toHaveURL('/channel/UC_OFFLINE')
 })
+
+test('clears a subscription new-content dot on click and reload without reordering the list', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const host = await mountSubscriptions(page)
+
+  const subsSection = host.locator('.section').filter({
+    has: page.locator('a[href="/feed/subscriptions"]'),
+  })
+  const subsLinks = subsSection.locator('a[href^="/channel/"]')
+  const betaRow = host.locator('a[href="/channel/UC02"]')
+  const epsilonRow = host.locator('a[href="/channel/UC05"]')
+
+  await expect(betaRow.locator('.sub-new-dot')).toBeVisible()
+  await expect(epsilonRow.locator('.sub-new-dot')).toBeVisible()
+
+  await betaRow.click()
+  await expect(page).toHaveURL('/channel/UC02')
+  await expect(betaRow.locator('.sub-new-dot')).toHaveCount(0)
+  await expect(epsilonRow.locator('.sub-new-dot')).toBeVisible()
+  expect(await subsLinks.locator('.channel-name').allTextContents()).toEqual([
+    'Live Gamma',
+    'Live Zeta',
+    'New Beta',
+    'New Epsilon',
+    'Plain Alpha',
+    'Plain Delta',
+    'Plain Eta',
+  ])
+
+  // Remounting the guide keeps New Beta's dot cleared from persisted localStorage.
+  await page.evaluate(async ([path, list]) => {
+    document.querySelector('[data-guide-harness="subscriptions"]')?.remove()
+    const mod = await import(path) as typeof import('./fixtures/guide-harness')
+    mod.mountGuideWithSubscriptions(list)
+  }, [HARNESS, CHANNELS] as const)
+  const remountedBeta = page.locator('[data-guide-harness="subscriptions"] a[href="/channel/UC02"]')
+  await expect(remountedBeta).toBeVisible()
+  await expect(remountedBeta.locator('.sub-new-dot')).toHaveCount(0)
+  await expect(page.locator('[data-guide-harness="subscriptions"] a[href="/channel/UC05"] .sub-new-dot')).toBeVisible()
+})
