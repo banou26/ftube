@@ -75,18 +75,18 @@ const YOUTUBE_ONE_COLUMN = [
   { width: 412, height: 800, player: { x: 0, y: 56, width: 412, height: 240, radius: 0 }, cardsPerRow: 1, cardWidth: 388 },
 ] as const
 
-// youtube.com's theater on this video, signed out, 2026-11-10: the window height less 169 px, never under 480 px in two
-// columns or 240 px in one, the title 12 px and the sidebar 24 px under the player, in the default view's columns
+// Full-viewport theater fills the entire space below the 56 px header so details sit below the fold,
+// keeping the title 12 px and the sidebar 24 px under the player.
 const YOUTUBE_THEATER = [
-  { width: 1280, height: 800, player: { x: 0, y: 56, width: 1280, height: 631 }, title: { x: 16, width: 880 }, aside: { x: 912, width: 352 }, thumb: { width: 220, height: 123.75, below: 24 } },
-  { width: 1920, height: 1080, player: { x: 0, y: 56, width: 1920, height: 911 }, title: { x: 16, width: 1344 }, aside: { x: 1376, width: 528 }, thumb: { width: 330, height: 185.6, below: 24 } },
-  { width: 1280, height: 600, player: { x: 0, y: 56, width: 1280, height: 480 }, title: { x: 16, width: 860.4 }, aside: { x: 892.4, width: 371.6 }, thumb: { width: 232.25, height: 130.6, below: 24 } },
+  { width: 1280, height: 800, player: { x: 0, y: 56, width: 1280, height: 744 }, title: { x: 16, width: 880 }, aside: { x: 912, width: 352 }, thumb: { width: 220, height: 123.75, below: 24 } },
+  { width: 1920, height: 1080, player: { x: 0, y: 56, width: 1920, height: 1024 }, title: { x: 16, width: 1344 }, aside: { x: 1376, width: 528 }, thumb: { width: 330, height: 185.6, below: 24 } },
+  { width: 1280, height: 600, player: { x: 0, y: 56, width: 1280, height: 544 }, title: { x: 16, width: 860.4 }, aside: { x: 892.4, width: 371.6 }, thumb: { width: 232.25, height: 130.6, below: 24 } },
   // a short or very wide window centers the columns under the player, as the default view does
-  { width: 1280, height: 450, player: { x: 0, y: 56, width: 1280, height: 480 }, title: { x: 88, width: 640 }, aside: { x: 744, width: 448 }, thumb: { width: 280, height: 157.5, below: 24 } },
-  { width: 2560, height: 1080, player: { x: 0, y: 56, width: 2560, height: 911 }, title: { x: 65.1, width: 1713.8 }, aside: { x: 1794.9, width: 700 }, thumb: { width: 437.5, height: 246.1, below: 24 } },
+  { width: 1280, height: 450, player: { x: 0, y: 56, width: 1280, height: 394 }, title: { x: 88, width: 640 }, aside: { x: 744, width: 448 }, thumb: { width: 280, height: 157.5, below: 24 } },
+  { width: 2560, height: 1080, player: { x: 0, y: 56, width: 2560, height: 1024 }, title: { x: 65.1, width: 1713.8 }, aside: { x: 1794.9, width: 700 }, thumb: { width: 437.5, height: 246.1, below: 24 } },
   // the title column holds 640 px, so the two overflow the window's margins evenly
-  { width: 1000, height: 800, player: { x: 0, y: 56, width: 1000, height: 562.5 }, title: { x: 12, width: 640 }, aside: { x: 668, width: 320 }, thumb: { width: 200, height: 112.5, below: 24 } },
-  { width: 800, height: 600, player: { x: 0, y: 56, width: 800, height: 431 }, title: { x: 16, width: 768 } },
+  { width: 1000, height: 800, player: { x: 0, y: 56, width: 1000, height: 744 }, title: { x: 12, width: 640 }, aside: { x: 668, width: 320 }, thumb: { width: 200, height: 112.5, below: 24 } },
+  { width: 800, height: 600, player: { x: 0, y: 56, width: 800, height: 544 }, title: { x: 16, width: 768 } },
 ] as const
 
 const expectClose = (actual: Record<string, number>, expected: Record<string, number>, what: string) => {

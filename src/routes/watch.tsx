@@ -264,20 +264,18 @@ const style = css`
     grid-row: 2;
   }
 
-  /* Keeps a tall window from pushing the title below the fold. Excluded in
-     fullscreen: this selector out-specifies the player's own :fullscreen rule,
-     so without :not() it would cap the height of a fullscreened player and
-     letterbox it inside a correctly sized container.
-
+  /* Theater fills the entire viewport below the fixed header so details,
+     comments, and suggested videos sit below the fold until scrolled.
+     Excluded in :fullscreen so native fullscreen keeps full viewport height.
      Matched on the player's own attribute rather than on a direct child: the
-     player is moved in through a slot and a host node now, so it is two levels
-     down and a child-combinator selector silently stops matching.
-
-     youtube.com's own rule, read 2026-11-10: the window height less 169 px,
-     never under 480 px (240 px in one column). */
+     player is moved in through a slot and a host node, two levels down. */
   &.theater .stage [data-player-root]:not(:fullscreen) {
-    max-height: calc(100vh - 169px);
-    min-height: 480px;
+    width: 100%;
+    height: calc(100vh - var(--header-height, 5.6rem));
+    height: calc(100dvh - var(--header-height, 5.6rem));
+    max-height: none;
+    min-height: 24rem;
+    aspect-ratio: auto;
     border-radius: 0;
   }
 
@@ -500,9 +498,9 @@ const style = css`
     background: var(--bg-chip-hover);
   }
 
-  /* youtube.com's one column is the same in the default view and in theater, measured 2026-11-11 from 999 to 360 px
+  /* youtube.com's one column in the default view, measured 2026-11-11 from 999 to 360 px
      wide: the player runs edge to edge right under the header with square corners, at most the window height less
-     169 px and never under 240 px. The theater selectors only outrank theater's own two column rules. */
+     169 px and never under 240 px. In theater mode it fills the viewport under the header. */
   @media ${ONE_COLUMN} {
     --margin: 1.6rem;
     grid-template-columns: minmax(0, 1fr);
@@ -539,10 +537,19 @@ const style = css`
       margin: 0 calc(-1 * var(--margin));
     }
 
-    .stage [data-player-root]:not(:fullscreen),
-    &.theater .stage [data-player-root]:not(:fullscreen) {
+    .stage [data-player-root]:not(:fullscreen) {
       max-height: calc(100vh - 169px);
       min-height: 240px;
+      border-radius: 0;
+    }
+
+    &.theater .stage [data-player-root]:not(:fullscreen) {
+      width: 100%;
+      height: calc(100vh - var(--header-height, 5.6rem));
+      height: calc(100dvh - var(--header-height, 5.6rem));
+      max-height: none;
+      min-height: 24rem;
+      aspect-ratio: auto;
       border-radius: 0;
     }
   }

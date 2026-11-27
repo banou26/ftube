@@ -91,7 +91,8 @@ test('ambient glow fills video bars in theater mode, glows outside the frame, av
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
   expect(overflow).toBe(false)
 
-  // In theater mode, left and right bars next to the video display a blurred video-colored gradient.
+  // In theater mode on a wide viewport, left and right bars next to the video display a blurred video-colored gradient.
+  await page.setViewportSize({ width: 1600, height: 800 })
   await page.keyboard.press('t')
   await expect(page.locator('main')).toHaveClass(/\btheater\b/)
   await page.waitForTimeout(350)

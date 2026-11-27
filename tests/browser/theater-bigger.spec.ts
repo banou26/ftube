@@ -1,0 +1,124 @@
+import type { Page } from '@playwright/test'
+
+import { expect, hideFknNotice, test } from './test'
+
+const HARNESS = '/tests/browser/fixtures/theater-bigger-harness.tsx'
+
+const VIEWPORTS = [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 800, height: 600 },
+  { width: 412, height: 800 },
+] as const
+
+const mountTheaterHarness = async (
+  page: Page,
+  videoId: string,
+  viewport: { width: number, height: number },
+) => {
+  await page.setViewportSize(viewport)
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.route('**/__yt_engine__/**', route => route.abort())
+  await hideFknNotice(page)
+  await page.goto('/privacy')
+  await expect(page.locator('#app main')).toBeVisible({ timeout: 30_000 })
+  const host = page.locator(`[data-theater-bigger-harness="${videoId}"]`)
+  await expect(async () => {
+    if (await host.count() === 0) {
+      await page.evaluate(async ([path, vid]) => {
+        const mod = await import(path) as typeof import('./fixtures/theater-bigger-harness')
+        mod.mountTheaterBiggerHarness({ videoId: vid, theater: true })
+      }, [HARNESS, videoId] as const)
+    }
+    await expect(host.locator('main.theater .stage [data-player-root]')).toBeVisible({ timeout: 5_000 })
+    await expect(host.locator('main.theater h1.title')).toBeAttached({ timeout: 5_000 })
+    await expect(host.locator('main.theater .comments-slot')).toBeAttached({ timeout: 5_000 })
+    await expect(host.getByText('First harness comment below the fold.')).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 120_000 })
+  return host
+}
+
+test('theater mode fills the full viewport below the header and hides details, comments, and suggested videos until scrolled', async ({ page }) => {
+  const host = await mountTheaterHarness(page, 'theater-bigger-1', VIEWPORTS[0])
+
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await page.evaluate(() => window.scrollTo(0, 0))
+
+    await expect.poll(async () => host.evaluate((el) => {
+      const player = el.querySelector('main .stage [data-player-root]')!.getBoundingClientRect()
+      return {
+        height: Math.round(player.height),
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+      }
+    }), { message: `viewport settle at ${viewport.width}x${viewport.height}` }).toMatchObject({
+      innerWidth: viewport.width,
+      innerHeight: viewport.height,
+    })
+
+    const metrics = await host.evaluate((el) => {
+      const player = el.querySelector('main .stage [data-player-root]')!.getBoundingClientRect()
+      const title = el.querySelector('main h1.title')!.getBoundingClientRect()
+      const description = el.querySelector('main .about')!.getBoundingClientRect()
+      const comments = el.querySelector('main .comments-slot')!.getBoundingClientRect()
+      const aside = el.querySelector('main aside.secondary')!.getBoundingClientRect()
+      return {
+        player: {
+          x: player.x,
+          y: player.y,
+          width: player.width,
+          height: player.height,
+          bottom: player.bottom,
+        },
+        titleTop: title.top,
+        descriptionTop: description.top,
+        commentsTop: comments.top,
+        asideTop: aside.top,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        scrollWidth: document.documentElement.scrollWidth,
+      }
+    })
+
+    expect(metrics.scrollWidth, `no horizontal overflow at ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(metrics.innerWidth)
+    expect(Math.abs(metrics.player.x), `player.x at ${viewport.width}x${viewport.height}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.player.y - 56), `player.y at ${viewport.width}x${viewport.height}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.player.width - viewport.width), `player.width at ${viewport.width}x${viewport.height}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.player.height - (viewport.height - 56)), `player.height at ${viewport.width}x${viewport.height}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.player.bottom - viewport.height), `player.bottom at ${viewport.width}x${viewport.height}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1)
+
+    expect(metrics.titleTop, `title below fold at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(viewport.height)
+    expect(metrics.descriptionTop, `description below fold at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(viewport.height)
+    expect(metrics.commentsTop, `comments below fold at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(viewport.height)
+    expect(metrics.asideTop, `suggested videos below fold at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(viewport.height)
+
+    // Scrolling down reveals the video details, comments, and suggested videos below the player.
+    await host.locator('main h1.title').scrollIntoViewIfNeeded()
+    await expect(host.locator('main h1.title')).toBeInViewport()
+    await expect(host.locator('main .about')).toBeInViewport()
+    await host.getByText('First harness comment below the fold.').scrollIntoViewIfNeeded()
+    await expect(host.getByText('First harness comment below the fold.')).toBeInViewport()
+    await host.locator('main aside.secondary a[href^="/watch"]').first().scrollIntoViewIfNeeded()
+    await expect(host.locator('main aside.secondary a[href^="/watch"]').first()).toBeInViewport()
+  }
+})
+
+test('exiting theater mode restores normal above-the-fold title placement on desktop', async ({ page }) => {
+  const host = await mountTheaterHarness(page, 'theater-bigger-toggle', { width: 1440, height: 900 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+
+  await expect.poll(() =>
+    host.evaluate(el => el.querySelector('main h1.title')!.getBoundingClientRect().top),
+  ).toBeGreaterThanOrEqual(900)
+
+  await page.evaluate(async (path) => {
+    const mod = await import(path) as typeof import('./fixtures/theater-bigger-harness')
+    mod.setTheaterMode(false)
+  }, HARNESS)
+  await expect(host.locator('main')).not.toHaveClass(/\btheater\b/)
+
+  const titleTop = await host.evaluate(el => el.querySelector('main h1.title')!.getBoundingClientRect().top)
+  expect(titleTop).toBeLessThan(900)
+})
