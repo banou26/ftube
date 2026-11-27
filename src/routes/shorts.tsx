@@ -1,7 +1,7 @@
 import type { ShortsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, MessageCircle, MonitorPlay, MoreVertical, Share2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, MessageCircle, MoreVertical, Share2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useRoute } from 'wouter'
@@ -9,21 +9,26 @@ import { Link, useLocation, useRoute } from 'wouter'
 import { useDocumentTitle } from '../app'
 import { Comments } from '../components/comments'
 import { DataFailure } from '../components/data-failure'
+import { dismissChannel, dismissVideo, undismissChannel, undismissVideo, useDismissed } from '../components/dismissed-videos'
 import { formatCompact, safeDecode } from '../components/format'
 import { RateGlyph, useRateVideo } from '../components/rate-video'
+import { SaveDialog } from '../components/save-menu'
 import ShareDialog from '../components/share-dialog'
 import { shortsSequenceIn } from '../components/shorts-tile'
 import SubscribeButton from '../components/subscribe-button'
-import { Menu, MenuItem } from '../components/ui/menu'
 import useInfiniteFeed from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { useDislikes } from '../dislikes'
 import { gql } from '../generated'
+import { AmbientGlow } from '../player/ambient-glow'
 import { isTypingTarget } from '../player/controls'
 import { shortsHrefFor } from '../player/links'
 import { prefetchPlayback } from '../player/prefetch'
+import { ShortsDescriptionPanel, type ShortsMediaState, type ShortsMenuActions, ShortsOptionsMenu } from '../player/shorts-menu'
 import ShortsPlayer from '../player/shorts-player'
 import { closePlayer } from '../player/session'
+import { useSetting } from '../settings'
+import { showUndoableToast } from '../undo'
 
 const SHORTS_FEED_QUERY = gql(`
   query ShortsFeed($seed: ID, $sequence: String, $cursor: String) {
@@ -40,8 +45,14 @@ const SHORT_META_QUERY = gql(`
       id
       title
       viewCountText
+      shortViewCountText
+      publishedDateText
+      relativeDateText
+      hashtags
       likeCountText
       commentCountText
+      description
+      descriptionRuns { text url videoId startSeconds browseId }
       likeStatus
       channel { id name avatar handle isSubscribed notificationLevel isVerified isVerifiedArtist }
     }
@@ -98,6 +109,7 @@ const style = css`
     aspect-ratio: 9 / 16;
     max-width: calc(100vw - 10rem);
     flex: none;
+    isolation: isolate;
   }
 
   .rail {
@@ -435,22 +447,52 @@ const style = css`
  * visited slide's data alive for the life of the route.
  */
 const Slide = (
-  { id, poster, fallbackTitle, active, preload, shortcutsDisabled, onReady, onComments, onShare, onCommentCount, onTitle, onRefused }: {
+  {
+    id,
+    poster,
+    fallbackTitle,
+    active,
+    preload,
+    shortcutsDisabled,
+    descriptionOpen,
+    onReady,
+    onComments,
+    onShare,
+    onDescription,
+    onCloseDescription,
+    onSave,
+    onNotInterested,
+    onDontRecommend,
+    onMenuOpenChange,
+    onCommentCount,
+    onTitle,
+    onRefused,
+  }: {
     id: string
     poster?: string | null
     fallbackTitle?: string | null
     active: boolean
     preload: boolean
     shortcutsDisabled?: boolean
+    descriptionOpen: boolean
     onReady?: (ready: boolean) => void
     onComments: () => void
     onShare: () => void
+    onDescription: () => void
+    onCloseDescription: () => void
+    onSave: () => void
+    onNotInterested: () => void
+    onDontRecommend: (channelId?: string, channelName?: string) => void
+    onMenuOpenChange?: (open: boolean) => void
     onCommentCount?: (count?: string) => void
     onTitle?: (title?: string) => void
     onRefused?: () => void
   },
 ) => {
   const [, navigate] = useLocation()
+  const ambientMode = useSetting('ambientMode')
+  const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
+  const [mediaState, setMediaState] = useState<ShortsMediaState | undefined>(undefined)
   const [{ data }] = useQuery({
     query: SHORT_META_QUERY,
     variables: { id },
@@ -474,18 +516,56 @@ const Slide = (
     if (active) onTitle?.(title)
   }, [active, title, onTitle])
 
+  const menuActions = useMemo<ShortsMenuActions>(() => ({
+    onDescription,
+    onSave,
+    onNotInterested,
+    onDontRecommend: () => onDontRecommend(meta?.channel?.id, meta?.channel?.name),
+    canDontRecommend: Boolean(meta?.channel?.id),
+    onOpenFullPlayer: () => navigate(`/watch?v=${encodeURIComponent(id)}`),
+  }), [id, meta?.channel?.id, meta?.channel?.name, navigate, onDescription, onDontRecommend, onNotInterested, onSave])
+
   return (
     <div className='reel'>
       <div className='stage'>
+        <AmbientGlow
+          video={ambientVideo}
+          enabled={ambientMode && active}
+          fullscreen={mediaState?.fullscreen ?? false}
+          docked={false}
+        />
         <ShortsPlayer
           videoId={id}
           poster={poster ?? undefined}
           active={active}
           preload={preload}
           shortcutsDisabled={shortcutsDisabled}
+          menuActions={menuActions}
+          onMediaState={setMediaState}
+          onVideoElement={setAmbientVideo}
+          onMenuOpenChange={onMenuOpenChange}
           onReady={onReady}
           onRefused={onRefused}
         />
+        {descriptionOpen && active
+          ? (
+            <ShortsDescriptionPanel
+              videoId={id}
+              title={title}
+              channel={meta?.channel}
+              likeCountText={meta?.likeCountText}
+              viewCountText={meta?.viewCountText}
+              shortViewCountText={meta?.shortViewCountText}
+              publishedDateText={meta?.publishedDateText}
+              relativeDateText={meta?.relativeDateText}
+              description={meta?.description}
+              descriptionRuns={meta?.descriptionRuns}
+              hashtags={meta?.hashtags}
+              hasAutoDubbed={Boolean(mediaState?.audioTracks.some(track => track.autoDubbed))}
+              onClose={onCloseDescription}
+            />
+          )
+          : undefined}
         <div className='meta'>
           <div className='byline'>
             {meta?.channel?.avatar
@@ -548,23 +628,20 @@ const Slide = (
           <span className='glyph'><Share2 size={24} strokeWidth={1.5} /></span>
           Share
         </button>
-        <Menu
+        <ShortsOptionsMenu
           label='More actions'
           align='start'
           // the rail ends at the bottom of the video, so its menu opens upwards
           side='above'
+          media={mediaState}
+          actions={menuActions}
+          onOpenChange={onMenuOpenChange}
           trigger={
             <button type='button' className='rail-button' aria-label='More actions'>
               <span className='glyph'><MoreVertical size={24} strokeWidth={1.5} /></span>
             </button>
           }
-        >
-          <MenuItem
-            icon={MonitorPlay}
-            label='Open in the full player'
-            onSelect={() => navigate(`/watch?v=${encodeURIComponent(id)}`)}
-          />
-        </Menu>
+        />
         {meta?.channel?.avatar
           ? (
             <Link className='rail-channel' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name}>
@@ -577,7 +654,7 @@ const Slide = (
   )
 }
 
-const ShortsPage = () => {
+export const ShortsPage = () => {
   const [, params] = useRoute('/shorts/:videoId')
   // frozen at mount: re-reading the param would refetch the whole sequence on every path rewrite the pager makes
   const [seed] = useState(() => (params?.videoId ? safeDecode(params.videoId) : undefined))
@@ -591,7 +668,12 @@ const ShortsPage = () => {
   const [activeCommentCount, setActiveCommentCount] = useState<string | undefined>(undefined)
   const [activeTitle, setActiveTitle] = useState<string | undefined>(undefined)
   const [sharing, setSharing] = useState<string | undefined>(undefined)
+  const [saving, setSaving] = useState<string | undefined>(undefined)
+  const [descriptionFor, setDescriptionFor] = useState<string | undefined>(undefined)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
+  const [dismissedInSession, setDismissedInSession] = useState<ReadonlySet<string>>(() => new Set())
+  const dismissed = useDismissed()
 
   const setSlideReady = useCallback((id: string, isReady: boolean) => {
     setReadyIds(previous => {
@@ -618,9 +700,56 @@ const ShortsPage = () => {
     if (!seed || feed.some(short => short.id === seed)) return feed
     return [{ id: seed, poster: null, title: null }, ...feed]
   }, [seed, feed])
-  // a Short the address named stays to say why it does not play; any other YouTube refuses is passed over
-  const items = seeded.filter(short => !refused.has(short.id))
+  // a Short the address named stays to say why it does not play unless dismissed in this session
+  const items = seeded.filter(short =>
+    !refused.has(short.id)
+    && !dismissedInSession.has(short.id)
+    && (short.id === seed || !dismissed.videos.has(short.id)),
+  )
   const active = useMemo(() => items.find(short => short.id === activeId), [items, activeId])
+
+  const hideSlide = useCallback((id: string) => {
+    setDismissedInSession(previous => new Set(previous).add(id))
+    setDescriptionFor(current => (current === id ? undefined : current))
+  }, [])
+
+  const restoreSlide = useCallback((id: string) => {
+    setDismissedInSession(previous => {
+      if (!previous.has(id)) return previous
+      const next = new Set(previous)
+      next.delete(id)
+      return next
+    })
+    setActiveId(id)
+  }, [])
+
+  const handleNotInterested = useCallback((id: string, shortTitle?: string | null) => {
+    dismissVideo(id)
+    hideSlide(id)
+    showUndoableToast('Video removed', {
+      label: shortTitle ? `Remove ${shortTitle}` : 'Remove video',
+      undo: () => {
+        undismissVideo(id)
+        restoreSlide(id)
+      },
+      undoneMessage: 'Video restored',
+    })
+  }, [hideSlide, restoreSlide])
+
+  const handleDontRecommend = useCallback((id: string, channelId?: string, channelName?: string) => {
+    if (!channelId) return
+    dismissChannel(channelId)
+    hideSlide(id)
+    const message = channelName ? `We won't recommend ${channelName}` : "We won't recommend this channel"
+    showUndoableToast(message, {
+      label: message,
+      undo: () => {
+        undismissChannel(channelId)
+        restoreSlide(id)
+      },
+      undoneMessage: channelName ? `Restored ${channelName}` : 'Channel restored',
+    })
+  }, [hideSlide, restoreSlide])
 
   useDocumentTitle((active ? activeTitle : undefined) || 'Shorts')
 
@@ -633,7 +762,9 @@ const ShortsPage = () => {
   }, [page, fetching, error])
 
   useEffect(() => {
-    if (!activeId && items[0]) setActiveId(items[0].id)
+    if ((!activeId || !items.some(short => short.id === activeId)) && items[0]) {
+      setActiveId(items[0].id)
+    }
   }, [items, activeId])
 
   // the threshold MUST stay over half, so exactly one slide can qualify as active
@@ -672,15 +803,16 @@ const ShortsPage = () => {
     scrollerRef.current?.querySelector(`[data-short-id="${CSS.escape(target.id)}"]`)?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const latest = useRef({ step, sharing })
-  latest.current = { step, sharing }
+  const overlayOpen = Boolean(sharing || saving || descriptionFor || menuOpen)
+  const latest = useRef({ step, overlayOpen })
+  latest.current = { step, overlayOpen }
 
   // on the document, so the keys work before anything on the page has been clicked
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
-      if (isTypingTarget(event.target) || latest.current.sharing) return
+      if (isTypingTarget(event.target) || latest.current.overlayOpen) return
       event.preventDefault()
       latest.current.step(event.key === 'ArrowDown' ? 1 : -1)
     }
@@ -723,10 +855,18 @@ const ShortsPage = () => {
               fallbackTitle={short.title}
               active={isActive}
               preload={shouldPreload}
-              shortcutsDisabled={Boolean(sharing)}
+              shortcutsDisabled={overlayOpen}
+              descriptionOpen={descriptionFor === short.id}
               onReady={(isReady: boolean) => setSlideReady(short.id, isReady)}
               onComments={() => setShowComments(value => !value)}
               onShare={() => setSharing(short.id)}
+              onDescription={() => setDescriptionFor(current => (current === short.id ? undefined : short.id))}
+              onCloseDescription={() => setDescriptionFor(undefined)}
+              onSave={() => setSaving(short.id)}
+              onNotInterested={() => handleNotInterested(short.id, short.title)}
+              onDontRecommend={(channelId?: string, channelName?: string) =>
+                handleDontRecommend(short.id, channelId, channelName)}
+              onMenuOpenChange={setMenuOpen}
               onCommentCount={setActiveCommentCount}
               onTitle={setActiveTitle}
               onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
@@ -756,6 +896,7 @@ const ShortsPage = () => {
         )
       })}
       {sharing ? <ShareDialog videoId={sharing} title={items.find(short => short.id === sharing)?.title ?? undefined} short onClose={() => setSharing(undefined)} /> : undefined}
+      {saving ? <SaveDialog videoId={saving} onClose={() => setSaving(undefined)} /> : undefined}
       {active === undefined && fetching ? <p className='notice'>Loading more…</p> : undefined}
       <div className='pager'>
         <button type='button' aria-label='Previous short' disabled={activeIndex <= 0} onClick={() => step(-1)}>

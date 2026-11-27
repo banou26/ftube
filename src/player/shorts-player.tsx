@@ -1,18 +1,20 @@
 import type { TargetedEvent, TargetedMouseEvent, TargetedPointerEvent } from 'preact'
 
-import type { CaptionPick, CaptionTrack, TranslationLanguage } from '../frame/protocol'
+import type { AudioTrack, CaptionPick, CaptionTrack, TranslationLanguage } from '../frame/protocol'
+import type { ShortsMediaState, ShortsMenuActions } from './shorts-menu'
 // must stay type-only: a value import puts the on-demand shaka chunk back in the entry
 import type { startShakaPlayback } from './shaka'
 
 import { css } from '@emotion/react'
-import { Captions, CaptionsOff, Maximize, Minimize, Pause, Play, Volume1, Volume2, VolumeX } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { Captions, CaptionsOff, Maximize, Minimize, MoreVertical, Pause, Play, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { showToast } from '../components/ui/toast'
 import { startEngine } from '../engine/client'
 import { defaultTrack, startingCaption } from '../frame/captions'
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
+import { AmbientBars } from './ambient-glow'
 import { AudioPermissionPrompt } from './audio-prompt'
 import { captionDeclarations } from './caption-style'
 import { isTypingTarget } from './controls'
@@ -20,6 +22,7 @@ import { pictureOf } from './end-screen-layout'
 import { getFullscreenElement, isVideoFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { warmShaka } from './prefetch'
 import { SeekKnob } from './seek-knob'
+import { ShortsOptionsMenu } from './shorts-menu'
 
 const playerStyle = css`
   position: relative;
@@ -39,6 +42,7 @@ const playerStyle = css`
 
   video,
   .poster {
+    position: relative;
     display: block;
     width: 100%;
     height: 100%;
@@ -361,18 +365,23 @@ const captionStyle = (declarations: string) => css`
  * is active in place of showing it.
  */
 const ShortsPlayer = (
-  { videoId, poster, active, preload = false, shortcutsDisabled, onReady, onRefused }: {
+  { videoId, poster, active, preload = false, shortcutsDisabled, menuActions, onMediaState, onVideoElement, onMenuOpenChange, onReady, onRefused }: {
     videoId: string
     poster?: string
     active: boolean
     preload?: boolean
     shortcutsDisabled?: boolean
+    menuActions?: ShortsMenuActions
+    onMediaState?: (state: ShortsMediaState) => void
+    onVideoElement?: (video: HTMLVideoElement | null) => void
+    onMenuOpenChange?: (open: boolean) => void
     onReady?: (ready: boolean) => void
     onRefused?: () => void
   },
 ) => {
   const rootRef = useRef<HTMLDivElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const controllerRef = useRef<Awaited<ReturnType<typeof startShakaPlayback>> | undefined>(undefined)
   const activeRef = useRef(active)
   activeRef.current = active
@@ -380,6 +389,16 @@ const ShortsPlayer = (
   onReadyRef.current = onReady
   const onRefusedRef = useRef(onRefused)
   onRefusedRef.current = onRefused
+  const onVideoElementRef = useRef(onVideoElement)
+  onVideoElementRef.current = onVideoElement
+  const onMediaStateRef = useRef(onMediaState)
+  onMediaStateRef.current = onMediaState
+
+  const bindVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el
+    setVideoEl(el)
+    onVideoElementRef.current?.(el)
+  }, [])
 
   const shouldLoad = active || preload
   const [ready, setReady] = useState(false)
@@ -390,6 +409,10 @@ const ShortsPlayer = (
   const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
   const [paused, setPaused] = useState(false)
   const seekHandle = useSetting('seekHandle')
+  const ambientMode = useSetting('ambientMode')
+  const [playbackRate, setPlaybackRate] = useState(() => getSettings().playbackRate)
+  const playbackRateRef = useRef(playbackRate)
+  playbackRateRef.current = playbackRate
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
   const [fullscreen, setFullscreen] = useState(false)
@@ -401,6 +424,9 @@ const ShortsPlayer = (
   const [caption, setCaption] = useState<CaptionPick | undefined>(undefined)
   const lastCaption = useRef<CaptionPick | undefined>(undefined)
   if (caption) lastCaption.current = caption
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [audioTrackId, setAudioTrackId] = useState<string | undefined>(undefined)
+  const selectAudioRef = useRef<((trackId: string | undefined, drc: boolean) => Promise<void>) | undefined>(undefined)
   const [cueStyle, setCueStyle] = useState('')
 
   useEffect(() => {
@@ -441,8 +467,10 @@ const ShortsPlayer = (
     const settings = getSettings()
     video.volume = settings.volume
     video.muted = settings.muted
+    video.playbackRate = settings.playbackRate
     setVolume(settings.volume)
     setMuted(settings.muted)
+    setPlaybackRate(settings.playbackRate)
     // the loop MUST be on the element: restarting through currentTime re-enters the SABR chain as a seek
     video.loop = true
     const abort = new AbortController()
@@ -457,6 +485,9 @@ const ShortsPlayer = (
     setCaptionTracks([])
     setTranslationLanguages([])
     setCaption(undefined)
+    setAudioTracks([])
+    setAudioTrackId(undefined)
+    selectAudioRef.current = undefined
     lastCaption.current = undefined
     const onFrame = () => {
       if (!abort.signal.aborted && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -530,6 +561,9 @@ const ShortsPlayer = (
       controllerRef.current = controller
       setCaptionTracks(controller.captionTracks)
       setTranslationLanguages(controller.translationLanguages)
+      setAudioTracks(controller.audioTracks)
+      setAudioTrackId(controller.audioTrackId)
+      selectAudioRef.current = controller.selectAudio
       setReady(true)
       onFrame()
     })().catch(fail)
@@ -547,6 +581,9 @@ const ShortsPlayer = (
       setCaptionTracks([])
       setTranslationLanguages([])
       setCaption(undefined)
+      setAudioTracks([])
+      setAudioTrackId(undefined)
+      selectAudioRef.current = undefined
       lastCaption.current = undefined
       onReadyRef.current?.(false)
       if (ownedSession) {
@@ -575,8 +612,10 @@ const ShortsPlayer = (
     const settings = getSettings()
     video.volume = settings.volume
     video.muted = settings.muted
+    video.playbackRate = settings.playbackRate
     setVolume(settings.volume)
     setMuted(settings.muted)
+    setPlaybackRate(settings.playbackRate)
     setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
@@ -642,11 +681,18 @@ const ShortsPlayer = (
     video.addEventListener('pause', sync)
     video.addEventListener('volumechange', sync)
     video.addEventListener('timeupdate', tick)
+    const unsubscribe = subscribeSettings((next) => {
+      if (next.playbackRate === playbackRateRef.current) return
+      const el = videoRef.current
+      if (el) el.playbackRate = next.playbackRate
+      setPlaybackRate(next.playbackRate)
+    })
     return () => {
       video.removeEventListener('play', sync)
       video.removeEventListener('pause', sync)
       video.removeEventListener('volumechange', sync)
       video.removeEventListener('timeupdate', tick)
+      unsubscribe()
     }
   }, [scrubbing, attempt])
 
@@ -776,13 +822,71 @@ const ShortsPlayer = (
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [active, shortcutsDisabled, captionTracks.length, togglePlay, toggleMute, toggleCaption, toggleFullscreen])
 
+  const applyAudioTrack = useCallback((trackId: string) => {
+    setAudioTrackId(trackId)
+    void selectAudioRef.current?.(trackId, getSettings().stableVolume).catch(() => {})
+  }, [])
+
+  const applyPlaybackRate = useCallback((rate: number) => {
+    const video = videoRef.current
+    if (video) video.playbackRate = rate
+    setPlaybackRate(rate)
+    updateSettings({ playbackRate: rate })
+  }, [])
+
+  const toggleAmbientMode = useCallback(() => {
+    updateSettings({ ambientMode: !getSettings().ambientMode })
+  }, [])
+
   const effectiveVolume = muted ? 0 : volume
   const visibleStatus = active ? status : ''
 
+  const mediaState = useMemo<ShortsMediaState>(() => ({
+    captionTracks,
+    translationLanguages,
+    caption,
+    onCaption: applyCaption,
+    audioTracks,
+    audioTrackId,
+    onAudioTrack: applyAudioTrack,
+    playbackRate,
+    onPlaybackRate: applyPlaybackRate,
+    ambientMode,
+    onAmbientMode: toggleAmbientMode,
+    fullscreen,
+    onFullscreen: toggleFullscreen,
+  }), [
+    captionTracks,
+    translationLanguages,
+    caption,
+    applyCaption,
+    audioTracks,
+    audioTrackId,
+    applyAudioTrack,
+    playbackRate,
+    applyPlaybackRate,
+    ambientMode,
+    toggleAmbientMode,
+    fullscreen,
+    toggleFullscreen,
+  ])
+
+  useEffect(() => {
+    onMediaStateRef.current?.(mediaState)
+  }, [mediaState])
+
   return (
     <div ref={rootRef} css={cueStyle ? [playerStyle, captionStyle(cueStyle)] : playerStyle} onClick={togglePlay}>
+      <AmbientBars
+        video={videoEl}
+        enabled={ambientMode && active}
+        fullscreen={fullscreen}
+        docked={false}
+        hasFrame={hasFrame}
+        blocked={Boolean(visibleStatus)}
+      />
       {poster && !hasFrame ? <img className='poster' src={poster} alt='' /> : undefined}
-      <video key={attempt} ref={videoRef} playsInline preload='auto' />
+      <video key={attempt} ref={bindVideo} playsInline preload='auto' />
       {active && !hasFrame && !visibleStatus ? <div className='spinner' /> : undefined}
       {visibleStatus ? <p className='status'>{visibleStatus}</p> : undefined}
       {active && ready && paused
@@ -848,6 +952,24 @@ const ShortsPlayer = (
                   </button>
                 )
                 : undefined}
+              <ShortsOptionsMenu
+                label='More options'
+                align='end'
+                side='below'
+                media={mediaState}
+                actions={menuActions}
+                onOpenChange={onMenuOpenChange}
+                trigger={(
+                  <button
+                    type='button'
+                    className='control-btn'
+                    aria-label='More options'
+                    title='More options'
+                  >
+                    <MoreVertical size={20} strokeWidth={1.75} />
+                  </button>
+                )}
+              />
               <button
                 type='button'
                 className='control-btn'
