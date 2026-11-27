@@ -784,7 +784,7 @@ export const PlayerControls = (
   const [fullscreen, setFullscreen] = useState(false)
 
   const closeMenu = useCallback(() => setMenu(undefined), [])
-  const menuOpen = menu !== undefined
+  const menuOpen = !docked && menu !== undefined
   useDismiss({ open: menuOpen, onClose: closeMenu, rootRef: menuRef, triggerRef: menuTriggerRef })
   useEffect(() => {
     onMenu?.(menuOpen || filmstrip)
@@ -806,7 +806,7 @@ export const PlayerControls = (
     setMenu('sleep')
   }, [sleepMenu])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (docked) {
       setMenu(undefined)
       cancelFilmstrip()

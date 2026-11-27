@@ -248,7 +248,10 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
       const { grid: open, setGrid: toggle } = latest.current
       if (!open) {
         pull = 0
-        if (Date.now() - closedAt < CLOSE_COOLDOWN_MS) event.preventDefault()
+        if (Date.now() - closedAt < CLOSE_COOLDOWN_MS) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+        }
         return
       }
       // an open grid scrolls its list, and closes on a pull up from the list's top
@@ -257,6 +260,7 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
         return
       }
       event.preventDefault()
+      event.stopImmediatePropagation()
       pull = Math.sign(pull) === Math.sign(event.deltaY) ? pull + event.deltaY : event.deltaY
       if (Math.abs(pull) < WHEEL_PULL) return
       pull = 0
