@@ -2,7 +2,7 @@ import type { Group } from '../../../src/groups/store'
 
 import { describe, expect, it } from 'vite-plus/test'
 
-import { suggestGroup } from '../../../src/groups/suggest'
+import { suggestGroup, suggestGroups } from '../../../src/groups/suggest'
 import { parseChannelKeywords } from '../../../src/sources/youtube/normalize'
 
 const group = (id: string, name: string, emoji: string, channels: string[] = [], parentId?: string): Group => ({
@@ -283,5 +283,98 @@ describe('suggestGroup', () => {
       name: 'Mind Games',
       tags: [],
     }, USER_GROUPS)).toBeUndefined()
+  })
+})
+
+describe('suggestGroups', () => {
+  it('returns matching existing groups and top 3 clean relevant tags while filtering SEO filler', () => {
+    const groupsWithTech = [...USER_GROUPS, group('tech', 'Tech', '💻')]
+    const suggestions = suggestGroups({
+      id: 'UC55-tEex69n_xJ-F2uB_40w',
+      name: 'The Linux Experiment',
+      handle: '@TheLinuxEXP',
+      description: 'Making Linux accessible: Linux desktop news, simple tutorials, application spotlights.',
+      tags: parseChannelKeywords('linux "linux distribution" "switching to linux" "switch to linux" "great linux content" "linux videos" "linux desktop" "linux desktop distro" "best linux shwo" "linux news" "linux tech news" "linux podcast" "linux hardware" "linux reviews" "linux 2025" "best linux" "linux channel" "biggest linux channel" "linux news podcast" "linux news channel" "linux unbiased" "linux resource" "learn linux" "how to linux" "learning linux"'),
+    }, groupsWithTech)
+
+    expect(suggestions[0]).toEqual({ kind: 'existing', group: groupsWithTech[groupsWithTech.length - 1] })
+    const newNames = suggestions.filter(item => item.kind === 'new').map(item => item.name)
+    expect(newNames).toEqual(['Linux', 'Linux Desktop', 'Linux Distribution'])
+    expect(newNames).not.toContain('Linux 2025')
+    expect(newNames).not.toContain('Best Linux')
+    expect(newNames).not.toContain('Linux Videos')
+    expect(newNames).not.toContain('Tech')
+  })
+
+  it('includes canonical topic plus top 3 clean tags for channels like Veritasium, 3kliksphilip, and Fireship', () => {
+    const veritasium = suggestGroups({
+      id: 'UCHnyfMqiRRG1u-2MsSQLbXA',
+      name: 'Veritasium',
+      handle: '@veritasium',
+      tags: parseChannelKeywords('"science videos" science "science education" "science literacy" veritasium misconceptions physics education astronomy chemistry biology teaching learning math "united states" finance'),
+    }, USER_GROUPS)
+    expect(veritasium.map(item => item.kind === 'new' ? item.name : item.group.name)).toEqual([
+      'Science',
+      'Physics',
+      'Education',
+      'Astronomy',
+    ])
+
+    const kliks = suggestGroups({
+      id: 'UCmu9PVIZBk-ZCi-Bf2F2utA',
+      name: '3kliksphilip',
+      handle: '@3kliksphilip',
+      tags: parseChannelKeywords('3kliksphilip "counter strike" cs2 "source 2" "global offensive" csgo'),
+    }, [])
+    expect(kliks.map(item => item.kind === 'new' ? item.name : item.group.name)).toEqual([
+      'CS2',
+      'Counter Strike',
+      'CSGO',
+    ])
+
+    const fireship = suggestGroups({
+      id: 'UCsBjURrPoezykLs9EqgamOA',
+      name: 'Fireship',
+      tags: parseChannelKeywords('angular firebase web development javascript typescript'),
+    }, USER_GROUPS)
+    expect(fireship.map(item => item.kind === 'new' ? item.name : item.group.name)).toEqual([
+      'Programming',
+      'Angular',
+      'Firebase',
+      'Javascript',
+    ])
+  })
+
+  it('offers multiple existing group matches when relevant, and avoids new tag spam once already in its top group', () => {
+    const gamingAndTrailers = [
+      group('gaming', 'Gaming', '🎮'),
+      group('trailers', 'Trailers', '🎬'),
+    ]
+    const unjoined = suggestGroups({
+      id: 'UCKy1dAqELo0zrOtPkf0eTMw',
+      name: 'IGN',
+      tags: parseChannelKeywords('"Video Games" Gaming trailers e3 consoles'),
+    }, gamingAndTrailers)
+    expect(unjoined.slice(0, 2)).toEqual([
+      { kind: 'existing', group: gamingAndTrailers[0] },
+      { kind: 'existing', group: gamingAndTrailers[1] },
+    ])
+    expect(unjoined.filter(item => item.kind === 'new').map(item => item.name)).toEqual(['E3', 'Consoles'])
+
+    const joined = [
+      group('gaming', 'Gaming', '🎮', ['UCKy1dAqELo0zrOtPkf0eTMw']),
+      group('trailers', 'Trailers', '🎬'),
+    ]
+    expect(suggestGroups({
+      id: 'UCKy1dAqELo0zrOtPkf0eTMw',
+      name: 'IGN',
+      tags: ['Video Games', 'Gaming'],
+    }, joined)).toEqual([])
+
+    expect(suggestGroups({
+      id: 'UCKy1dAqELo0zrOtPkf0eTMw',
+      name: 'IGN',
+      tags: ['gaming', 'trailers'],
+    }, joined)).toEqual([{ kind: 'existing', group: joined[1] }])
   })
 })

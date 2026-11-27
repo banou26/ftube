@@ -172,7 +172,7 @@ export const mountGroupPicker = () => {
 }
 
 /** Renders the guide, /feed/subscriptions and /feed/channels over a signed-in mock source for YTB-124 tests. */
-export const mountChannelsSurface = () => {
+export const mountChannelsSurface = (options?: { withLinux?: boolean }) => {
   const host = document.createElement('div')
   host.setAttribute('data-channels-harness', 'true')
   host.style.cssText = 'position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding-left: 24rem'
@@ -204,16 +204,31 @@ export const mountChannelsSurface = () => {
       description: 'Classic uploads.',
       isSubscribed: true,
     },
+    ...(options?.withLinux
+      ? [{
+          id: 'UC55tEex69nxJF2uB40wLnxE',
+          name: 'The Linux Experiment',
+          handle: '@TheLinuxEXP',
+          subscriberCountText: '434K subscribers',
+          description: 'Linux desktop news and tutorials.',
+          isSubscribed: true,
+        }]
+      : []),
   ]
   const uploadsByChannel: Record<string, { id: string, title: string, publishedAt: string, badges: string[] }[]> = {
     UCaaaaaaaaaaaaaaaaaaaaaa: [{ id: 'vid11111111', title: 'New build', publishedAt: daysAgo(2), badges: [] }],
     UCbbbbbbbbbbbbbbbbbbbbbb: [{ id: 'vid22222222', title: 'Monthly jam', publishedAt: daysAgo(20), badges: [] }],
     UCcccccccccccccccccccccc: [{ id: 'vid33333333', title: 'Old clip', publishedAt: daysAgo(450), badges: [] }],
+    UC55tEex69nxJF2uB40wLnxE: [{ id: 'vid44444444', title: 'Linux desktop weekly', publishedAt: daysAgo(1), badges: [] }],
   }
   const channelsSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
     subscribedChannels: async () => channels,
-    channelTags: async (id: string) => id === 'UCbbbbbbbbbbbbbbbbbbbbbb' ? ['Music'] : [],
+    channelTags: async (id: string) => id === 'UCbbbbbbbbbbbbbbbbbbbbbb'
+      ? ['Music']
+      : id === 'UC55tEex69nxJF2uB40wLnxE'
+        ? ['linux', 'linux desktop', 'linux news', 'linux hardware', 'linux 2025', 'best linux', 'linux videos', 'switching to linux']
+        : [],
     subscriptions: async () => ({ items: [], playlists: [] }),
     channelUploads: async (channelId: string) => uploadsByChannel[channelId] ?? [],
     setSubscribed: async (id: string, isSubscribed: boolean) => ({

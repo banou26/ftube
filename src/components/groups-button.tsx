@@ -1,4 +1,4 @@
-import type { ChannelGroupHints } from '../groups/suggest'
+import type { ChannelGroupHints, GroupSuggestion } from '../groups/suggest'
 import type { Group, GroupChannel } from '../groups/store'
 
 import { css } from '@emotion/react'
@@ -8,7 +8,7 @@ import { useQuery } from 'urql'
 
 import { gql } from '../generated'
 import { groupStore, groupTreeOrder, useGroups } from '../groups/store'
-import { suggestGroup } from '../groups/suggest'
+import { suggestGroups } from '../groups/suggest'
 import { showUndoableToast } from '../undo'
 import GroupDialog from './group-dialog'
 import Dialog from './ui/dialog'
@@ -126,10 +126,10 @@ const useChannelGroups = (
     pause: (!active && !tagsRequested) || hints?.tags != null,
     requestPolicy: 'cache-first',
   })
-  const suggestion = useMemo(
+  const suggestions = useMemo<GroupSuggestion[]>(
     () => {
-      if (hints?.tags == null && tagsFetching) return undefined
-      return suggestGroup(
+      if (hints?.tags == null && tagsFetching) return []
+      return suggestGroups(
         {
           id: channel.id,
           name: channel.name,
@@ -169,7 +169,7 @@ const useChannelGroups = (
 
   return {
     groups,
-    suggestion,
+    suggestions,
     draft,
     setDraft,
     setTagsRequested,
@@ -177,6 +177,9 @@ const useChannelGroups = (
     onAddSuggested,
   }
 }
+
+const suggestionKey = (item: GroupSuggestion) =>
+  item.kind === 'existing' ? `existing:${item.group.id}` : `new:${item.name}`
 
 /** Controlled dialog for managing a channel's group memberships when accessed from More actions. */
 export const GroupsDialog = (
@@ -187,7 +190,7 @@ export const GroupsDialog = (
     hints?: Omit<ChannelGroupHints, 'id' | 'name'>
   },
 ) => {
-  const { groups, suggestion, draft, setDraft, onToggle, onAddSuggested } = useChannelGroups({
+  const { groups, suggestions, draft, setDraft, onToggle, onAddSuggested } = useChannelGroups({
     channel,
     hints,
     active: open,
@@ -214,38 +217,44 @@ export const GroupsDialog = (
   return (
     <Dialog title='Groups' onClose={onClose}>
       <div css={dialogStyle}>
-        {suggestion
+        {suggestions.length > 0
           ? (
             <>
               <div className='section-title'>Suggested</div>
-              {suggestion.kind === 'existing'
-                ? (
-                  <button
-                    type='button'
-                    className='item'
-                    onClick={() => onAddSuggested(suggestion.group)}
-                  >
-                    <Sparkles size={20} strokeWidth={1.5} />
-                    <span className='title'>
-                      <span className='emoji' aria-hidden='true'>{suggestion.group.emoji}</span>
-                      {suggestion.group.name}
-                    </span>
-                  </button>
-                )
-                : (
-                  <button
-                    type='button'
-                    className='item'
-                    onClick={() => setDraft({ name: suggestion.name, emoji: suggestion.emoji })}
-                  >
-                    <Plus size={20} strokeWidth={1.5} />
-                    <span className='title'>
-                      <span className='emoji' aria-hidden='true'>{suggestion.emoji}</span>
-                      {suggestion.name}
-                    </span>
-                    <span className='detail'>Create</span>
-                  </button>
-                )}
+              {suggestions.map(item => (
+                item.kind === 'existing'
+                  ? (
+                    <button
+                      type='button'
+                      key={suggestionKey(item)}
+                      className='item'
+                      aria-label={`Add to ${item.group.name}`}
+                      onClick={() => onAddSuggested(item.group)}
+                    >
+                      <Sparkles size={20} strokeWidth={1.5} />
+                      <span className='title'>
+                        <span className='emoji' aria-hidden='true'>{item.group.emoji}</span>
+                        {item.group.name}
+                      </span>
+                    </button>
+                  )
+                  : (
+                    <button
+                      type='button'
+                      key={suggestionKey(item)}
+                      className='item'
+                      aria-label={`Create ${item.name}`}
+                      onClick={() => setDraft({ name: item.name, emoji: item.emoji })}
+                    >
+                      <Plus size={20} strokeWidth={1.5} />
+                      <span className='title'>
+                        <span className='emoji' aria-hidden='true'>{item.emoji}</span>
+                        {item.name}
+                      </span>
+                      <span className='detail'>Create</span>
+                    </button>
+                  )
+              ))}
               <div className='divider' />
             </>
           )
@@ -291,7 +300,7 @@ export const GroupsButton = (
   },
 ) => {
   const [menuOpen, setMenuOpen] = useState(false)
-  const { groups, suggestion, draft, setDraft, setTagsRequested, onToggle, onAddSuggested } = useChannelGroups({
+  const { groups, suggestions, draft, setDraft, setTagsRequested, onToggle, onAddSuggested } = useChannelGroups({
     channel,
     hints,
     active: menuOpen,
@@ -318,38 +327,42 @@ export const GroupsButton = (
         )}
       >
         <div css={panelStyle} role='presentation'>
-          {suggestion
+          {suggestions.length > 0
             ? (
               <>
                 <MenuSection title='Suggested'>
-                  {suggestion.kind === 'existing'
-                    ? (
-                      <MenuItem
-                        icon={Sparkles}
-                        label={(
-                          <>
-                            <span className='emoji' aria-hidden='true'>{suggestion.group.emoji}</span>
-                            {suggestion.group.name}
-                          </>
-                        )}
-                        ariaLabel={`Add to ${suggestion.group.name}`}
-                        onSelect={() => onAddSuggested(suggestion.group)}
-                      />
-                    )
-                    : (
-                      <MenuItem
-                        icon={Plus}
-                        label={(
-                          <>
-                            <span className='emoji' aria-hidden='true'>{suggestion.emoji}</span>
-                            {suggestion.name}
-                          </>
-                        )}
-                        detail='Create'
-                        ariaLabel={`Create ${suggestion.name}`}
-                        onSelect={() => setDraft({ name: suggestion.name, emoji: suggestion.emoji })}
-                      />
-                    )}
+                  {suggestions.map(item => (
+                    item.kind === 'existing'
+                      ? (
+                        <MenuItem
+                          key={suggestionKey(item)}
+                          icon={Sparkles}
+                          label={(
+                            <>
+                              <span className='emoji' aria-hidden='true'>{item.group.emoji}</span>
+                              {item.group.name}
+                            </>
+                          )}
+                          ariaLabel={`Add to ${item.group.name}`}
+                          onSelect={() => onAddSuggested(item.group)}
+                        />
+                      )
+                      : (
+                        <MenuItem
+                          key={suggestionKey(item)}
+                          icon={Plus}
+                          label={(
+                            <>
+                              <span className='emoji' aria-hidden='true'>{item.emoji}</span>
+                              {item.name}
+                            </>
+                          )}
+                          detail='Create'
+                          ariaLabel={`Create ${item.name}`}
+                          onSelect={() => setDraft({ name: item.name, emoji: item.emoji })}
+                        />
+                      )
+                  ))}
                 </MenuSection>
                 <MenuSeparator />
               </>

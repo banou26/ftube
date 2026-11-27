@@ -31,10 +31,10 @@ const TOPICS: readonly Topic[] = [
   { name: 'ASMR', emoji: '🎧', aliases: ['asmr', 'relaxation', 'relax', 'sleep', 'stress relief', 'whisper', 'tingle'] },
   { name: 'Mathematics', emoji: '🔬', aliases: ['mathematics', 'math', 'maths', 'mathematiques', 'calculus', 'linear algebra', 'algebra', 'geometry', 'topology', 'probability'], descriptionKeywords: ['mathematics', 'math', 'calculus', 'geometry'] },
   { name: '3D', emoji: '🎨', aliases: ['3d', '3d modeling', '3d animation', 'cgi', 'vfx', 'blender 3d', 'sculpture'], descriptionKeywords: ['3d creation', '3d modeling', '3d animation', 'cgi'] },
-  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rustlang', 'rust programming', 'golang', 'react', 'angular', 'firebase', 'linux', 'devops', 'computer science', 'developer', 'programmation', 'developpement'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials', 'programmation', 'developpement'] },
+  { name: 'Programming', emoji: '💻', aliases: ['programming', 'coding', 'software development', 'software engineering', 'web development', 'web dev', 'javascript', 'typescript', 'python', 'rustlang', 'rust programming', 'golang', 'react', 'angular', 'firebase', 'devops', 'computer science', 'developer', 'programmation', 'developpement'], descriptionKeywords: ['programming', 'software engineering', 'web development', 'code tutorials', 'programmation', 'developpement'] },
   { name: 'Trailers', emoji: '🎬', aliases: ['trailer', 'movie trailer', 'film trailer', 'game trailer', 'teaser'], descriptionKeywords: ['trailers'] },
   { name: 'Gaming', emoji: '🎮', aliases: ['gaming', 'video game', 'videogame', 'videogaming', 'gamer', 'game', 'jeu video', 'jeux video', 'retrogaming', 'retro gaming', 'esport', 'console', 'playstation', 'xbox', 'nintendo', 'pc gaming', 'megadrive', 'speedrun', 'e3'], descriptionKeywords: ['gaming', 'video games', 'videogames', 'gamer', 'esports', 'jeux video', 'jeu video'] },
-  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'gadget review', 'technologie', 'informatique'], descriptionKeywords: ['consumer electronics', 'tech videos', 'tech reviews', 'computer hardware', 'smartphones', 'technologie', 'informatique'] },
+  { name: 'Tech', emoji: '💻', aliases: ['tech', 'technology', 'computer hardware', 'hardware', 'computer', 'consumer electronics', 'electronics', 'smartphone', 'gadget', 'laptop', 'pc build', 'motherboard', 'intel', 'amd', 'nvidia', 'gpu', 'cpu', 'gadget review', 'technologie', 'informatique', 'linux', 'linux desktop', 'open source', 'ubuntu', 'operating system'], descriptionKeywords: ['consumer electronics', 'tech videos', 'tech reviews', 'computer hardware', 'smartphones', 'technologie', 'informatique', 'linux'] },
   { name: 'Music', emoji: '🎵', aliases: ['music', 'musician', 'singer', 'song', 'album', 'band', 'rock', 'pop', 'hip hop', 'rap', 'jazz', 'electronic music', 'classical music', 'dj', 'soundtrack', 'musique'], descriptionKeywords: ['official music', 'music video', 'singer', 'songwriter', 'musician', 'album', 'discography', 'record label', 'musique'] },
   { name: 'Movies', emoji: '🎬', aliases: ['movie', 'film', 'cinema', 'series', 'television', 'anime', 'documentary'], descriptionKeywords: ['movie reviews', 'film analysis', 'cinema', 'filmmaker'] },
   { name: 'Cooking', emoji: '🍳', aliases: ['cooking', 'food', 'recipe', 'culinary', 'baking', 'chef', 'cuisine', 'kitchen'], descriptionKeywords: ['cooking', 'recipes', 'culinary', 'baking', 'recettes', 'cuisine'] },
@@ -54,7 +54,66 @@ const TOPICS: readonly Topic[] = [
   { name: 'Business', emoji: '💼', aliases: ['business', 'finance', 'investing', 'economics', 'startup', 'entrepreneurship', 'marketing'], descriptionKeywords: ['investing', 'economics', 'entrepreneurship', 'personal finance'] },
 ]
 
-const UPPERCASE_TERMS = new Set(['3d', 'ai', 'asmr', 'diy', 'f1', 'fx', 'irl', 'jdm', 'mma', 'nba', 'nfl', 'pc', 'rpg', 'tech', 'tv', 'ufc', 'uk', 'us', 'usa', 'vfx', 'vr'])
+const UPPERCASE_TERMS = new Set(['3d', 'ai', 'amd', 'asmr', 'cpu', 'cs2', 'csgo', 'diy', 'f1', 'fps', 'fx', 'gpu', 'irl', 'jdm', 'kde', 'mma', 'nba', 'nfl', 'os', 'pc', 'rpg', 'tv', 'ufc', 'uk', 'us', 'usa', 'vfx', 'vr'])
+
+const MAX_EXISTING_SUGGESTIONS = 2
+const MAX_TAG_SUGGESTIONS = 3
+const YEAR_TOKEN_RE = /^(?:19|20)\d{2}$/
+
+const TAG_FILLER_WORDS = new Set([
+  'about',
+  'best',
+  'biggest',
+  'channel',
+  'cheat',
+  'clip',
+  'compilation',
+  'content',
+  'daily',
+  'episode',
+  'featured',
+  'for',
+  'full',
+  'funny',
+  'gameplay',
+  'gear',
+  'great',
+  'guide',
+  'how',
+  'learn',
+  'learning',
+  'live',
+  'meme',
+  'more',
+  'my',
+  'new',
+  'official',
+  'popular',
+  'resource',
+  'review',
+  'short',
+  'show',
+  'stream',
+  'streaming',
+  'subscribe',
+  'switch',
+  'switching',
+  'test',
+  'the',
+  'to',
+  'top',
+  'trending',
+  'tutorial',
+  'unbiased',
+  'unboxing',
+  'video',
+  'vlog',
+  'walkthrough',
+  'with',
+  'your',
+  'youtube',
+  'youtuber',
+])
 
 const AMBIGUOUS_NAME_TOPICS = new Set(['art', 'car', 'pet', 'nature', 'business', 'education'])
 const UNAMBIGUOUS_NAME_ALIASES = new Set([
@@ -311,8 +370,29 @@ const topicScoresFromSignals = (cleanTags: readonly string[], channel: ChannelGr
   return scores
 }
 
-/** Suggests an existing matching group or a new topic group for a channel, or `undefined` when no relevant match exists. */
-export const suggestGroup = (channel: ChannelGroupHints, groups: readonly Group[]): GroupSuggestion | undefined => {
+const phraseTopicForNormalized = (norm: string): Topic | undefined => {
+  const exact = topicForNormalized(norm)
+  if (exact) return exact
+  for (const topic of TOPICS) {
+    if (topic.aliases.some((alias) => {
+      const normAlias = normalizePhrase(alias)
+      return normAlias.length >= 4 && containsWholePhrase(norm, normAlias)
+    })) {
+      return topic
+    }
+  }
+  return undefined
+}
+
+const isSuggestableTag = (raw: string, norm: string): boolean => {
+  const words = norm.split(' ')
+  if (norm.length < 2 || raw.length > 22 || words.length > 2) return false
+  if (!/^[\p{L}\p{N}\s+#&'-]+$/u.test(raw)) return false
+  return !words.some(word => YEAR_TOKEN_RE.test(word) || TAG_FILLER_WORDS.has(word))
+}
+
+/** Suggests matching existing groups, a new canonical topic group, and up to three top relevant tag groups. */
+export const suggestGroups = (channel: ChannelGroupHints, groups: readonly Group[]): GroupSuggestion[] => {
   const vanity = buildChannelVanityFilter(channel)
   const cleanTags = (channel.tags ?? []).filter(tag => isRelevantTag(tag, vanity))
   const normCleanTags = cleanTags.map(normalizePhrase)
@@ -381,36 +461,99 @@ export const suggestGroup = (channel: ChannelGroupHints, groups: readonly Group[
 
   candidates.sort((a, b) => (b.score - a.score) || (b.depth - a.depth))
   const bestOverall = candidates[0]
-  const bestEligible = candidates.find(candidate => !candidate.alreadyIn)
+  const eligibleExisting = candidates.filter(candidate => !candidate.alreadyIn)
 
-  if (bestEligible) {
-    // If the channel is already in its top-matching group, only suggest another unjoined group on a strong direct hit
-    if (!bestOverall?.alreadyIn || bestEligible.score >= 80) {
-      return { kind: 'existing', group: bestEligible.group }
+  // If the channel is already in its top-matching group, only offer unjoined strong hits and avoid new-group noise.
+  if (bestOverall?.alreadyIn) {
+    return eligibleExisting
+      .filter(candidate => candidate.score >= 80)
+      .slice(0, MAX_EXISTING_SUGGESTIONS)
+      .map(candidate => ({ kind: 'existing', group: candidate.group }))
+  }
+
+  const results: GroupSuggestion[] = []
+  const existingNormNames = new Set(groups.map(group => normalizePhrase(group.name)).filter(Boolean))
+  const existingCompactNames = new Set([...existingNormNames].map(name => name.replace(/\s+/g, '')))
+  const coveredTopics = new Set<Topic>()
+  for (const group of groups) {
+    const matchedTopic = topicForNormalized(normalizePhrase(group.name))
+    if (matchedTopic) coveredTopics.add(matchedTopic)
+  }
+
+  const suggestedNormNames = new Set<string>()
+  const suggestedCompactNames = new Set<string>()
+  const markSuggested = (name: string) => {
+    const norm = normalizePhrase(name)
+    if (!norm) return
+    suggestedNormNames.add(norm)
+    suggestedCompactNames.add(norm.replace(/\s+/g, ''))
+  }
+  const isTakenForNew = (name: string) => {
+    const norm = normalizePhrase(name)
+    if (!norm) return true
+    const compact = norm.replace(/\s+/g, '')
+    return existingNormNames.has(norm)
+      || existingCompactNames.has(compact)
+      || suggestedNormNames.has(norm)
+      || suggestedCompactNames.has(compact)
+  }
+
+  for (const candidate of eligibleExisting.slice(0, MAX_EXISTING_SUGGESTIONS)) {
+    results.push({ kind: 'existing', group: candidate.group })
+    markSuggested(candidate.group.name)
+  }
+
+  if (topTopic && topTopicScore >= 45 && !coveredTopics.has(topTopic) && !isTakenForNew(topTopic.name)) {
+    results.push({ kind: 'new', name: topTopic.name, emoji: topTopic.emoji })
+    markSuggested(topTopic.name)
+  }
+
+  const wordFreq = new Map<string, number>()
+  for (const norm of normCleanTags) {
+    for (const word of new Set(norm.split(' '))) {
+      wordFreq.set(word, (wordFreq.get(word) ?? 0) + 1)
     }
-    return undefined
-  }
-  if (bestOverall?.alreadyIn) return undefined
-
-  const existingNormNames = new Set(groups.map(group => normalizePhrase(group.name)))
-
-  if (topTopic && topTopicScore >= 45 && !existingNormNames.has(normalizePhrase(topTopic.name))) {
-    return { kind: 'new', name: topTopic.name, emoji: topTopic.emoji }
   }
 
-  // Fallback to the cleanest raw tag when it is compact, readable, and not already a group name
-  const fallbackTag = cleanTags.find((tag) => {
+  type ScoredTag = { tag: string, index: number, score: number, emoji: string }
+  const scoredTags: ScoredTag[] = []
+  cleanTags.forEach((tag, index) => {
     const norm = normalizePhrase(tag)
+    if (!isSuggestableTag(tag, norm) || isTakenForNew(tag)) return
     const words = norm.split(' ')
-    return norm.length >= 2
-      && tag.length <= 22
-      && words.length <= 2
-      && !existingNormNames.has(norm)
-      && /^[a-z0-9\s+#-]+$/i.test(tag)
+    const exactTopic = topicForNormalized(norm)
+    const phraseTopic = exactTopic ?? phraseTopicForNormalized(norm)
+
+    let score = Math.max(0, 20 - index * 1.5)
+    if (exactTopic) score += 22
+    else if (phraseTopic) score += 12
+    if (normDesc && containsWholePhrase(normDesc, norm)) score += 14
+    if (words.length === 1) {
+      score += 4
+      if ((wordFreq.get(words[0]!) ?? 0) >= 3) score += 10
+    }
+
+    scoredTags.push({
+      tag,
+      index,
+      score,
+      emoji: phraseTopic?.emoji ?? DEFAULT_EMOJI,
+    })
   })
-  if (fallbackTag) {
-    return { kind: 'new', name: formatGroupName(fallbackTag), emoji: DEFAULT_EMOJI }
+
+  scoredTags.sort((a, b) => (b.score - a.score) || (a.index - b.index))
+  let addedTags = 0
+  for (const entry of scoredTags) {
+    if (addedTags >= MAX_TAG_SUGGESTIONS) break
+    if (isTakenForNew(entry.tag)) continue
+    results.push({ kind: 'new', name: formatGroupName(entry.tag), emoji: entry.emoji })
+    markSuggested(entry.tag)
+    addedTags += 1
   }
 
-  return undefined
+  return results
 }
+
+/** Suggests an existing matching group or a new topic group for a channel, or `undefined` when no relevant match exists. */
+export const suggestGroup = (channel: ChannelGroupHints, groups: readonly Group[]): GroupSuggestion | undefined =>
+  suggestGroups(channel, groups)[0]

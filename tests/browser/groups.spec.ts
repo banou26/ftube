@@ -262,10 +262,13 @@ test('shows group suggestions on channel pages with null tags, on watch pages, a
   await page.keyboard.press('Escape')
 
   await page.goto('/watch?v=dQw4w9WgXcQ')
-  const watchGroups = page.locator('main').getByRole('button', { name: 'Groups', exact: true })
-  await expect(watchGroups).toBeVisible({ timeout: 90_000 })
-  await watchGroups.click()
-  await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create Music' })).toBeVisible()
+  const watchMoreActions = page.locator('main').getByRole('button', { name: 'More actions', exact: true })
+  await expect(watchMoreActions).toBeVisible({ timeout: 90_000 })
+  await watchMoreActions.click()
+  await page.getByRole('menu', { name: 'More actions' }).getByRole('menuitem', { name: 'Groups', exact: true }).click()
+  const groupsDialog = page.getByRole('dialog', { name: 'Groups' })
+  await expect(groupsDialog).toBeVisible()
+  await expect(groupsDialog.getByRole('button', { name: 'Create Music', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
   await page.goto('/results?search_query=Blender')
@@ -273,4 +276,50 @@ test('shows group suggestions on channel pages with null tags, on watch pages, a
   await expect(searchGroups).toBeVisible({ timeout: 90_000 })
   await searchGroups.click()
   await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create 3D' })).toBeVisible()
+})
+
+test('shows multiple suggestions including top 3 relevant tags in Groups menu and lets the user create one', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.addInitScript(() => {
+    localStorage.setItem('yt-client:groups', JSON.stringify([{
+      id: 'g-tech',
+      name: 'Tech',
+      emoji: '💻',
+      channels: [],
+      updatedAt: Date.now(),
+    }]))
+  })
+  await page.goto('/feed/channels')
+  await expect(async () => {
+    const host = page.locator('[data-channels-harness]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelsSurface({ withLinux: true })
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+
+  const harness = page.locator('[data-channels-harness]')
+  const linuxRow = harness.locator('.list .row', { hasText: 'The Linux Experiment' })
+  await linuxRow.getByRole('button', { name: 'Groups', exact: true }).click()
+
+  const suggested = page.getByRole('group', { name: 'Suggested' })
+  await expect(suggested).toBeVisible()
+  await expect(suggested.getByRole('menuitem', { name: 'Add to Tech', exact: true })).toBeVisible()
+  await expect(suggested.getByRole('menuitem', { name: 'Create Linux', exact: true })).toBeVisible()
+  await expect(suggested.getByRole('menuitem', { name: 'Create Linux Desktop', exact: true })).toBeVisible()
+  await expect(suggested.getByRole('menuitem', { name: 'Create Linux News', exact: true })).toBeVisible()
+  await expect(suggested.getByRole('menuitem', { name: 'Create Linux 2025' })).toHaveCount(0)
+  await expect(suggested.getByRole('menuitem', { name: 'Create Best Linux' })).toHaveCount(0)
+  await expect(suggested.getByRole('menuitem', { name: 'Create Linux Videos' })).toHaveCount(0)
+  await expect(suggested.getByRole('menuitem', { name: 'Create Switching To Linux' })).toHaveCount(0)
+
+  await suggested.getByRole('menuitem', { name: 'Create Linux', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New group' })
+  await expect(dialog.getByLabel('Name')).toHaveValue('Linux')
+  await expect(dialog.getByRole('radio', { name: '💻' })).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('button', { name: 'Create' }).click()
+  await expect(page.getByText('Added to Linux')).toBeVisible()
 })
