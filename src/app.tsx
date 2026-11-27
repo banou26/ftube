@@ -12,6 +12,7 @@ import Header from './components/header'
 import { lazyRoute } from './components/lazy-route'
 import PartyChat from './components/party-chat'
 import PartySync from './components/party-sync'
+import { useTruncatedTooltips } from './components/truncated-title'
 import ErrorBoundary from './components/ui/error-boundary'
 import PersistentPlayer from './player/persistent-player'
 import { CHANNEL_TAB_PATHS, channelTabFor } from './routes/channel-tabs'
@@ -181,6 +182,7 @@ export const useMediaQuery = (query: string) => {
 }
 
 export const App = () => {
+  useTruncatedTooltips()
   const [location] = useLocation()
   const search = useSearch()
   const route = routeKeyOf(location, search)
