@@ -21,6 +21,8 @@ import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../grou
 import { canImportBrowserHistory, dayHeading, importBrowserHistory, importFailure, keptBrowserHistory, SignedOutError } from '../history/browser-history'
 import { deleteImportedHistory, readImportedHistory } from '../history/store'
 import { startPlatform } from '../engine/platform'
+import { matchesGlobalFeedRules } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
@@ -540,12 +542,17 @@ const HistoryFeedPage = () => {
   })
 
   const stalled = emptyHistoryPagesInARow(pages, filter) >= EMPTY_HISTORY_PAGES_LIMIT
+  const feedSettings = useFeedViewSettings()
 
   const sections: HistorySection[] = []
   const byTitle = new Map<string, HistorySection>()
   const clientFilter = { type: filter.type, channelIds: filter.channelIds, hideShorts }
   for (const video of items) {
-    if (removed.has(video.id) || !matchesHistoryFilter(video, clientFilter)) continue
+    if (
+      removed.has(video.id)
+      || !matchesHistoryFilter(video, clientFilter)
+      || !matchesGlobalFeedRules(video, feedSettings, hideShorts, { ignoreWatched: true })
+    ) continue
     let section = byTitle.get(video.sectionTitle)
     if (!section) {
       section = { title: video.sectionTitle, items: [] }

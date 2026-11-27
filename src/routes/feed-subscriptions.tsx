@@ -8,11 +8,15 @@ import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure } from '../components/data-failure'
+import { FeedSettingsPanel } from '../components/feed-settings-panel'
+import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
 import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
+import { matchesFeedViewFilter } from '../feeds/filter'
+import { updateFeedHide, useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
-import { EMPTY_PAGES_LIMIT, emptyPagesInARow, matchesFilter } from '../groups/filter'
+import { EMPTY_PAGES_LIMIT, matchesFilter } from '../groups/filter'
 import { groupChannelsWithDescendants, groupTreeOrder, useGroups } from '../groups/store'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
@@ -23,6 +27,8 @@ const SUBSCRIPTIONS_FEED_QUERY = gql(`
       items {
         id
         title
+        description
+        descriptionSnippet
         inlinePlayerParams
         thumbnail
         thumbnailSrcset
@@ -31,8 +37,11 @@ const SUBSCRIPTIONS_FEED_QUERY = gql(`
         viewCount
         publishedText
         isLive
+        isUpcoming
         isShort
+        isMostRelevant
         progressPercent
+        badges
         channel { id name avatar isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
@@ -192,8 +201,12 @@ const SubscriptionsFeedPage = () => {
   const { ready, signedIn } = useSession()
   const groups = useGroups()
   const [groupId, setGroupId] = useState<string | undefined>(undefined)
-  const [hideLive, setHideLive] = useState(false)
-  const [hideWatched, setHideWatched] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const feedSettings = useFeedViewSettings()
+  const hideLive = feedSettings.hide.live
+  const hideWatched = feedSettings.hide.watched
+  const layout = feedSettings.layouts.subscriptions
+  const cardStyle = feedSettings.cardStyles[layout]
   const [loaded, setLoaded] = useState<SubscriptionsPage[]>([])
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: SUBSCRIPTIONS_FEED_QUERY,
@@ -213,8 +226,15 @@ const SubscriptionsFeedPage = () => {
     hideWatched,
     hideShorts,
   }
-  const shown = items.filter(item => matchesFilter(item, filter))
-  const stalled = emptyPagesInARow(pages, filter) >= EMPTY_PAGES_LIMIT
+  const keeps = (item: SubscriptionsPage['items'][number]) =>
+    matchesFilter(item, filter) && matchesFeedViewFilter(item, feedSettings, hideShorts)
+  const shown = items.filter(keeps)
+  let emptyTrailing = 0
+  for (let index = pages.length - 1; index >= 0; index--) {
+    if (pages[index]!.items.some(keeps)) break
+    emptyTrailing++
+  }
+  const stalled = emptyTrailing >= EMPTY_PAGES_LIMIT
 
   const onMore = () => {
     if (!page?.cursor || fetching || error) return
@@ -268,13 +288,19 @@ const SubscriptionsFeedPage = () => {
           <Link href='/feed/groups' className='manage'>Manage</Link>
         </div>
         <label className='toggle'>
-          <input type='checkbox' checked={hideLive} onChange={() => setHideLive(value => !value)} />
+          <input type='checkbox' checked={hideLive} onChange={() => updateFeedHide({ live: !hideLive })} />
           Hide live
         </label>
         <label className='toggle'>
-          <input type='checkbox' checked={hideWatched} onChange={() => setHideWatched(value => !value)} />
+          <input type='checkbox' checked={hideWatched} onChange={() => updateFeedHide({ watched: !hideWatched })} />
           Hide watched
         </label>
+        <FeedFilterChips />
+        <FeedViewButtons
+          surface='subscriptions'
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen(open => !open)}
+        />
       </div>
       {data && !fetching && !error && shown.length === 0 && (stalled || !cursor)
         ? (
@@ -282,7 +308,18 @@ const SubscriptionsFeedPage = () => {
             <h2>No new videos</h2>
           </div>
         )
-        : <VideoGrid videos={shown} fetching={fetching && shown.length === 0} inlinePreview />}
+        : (
+          <VideoGrid
+            videos={shown}
+            fetching={fetching && shown.length === 0}
+            inlinePreview
+            layout={layout}
+            cardStyle={cardStyle}
+            showDuration={feedSettings.showDuration}
+            showDescription={cardStyle.descriptionLines > 0}
+            descriptionLines={cardStyle.descriptionLines}
+          />
+        )}
       {fetching && shown.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {/* paging on its own stops after pages that held nothing to show, and goes on from here one page at a time */}
@@ -290,6 +327,7 @@ const SubscriptionsFeedPage = () => {
         ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
         : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor || stalled} />
+      <FeedSettingsPanel surface='subscriptions' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )
 }

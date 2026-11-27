@@ -8,15 +8,20 @@ import { useClient } from 'urql'
 import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
+import { FeedSettingsPanel } from '../components/feed-settings-panel'
+import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
 import { formatAgo, formatCount, safeDecode } from '../components/format'
 import GroupDialog from '../components/group-dialog'
 import GroupSyncBanner from '../components/group-sync-banner'
 import { FeedSentinel } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
+import { matchesFeedViewFilter } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { directSubgroups, groupAncestors, groupChannelsWithDescendants, groupHrefFor, useGroups } from '../groups/store'
 import { mergeUploads } from '../groups/uploads'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 
 // the feed has no live state or avatar, and Video is keyed by id: selecting those would write nulls over other views
 const CHANNEL_UPLOADS_QUERY = gql(`
@@ -181,6 +186,8 @@ const style = css`
 
   .sorts {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.8rem;
     margin: 2.4rem 0;
   }
@@ -255,6 +262,11 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
   const [shown, setShown] = useState(PAGE_SIZE)
   const [editing, setEditing] = useState(false)
   const [creatingSubgroup, setCreatingSubgroup] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
+  const layout = feedSettings.layouts.other
+  const cardStyle = feedSettings.cardStyles[layout]
   const ancestors = group ? groupAncestors(groups, group.id) : []
   const subgroups = group ? directSubgroups(groups, group.id) : []
   const channels = group ? groupChannelsWithDescendants(groups, group.id) : []
@@ -275,7 +287,7 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
       return result.uploads.map(upload => ({ ...upload, publishedText: formatAgo(upload.publishedAt), channel }))
     }),
     sort,
-  )
+  ).filter(video => matchesFeedViewFilter(video, feedSettings, hideShorts))
   const pending = channels.filter(channel => !results[channel.id]).length
   const failed = channels.filter(channel => {
     const result = results[channel.id]
@@ -348,14 +360,30 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
             {option.label}
           </button>
         ))}
+        <FeedFilterChips />
+        <FeedViewButtons
+          surface='other'
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen(open => !open)}
+        />
       </div>
       <GroupSyncBanner showWhenSynced={false} />
       {failed.length > 0 ? <p className='notice'>{failedLine(failed.map(channel => channel.name))}</p> : undefined}
       {channels.length === 0
         ? <p className='notice'>{subgroups.length > 0 ? 'No channels in this group or its subfolders' : 'No channels in this group'}</p>
         : undefined}
-      <VideoGrid videos={videos.slice(0, shown)} fetching={pending > 0 && videos.length <= shown} inlinePreview={signedIn} />
+      <VideoGrid
+        videos={videos.slice(0, shown)}
+        fetching={pending > 0 && videos.length <= shown}
+        inlinePreview={signedIn}
+        layout={layout}
+        cardStyle={cardStyle}
+        showDuration={feedSettings.showDuration}
+        showDescription={cardStyle.descriptionLines > 0}
+        descriptionLines={cardStyle.descriptionLines}
+      />
       <FeedSentinel onVisible={() => setShown(count => count + PAGE_SIZE)} disabled={videos.length <= shown} />
+      <FeedSettingsPanel surface='other' open={panelOpen} onClose={() => setPanelOpen(false)} />
       {editing ? <GroupDialog group={group} onClose={() => setEditing(false)} /> : undefined}
       {creatingSubgroup ? <GroupDialog parentId={group.id} onClose={() => setCreatingSubgroup(false)} /> : undefined}
     </main>

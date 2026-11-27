@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact'
 
 import type { VideoCardData } from '../components/video-card'
+import type { FeedViewSettings } from '../feeds/settings'
 
 import { css } from '@emotion/react'
 import { Library } from 'lucide-react'
@@ -12,10 +13,11 @@ import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from '../components/
 import { PlaylistCard } from '../components/playlist-card'
 import { SignedOutPrompt } from '../components/signed-out-prompt'
 import { VideoCard } from '../components/video-card'
+import { matchesGlobalFeedRules } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
-import { filterOutShorts } from '../shorts-filter'
 
 const YOU_HISTORY_QUERY = gql(`
   query YouHistory {
@@ -163,18 +165,25 @@ const VideoShelf = ({ title, href, videos, fetching }: { title: string, href: st
 )
 
 // no shelf for an empty answer: the playlist reader cannot read LockupView items yet, so a full list can come back empty and 'No videos' would be wrong
-const PlaylistShelf = ({ id, title }: { id: string, title: string }) => {
+const PlaylistShelf = (
+  { id, title, feedSettings, hideShorts }: { id: string, title: string, feedSettings: FeedViewSettings, hideShorts: boolean },
+) => {
   const [{ data, fetching }] = useQuery({ query: YOU_PLAYLIST_QUERY, variables: { id } })
-  const videos = (data?.playlist.items ?? []).map(item => item.video)
+  const videos = (data?.playlist.items ?? [])
+    .map(item => item.video)
+    .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts))
   if (!fetching && videos.length === 0) return null
   return <VideoShelf title={title} href={playlistHrefFor(id)} videos={videos} fetching={fetching} />
 }
 
 const SignedInYou = () => {
   const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
   const [{ data: history, fetching: historyFetching }] = useQuery({ query: YOU_HISTORY_QUERY })
   const [{ data: library, fetching: libraryFetching }] = useQuery({ query: YOU_PLAYLISTS_QUERY })
-  const watched = filterOutShorts((history?.history.sections ?? []).flatMap(section => section.items), hideShorts)
+  const watched = (history?.history.sections ?? [])
+    .flatMap(section => section.items)
+    .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts, { ignoreWatched: true }))
   const playlists = (library?.playlists.items ?? [])
     .filter(playlist => playlist.id !== WATCH_LATER_ID && playlist.id !== LIKED_VIDEOS_ID)
     .slice(0, SHELF_SIZE)
@@ -194,8 +203,8 @@ const SignedInYou = () => {
           />
         ))}
       </Shelf>
-      <PlaylistShelf id={WATCH_LATER_ID} title='Watch later' />
-      <PlaylistShelf id={LIKED_VIDEOS_ID} title='Liked videos' />
+      <PlaylistShelf id={WATCH_LATER_ID} title='Watch later' feedSettings={feedSettings} hideShorts={hideShorts} />
+      <PlaylistShelf id={LIKED_VIDEOS_ID} title='Liked videos' feedSettings={feedSettings} hideShorts={hideShorts} />
     </>
   )
 }

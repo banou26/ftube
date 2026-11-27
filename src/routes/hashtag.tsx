@@ -7,12 +7,15 @@ import { Link } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure } from '../components/data-failure'
+import { FeedSettingsPanel } from '../components/feed-settings-panel'
+import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
 import { ShortsGrid } from '../components/shorts-grid'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoGrid } from '../components/video-grid'
+import { matchesFeedViewFilter } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
-import { filterOutShorts } from '../shorts-filter'
 
 const HASHTAG_PAGE_QUERY = gql(`
   query HashtagPage($tag: String!, $tab: HashtagTab, $cursor: String) {
@@ -25,6 +28,8 @@ const HASHTAG_PAGE_QUERY = gql(`
       items {
         id
         title
+        description
+        descriptionSnippet
         inlinePlayerParams
         thumbnail
         thumbnailSrcset
@@ -86,6 +91,14 @@ const style = css`
     overflow-x: auto;
     scrollbar-width: none;
     box-shadow: inset 0 -1px var(--border-subtle);
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.2rem 1.6rem;
+    margin-top: 1.6rem;
   }
 
   .tabs::-webkit-scrollbar {
@@ -151,7 +164,13 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
     key: video => video.id,
   })
   const hideShorts = useSetting('hideShorts')
-  const visibleItems = tab === 'ALL' ? filterOutShorts(items, hideShorts) : items
+  const feedSettings = useFeedViewSettings()
+  const [panelOpen, setPanelOpen] = useState(false)
+  const layout = feedSettings.layouts.other
+  const cardStyle = feedSettings.cardStyles[layout]
+  const visibleItems = tab === 'ALL'
+    ? items.filter(item => matchesFeedViewFilter(item, feedSettings, hideShorts))
+    : items.filter(item => matchesFeedViewFilter(item, feedSettings, false))
   const heading = page?.title ?? `#${tag.toLowerCase()}`
   useDocumentTitle(heading)
 
@@ -190,12 +209,35 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
           </nav>
         )
         : undefined}
+      {tab !== 'SHORTS'
+        ? (
+          <div className='toolbar'>
+            <FeedFilterChips />
+            <FeedViewButtons
+              surface='other'
+              panelOpen={panelOpen}
+              onTogglePanel={() => setPanelOpen(open => !open)}
+            />
+          </div>
+        )
+        : undefined}
       {error && !fetching && pages.length === 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       <div className='videos'>
         {tab === 'SHORTS'
           ? <ShortsGrid shorts={visibleItems} fetching={fetching && !error} />
           : visibleItems.length > 0 || (fetching && !error)
-            ? <VideoGrid videos={visibleItems} fetching={fetching && !error && visibleItems.length === 0} variant='channel' />
+            ? (
+              <VideoGrid
+                videos={visibleItems}
+                fetching={fetching && !error && visibleItems.length === 0}
+                variant='channel'
+                layout={layout}
+                cardStyle={cardStyle}
+                showDuration={feedSettings.showDuration}
+                showDescription={cardStyle.descriptionLines > 0}
+                descriptionLines={cardStyle.descriptionLines}
+              />
+            )
             : undefined}
         {data && !fetching && !error && visibleItems.length === 0
           ? <p className='status'>{tab === 'SHORTS' ? 'No Shorts for this hashtag.' : 'No videos for this hashtag.'}</p>
@@ -204,6 +246,7 @@ export const HashtagPage = ({ tag, tab = 'ALL' }: { tag: string, tab?: HashtagTa
       {fetching && visibleItems.length > 0 ? <p className='status'>Loading more…</p> : undefined}
       {error && !fetching && pages.length > 0 ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
+      <FeedSettingsPanel surface='other' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )
 }

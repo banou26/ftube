@@ -9,12 +9,15 @@ import { useDocumentTitle } from '../app'
 import { cameBack } from '../back-navigation'
 import { DataFailure } from '../components/data-failure'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
+import { FeedSettingsPanel } from '../components/feed-settings-panel'
+import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
+import { matchesFeedViewFilter, matchesBlockedKeywords } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSetting } from '../settings'
-import { isAllowedWithHideShorts } from '../shorts-filter'
 import { homeFeedPages } from './home-feed'
 
 const HOME_FEED_QUERY = gql(`
@@ -23,6 +26,8 @@ const HOME_FEED_QUERY = gql(`
       items {
         id
         title
+        description
+        descriptionSnippet
         inlinePlayerParams
         thumbnail
         thumbnailSrcset
@@ -31,8 +36,11 @@ const HOME_FEED_QUERY = gql(`
         viewCount
         publishedText
         isLive
+        isUpcoming
         isShort
+        isMostRelevant
         progressPercent
+        badges
         channel { id name avatar isVerified isVerifiedArtist }
         byline { text isVerified isVerifiedArtist }
         collaborators { id name avatar handle subscriberCountText isVerified isVerifiedArtist }
@@ -67,8 +75,22 @@ const style = css`
     position: sticky;
     top: var(--header-height);
     z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    min-height: 4.8rem;
     margin-bottom: 1.2rem;
     background: var(--bg-base);
+  }
+
+  .rail-chips {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .custom-rail-chips {
+    margin-bottom: 1.2rem;
   }
 
   .chips {
@@ -211,9 +233,16 @@ const HomePage = () => {
   const shorts = useInfiniteFeed({ pages: feed.shorts, key: short => short.id }).items
   const { items, cursor } = useInfiniteFeed({ pages: feed.videos, key: video => video.id })
   const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
+  const [panelOpen, setPanelOpen] = useState(false)
+  const layout = feedSettings.layouts.home
+  const cardStyle = feedSettings.cardStyles[layout]
   const dismissed = useDismissed()
-  const visibleShorts = shorts.filter(short => !isDismissedVideo(dismissed, short))
-  const visibleItems = items.filter(video => isAllowedWithHideShorts(video, hideShorts) && !isDismissedVideo(dismissed, video))
+  const visibleShorts = shorts.filter(short =>
+    !isDismissedVideo(dismissed, short)
+    && !matchesBlockedKeywords(short, feedSettings.blockedKeywords))
+  const visibleItems = items.filter(video =>
+    matchesFeedViewFilter(video, feedSettings, hideShorts) && !isDismissedVideo(dismissed, video))
 
   useEffect(() => {
     const chips = page?.chips
@@ -267,49 +296,63 @@ const HomePage = () => {
 
   return (
     <main css={style}>
-      <div className='rail' hidden={chips.length === 0}>
-        {arrows.start
-          ? (
-            <button type='button' className='rail-arrow start' aria-label='Scroll filters left' onClick={() => scrollRail(-1)}>
-              <span className='circle'>
-                <ChevronLeft size={24} strokeWidth={1.5} />
-              </span>
-            </button>
-          )
-          : undefined}
-        <div className='chips' ref={scrollerRef}>
-          <div className='track' ref={trackRef}>
-            <button
-              type='button'
-              className={chip === undefined ? 'chip active' : 'chip'}
-              aria-pressed={chip === undefined}
-              onClick={() => setChip(undefined)}
-            >
-              All
-            </button>
-            {chips.map(entry => (
-              <button
-                key={entry.id}
-                type='button'
-                className={entry.id === chip ? 'chip active' : 'chip'}
-                aria-pressed={entry.id === chip}
-                onClick={() => setChip(entry.id)}
-              >
-                {entry.label}
+      <div className='rail'>
+        <div className='rail-chips' hidden={chips.length === 0}>
+          {arrows.start
+            ? (
+              <button type='button' className='rail-arrow start' aria-label='Scroll filters left' onClick={() => scrollRail(-1)}>
+                <span className='circle'>
+                  <ChevronLeft size={24} strokeWidth={1.5} />
+                </span>
               </button>
-            ))}
+            )
+            : undefined}
+          <div className='chips' ref={scrollerRef}>
+            <div className='track' ref={trackRef}>
+              <button
+                type='button'
+                className={chip === undefined ? 'chip active' : 'chip'}
+                aria-pressed={chip === undefined}
+                onClick={() => setChip(undefined)}
+              >
+                All
+              </button>
+              {chips.map(entry => (
+                <button
+                  key={entry.id}
+                  type='button'
+                  className={entry.id === chip ? 'chip active' : 'chip'}
+                  aria-pressed={entry.id === chip}
+                  onClick={() => setChip(entry.id)}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
           </div>
+          {arrows.end
+            ? (
+              <button type='button' className='rail-arrow end' aria-label='Scroll filters right' onClick={() => scrollRail(1)}>
+                <span className='circle'>
+                  <ChevronRight size={24} strokeWidth={1.5} />
+                </span>
+              </button>
+            )
+            : undefined}
         </div>
-        {arrows.end
-          ? (
-            <button type='button' className='rail-arrow end' aria-label='Scroll filters right' onClick={() => scrollRail(1)}>
-              <span className='circle'>
-                <ChevronRight size={24} strokeWidth={1.5} />
-              </span>
-            </button>
-          )
-          : undefined}
+        <FeedViewButtons
+          surface='home'
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen(open => !open)}
+        />
       </div>
+      {feedSettings.customFilters.length > 0
+        ? (
+          <div className='custom-rail-chips'>
+            <FeedFilterChips />
+          </div>
+        )
+        : undefined}
       {empty
         ? chip === undefined
           ? (
@@ -326,11 +369,17 @@ const HomePage = () => {
             fetching={fetching && visibleItems.length === 0}
             recommendable
             inlinePreview
+            layout={layout}
+            cardStyle={cardStyle}
+            showDuration={feedSettings.showDuration}
+            showDescription={cardStyle.descriptionLines > 0}
+            descriptionLines={cardStyle.descriptionLines}
           />
         )}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {fetching && visibleItems.length > 0 ? <p className='notice'>Loading more…</p> : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || !cursor || Boolean(error)} />
+      <FeedSettingsPanel surface='home' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )
 }

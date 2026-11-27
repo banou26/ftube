@@ -1,3 +1,4 @@
+import type { FeedLayoutMode, ThumbnailPosition } from '../feeds/settings'
 import type { Channel, SavePlaylistsQuery, Video } from '../generated/graphql'
 import type { CollaborationData } from './byline'
 
@@ -38,11 +39,14 @@ export type VideoCardData =
     Pick<
       Video,
       | 'animatedThumbnail'
+      | 'badges'
       | 'description'
+      | 'descriptionSnippet'
       | 'durationSeconds'
       | 'dontRecommendToken'
       | 'inlinePlayerParams'
       | 'isMembersOnly'
+      | 'isMostRelevant'
       | 'isMusic'
       | 'metaDelimiter'
       | 'notInterestedToken'
@@ -465,10 +469,20 @@ const style = css`
   .thumb {
     position: relative;
     display: block;
+    width: var(--feed-grid-thumb-width, 100%);
     aspect-ratio: 16 / 9;
-    border-radius: 1.2rem;
+    border-radius: var(--feed-thumb-radius, 1.2rem);
     overflow: hidden;
     background: var(--bg-elevated);
+  }
+
+  &.thumb-end:not(.list) {
+    flex-direction: column-reverse;
+    gap: 1.2rem;
+  }
+
+  &.thumb-end:not(.list) .details {
+    margin-top: 0;
   }
 
   /* Stationary on hover: no scale lift under the pointer. */
@@ -575,10 +589,11 @@ const style = css`
 
   .title {
     margin: 0 0 0.4rem;
-    font-size: 1.6rem;
-    font-weight: 500;
+    font-family: var(--feed-font-family, inherit);
+    font-size: var(--feed-title-size, 1.6rem);
+    font-weight: var(--feed-title-weight, 500);
     line-height: 2.2rem;
-    color: var(--text-primary);
+    color: var(--feed-title-color, var(--text-primary));
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -590,9 +605,10 @@ const style = css`
     align-items: center;
     width: fit-content;
     max-width: 100%;
+    font-family: var(--feed-font-family, inherit);
     font-size: 1.4rem;
     font-weight: 400;
-    color: var(--text-secondary);
+    color: var(--feed-meta-color, var(--text-secondary));
     transition: color 0.15s ease;
   }
 
@@ -618,13 +634,26 @@ const style = css`
   }
 
   .meta {
+    font-family: var(--feed-font-family, inherit);
     font-size: 1.4rem;
     font-weight: 400;
-    color: var(--text-secondary);
+    color: var(--feed-meta-color, var(--text-secondary));
   }
 
   .members-only {
     margin-top: 0.2rem;
+  }
+
+  .description {
+    margin: 0.6rem 0 0;
+    font-family: var(--feed-font-family, inherit);
+    font-size: 1.3rem;
+    line-height: 1.8rem;
+    color: var(--feed-meta-color, var(--text-secondary));
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--feed-description-lines, 2);
+    overflow: hidden;
   }
 
   &.channel .text,
@@ -634,7 +663,7 @@ const style = css`
 
   &.channel .title,
   &.shelf .title {
-    font-size: 1.4rem;
+    font-size: var(--feed-title-size, 1.4rem);
     line-height: 2rem;
   }
 
@@ -656,7 +685,7 @@ const style = css`
   }
 
   &.carousel .title {
-    font-size: 1.4rem;
+    font-size: var(--feed-title-size, 1.4rem);
     line-height: 2rem;
   }
 
@@ -664,6 +693,60 @@ const style = css`
   &.carousel .channel-name {
     font-size: 1.2rem;
     line-height: 1.8rem;
+  }
+
+  &.list {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.6rem;
+    width: 100%;
+    max-width: var(--feed-list-max-width, 100%);
+  }
+
+  &.list.thumb-end {
+    flex-direction: row-reverse;
+  }
+
+  &.list .thumb {
+    flex: none;
+    width: var(--feed-list-thumb-width, 24rem);
+    max-width: 45%;
+  }
+
+  &.list.short .thumb {
+    width: min(var(--feed-list-thumb-width, 24rem), 14rem);
+  }
+
+  &.list .details {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+  }
+
+  @media (max-width: 600px) {
+    &.list {
+      gap: 1.2rem;
+    }
+
+    &.list .thumb {
+      width: min(var(--feed-list-thumb-width, 24rem), 14rem);
+      max-width: 44%;
+    }
+
+    &.list .avatar {
+      width: 2.8rem;
+      height: 2.8rem;
+    }
+
+    &.list .text {
+      margin-left: 0.8rem;
+    }
+
+    &.list .title,
+    &.list .meta,
+    &.list .description {
+      overflow-wrap: anywhere;
+    }
   }
 
   .more {
@@ -690,12 +773,28 @@ const style = css`
 `
 
 export const VideoCard = (
-  { video, variant, context, recommendable, inlinePreview }: {
+  {
+    video,
+    variant,
+    context,
+    recommendable,
+    inlinePreview,
+    layout = 'grid',
+    thumbnailPosition = 'start',
+    showDuration = true,
+    showDescription = false,
+    descriptionLines = 2,
+  }: {
     video: VideoCardData
     variant?: 'channel' | 'shelf' | 'carousel'
     context?: WatchContext
     recommendable?: boolean
     inlinePreview?: boolean
+    layout?: FeedLayoutMode
+    thumbnailPosition?: ThumbnailPosition
+    showDuration?: boolean
+    showDescription?: boolean
+    descriptionLines?: number
   },
 ) => {
   // youtube.com's search carousel keeps a Short's 16:9 card, marks it and opens it in the Shorts player
@@ -703,7 +802,8 @@ export const VideoCard = (
   const watchHref = carouselShort ? shortsHrefFor(video.id) : watchHrefFor(video.id, context)
   const channelHref = video.channel ? `/channel/${video.channel.id}` : undefined
   const byline = rowByline(video, variant === 'channel')
-  const duration = formatDuration(video.durationSeconds)
+  const duration = showDuration ? formatDuration(video.durationSeconds) : undefined
+  const descriptionText = (video.descriptionSnippet ?? video.description)?.trim()
   const progress = resumePercent(video.progressPercent)
   const playerParams = video.isUpcoming !== true ? video.inlinePlayerParams ?? undefined : undefined
   const canPreview = video.isUpcoming !== true && (Boolean(playerParams) || Boolean(inlinePreview) || carouselShort)
@@ -714,7 +814,12 @@ export const VideoCard = (
     canPreview,
     animatedThumbnail: video.animatedThumbnail,
   })
-  const classes = [variant, video.isShort && !carouselShort ? 'short' : undefined]
+  const classes = [
+    variant,
+    layout === 'list' ? 'list' : undefined,
+    thumbnailPosition === 'end' ? 'thumb-end' : undefined,
+    video.isShort && !carouselShort ? 'short' : undefined,
+  ]
     .filter(Boolean)
     .join(' ')
   const state = carouselShort ? undefined : cardState(playerParams)
@@ -792,6 +897,16 @@ export const VideoCard = (
             : undefined}
           <RowMeta video={video} />
           {video.isMembersOnly ? <MembersOnly /> : undefined}
+          {showDescription && descriptionLines > 0 && descriptionText
+            ? (
+              <p
+                className='description'
+                style={{ '--feed-description-lines': String(descriptionLines) } as Record<string, string>}
+              >
+                {descriptionText}
+              </p>
+            )
+            : undefined}
         </div>
         <VideoCardMenu
           videoId={video.id}
@@ -814,10 +929,27 @@ const skeletonStyle = css`
   min-width: 0;
   animation: video-card-pulse 1.6s ease-in-out infinite;
 
+  &.list {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.6rem;
+    max-width: var(--feed-list-max-width, 100%);
+  }
+
   .thumb {
     aspect-ratio: 16 / 9;
-    border-radius: 1.2rem;
+    border-radius: var(--feed-thumb-radius, 1.2rem);
     background: var(--bg-elevated);
+  }
+
+  &.list .thumb {
+    flex: none;
+    width: var(--feed-list-thumb-width, 24rem);
+  }
+
+  &.list .bars {
+    flex: 1;
+    min-width: 0;
   }
 
   .bar {
@@ -825,6 +957,10 @@ const skeletonStyle = css`
     border-radius: 0.4rem;
     background: var(--bg-elevated);
     margin-top: 1.2rem;
+  }
+
+  &.list .bars .bar:first-of-type {
+    margin-top: 0;
   }
 
   .bar.short {
@@ -844,11 +980,13 @@ const skeletonStyle = css`
   }
 `
 
-export const VideoCardSkeleton = () => (
-  <div css={skeletonStyle} aria-hidden='true'>
+export const VideoCardSkeleton = ({ layout = 'grid' }: { layout?: FeedLayoutMode } = {}) => (
+  <div css={skeletonStyle} className={layout === 'list' ? 'list' : undefined} aria-hidden='true'>
     <div className='thumb' />
-    <div className='bar' />
-    <div className='bar short' />
+    <div className='bars'>
+      <div className='bar' />
+      <div className='bar short' />
+    </div>
   </div>
 )
 

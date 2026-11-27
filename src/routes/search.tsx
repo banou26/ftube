@@ -28,6 +28,7 @@ import Dialog from '../components/ui/dialog'
 import { VerifiedBadge } from '../components/verified-badge'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VideoCard, VideoCardMenu, watchHrefFor } from '../components/video-card'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { cardState } from '../player/card-params'
 import { HoverPreview } from '../player/hover-preview'
@@ -747,13 +748,13 @@ const ResultPlaceholder = () => (
   </div>
 )
 
-const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
+const VideoRow = ({ row, showDuration = true }: { row: SearchVideoFragment, showDuration?: boolean }) => {
   // youtube.com mounts a player only on a row that carries its inline playback params
   const playerParams = row.isUpcoming !== true ? row.inlinePlayerParams ?? undefined : undefined
   const prefetch = usePrefetchOnIntent(row.id, playerParams)
   const [hovered, setHovered] = useState(false)
   const watchHref = watchHrefFor(row.id)
-  const duration = formatDuration(row.durationSeconds)
+  const duration = showDuration ? formatDuration(row.durationSeconds) : undefined
   const meta = formatMeta(row.viewCount, row.publishedText)
   const snippet = row.snippetRuns?.map((run, index) => run.bold ? <b key={index}>{run.text}</b> : run.text)
     ?? row.descriptionSnippet
@@ -837,7 +838,7 @@ const VideoRow = ({ row }: { row: SearchVideoFragment }) => {
   )
 }
 
-const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
+const ResultShelf = ({ shelf, showDuration }: { shelf: ShelfResult, showDuration: boolean }) => {
   const [expanded, setExpanded] = useState(false)
   if (shelf.shorts.length > 0) return <ShortsShelf shorts={shelf.shorts} title={shelf.title} />
   if (shelf.horizontal) {
@@ -849,7 +850,7 @@ const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
           <Rail label={shelf.title} count={shelf.videos.length} wholeCards>
             {shelf.videos.map(video => (
               <div className='carousel-card' key={video.id}>
-                <VideoCard video={video} variant='carousel' />
+                <VideoCard video={video} variant='carousel' showDuration={showDuration} />
               </div>
             ))}
           </Rail>
@@ -862,7 +863,7 @@ const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
   return (
     <section className='results' aria-label={shelf.title}>
       <h2 className='shelf-heading'>{shelf.title}</h2>
-      {shown.map(video => <VideoRow key={video.id} row={video} />)}
+      {shown.map(video => <VideoRow key={video.id} row={video} showDuration={showDuration} />)}
       {hidden > 0
         ? (
           <div className='shelf-more-row'>
@@ -880,6 +881,7 @@ const ResultShelf = ({ shelf }: { shelf: ShelfResult }) => {
 const SearchPage = () => {
   const params = searchParams(useSearch())
   const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
   if (hideShorts && params.get('type') === 'SHORTS') params.delete('type')
   const query = params.get('search_query') ?? ''
   const [, navigate] = useLocation()
@@ -905,7 +907,7 @@ const SearchPage = () => {
     pages: withPage(pages, page).map(entry => ({ items: entry.results, cursor: entry.cursor })),
     key: rowKey
   })
-  const visibleItems = visibleSearchRows(items, hideShorts)
+  const visibleItems = visibleSearchRows(items, hideShorts, feedSettings)
 
   // shown until the first page says upstream has none, so the row does not shift on most searches
   const unwatchedChip = (pages[0] ?? page)?.unwatchedChip ?? true
@@ -996,7 +998,7 @@ const SearchPage = () => {
         <div className='results'>
           {visibleItems.map(row => {
             if (row.__typename === 'SearchCard') return <SearchCard key={rowKey(row)} card={row} />
-            if (row.__typename === 'SearchShelf') return <ResultShelf key={rowKey(row)} shelf={row} />
+            if (row.__typename === 'SearchShelf') return <ResultShelf key={rowKey(row)} shelf={row} showDuration={feedSettings.showDuration} />
             if (row.__typename === 'Channel') {
               return (
                 <article className='result channel-row' key={rowKey(row)}>
@@ -1065,7 +1067,7 @@ const SearchPage = () => {
               )
             }
 
-            return <VideoRow key={rowKey(row)} row={row} />
+            return <VideoRow key={rowKey(row)} row={row} showDuration={feedSettings.showDuration} />
           })}
           {fetching && visibleItems.length === 0
             ? Array.from({ length: PLACEHOLDER_ROWS }, (_, index) => <ResultPlaceholder key={index} />)

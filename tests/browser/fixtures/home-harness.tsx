@@ -13,7 +13,7 @@ import typeDefs from '../../../src/worker/schema.gql?raw'
 
 const feed = (filters: boolean) => ({
   home: {
-    items: filters ? [{ id: 'video-0', title: 'Video 0', channel: { id: 'channel-0', name: 'Channel 0' } }] : [],
+    items: filters ? [{ id: 'video-0', title: 'Video 0', badges: [], channel: { id: 'channel-0', name: 'Channel 0' } }] : [],
     shorts: [],
     chips: filters
       ? [{ id: 'chip-all', label: 'All', selected: true }, { id: 'chip-music', label: 'Music', selected: false }]
@@ -48,7 +48,7 @@ export const mountCachedHome = () => {
   const source = {
     home: async () => {
       reads += 1
-      return { items: [{ id: `video-${reads}`, title: `Video ${reads}`, channel: { id: 'channel-0', name: 'Channel 0' } }], shorts: [], chips: [] }
+      return { items: [{ id: `video-${reads}`, title: `Video ${reads}`, badges: [], channel: { id: 'channel-0', name: 'Channel 0' } }], shorts: [], chips: [] }
     },
   } as unknown as SourceApi
   const yoga = createYoga<{ source: SourceApi }>({

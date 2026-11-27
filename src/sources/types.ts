@@ -61,6 +61,7 @@ export type SourceVideo = {
   isLive?: boolean
   progressPercent?: number
   isUpcoming?: boolean
+  isMostRelevant?: boolean
   isMembersOnly?: boolean
   isShort?: boolean
   // a Shorts tile's reel sequence, which the pager reads to move through that tile's channel or search as youtube.com does

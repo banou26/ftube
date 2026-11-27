@@ -4,6 +4,7 @@ import type { EntityMutation } from './normalize'
 
 import { Innertube, Parser, Utils, YTNodes } from 'youtubei.js/web'
 
+import { isMostRelevantShelfTitle } from '../../feeds/filter'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE, PLAYLIST_UNAVAILABLE } from '../types'
 import { channelFeedUrl, createPacer, isChannelId, parseChannelFeed, timeFromAgo } from './channel-feed'
 import { collectMembersOnlyPosts, extractParsedPostActions, parseCommunityBrowseResponse, parseCommunityContinuationResponse } from './community'
@@ -350,14 +351,51 @@ const shortsItems = (feed: Pick<Feed, 'memo'>) => {
  * would show every short twice. A channel's Shorts TAB is the opposite case,
  * where the shorts are the grid.
  */
+const shelfTitleText = (node: unknown): string | undefined => {
+  const shelf = node as { title?: { text?: string, toString?: () => string } | string, header?: { title?: { text?: string, toString?: () => string } | string } } | undefined
+  const raw = shelf?.title ?? shelf?.header?.title
+  if (typeof raw === 'string') return raw === 'N/A' ? undefined : raw
+  const value = raw?.text ?? raw?.toString?.()
+  return value === 'N/A' ? undefined : value
+}
+
+const collectShelfItemIds = (node: unknown, ids: Set<string>) => {
+  if (!node || typeof node !== 'object') return
+  const entry = node as {
+    content_id?: string
+    video_id?: string
+    id?: string
+    content?: unknown
+    items?: unknown[]
+    contents?: unknown[]
+  }
+  if (typeof entry.content_id === 'string') ids.add(entry.content_id)
+  if (typeof entry.video_id === 'string') ids.add(entry.video_id)
+  if (typeof entry.id === 'string' && !entry.content && !entry.items && !entry.contents) ids.add(entry.id)
+  if (entry.content) collectShelfItemIds(entry.content, ids)
+  for (const child of entry.items ?? []) collectShelfItemIds(child, ids)
+  for (const child of entry.contents ?? []) collectShelfItemIds(child, ids)
+}
+
+const mostRelevantVideoIds = (feed: Pick<Feed, 'memo'>): Set<string> => {
+  const ids = new Set<string>()
+  for (const kind of ['RichShelf', 'Shelf']) {
+    for (const shelf of feed.memo?.get(kind) ?? []) {
+      if (isMostRelevantShelfTitle(shelfTitleText(shelf))) collectShelfItemIds(shelf, ids)
+    }
+  }
+  return ids
+}
+
 const pageItems = (feed: Pick<Feed, 'videos' | 'memo'>, { includeShorts = true, own = false }: { includeShorts?: boolean, own?: boolean } = {}) => {
   // normalizeFeedVideo reads the legacy Video/GridVideo nodes of the `videos` getter but not a LockupView, and a modern feed MIXES the two: merging rather than either/or is essential.
+  const relevantIds = mostRelevantVideoIds(feed)
   const seen = new Set<string>()
   const items: SourceVideo[] = []
   const add = (video: SourceVideo | undefined) => {
     if (video && !seen.has(video.id)) {
       seen.add(video.id)
-      items.push(video)
+      items.push(relevantIds.has(video.id) ? { ...video, isMostRelevant: true } : video)
     }
   }
   for (const node of feed.videos) add(normalizeFeedVideo(node))

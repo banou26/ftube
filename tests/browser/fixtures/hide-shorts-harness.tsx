@@ -49,6 +49,7 @@ const makeVideo = (id: string, title: string, isShort = false) => ({
   metaDelimiter: null,
   isLive: null,
   isUpcoming: null,
+  isMostRelevant: null,
   isShort: isShort ? true : null,
   isMembersOnly: null,
   progressPercent: null,
@@ -58,6 +59,8 @@ const makeVideo = (id: string, title: string, isShort = false) => ({
   chaptersTitle: null,
   byline: null,
   collaborators: null,
+  notInterestedToken: null,
+  dontRecommendToken: null,
 })
 
 const makeSearchVideo = (id: string, title: string, isShort = false) => ({
@@ -76,6 +79,7 @@ const makeSearchVideo = (id: string, title: string, isShort = false) => ({
   publishedText: '2w ago',
   isLive: null,
   isUpcoming: null,
+  isMostRelevant: null,
   isShort: isShort ? true : null,
   badges: [],
   channel: makeChannel('UC123', 'Creator'),
@@ -89,8 +93,10 @@ const makeShelfShort = (id: string, title: string) => ({
   __typename: 'Video',
   id,
   title,
+  inlinePlayerParams: null,
   thumbnail: null,
   thumbnailSrcset: null,
+  animatedThumbnail: null,
   viewCount: '12K views',
   shortsSequence: null,
 })

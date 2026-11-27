@@ -16,7 +16,7 @@ export type FeedFilter = {
 }
 
 // a resume bar this far along reads as watched, so a video left part way through stays in the feed
-const WATCHED_PERCENT = 90
+export const WATCHED_PERCENT = 90
 
 /** Automatic paging stops once this many pages in a row held nothing the filter keeps. */
 export const EMPTY_PAGES_LIMIT = 5

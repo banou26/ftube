@@ -95,6 +95,8 @@ type Video {
   # A premiere or a scheduled stream: it has a page but nothing to play yet, so
   # a card must not offer it as watchable the way a finished video is.
   isUpcoming: Boolean
+  # Set when a video appears inside a "Most relevant" shelf so feeds can hide it on request.
+  isMostRelevant: Boolean
   # youtube.com draws a green Members only mark under the row's date.
   isMembersOnly: Boolean
   # Vertical, and 9:16 in the grid. Shorts reach the normalizers as their own

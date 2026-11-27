@@ -10,6 +10,8 @@ import { Link, useLocation, useSearch } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { DataFailure } from '../components/data-failure'
+import { FeedSettingsPanel } from '../components/feed-settings-panel'
+import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
 import { GroupsButton } from '../components/groups-button'
 import { PlaylistCard } from '../components/playlist-card'
 import { PostCard } from '../components/post-card'
@@ -19,10 +21,11 @@ import { Menu, MenuItem } from '../components/ui/menu'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { VerifiedBadge } from '../components/verified-badge'
 import { VideoGrid } from '../components/video-grid'
+import { matchesBlockedChannels, matchesBlockedKeywords, matchesFeedViewFilter } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { useSession } from '../session'
 import { useSetting } from '../settings'
-import { filterOutShorts } from '../shorts-filter'
 import { CHANNEL_NOT_FOUND, CHANNEL_UNAVAILABLE } from '../sources/types'
 import { CHANNEL_ABOUT_QUERY, ChannelAboutDialog } from './channel-about'
 import { ChannelHome } from './channel-home'
@@ -98,6 +101,8 @@ const CHANNEL_VIEW_QUERY = gql(`
         items {
           id
           title
+          description
+          descriptionSnippet
           thumbnail
           thumbnailSrcset
           animatedThumbnail
@@ -112,6 +117,8 @@ const CHANNEL_VIEW_QUERY = gql(`
           isShort
           shortsSequence
           isUpcoming
+          isMostRelevant
+          progressPercent
           isMembersOnly
           badges
           byline { text isVerified isVerifiedArtist }
@@ -158,6 +165,8 @@ const CHANNEL_VIEW_QUERY = gql(`
           videos {
             id
             title
+            description
+            descriptionSnippet
             thumbnail
             thumbnailSrcset
             animatedThumbnail
@@ -170,6 +179,8 @@ const CHANNEL_VIEW_QUERY = gql(`
             isLive
             isShort
             isUpcoming
+            isMostRelevant
+            progressPercent
             isMembersOnly
             badges
             channel { id name avatar isVerified isVerifiedArtist }
@@ -586,11 +597,18 @@ const style = css`
   /* Only rendered when the tab offers more than one ordering, so it never shows
      a single dead option next to itself. The labels are upstream's own and are
      already localized. */
+  .feed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.2rem 1.6rem;
+    padding: 1.6rem 0 0;
+  }
+
   .sorts {
     display: flex;
     flex-wrap: wrap;
     gap: 0.8rem;
-    padding: 1.6rem 0 0;
   }
 
   .sort {
@@ -1039,11 +1057,38 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
 
   const showHeaderSkeleton = !channel && fetching && !error
   const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
+  const [panelOpen, setPanelOpen] = useState(false)
+  const layout = feedSettings.layouts.channel
+  const cardStyle = feedSettings.cardStyles[layout]
   const expectsSorts = tab !== undefined && SORTABLE_TABS.has(tab)
   const isPlaylistTab = displayTab !== undefined && PLAYLIST_TABS.has(displayTab)
-  const visibleItems = filterOutShorts(items, hideShorts)
+  const isVideoGridTab = displayTab !== undefined
+    && !isPlaylistTab
+    && displayTab !== 'SHORTS'
+    && displayTab !== 'COMMUNITY'
+    && displayTab !== 'STORE'
+    && displayTab !== 'HOME'
+  const visibleItems = displayTab === 'SHORTS'
+    ? items.filter(item => {
+      const scoped = channel ? { ...item, channel } : item
+      return !matchesBlockedKeywords(scoped, feedSettings.blockedKeywords)
+        && !matchesBlockedChannels(scoped, feedSettings.blockedChannels)
+    })
+    : items.filter(item => {
+      const scoped = channel ? { ...item, channel } : item
+      return matchesFeedViewFilter(scoped, feedSettings, hideShorts)
+    })
+  const effectiveDescriptionLines = cardStyle.descriptionLines > 0
+    ? cardStyle.descriptionLines
+    : layout === 'grid' && displayTab === 'VIDEOS' && feedSettings.showChannelDescriptions
+      ? 2
+      : 0
+  const showDescriptionsOnTab = isVideoGridTab && effectiveDescriptionLines > 0
+  const hasSortControls = (data?.channel.sortOptions.length ?? 0) > 1 || (data?.channel.filterOptions.length ?? 0) > 0
+  const showToolbar = hasSortControls || (!data && fetching && !error && expectsSorts) || isVideoGridTab
   const visibleHome = data?.channel.home
-    ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts) }
+    ? { ...data.channel.home, shelves: visibleChannelShelves(data.channel.home.shelves, hideShorts, feedSettings) }
     : undefined
   const avatarInner = channel
     ? (
@@ -1214,71 +1259,87 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
           </nav>
         )
         : undefined}
-      {(data?.channel.sortOptions.length ?? 0) > 1 || (data?.channel.filterOptions.length ?? 0) > 0
+      {showToolbar
         ? (
-          <div className='sorts'>
-            {data?.channel.sortMenu
+          <div className='feed-toolbar'>
+            {hasSortControls
               ? (
-                <Menu
-                  label='Sort by'
-                  align='start'
-                  trigger={
-                    <button type='button' className='sort menu'>
-                      {data.channel.appliedSort ?? data.channel.sortOptions[0]}
-                      <ChevronDown size={20} strokeWidth={1.5} />
-                    </button>
-                  }
-                >
-                  {data.channel.sortOptions.map(option => (
-                    <MenuItem
-                      key={option}
-                      label={option}
-                      onSelect={() => {
-                        if (option !== (data.channel.appliedSort ?? data.channel.sortOptions[0])) setView('sort', option)
-                      }}
-                    />
-                  ))}
-                </Menu>
+                <div className='sorts'>
+                  {data?.channel.sortMenu
+                    ? (
+                      <Menu
+                        label='Sort by'
+                        align='start'
+                        trigger={
+                          <button type='button' className='sort menu'>
+                            {data.channel.appliedSort ?? data.channel.sortOptions[0]}
+                            <ChevronDown size={20} strokeWidth={1.5} />
+                          </button>
+                        }
+                      >
+                        {data.channel.sortOptions.map(option => (
+                          <MenuItem
+                            key={option}
+                            label={option}
+                            onSelect={() => {
+                              if (option !== (data.channel.appliedSort ?? data.channel.sortOptions[0])) setView('sort', option)
+                            }}
+                          />
+                        ))}
+                      </Menu>
+                    )
+                    : data?.channel.sortOptions.map(option => {
+                      const active = option === (data.channel.appliedSort ?? data.channel.sortOptions[0])
+                      return (
+                        <button
+                          key={option}
+                          type='button'
+                          className={active ? 'sort active' : 'sort'}
+                          aria-pressed={active}
+                          onClick={() => setView('sort', option)}
+                        >
+                          {option}
+                        </button>
+                      )
+                    })}
+                  {data?.channel.filterOptions.map(option => {
+                    const active = option === data.channel.appliedFilter
+                    return (
+                      <button
+                        key={option}
+                        type='button'
+                        className={active ? 'sort active' : 'sort'}
+                        aria-pressed={active}
+                        onClick={() => setView('filter', option)}
+                      >
+                        {option}
+                      </button>
+                    )
+                  })}
+                </div>
               )
-              : data?.channel.sortOptions.map(option => {
-                const active = option === (data.channel.appliedSort ?? data.channel.sortOptions[0])
-                return (
-                  <button
-                    key={option}
-                    type='button'
-                    className={active ? 'sort active' : 'sort'}
-                    aria-pressed={active}
-                    onClick={() => setView('sort', option)}
-                  >
-                    {option}
-                  </button>
+              : !data && fetching && !error && expectsSorts
+                ? (
+                  <div className='sorts' aria-hidden='true'>
+                    <span className='sort sort-skeleton' />
+                    <span className='sort sort-skeleton' />
+                    <span className='sort sort-skeleton' />
+                  </div>
                 )
-              })}
-            {data?.channel.filterOptions.map(option => {
-              const active = option === data.channel.appliedFilter
-              return (
-                <button
-                  key={option}
-                  type='button'
-                  className={active ? 'sort active' : 'sort'}
-                  aria-pressed={active}
-                  onClick={() => setView('filter', option)}
-                >
-                  {option}
-                </button>
+                : undefined}
+            {isVideoGridTab ? <FeedFilterChips /> : undefined}
+            {isVideoGridTab
+              ? (
+                <FeedViewButtons
+                  surface='channel'
+                  panelOpen={panelOpen}
+                  onTogglePanel={() => setPanelOpen(open => !open)}
+                />
               )
-            })}
+              : undefined}
           </div>
         )
-        : !data && fetching && !error && expectsSorts
-          ? (
-            <div className='sorts' aria-hidden='true'>
-              <span className='sort sort-skeleton' />
-              <span className='sort sort-skeleton' />
-              <span className='sort sort-skeleton' />
-            </div>
-          )
-          : undefined}
+        : undefined}
       {displayTab === 'COMMUNITY'
         ? (
           <div className='videos'>
@@ -1320,7 +1381,18 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                   {displayTab === 'SHORTS'
                     ? <ShortsGrid shorts={visibleItems} fetching={fetching && !error} />
                     : visibleItems.length > 0 || (fetching && !error && !isPlaylistTab)
-                      ? <VideoGrid videos={visibleItems} fetching={fetching && !error && !isPlaylistTab && visibleItems.length === 0} variant='channel' />
+                      ? (
+                        <VideoGrid
+                          videos={visibleItems}
+                          fetching={fetching && !error && !isPlaylistTab && visibleItems.length === 0}
+                          variant='channel'
+                          layout={layout}
+                          cardStyle={cardStyle}
+                          showDuration={feedSettings.showDuration}
+                          showDescription={showDescriptionsOnTab}
+                          descriptionLines={effectiveDescriptionLines}
+                        />
+                      )
                       : undefined}
                   {playlists.length > 0
                     ? (
@@ -1354,6 +1426,7 @@ export const ChannelPage = ({ id, base, tab: requestedTab }: { id: string, base:
                 <FeedSentinel onVisible={onMore} disabled={fetching || Boolean(error) || !cursor} />
               </>
             )}
+      <FeedSettingsPanel surface='channel' open={panelOpen} onClose={() => setPanelOpen(false)} />
     </main>
   )
 }

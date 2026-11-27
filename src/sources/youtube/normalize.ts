@@ -1246,6 +1246,22 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
   const isShort = lockup.content_type === 'SHORT'
     || onTap?.name === 'reelWatchEndpoint'
     || onTap?.metadata?.url?.startsWith('/shorts/') === true
+  const isUpcoming = badges.some((badge) => {
+    const label = presentText(badge.text)
+    return badge.badge_style?.includes('UPCOMING')
+      || (label !== undefined && /\b(upcoming|scheduled|a venir|à venir)\b/i.test(label))
+  })
+  const premiereBadges = badges
+    .map((badge) => ({ style: badge.badge_style, label: presentText(badge.text) }))
+    .filter(({ style, label }) =>
+      style?.includes('PREMIERE') || (label !== undefined && /\bpremi[eè]re\b/i.test(label)),
+    )
+    .map(({ label }) => label ?? 'Premiere')
+  const lockupBadges = premiereBadges.length > 0
+    ? premiereBadges
+    : hasBadgeStyle(rowBadges, 'PREMIERE')
+      ? ['Premiere']
+      : []
   return {
     id,
     title,
@@ -1268,13 +1284,13 @@ export const normalizeLockupVideo = (input: unknown, { own = false }: { own?: bo
     metaDelimiter: metadata?.delimiter ?? ' ',
     isLive: badges.some((badge) => badge.badge_style?.includes('LIVE')) ? true : undefined,
     progressPercent: lockupProgressPercent(image),
+    ...(isUpcoming ? { isUpcoming: true } : {}),
     isShort: isShort ? true : undefined,
     // youtube.com's lockups carry it as a badge on a line of its own under the date (measured 2026-11-10)
     isMembersOnly: hasBadgeStyle([...badges.map((badge) => ({ style: badge.badge_style })), ...rowBadges], 'MEMBERS_ONLY')
       ? true
       : undefined,
-    // empty because a lockup's overlay badges carry only the length, the live pill and the corner label, all read above
-    badges: [],
+    badges: lockupBadges,
     inlinePlayerParams: inlinePlayerParams(lockup.inline_player_params),
     ...lockupByline(lockup, byline),
     ...lockupMenuFeedback(lockup),

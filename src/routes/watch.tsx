@@ -17,7 +17,8 @@ import Comments from '../components/comments'
 import { DataFailure } from '../components/data-failure'
 import DescriptionBox from '../components/description-box'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
-import { isAllowedWithHideShorts } from '../shorts-filter'
+import { matchesGlobalFeedRules } from '../feeds/filter'
+import { useFeedViewSettings } from '../feeds/settings'
 import { parseStartSeconds } from '../components/format'
 import { GroupsDialog } from '../components/groups-button'
 import { LikePill } from '../components/like-pill'
@@ -700,6 +701,7 @@ const WatchPage = () => {
     ? filteredPages?.[filteredPages.length - 1]?.cursor
     : (relatedPages[relatedPages.length - 1]?.cursor ?? watch?.relatedCursor)
   const hideShorts = useSetting('hideShorts')
+  const feedSettings = useFeedViewSettings()
   const dismissed = useDismissed()
   const queue = useQueue()
   const rawRelated = activeChipId !== ''
@@ -708,7 +710,7 @@ const WatchPage = () => {
   const related: VideoCardData[] | undefined = rawRelated
     ? rawRelated
       .filter((video, index, all) => all.findIndex(other => other.id === video.id) === index)
-      .filter(video => isAllowedWithHideShorts(video, hideShorts) && !isDismissedVideo(dismissed, video))
+      .filter(video => matchesGlobalFeedRules(video, feedSettings, hideShorts) && !isDismissedVideo(dismissed, video))
     : undefined
 
   const selectChip = useCallback(async (chipId: string) => {
