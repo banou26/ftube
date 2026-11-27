@@ -64,12 +64,25 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
   // Time management controls live sleep timer state.
   await nav.getByRole('button', { name: 'Time management', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=time-management$/)
+  const enableSleepTimer = main.getByRole('checkbox', { name: 'Enable sleep timer', exact: true })
+  await expect(enableSleepTimer).toBeChecked()
   await main.getByRole('button', { name: '30 min', exact: true }).click()
   await expect(main.locator('[data-sleep-status]')).toContainText('Pauses in')
   await main.getByRole('button', { name: 'End of video', exact: true }).click()
   await expect(main.locator('[data-sleep-status]')).toHaveText('Pauses at the end of the current video')
   await main.getByRole('button', { name: 'Off', exact: true }).click()
   await expect(main.locator('[data-sleep-status]')).toHaveText('Timer off')
+
+  // Disabling the sleep timer hides preset choices and persists across reloads.
+  await enableSleepTimer.uncheck()
+  await expect(enableSleepTimer).not.toBeChecked()
+  await expect(main.getByRole('group', { name: 'Sleep timer', exact: true })).toHaveCount(0)
+  await expect(main.locator('[data-sleep-status]')).toHaveText('Sleep timer is disabled and hidden from the player.')
+  await page.reload()
+  await expect(main.getByRole('checkbox', { name: 'Enable sleep timer', exact: true })).not.toBeChecked()
+  await expect(main.getByRole('group', { name: 'Sleep timer', exact: true })).toHaveCount(0)
+  await main.getByRole('checkbox', { name: 'Enable sleep timer', exact: true }).check()
+  await expect(main.getByRole('group', { name: 'Sleep timer', exact: true })).toBeVisible()
 
   // Playback and performance holds quality, playback checkboxes, speed slider, and captions.
   await nav.getByRole('button', { name: 'Playback and performance', exact: true }).click()

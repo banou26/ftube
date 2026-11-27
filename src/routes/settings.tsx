@@ -648,23 +648,36 @@ export const SettingsPage = () => {
                   <div className='setting-row'>
                     <h3 className='group-label'>Sleep timer</h3>
                     <div className='group-controls'>
-                      <div className='choices' role='group' aria-label='Sleep timer'>
-                        {SLEEP_CHOICES.map(choice => {
-                          const active = isSleepChoiceActive(sleepTimer, choice.value)
-                          return (
-                            <button
-                              type='button'
-                              key={choice.label}
-                              className={active ? 'choice active' : 'choice'}
-                              aria-pressed={active}
-                              onClick={() => setSleepTimer(choice.value)}
-                            >
-                              {choice.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <p className='sub-note' data-sleep-status='true'>{sleepStatusLabel(sleepTimer)}</p>
+                      <CheckboxRow
+                        label='Enable sleep timer'
+                        checked={settings.sleepTimerEnabled}
+                        onChange={() => set({ sleepTimerEnabled: !settings.sleepTimerEnabled })}
+                      />
+                      {settings.sleepTimerEnabled
+                        ? (
+                          <div className='choices' role='group' aria-label='Sleep timer'>
+                            {SLEEP_CHOICES.map(choice => {
+                              const active = isSleepChoiceActive(sleepTimer, choice.value)
+                              return (
+                                <button
+                                  type='button'
+                                  key={choice.label}
+                                  className={active ? 'choice active' : 'choice'}
+                                  aria-pressed={active}
+                                  onClick={() => setSleepTimer(choice.value)}
+                                >
+                                  {choice.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )
+                        : undefined}
+                      <p className='sub-note' data-sleep-status='true'>
+                        {settings.sleepTimerEnabled
+                          ? sleepStatusLabel(sleepTimer)
+                          : 'Sleep timer is disabled and hidden from the player.'}
+                      </p>
                     </div>
                   </div>
                 )

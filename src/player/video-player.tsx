@@ -27,7 +27,7 @@ import { revealCards } from './cards'
 import { registerSeek, clearSeek } from './seek'
 import { clampToWindow, liveResumeTime, seekWindow, timeAtShare } from './seek-window'
 import { closePlayer, setPanel, setPlayingChapter } from './session'
-import { getSettings, subscribeSettings, updateSettings } from '../settings'
+import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { PartyPlayback } from '../components/party-playback'
@@ -339,6 +339,7 @@ const VideoPlayer = (
   const [sample, setSample] = useState<number | undefined>(undefined)
   const sampleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [timesUp, setTimesUp] = useState(false)
+  const sleepTimerEnabled = useSetting('sleepTimerEnabled')
   const [sleepMenu, setSleepMenu] = useState(0)
   const closeTimesUp = useCallback(() => setTimesUp(false), [])
   // as on youtube.com, Escape on Time's up over a finished video also cancels the countdown to the next one
@@ -356,6 +357,7 @@ const VideoPlayer = (
   }, [])
   // youtube.com's miniplayer has no Time's up: a timer that runs out there says so in a toast
   const sleepTimer = useSleepTimer(() => {
+    if (!getSettings().sleepTimerEnabled) return
     markExplicitPause()
     videoRef.current?.pause()
     if (docked) showToast('Sleep timer has been turned off')
@@ -363,8 +365,8 @@ const VideoPlayer = (
   })
   // and docking, as Back from the watch page does, closes it
   useEffect(() => {
-    if (docked) setTimesUp(false)
-  }, [docked])
+    if (docked || !sleepTimerEnabled) setTimesUp(false)
+  }, [docked, sleepTimerEnabled])
   // from the player's corner, so the menu follows the player as the page scrolls
   const [menu, setMenu] = useState<Point | undefined>(undefined)
   const closeMenu = useCallback(() => setMenu(undefined), [])
@@ -390,7 +392,7 @@ const VideoPlayer = (
     else revealCards()
   }
   // youtube.com moves on from a finished video only once Time's up is closed
-  const held = timesUp || sleepTimer === 'end'
+  const held = sleepTimerEnabled && (timesUp || sleepTimer === 'end')
   const ending = state.ended && upNext
     ? endAction({ queued: !held && upNext.queued(), autoplay: upNext.autoplay, pick: upNext.pick, cancelled: cancelled || held })
     : undefined
@@ -402,7 +404,7 @@ const VideoPlayer = (
   }, [ending])
 
   useEffect(() => {
-    if (state.ended && getSleepTimer() === 'end') endSleepTimer()
+    if (state.ended && getSettings().sleepTimerEnabled && getSleepTimer() === 'end') endSleepTimer()
   }, [state.ended])
 
   useEffect(() => () => clearTimeout(sampleTimer.current), [])
@@ -1282,7 +1284,7 @@ const VideoPlayer = (
             chapters={chapters}
             onChapters={() => setPanel('chapters')}
             segments={segments}
-            sleepTimer={sleepTimer}
+            sleepTimer={sleepTimerEnabled ? sleepTimer : undefined}
             sleepMenu={sleepMenu}
             docked={docked}
             visible={(active || state.paused) && !grid}
@@ -1329,7 +1331,7 @@ const VideoPlayer = (
         )
         : undefined}
       {shortcuts ? createPortal(<ShortcutsDialog onClose={closeShortcuts} />, document.body) : undefined}
-      {timesUp
+      {sleepTimerEnabled && timesUp
         ? createPortal(
           <Dialog title={'Time\'s up'} onClose={closeTimesUp} onEscape={escapeTimesUp} closeButton={false}>
             <div css={timesUpStyle}>

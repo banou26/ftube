@@ -46,6 +46,7 @@ export type Settings = {
   theater: TheaterMode
   ambientMode: boolean
   annotations: boolean
+  sleepTimerEnabled: boolean
   miniplayerWidth?: number
   miniplayerPosition?: MiniplayerPosition
   showDislikes: boolean
@@ -83,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theater: 'default',
   ambientMode: true,
   annotations: true,
+  sleepTimerEnabled: true,
   miniplayerWidth: undefined,
   miniplayerPosition: undefined,
   showDislikes: true,
@@ -134,6 +136,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     theater: coerceTheaterMode(stored.theater),
     ambientMode: typeof stored.ambientMode === 'boolean' ? stored.ambientMode : DEFAULT_SETTINGS.ambientMode,
     annotations: typeof stored.annotations === 'boolean' ? stored.annotations : DEFAULT_SETTINGS.annotations,
+    sleepTimerEnabled: typeof stored.sleepTimerEnabled === 'boolean' ? stored.sleepTimerEnabled : DEFAULT_SETTINGS.sleepTimerEnabled,
     miniplayerWidth: coerceMiniplayerWidth(stored.miniplayerWidth),
     miniplayerPosition: coerceMiniplayerPosition(stored.miniplayerPosition),
     showDislikes: typeof stored.showDislikes === 'boolean' ? stored.showDislikes : DEFAULT_SETTINGS.showDislikes,

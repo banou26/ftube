@@ -456,3 +456,23 @@ describe('the Theater mode setting', () => {
     expect((await load(JSON.parse(written.at(-1)!))).getSettings().theater).toBe('fullscreen')
   })
 })
+
+describe('the sleepTimerEnabled setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to true, ignores non-boolean values, and persists disabled state', async () => {
+    expect((await load()).getSettings().sleepTimerEnabled).toBe(true)
+    expect((await load({ sleepTimerEnabled: 'nope' })).getSettings().sleepTimerEnabled).toBe(true)
+    expect((await load({ sleepTimerEnabled: false })).getSettings().sleepTimerEnabled).toBe(false)
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings } = await import('../../src/settings')
+    updateSettings({ sleepTimerEnabled: false })
+    expect(JSON.parse(written.at(-1)!).sleepTimerEnabled).toBe(false)
+    expect((await load(JSON.parse(written.at(-1)!))).getSettings().sleepTimerEnabled).toBe(false)
+  })
+})

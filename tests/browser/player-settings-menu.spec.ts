@@ -60,4 +60,13 @@ test('renders icons, pill toggle switches, right chevrons, and dark glass surfac
   for (let i = 0; i < submenuCount; i++) {
     await expect(submenuRows.nth(i).locator('svg.menu-chevron')).toBeVisible()
   }
+  await expect(menu.getByRole('menuitem', { name: /^Sleep timer/ })).toBeVisible()
+
+  // Disabling sleep timer in settings removes Sleep timer from Player settings live.
+  await page.evaluate(async (path) => {
+    const { updateSettings } = await import(path!) as typeof import('../../src/settings')
+    updateSettings({ sleepTimerEnabled: false })
+  }, '/src/settings.ts')
+  await expect(menu.getByRole('menuitem', { name: /^Sleep timer/ })).toHaveCount(0)
+  await expect(submenuRows).toHaveCount(3)
 })

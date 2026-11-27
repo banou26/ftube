@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 
+import { getSettings, subscribeSettings } from '../settings'
+
 /** youtube.com's Sleep timer choices in minutes, before its End of video (measured 2026-11-10). */
 export const SLEEP_MINUTES = [10, 15, 20, 30, 45, 60]
 
@@ -23,6 +25,11 @@ export const getSleepTimer = () => timer
 export const setSleepTimer = (choice: number | 'end' | undefined) => {
   clearTimeout(alarm)
   alarm = undefined
+  if (choice !== undefined && !getSettings().sleepTimerEnabled) {
+    timer = undefined
+    emit(false)
+    return
+  }
   if (typeof choice === 'number') {
     timer = { minutes: choice, endsAt: Date.now() + choice * 60_000 }
     alarm = setTimeout(endSleepTimer, choice * 60_000)
@@ -31,6 +38,10 @@ export const setSleepTimer = (choice: number | 'end' | undefined) => {
   }
   emit(false)
 }
+
+subscribeSettings((next) => {
+  if (!next.sleepTimerEnabled && timer !== undefined) setSleepTimer(undefined)
+})
 
 /** Ends the timer now, which pauses the player: the alarm calls it, and the player does at the end of the video for End of video. */
 export const endSleepTimer = () => {

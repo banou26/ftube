@@ -804,8 +804,12 @@ export const PlayerControls = (
   useEffect(() => {
     if (sleepMenu === sleepMenuSeen.current) return
     sleepMenuSeen.current = sleepMenu
-    setMenu('sleep')
+    if (getSettings().sleepTimerEnabled) setMenu('sleep')
   }, [sleepMenu])
+
+  useEffect(() => {
+    if (!settings.sleepTimerEnabled && menu === 'sleep') setMenu(undefined)
+  }, [settings.sleepTimerEnabled, menu])
 
   useLayoutEffect(() => {
     if (docked) {
@@ -1398,9 +1402,13 @@ export const PlayerControls = (
                       </MenuItem>
                     )
                     : undefined}
-                  <MenuItem icon={Moon} detail={sleepDetail(sleepTimer, videoLeft)} submenu onSelect={() => setMenu('sleep')}>
-                    Sleep timer
-                  </MenuItem>
+                  {settings.sleepTimerEnabled
+                    ? (
+                      <MenuItem icon={Moon} detail={sleepDetail(sleepTimer, videoLeft)} submenu onSelect={() => setMenu('sleep')}>
+                        Sleep timer
+                      </MenuItem>
+                    )
+                    : undefined}
                   <MenuItem icon={Gauge} detail={rateDetail(rate)} submenu onSelect={() => setMenu('speed')}>
                     Playback speed
                   </MenuItem>
@@ -1527,7 +1535,7 @@ export const PlayerControls = (
                         ))}
                       </Popup>
                     )
-                    : menu === 'sleep'
+                    : settings.sleepTimerEnabled && menu === 'sleep'
                       ? (
                         <Popup label='Sleep timer' class='settings-menu'>
                           <MenuItem icon={sleepTimer === undefined ? Check : undefined} onSelect={() => pickSleep(undefined)}>

@@ -25,6 +25,7 @@ describe('the sleep timer', () => {
 
   afterEach(() => {
     setSleepTimer(undefined)
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
@@ -100,5 +101,42 @@ describe('the time left', () => {
     expect(sleepDuration(0)).toBe('1 min')
     expect(sleepDuration(3_600)).toBe('1 hr')
     expect(sleepDuration(8_196)).toBe('2 hr 17 min')
+  })
+})
+
+describe('disabling the sleep timer in settings', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('cancels any active timer when disabled and blocks starting new timers until re-enabled', async () => {
+    vi.resetModules()
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value)
+      },
+    })
+    const [{ updateSettings }, timer] = await Promise.all([
+      import('../../../src/settings'),
+      import('../../../src/player/sleep-timer'),
+    ])
+
+    timer.setSleepTimer(15)
+    expect(timer.getSleepTimer()).toMatchObject({ minutes: 15 })
+
+    updateSettings({ sleepTimerEnabled: false })
+    expect(timer.getSleepTimer()).toBeUndefined()
+
+    timer.setSleepTimer(10)
+    expect(timer.getSleepTimer()).toBeUndefined()
+    timer.setSleepTimer('end')
+    expect(timer.getSleepTimer()).toBeUndefined()
+
+    updateSettings({ sleepTimerEnabled: true })
+    timer.setSleepTimer(20)
+    expect(timer.getSleepTimer()).toMatchObject({ minutes: 20 })
+    timer.setSleepTimer(undefined)
   })
 })
