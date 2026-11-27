@@ -78,12 +78,12 @@ test('formats notifications menu panel width, constrained avatars and thumbnails
   }
 })
 
-test('Dismiss all clears visible notifications, zeroes the unread badge, persists across reload, and leaves items intact on failure', async ({ page }) => {
+test('Dismiss all is keyboard reachable, clears visible notifications and badge, keeps older pages accessible on sticky cursor, persists across reload, and leaves items intact on failure', async ({ page }) => {
   await page.goto('/privacy')
   const host = page.locator('[data-notifications-dismiss-harness="true"]')
   await expect(async () => {
     if (await host.count() === 0) {
-      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness(false), HARNESS)
+      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness('ok'), HARNESS)
     }
     await expect(host).toBeAttached({ timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
@@ -96,7 +96,11 @@ test('Dismiss all clears visible notifications, zeroes the unread badge, persist
   await expect(menu.getByRole('menuitem', { name: 'Alpha channel uploaded a video' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Beta channel started streaming' })).toBeVisible()
 
-  await menu.getByRole('button', { name: 'Dismiss all', exact: true }).click()
+  // Opening the menu puts focus on the first menuitem ('Dismiss all'), reachable via keyboard.
+  const dismissMenuItem = menu.getByRole('menuitem', { name: 'Dismiss all', exact: true })
+  await expect(dismissMenuItem).toBeFocused()
+  await dismissMenuItem.click()
+
   await expect(menu.getByRole('menuitem', { name: 'No notifications' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Show more' })).toHaveCount(0)
   await expect(bell.locator('.badge')).toHaveCount(0)
@@ -108,26 +112,32 @@ test('Dismiss all clears visible notifications, zeroes the unread badge, persist
   await page.reload()
   await expect(async () => {
     if (await host.count() === 0) {
-      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness(false), HARNESS)
+      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness('sticky-cursor'), HARNESS)
     }
     await expect(host).toBeAttached({ timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
   await bell.click()
-  await expect(page.getByRole('menu', { name: 'Notifications' }).getByRole('menuitem', { name: 'No notifications' })).toBeVisible()
+  const reloadedMenu = page.getByRole('menu', { name: 'Notifications' })
+  await expect(reloadedMenu.getByRole('menuitem', { name: 'No notifications' })).toBeVisible()
+  // Sticky cursor still exposes older pages via Show more.
+  const showMore = reloadedMenu.getByRole('menuitem', { name: 'Show more', exact: true })
+  await expect(showMore).toBeVisible()
+  await showMore.click()
+  await expect(reloadedMenu.getByRole('menuitem', { name: 'Gamma older upload' })).toBeVisible()
 
   // When dismiss fails server-side, notifications stay visible.
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await expect(async () => {
     if (await host.count() === 0) {
-      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness(true), HARNESS)
+      await page.evaluate(async (path) => (await import(path) as typeof import('./fixtures/menu-data-harness')).mountNotificationsDismissHarness('error'), HARNESS)
     }
     await expect(host).toBeAttached({ timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
   await bell.click()
   const errMenu = page.getByRole('menu', { name: 'Notifications' })
   await expect(errMenu.getByRole('menuitem', { name: 'Alpha channel uploaded a video' })).toBeVisible()
-  await errMenu.getByRole('button', { name: 'Dismiss all', exact: true }).click()
+  await errMenu.getByRole('menuitem', { name: 'Dismiss all', exact: true }).click()
   await expect(errMenu.getByRole('menuitem', { name: 'Alpha channel uploaded a video' })).toBeVisible()
   await expect(errMenu.getByRole('menuitem', { name: 'Beta channel started streaming' })).toBeVisible()
 })

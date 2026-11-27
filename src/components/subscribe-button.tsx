@@ -22,7 +22,7 @@ export const SET_SUBSCRIBED = gql(`
   }
 `)
 
-const SET_NOTIFICATION_LEVEL = gql(`
+export const SET_NOTIFICATION_LEVEL = gql(`
   mutation SetNotificationLevel($channelId: ID!, $level: NotificationLevel!) {
     setNotificationLevel(channelId: $channelId, level: $level) {
       id

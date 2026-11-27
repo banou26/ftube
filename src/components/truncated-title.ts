@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks'
 
 const SKIP_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'CODE', 'PRE', 'SVG'])
+const INTERACTIVE_CHILD_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'])
 const BLOCK_CHILD_TAGS = new Set([
   'DIV', 'P', 'UL', 'OL', 'LI', 'SECTION', 'ARTICLE', 'NAV', 'MAIN',
   'HEADER', 'FOOTER', 'TABLE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FORM',
@@ -21,8 +22,14 @@ export const isElementTruncated = (el: HTMLElement): boolean => {
   const tag = el.tagName?.toUpperCase()
   if (!tag || SKIP_TAGS.has(tag)) return false
   if (el.getAttribute('aria-hidden') === 'true') return false
+  let interactiveChildren = 0
   for (const child of Array.from(el.children ?? [])) {
-    if (BLOCK_CHILD_TAGS.has(child.tagName?.toUpperCase() ?? '')) return false
+    const childTag = child.tagName?.toUpperCase() ?? ''
+    if (BLOCK_CHILD_TAGS.has(childTag)) return false
+    if (INTERACTIVE_CHILD_TAGS.has(childTag)) {
+      interactiveChildren += 1
+      if (interactiveChildren >= 2) return false
+    }
   }
   const text = el.textContent?.trim() ?? ''
   if (!text) return false
@@ -32,7 +39,8 @@ export const isElementTruncated = (el: HTMLElement): boolean => {
   if (!style) return false
 
   const horizontalClip = style.overflowX === 'hidden' || style.overflowX === 'clip'
-  if (horizontalClip && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) return true
+  const singleLineTruncated = style.textOverflow === 'ellipsis' || style.whiteSpace === 'nowrap'
+  if (horizontalClip && singleLineTruncated && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) return true
 
   const verticalClip = style.overflowY === 'hidden' || style.overflowY === 'clip'
   const clamp = style.webkitLineClamp || style.getPropertyValue?.('-webkit-line-clamp') || ''

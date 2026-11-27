@@ -2,15 +2,25 @@ import type { QualityPreference } from '../settings'
 
 export type QualityBadge = '8K' | '4K' | '2K' | 'HD' | `${number}p`
 
-/** Returns the compact quality badge shown on the player Settings button for the active playing height. */
-export const qualityBadgeLabel = (height: number | undefined): QualityBadge | undefined => {
+/** Normalizes ultrawide/cinemascope (based on width*9/16) and portrait (based on width) frame dimensions to a standard 16:9 tier height. */
+export const normalizeQualityHeight = (height: number | undefined, width?: number): number | undefined => {
   if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return undefined
-  const rounded = Math.round(height)
-  if (rounded >= 4320) return '8K'
-  if (rounded >= 2160) return '4K'
-  if (rounded >= 1440) return '2K'
-  if (rounded >= 1080) return 'HD'
-  return `${rounded}p`
+  if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
+    if (height > width) return Math.round(width)
+    return Math.round(Math.max(height, (width * 9) / 16))
+  }
+  return Math.round(height)
+}
+
+/** Returns the compact quality badge shown on the player Settings button for the active playing resolution. */
+export const qualityBadgeLabel = (height: number | undefined, width?: number): QualityBadge | undefined => {
+  const normalized = normalizeQualityHeight(height, width)
+  if (normalized === undefined) return undefined
+  if (normalized >= 4320) return '8K'
+  if (normalized >= 2160) return '4K'
+  if (normalized >= 1440) return '2K'
+  if (normalized >= 1080) return 'HD'
+  return `${normalized}p`
 }
 
 export type ResolvedQuality = {
@@ -71,18 +81,23 @@ export const resolveQualityDisplay = ({
   }
 }
 
-/** Picks the height that drives the Settings button quality badge: manual selection immediately, playing height in Auto. */
+/** Picks the normalized height that drives the Settings button quality badge: manual selection immediately, playing resolution in Auto. */
 export const resolveQualityBadgeHeight = ({
   preference,
   heights,
   playingHeight,
+  playingWidth,
 }: {
   preference: QualityPreference
   heights: readonly number[]
   playingHeight?: number
+  playingWidth?: number
 }): number | undefined => {
   const actual = typeof playingHeight === 'number' && playingHeight > 0 ? playingHeight : undefined
-  if (preference === 'auto') return actual
+  if (preference === 'auto') return normalizeQualityHeight(actual, playingWidth)
   const resolved = resolveQualityDisplay({ preference, heights, playingHeight })
-  return typeof resolved.selected === 'number' ? resolved.selected : actual
+  if (typeof resolved.selected === 'number') {
+    return resolved.selected === actual ? normalizeQualityHeight(actual, playingWidth) : resolved.selected
+  }
+  return normalizeQualityHeight(actual, playingWidth)
 }

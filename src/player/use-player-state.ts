@@ -15,6 +15,7 @@ export type PlayerState = {
   playbackRate: number
   buffering: boolean
   seeking: boolean
+  videoWidth?: number
   videoHeight?: number
   // a live stream's DVR window, in the same presentation time as currentTime
   liveWindow?: SeekWindow
@@ -31,6 +32,7 @@ const EMPTY: PlayerState = {
   playbackRate: 1,
   buffering: false,
   seeking: false,
+  videoWidth: 0,
   videoHeight: 0,
 }
 
@@ -38,7 +40,7 @@ const read = (
   video: HTMLVideoElement,
   player: shaka.Player | undefined,
   buffering: boolean,
-  variantHeight: number,
+  variant: { width: number, height: number },
   preferVariant: boolean,
 ): PlayerState => ({
   paused: video.paused,
@@ -51,9 +53,12 @@ const read = (
   playbackRate: video.playbackRate,
   buffering,
   seeking: video.seeking,
-  videoHeight: preferVariant && variantHeight > 0
-    ? variantHeight
-    : (video.videoHeight > 0 ? video.videoHeight : variantHeight),
+  videoWidth: preferVariant && variant.width > 0
+    ? variant.width
+    : (video.videoWidth > 0 ? video.videoWidth : variant.width),
+  videoHeight: preferVariant && variant.height > 0
+    ? variant.height
+    : (video.videoHeight > 0 ? video.videoHeight : variant.height),
   liveWindow: player?.isLive() ? player.seekRange() : undefined,
 })
 
@@ -64,15 +69,18 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
   useEffect(() => {
     if (!video) return
     let buffering = false
-    let variantHeight = 0
+    let variant = { width: 0, height: 0 }
     let preferVariant = false
     let frame = 0
     let running = true
 
-    const readVariantHeight = () => player?.getVariantTracks?.().find((track) => track.active)?.height ?? 0
-    variantHeight = readVariantHeight()
+    const readVariant = () => {
+      const active = player?.getVariantTracks?.().find((track) => track.active)
+      return { width: active?.width ?? 0, height: active?.height ?? 0 }
+    }
+    variant = readVariant()
 
-    const sync = () => setState(read(video, player, buffering, variantHeight, preferVariant))
+    const sync = () => setState(read(video, player, buffering, variant, preferVariant))
 
     let liveRead = 0
     const tick = () => {
@@ -91,13 +99,13 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
       sync()
     }
     const onAdaptation = () => {
-      variantHeight = readVariantHeight()
+      variant = readVariant()
       sync()
     }
     const onVariantChanged = () => {
-      const nextHeight = readVariantHeight()
-      preferVariant = nextHeight > 0 && nextHeight !== variantHeight && nextHeight !== video.videoHeight
-      variantHeight = nextHeight
+      const next = readVariant()
+      preferVariant = next.height > 0 && next.height !== variant.height && next.height !== video.videoHeight
+      variant = next
       sync()
     }
     const onResize = () => {
@@ -106,7 +114,7 @@ export const usePlayerState = (video: HTMLVideoElement | null, player: shaka.Pla
     }
     const onEmptied = () => {
       preferVariant = false
-      variantHeight = readVariantHeight()
+      variant = readVariant()
       sync()
     }
 

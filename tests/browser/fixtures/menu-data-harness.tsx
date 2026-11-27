@@ -173,13 +173,18 @@ export const mountGroupPicker = () => {
 }
 
 /** Renders the guide, /feed/subscriptions and /feed/channels over a signed-in mock source for YTB-124 tests. */
-export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUploads?: boolean }) => {
+export const mountChannelsSurface = (options?: {
+  withLinux?: boolean
+  delayedUploads?: boolean
+  failUploadOnceChannelId?: string
+}) => {
   const host = document.createElement('div')
   host.setAttribute('data-channels-harness', 'true')
   host.style.cssText = 'position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding-left: 24rem'
   document.body.append(host)
   const now = Date.now()
   const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString()
+  const failedOnceRemaining = options?.failUploadOnceChannelId ? new Set([options.failUploadOnceChannelId]) : new Set<string>()
   const channels = [
     {
       id: 'UCaaaaaaaaaaaaaaaaaaaaaa',
@@ -204,6 +209,7 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUpl
       subscriberCountText: '15K subscribers',
       description: 'Classic uploads.',
       isSubscribed: true,
+      notificationLevel: 'ALL' as const,
     },
     ...(options?.withLinux
       ? [{
@@ -245,6 +251,9 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUpl
         : [],
     subscriptions: async () => ({ items: [], playlists: [] }),
     channelUploads: async (channelId: string, _includeDurations?: boolean) => {
+      if (failedOnceRemaining.delete(channelId)) {
+        throw new Error(`Request to channel ${channelId} failed with status code 500`)
+      }
       if (options?.delayedUploads && !preResolved.delete(channelId)) {
         await new Promise<void>(resolve => {
           waiters.set(channelId, resolve)
@@ -261,10 +270,15 @@ export const mountChannelsSurface = (options?: { withLinux?: boolean, delayedUpl
         isSubscribed,
       }
     },
-    setNotificationLevel: async (id: string, notificationLevel: string) => ({
-      ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
-      notificationLevel,
-    }),
+    setNotificationLevel: async (id: string, notificationLevel: string) => {
+      const target = (window as unknown as { __channelLevelCalls?: { id: string, level: string }[] })
+      target.__channelLevelCalls ??= []
+      target.__channelLevelCalls.push({ id, level: notificationLevel })
+      return {
+        ...(channels.find(channel => channel.id === id) ?? { id, name: id }),
+        notificationLevel,
+      }
+    },
   } as unknown as SourceApi
   const yoga = createYoga<{ source: SourceApi }>({
     graphqlEndpoint: '/graphql',
@@ -333,45 +347,68 @@ export const mountChannelHeader = (mode: 'own-flag' | 'own-handle' | 'other' | '
   )
 }
 
-/** Renders NotificationsMenu with unread badge, two notification items, and controllable dismiss failure/persistence. */
-export const mountNotificationsDismissHarness = (failDismiss = false) => {
+/** Renders NotificationsMenu with unread badge, two notification items, and controllable dismiss failure/cursor behavior. */
+export const mountNotificationsDismissHarness = (mode: 'ok' | 'error' | 'sticky-cursor' = 'ok') => {
   const host = document.createElement('div')
   host.setAttribute('data-notifications-dismiss-harness', 'true')
   host.style.cssText = 'position: fixed; inset: 6rem 2rem auto auto; z-index: 10000; display: flex; justify-content: flex-end; width: 60rem; background: var(--bg)'
   document.body.append(host)
   let unseenCount = 2
   const dismissedCalls: string[][] = []
+  const dismissedServerIds = new Set<string>()
   ;(window as unknown as { __dismissCalls?: string[][] }).__dismissCalls = dismissedCalls
+  const pageOneItems = [
+    {
+      id: 'notif-a',
+      message: 'Alpha channel uploaded a video',
+      sentText: '1 hour ago',
+      avatar: NOTIF_AVATAR,
+      thumbnail: NOTIF_THUMB,
+      videoId: 'dQw4w9WgXcQ',
+      read: false,
+    },
+    {
+      id: 'notif-b',
+      message: 'Beta channel started streaming',
+      sentText: '2 hours ago',
+      avatar: NOTIF_AVATAR,
+      thumbnail: NOTIF_THUMB,
+      videoId: 'dQw4w9WgXcQ',
+      read: false,
+    },
+  ]
+  const pageTwoItems = [
+    {
+      id: 'notif-c',
+      message: 'Gamma older upload',
+      sentText: '3 days ago',
+      avatar: NOTIF_AVATAR,
+      thumbnail: NOTIF_THUMB,
+      videoId: 'dQw4w9WgXcQ',
+      read: true,
+    },
+  ]
   const notifSource = {
     session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
     unseenNotificationCount: async () => unseenCount,
-    notifications: async () => ({
-      items: [
-        {
-          id: 'notif-a',
-          message: 'Alpha channel uploaded a video',
-          sentText: '1 hour ago',
-          avatar: NOTIF_AVATAR,
-          thumbnail: NOTIF_THUMB,
-          videoId: 'dQw4w9WgXcQ',
-          read: false,
-        },
-        {
-          id: 'notif-b',
-          message: 'Beta channel started streaming',
-          sentText: '2 hours ago',
-          avatar: NOTIF_AVATAR,
-          thumbnail: NOTIF_THUMB,
-          videoId: 'dQw4w9WgXcQ',
-          read: false,
-        },
-      ],
-      cursor: 'page-2',
-    }),
+    notifications: async (cursor?: string) => {
+      if (cursor === 'page-2') {
+        const items = pageTwoItems.filter(item => !dismissedServerIds.has(item.id))
+        return { items, cursor: undefined }
+      }
+      const items = mode === 'sticky-cursor'
+        ? pageOneItems
+        : pageOneItems.filter(item => !dismissedServerIds.has(item.id))
+      return {
+        items,
+        cursor: mode === 'sticky-cursor' || items.length > 0 ? 'page-2' : undefined,
+      }
+    },
     markNotificationRead: async (id: string) => id,
     dismissNotifications: async (ids: string[]) => {
-      if (failDismiss) throw new Error('dismiss failed')
+      if (mode === 'error') throw new Error('dismiss failed')
       dismissedCalls.push(ids)
+      for (const id of ids) dismissedServerIds.add(id)
       unseenCount = 0
       return ids
     },
@@ -382,7 +419,7 @@ export const mountNotificationsDismissHarness = (failDismiss = false) => {
     schema: createSchema({ typeDefs, resolvers }),
   })
   const client = new Client({
-    url: `http://notifications-dismiss-${failDismiss ? 'err' : 'ok'}-${Date.now()}.local/graphql`,
+    url: `http://notifications-dismiss-${mode}-${Date.now()}.local/graphql`,
     exchanges: [createCache(), fetchExchange],
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source: notifSource }),
   })

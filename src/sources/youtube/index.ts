@@ -1161,6 +1161,9 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
   const notificationClicks = new Map<string, EndpointNode>()
   const notificationDismissals = new Map<string, EndpointNode>()
 
+  const REJECT_DISMISS_ICONS = new Set(['NOTIFICATIONS_OFF', 'BELL_OFF', 'MUTE', 'VOLUME_OFF', 'UNSUBSCRIBE'])
+  const HIDE_DISMISS_ICONS = new Set(['HIDE', 'EYE_OFF', 'VISIBILITY_OFF', 'NOT_INTERESTED'])
+
   const notificationDismissEndpoint = (node: unknown): EndpointNode | undefined => {
     type MenuItemNode = {
       text?: unknown
@@ -1179,22 +1182,15 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (!endpoint || typeof endpoint.call !== 'function') continue
       const apiUrl = typeof endpoint.metadata?.apiUrl === 'string' ? endpoint.metadata.apiUrl : ''
       if (apiUrl.includes('modify_channel_preference')) continue
+      const iconType = typeof item.icon_type === 'string' ? item.icon_type.toUpperCase() : ''
+      if (REJECT_DISMISS_ICONS.has(iconType)) continue
       const label = [item.text, item.label, item.tooltip]
         .map((part) => (typeof part === 'string' ? part : (part as { text?: string } | undefined)?.text ?? ''))
         .join(' ')
         .trim()
         .toLowerCase()
       if (/\b(turn off|unsubscribe|mute)\b/.test(label)) continue
-      const iconType = typeof item.icon_type === 'string' ? item.icon_type.toUpperCase() : ''
-      if (
-        iconType === 'HIDE'
-        || iconType === 'EYE_OFF'
-        || iconType === 'VISIBILITY_OFF'
-        || iconType === 'NOT_INTERESTED'
-        || /\b(hide|dismiss|remove)\b/.test(label)
-        || typeof endpoint.payload?.serializedRecordNotificationInteractionsRequest === 'string'
-        || apiUrl.includes('record_interactions')
-      ) {
+      if (HIDE_DISMISS_ICONS.has(iconType) || /\b(hide|dismiss|remove)\b/.test(label)) {
         return endpoint
       }
     }
@@ -2319,17 +2315,25 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const uniqueIds = [...new Set(ids.filter(Boolean))]
       if (uniqueIds.length === 0) return []
       const remaining = [...uniqueIds]
+      const succeeded = new Set<string>()
+      let firstError: unknown
       const workers = Array.from({ length: Math.min(4, remaining.length) }, async () => {
         while (remaining.length > 0) {
           const id = remaining.shift()!
           const endpoint = notificationDismissals.get(id) ?? notificationClicks.get(id)
-          if (endpoint) await endpoint.call(active.actions)
-          notificationDismissals.delete(id)
-          notificationClicks.delete(id)
+          try {
+            if (endpoint) await endpoint.call(active.actions)
+            notificationDismissals.delete(id)
+            notificationClicks.delete(id)
+            succeeded.add(id)
+          } catch (error) {
+            firstError ??= error
+          }
         }
       })
       await Promise.all(workers)
-      return uniqueIds
+      if (succeeded.size === 0 && firstError !== undefined) throw firstError
+      return uniqueIds.filter((id) => succeeded.has(id))
     },
     // Signed-in state comes from the session the engine booted with; the accounts_list call only decorates it, so its failure
     // must not read back as signed out, but an answer that says the session ended (`signedIn` turns false) does.

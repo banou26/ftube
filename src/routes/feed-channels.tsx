@@ -1,5 +1,7 @@
 import type { TargetedEvent } from 'preact'
+import type { CombinedError } from 'urql'
 
+import type { NotificationLevel } from '../generated/graphql'
 import type { ActivityWindow, ChannelSort, InactiveRange, InactiveUnit, UploadDateRange } from './feed-channels-filter'
 
 import { css } from '@emotion/react'
@@ -12,7 +14,7 @@ import { useDocumentTitle } from '../app'
 import { DataFailure, lineFor } from '../components/data-failure'
 import { formatAgo, formatCount } from '../components/format'
 import { GroupsButton } from '../components/groups-button'
-import { SET_SUBSCRIBED, SubscribeButton } from '../components/subscribe-button'
+import { SET_NOTIFICATION_LEVEL, SET_SUBSCRIBED, SubscribeButton } from '../components/subscribe-button'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { VerifiedBadge } from '../components/verified-badge'
@@ -541,13 +543,19 @@ const FeedChannelsPage = () => {
   const [sort, setSort] = useState<ChannelSort>('default')
   const [loadDates, setLoadDates] = useState(false)
   const [lastUploadAt, setLastUploadAt] = useState<Record<string, string | null>>({})
+  const [failedDateIds, setFailedDateIds] = useState<Set<string>>(() => new Set())
+  const [dateRetryTick, setDateRetryTick] = useState(0)
   const [confirmBulkOpen, setConfirmBulkOpen] = useState(false)
+  const [bulkDialogTargets, setBulkDialogTargets] = useState<{ id: string, name: string, notificationLevel?: NotificationLevel | null }[]>([])
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number, total: number } | undefined>(undefined)
   const [unsubscribedIds, setUnsubscribedIds] = useState<Set<string>>(() => new Set())
   const [, setSubscribedMutation] = useMutation(SET_SUBSCRIBED)
+  const [, setNotificationLevelMutation] = useMutation(SET_NOTIFICATION_LEVEL)
   const lastUploadAtRef = useRef(lastUploadAt)
   lastUploadAtRef.current = lastUploadAt
+  const failedDateIdsRef = useRef(failedDateIds)
+  failedDateIdsRef.current = failedDateIds
 
   const parsedInactiveAmount = inactiveAmountRaw.trim() === '' ? Number.NaN : Number(inactiveAmountRaw)
   const inactiveRange: InactiveRange = { amount: parsedInactiveAmount, unit: inactiveUnit }
@@ -570,7 +578,9 @@ const FeedChannelsPage = () => {
 
   useEffect(() => {
     if (!needsDates || baseChannels.length === 0) return
-    const ids = baseChannels.map(channel => channel.id).filter(id => !(id in lastUploadAtRef.current))
+    const ids = baseChannels
+      .map(channel => channel.id)
+      .filter(id => !(id in lastUploadAtRef.current) && !failedDateIdsRef.current.has(id))
     if (ids.length === 0) return
     let cancelled = false
     let cursor = 0
@@ -580,10 +590,20 @@ const FeedChannelsPage = () => {
         const result = await client.query(
           CHANNEL_LAST_UPLOAD_QUERY,
           { channelId, includeDurations: false },
-          { requestPolicy: 'cache-first' },
+          { requestPolicy: dateRetryTick > 0 ? 'network-only' : 'cache-first' },
         ).toPromise()
         if (cancelled) return
-        const value = result.data ? newestUpload(result.data.channelUploads) : null
+        if (result.error || !result.data) {
+          setFailedDateIds(current => {
+            if (current.has(channelId)) return current
+            const next = new Set(current)
+            next.add(channelId)
+            failedDateIdsRef.current = next
+            return next
+          })
+          continue
+        }
+        const value = newestUpload(result.data.channelUploads)
         setLastUploadAt(current => {
           if (current[channelId] === value) return current
           const next = { ...current, [channelId]: value }
@@ -597,7 +617,7 @@ const FeedChannelsPage = () => {
     return () => {
       cancelled = true
     }
-  }, [client, needsDates, baseChannelKey])
+  }, [client, needsDates, baseChannelKey, dateRetryTick])
 
   if (!ready) {
     return (
@@ -627,8 +647,9 @@ const FeedChannelsPage = () => {
     )
   }
 
-  const checkedCount = baseChannels.filter(channel => channel.id in lastUploadAt).length
-  const datesLoading = needsDates && baseChannels.length > 0 && checkedCount < baseChannels.length
+  const failedCount = baseChannels.filter(channel => failedDateIds.has(channel.id)).length
+  const settledCount = baseChannels.filter(channel => channel.id in lastUploadAt || failedDateIds.has(channel.id)).length
+  const datesLoading = needsDates && baseChannels.length > 0 && settledCount < baseChannels.length
   const parsedRange = activity === 'custom' ? parseDateRange(dateRange) : undefined
   const inactiveMs = activity === 'inactive-custom' ? inactiveThresholdMs(inactiveRange) : undefined
   const hasDateFilter = activity === 'custom'
@@ -667,21 +688,28 @@ const FeedChannelsPage = () => {
     : []
   const inactiveSummary = formatInactiveSummary(activity, inactiveRange)
 
-  const onBulkUnsubscribe = async () => {
-    if (bulkBusy || bulkTargets.length === 0) return
-    const targets = [...bulkTargets]
+  const onRetryFailedDates = () => {
+    const empty = new Set<string>()
+    failedDateIdsRef.current = empty
+    setFailedDateIds(empty)
+    setDateRetryTick(tick => tick + 1)
+  }
+
+  const onBulkUnsubscribe = async (frozenTargets: readonly { id: string, name: string, notificationLevel?: NotificationLevel | null }[]) => {
+    if (bulkBusy || frozenTargets.length === 0) return
+    const targets = [...frozenTargets]
     setBulkBusy(true)
     setBulkProgress({ done: 0, total: targets.length })
-    const succeeded: string[] = []
-    let failedCount = 0
-    let lastError: unknown
+    const succeeded: { id: string, notificationLevel?: NotificationLevel | null }[] = []
+    let failedMutations = 0
+    let lastError: CombinedError | undefined
     await runWithConcurrency(targets, BULK_CONCURRENCY, async (channel) => {
       const result = await setSubscribedMutation({ channelId: channel.id, subscribed: false })
       if (result.error) {
-        failedCount += 1
+        failedMutations += 1
         lastError = result.error
       } else {
-        succeeded.push(channel.id)
+        succeeded.push({ id: channel.id, notificationLevel: channel.notificationLevel })
       }
       setBulkProgress(current => current ? { ...current, done: current.done + 1 } : undefined)
     })
@@ -692,25 +720,36 @@ const FeedChannelsPage = () => {
       if (lastError) showToast(lineFor(lastError))
       return
     }
-    const succeededSet = new Set(succeeded)
+    const succeededIds = succeeded.map(entry => entry.id)
+    const succeededSet = new Set(succeededIds)
     setUnsubscribedIds(current => {
       const next = new Set(current)
-      for (const id of succeeded) next.add(id)
+      for (const id of succeededIds) next.add(id)
       return next
     })
     const countLabel = formatCount(succeeded.length, 'channel')
-    const message = failedCount > 0
-      ? `Unsubscribed from ${countLabel} (${failedCount} failed)`
+    const message = failedMutations > 0
+      ? `Unsubscribed from ${countLabel} (${failedMutations} failed)`
       : `Unsubscribed from ${countLabel}`
     showUndoableToast(message, {
       label: `Unsubscribe from ${countLabel}`,
       undo: async () => {
         const restored: string[] = []
         let undoError: unknown
-        await runWithConcurrency(succeeded, BULK_CONCURRENCY, async (channelId) => {
-          const reverted = await setSubscribedMutation({ channelId, subscribed: true })
-          if (reverted.error) undoError = reverted.error
-          else restored.push(channelId)
+        await runWithConcurrency(succeeded, BULK_CONCURRENCY, async (entry) => {
+          const reverted = await setSubscribedMutation({ channelId: entry.id, subscribed: true })
+          if (reverted.error) {
+            undoError = reverted.error
+            return
+          }
+          restored.push(entry.id)
+          if (entry.notificationLevel) {
+            const levelResult = await setNotificationLevelMutation({
+              channelId: entry.id,
+              level: entry.notificationLevel,
+            })
+            if (levelResult.error) undoError ??= levelResult.error
+          }
         })
         if (restored.length > 0) {
           setUnsubscribedIds(current => {
@@ -734,8 +773,8 @@ const FeedChannelsPage = () => {
             <span className='count'>
               {datesLoading
                 ? hasDateFilter
-                  ? `${confirmedCount} matched • checking ${checkedCount} of ${baseChannels.length}`
-                  : `${shown.length} of ${formatCount(channels.length, 'channel')} • checked ${checkedCount} of ${baseChannels.length}`
+                  ? `${confirmedCount} matched • checking ${settledCount} of ${baseChannels.length}`
+                  : `${shown.length} of ${formatCount(channels.length, 'channel')} • checked ${settledCount} of ${baseChannels.length}`
                 : shown.length === channels.length
                   ? formatCount(channels.length, 'channel')
                   : `${shown.length} of ${formatCount(channels.length, 'channel')}`}
@@ -801,13 +840,27 @@ const FeedChannelsPage = () => {
             </button>
           )
           : undefined}
+        {needsDates && failedCount > 0 && !datesLoading
+          ? (
+            <button type='button' className='check-dates' onClick={onRetryFailedDates}>
+              {`Retry ${failedCount} failed date ${failedCount === 1 ? 'check' : 'checks'}`}
+            </button>
+          )
+          : undefined}
         {isInactiveFilter && bulkTargets.length > 0
           ? (
             <button
               type='button'
               className='unsubscribe-all'
               disabled={bulkBusy}
-              onClick={() => setConfirmBulkOpen(true)}
+              onClick={() => {
+                setBulkDialogTargets(bulkTargets.map(channel => ({
+                  id: channel.id,
+                  name: channel.name,
+                  notificationLevel: channel.notificationLevel,
+                })))
+                setConfirmBulkOpen(true)
+              }}
             >
               {`Unsubscribe all (${bulkTargets.length})`}
             </button>
@@ -933,11 +986,11 @@ const FeedChannelsPage = () => {
             aria-label='Checking channel upload dates'
             aria-valuemin={0}
             aria-valuemax={baseChannels.length}
-            aria-valuenow={checkedCount}
+            aria-valuenow={settledCount}
           >
             <div
               className='date-progress-fill'
-              style={{ width: `${Math.round((checkedCount / baseChannels.length) * 100)}%` }}
+              style={{ width: `${Math.round((settledCount / baseChannels.length) * 100)}%` }}
             />
           </div>
         )
@@ -963,14 +1016,17 @@ const FeedChannelsPage = () => {
             ? channel.handle.startsWith('@') ? channel.handle : `@${channel.handle}`
             : undefined
           const lastIso = lastUploadAt[channel.id]
-          const checkingDate = needsDates && !(channel.id in lastUploadAt)
+          const failedDate = needsDates && failedDateIds.has(channel.id)
+          const checkingDate = needsDates && !failedDate && !(channel.id in lastUploadAt)
           const lastText = checkingDate
             ? 'Checking upload date…'
-            : lastIso
-              ? `Last video ${formatAgo(lastIso)}`
-              : lastIso === null
-                ? 'No recent videos'
-                : undefined
+            : failedDate
+              ? 'Upload date unavailable'
+              : lastIso
+                ? `Last video ${formatAgo(lastIso)}`
+                : lastIso === null
+                  ? 'No recent videos'
+                  : undefined
           const meta = [handle, channel.subscriberCountText, channel.videoCountText, lastText]
             .filter((part): part is string => Boolean(part))
             .join(' • ')
@@ -1016,11 +1072,11 @@ const FeedChannelsPage = () => {
           >
             <div css={bulkDialogStyle}>
               <p className='bulk-note'>
-                {`Unsubscribe from ${formatCount(bulkTargets.length, 'channel')} inactive for ${inactiveSummary}?`}
+                {`Unsubscribe from ${formatCount(bulkDialogTargets.length, 'channel')} inactive for ${inactiveSummary}?`}
               </p>
               <ul className='bulk-preview'>
-                {bulkTargets.slice(0, 5).map(channel => <li key={channel.id}>{channel.name}</li>)}
-                {bulkTargets.length > 5 ? <li>{`and ${bulkTargets.length - 5} more`}</li> : undefined}
+                {bulkDialogTargets.slice(0, 5).map(channel => <li key={channel.id}>{channel.name}</li>)}
+                {bulkDialogTargets.length > 5 ? <li>{`and ${bulkDialogTargets.length - 5} more`}</li> : undefined}
               </ul>
               <div className='bulk-actions'>
                 <button
@@ -1034,12 +1090,12 @@ const FeedChannelsPage = () => {
                 <button
                   type='button'
                   className='bulk-confirm'
-                  disabled={bulkBusy || bulkTargets.length === 0}
-                  onClick={() => void onBulkUnsubscribe()}
+                  disabled={bulkBusy || bulkDialogTargets.length === 0}
+                  onClick={() => void onBulkUnsubscribe(bulkDialogTargets)}
                 >
                   {bulkProgress
                     ? `Unsubscribing ${bulkProgress.done} of ${bulkProgress.total}…`
-                    : `Unsubscribe ${bulkTargets.length}`}
+                    : `Unsubscribe ${bulkDialogTargets.length}`}
                 </button>
               </div>
             </div>

@@ -2897,7 +2897,7 @@ describe('youtube source', () => {
     expect(second.cursor).toBeUndefined()
   })
 
-  it('dismisses notifications via hide menu endpoint while never firing channel-mute items, falling back to recordClick', async () => {
+  it('dismisses notifications via hide menu endpoint while never firing mute/unlabelled items, and returns partial successes', async () => {
     const client = createFakeClient()
     const called: string[] = []
     const emptyPage: FakeNotifications = { contents: [], getContinuation: async () => emptyPage }
@@ -2916,6 +2916,21 @@ describe('youtube source', () => {
                 endpoint: {
                   metadata: { apiUrl: '/youtubei/v1/notification/modify_channel_preference' },
                   call: async () => { called.push('mute:n-hide') },
+                },
+              },
+              {
+                icon_type: 'NOTIFICATIONS_OFF',
+                endpoint: {
+                  payload: { serializedRecordNotificationInteractionsRequest: 'abc' },
+                  metadata: { apiUrl: '/youtubei/v1/notification/record_interactions' },
+                  call: async () => { called.push('icon-off:n-hide') },
+                },
+              },
+              {
+                endpoint: {
+                  payload: { serializedRecordNotificationInteractionsRequest: 'xyz' },
+                  metadata: { apiUrl: '/youtubei/v1/notification/record_interactions' },
+                  call: async () => { called.push('unlabelled:n-hide') },
                 },
               },
               {
@@ -2938,17 +2953,27 @@ describe('youtube source', () => {
           record_click_endpoint: { call: async () => { called.push('click:n-click-only') } },
           read: false,
         },
+        {
+          notification_id: 'n-partial-err',
+          short_message: { text: 'Upload 3' },
+          sent_time: { text: '3m ago' },
+          endpoint: { payload: { videoId: 'v3' } },
+          record_click_endpoint: { call: async () => { throw new Error('boom') } },
+          read: false,
+        },
       ],
       getContinuation: async () => emptyPage,
     })
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
     await source.notifications()
-    await expect(source.dismissNotifications(['n-hide', 'n-click-only', 'n-hide', 'n-missing'])).resolves.toEqual([
+    await expect(source.dismissNotifications(['n-hide', 'n-click-only', 'n-partial-err', 'n-hide'])).resolves.toEqual([
       'n-hide',
       'n-click-only',
-      'n-missing',
     ])
     expect(called.sort()).toEqual(['click:n-click-only', 'hide:n-hide'])
+
+    // When every id in a batch fails, reject with the underlying error.
+    await expect(source.dismissNotifications(['n-partial-err'])).rejects.toThrow('boom')
 
     client.session.logged_in = false
     await expect(source.dismissNotifications(['n-hide'])).rejects.toThrow('sign in to dismiss notifications')

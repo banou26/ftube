@@ -1086,8 +1086,9 @@ export const PlayerControls = (
   const activeCaptionLabel = captionLabel(captionTracks, translationLanguages, caption)
   const canTranslate = Boolean(activeTrack?.translatable && translationLanguages.length > 0)
   const playingHeight = state.videoHeight && state.videoHeight > 0 ? state.videoHeight : video.videoHeight
+  const playingWidth = state.videoWidth && state.videoWidth > 0 ? state.videoWidth : video.videoWidth
   const resolvedQuality = resolveQualityDisplay({ preference: quality, heights, playingHeight })
-  const badgeHeight = resolveQualityBadgeHeight({ preference: quality, heights, playingHeight })
+  const badgeHeight = resolveQualityBadgeHeight({ preference: quality, heights, playingHeight, playingWidth })
   const qualityBadge = qualityBadgeLabel(badgeHeight)
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is

@@ -947,7 +947,12 @@ export const SettingsPage = () => {
                             onChange={() => set({ captionsEnabled: !settings.captionsEnabled })}
                           />
                           <div className='row'>
-                            <div className='row-label'>Preferred subtitle language</div>
+                            <div>
+                              <div className='row-label'>Preferred subtitle language</div>
+                              {!settings.captionsEnabled
+                                ? <p className='sub-note'>Applies once captions are turned on.</p>
+                                : undefined}
+                            </div>
                             <div className='inline-fields'>
                               <select
                                 className='select'

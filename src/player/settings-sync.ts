@@ -1,5 +1,7 @@
 import type { Settings } from '../settings'
 
+import { languageMatches } from '../frame/captions'
+
 export type PlayerSettingsSyncPlan = {
   playbackRate?: number
   volume?: number
@@ -11,6 +13,9 @@ export type PlayerSettingsSyncPlan = {
 const sameLanguageList = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index])
 
+const isLanguageSkipped = (videoLanguage: string | undefined, skipList: readonly string[]) =>
+  Boolean(videoLanguage && skipList.some((entry) => languageMatches(videoLanguage, entry)))
+
 /**
  * Computes which live player updates must run when `Settings` transitions from `prev` to `next`.
  * `autoMuted` is cleared only when `volume` or `muted` changes, never by unrelated setting writes.
@@ -18,7 +23,7 @@ const sameLanguageList = (a: readonly string[], b: readonly string[]) =>
 export const planPlayerSettingsSync = (
   prev: Settings,
   next: Settings,
-  current: { hasCaption: boolean, selfWrite?: boolean },
+  current: { hasCaption: boolean, selfWrite?: boolean, manualOverride?: boolean, videoLanguage?: string },
 ): PlayerSettingsSyncPlan => {
   const volumeChanged = next.volume !== prev.volume
   const mutedChanged = next.muted !== prev.muted
@@ -29,12 +34,16 @@ export const planPlayerSettingsSync = (
     } else if (!current.hasCaption) {
       captionAction = 'enable-default'
     }
-  } else if (
-    next.captionsEnabled
-    && !current.selfWrite
-    && (next.captionsLanguage !== prev.captionsLanguage || !sameLanguageList(next.captionsSkipLanguages, prev.captionsSkipLanguages))
-  ) {
-    captionAction = 'refresh'
+  } else if (next.captionsEnabled && !current.selfWrite && !current.manualOverride) {
+    if (next.captionsLanguage !== prev.captionsLanguage) {
+      captionAction = 'refresh'
+    } else if (!sameLanguageList(next.captionsSkipLanguages, prev.captionsSkipLanguages)) {
+      const skippedBefore = isLanguageSkipped(current.videoLanguage, prev.captionsSkipLanguages)
+      const skippedAfter = isLanguageSkipped(current.videoLanguage, next.captionsSkipLanguages)
+      if (current.videoLanguage && skippedBefore !== skippedAfter) {
+        captionAction = 'refresh'
+      }
+    }
   }
   return {
     playbackRate: next.playbackRate !== prev.playbackRate ? next.playbackRate : undefined,

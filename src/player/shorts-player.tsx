@@ -442,6 +442,7 @@ const ShortsPlayer = (
   playbackRateRef.current = playbackRate
   const lastSettingsRef = useRef(getSettings())
   const selfCaptionWriteRef = useRef(false)
+  const manualCaptionRef = useRef(false)
   const [muted, setMuted] = useState(() => getSettings().muted)
   const [volume, setVolume] = useState(() => getSettings().volume)
   const [fullscreen, setFullscreen] = useState(false)
@@ -656,8 +657,10 @@ const ShortsPlayer = (
     setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
+    manualCaptionRef.current = false
     const videoLanguage = detectVideoLanguage(controller.audioTracks, controller.captionTracks)
     const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, settings, navigator.language, videoLanguage)
+    captionRef.current = wanted
     setCaption(wanted)
     if (wanted) {
       const selectCaption = controller.selectCaption
@@ -722,9 +725,12 @@ const ShortsPlayer = (
     const unsubscribe = subscribeSettings((next) => {
       const prev = lastSettingsRef.current
       lastSettingsRef.current = next
+      const detectedVideoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
       const sync = planPlayerSettingsSync(prev, next, {
         hasCaption: Boolean(captionRef.current),
         selfWrite: selfCaptionWriteRef.current,
+        manualOverride: manualCaptionRef.current,
+        videoLanguage: detectedVideoLanguage,
       })
       const el = videoRef.current
       if (sync.playbackRate !== undefined) {
@@ -819,6 +825,7 @@ const ShortsPlayer = (
   }, [])
 
   const applyCaption = useCallback((next: CaptionPick | undefined) => {
+    manualCaptionRef.current = true
     const controller = controllerRef.current
     const updateCaptionSettings = (patch: Partial<Pick<ReturnType<typeof getSettings>, 'captionsEnabled' | 'captionsLanguage'>>) => {
       selfCaptionWriteRef.current = true

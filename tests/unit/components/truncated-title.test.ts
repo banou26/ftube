@@ -7,6 +7,7 @@ type FakeStyle = {
   overflowY: string
   display: string
   textOverflow: string
+  whiteSpace?: string
   webkitLineClamp: string
   getPropertyValue: (name: string) => string
 }
@@ -35,11 +36,12 @@ const makeFakeElement = ({
   parentElement?: unknown
 } = {}) => {
   const attrMap = new Map<string, string>(Object.entries(attrs))
-  const computed: FakeStyle = {
+  const computed: FakeStyle & { whiteSpace: string } = {
     overflowX: 'visible',
     overflowY: 'visible',
     display: 'block',
     textOverflow: 'clip',
+    whiteSpace: 'normal',
     webkitLineClamp: '',
     getPropertyValue: (name: string) => (name === '-webkit-line-clamp' ? computed.webkitLineClamp : ''),
     ...style,
@@ -115,10 +117,27 @@ describe('truncated-title helpers', () => {
     const hiddenEl = makeFakeElement({
       clientWidth: 80,
       scrollWidth: 160,
-      style: { overflowX: 'hidden' },
+      style: { overflowX: 'hidden', textOverflow: 'ellipsis' },
       attrs: { 'aria-hidden': 'true' },
     })
     expect(isElementTruncated(hiddenEl)).toBe(false)
+
+    // Horizontal clipping without ellipsis or nowrap (for example carousels / overflow containers) does not trigger a tooltip.
+    const plainClipped = makeFakeElement({
+      clientWidth: 200,
+      scrollWidth: 400,
+      style: { overflowX: 'hidden', textOverflow: 'clip', whiteSpace: 'normal' },
+    })
+    expect(isElementTruncated(plainClipped)).toBe(false)
+
+    // Chip rows with multiple buttons/links do not trigger a joined row tooltip.
+    const chipBar = makeFakeElement({
+      clientWidth: 200,
+      scrollWidth: 420,
+      style: { overflowX: 'hidden', whiteSpace: 'nowrap' },
+      children: [{ tagName: 'BUTTON' }, { tagName: 'BUTTON' }],
+    })
+    expect(isElementTruncated(chipBar)).toBe(false)
   })
 
   it('resolves truncated ancestors from text nodes and manages temporary title attributes cleanly', () => {
@@ -138,7 +157,7 @@ describe('truncated-title helpers', () => {
       textContent: 'Full Channel Title Here',
       clientWidth: 90,
       scrollWidth: 170,
-      style: { overflowX: 'hidden' },
+      style: { overflowX: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
     })
     const innerSpan = makeFakeElement({ tagName: 'SPAN', parentElement: truncated, textContent: 'Full' })
     const textNode = { nodeType: 3, parentElement: innerSpan } as unknown as EventTarget
@@ -157,7 +176,7 @@ describe('truncated-title helpers', () => {
       textContent: 'Overflowing native title',
       clientWidth: 90,
       scrollWidth: 170,
-      style: { overflowX: 'hidden' },
+      style: { overflowX: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       attrs: { title: 'Custom native title' },
     })
     fire('mouseover', nativeEl)

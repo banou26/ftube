@@ -36,16 +36,24 @@ describe('planPlayerSettingsSync', () => {
     expect(planPlayerSettingsSync(on, off, { hasCaption: true }).captionAction).toBe('disable')
   })
 
-  it('refreshes captions when external Settings change language or skip list, while skipping self-writes', () => {
+  it('refreshes captions when external Settings change language or flip the current video skip match, while respecting self-writes and manual overrides', () => {
     const enabledEn = { ...DEFAULT_SETTINGS, captionsEnabled: true, captionsLanguage: 'en', captionsSkipLanguages: [] }
     const enabledFr = { ...enabledEn, captionsLanguage: 'fr' }
+    const skipFr = { ...enabledEn, captionsSkipLanguages: ['fr'] }
     const skipEn = { ...enabledEn, captionsSkipLanguages: ['en'] }
 
-    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true }).captionAction).toBe('refresh')
-    expect(planPlayerSettingsSync(enabledEn, skipEn, { hasCaption: true }).captionAction).toBe('refresh')
-    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true, selfWrite: true }).captionAction).toBe('none')
+    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true, videoLanguage: 'ja' }).captionAction).toBe('refresh')
+    // Adding an unrelated language (fr) to skip list while playing an 'en' video does NOT disrupt the current video.
+    expect(planPlayerSettingsSync(enabledEn, skipFr, { hasCaption: true, videoLanguage: 'en' }).captionAction).toBe('none')
+    // Adding/removing the current video's language ('en') refreshes automatically unless manually overridden.
+    expect(planPlayerSettingsSync(enabledEn, skipEn, { hasCaption: true, videoLanguage: 'en-US' }).captionAction).toBe('refresh')
+    expect(planPlayerSettingsSync(skipEn, enabledEn, { hasCaption: false, videoLanguage: 'en-US' }).captionAction).toBe('refresh')
+
+    // Manual caption picks on this video stay protected against external language or skip list changes.
+    expect(planPlayerSettingsSync(enabledEn, skipEn, { hasCaption: true, manualOverride: true, videoLanguage: 'en' }).captionAction).toBe('none')
+    expect(planPlayerSettingsSync(enabledEn, enabledFr, { hasCaption: true, selfWrite: true, videoLanguage: 'ja' }).captionAction).toBe('none')
 
     const disabledEn = { ...enabledEn, captionsEnabled: false }
-    expect(planPlayerSettingsSync(disabledEn, { ...disabledEn, captionsSkipLanguages: ['en'] }, { hasCaption: false }).captionAction).toBe('none')
+    expect(planPlayerSettingsSync(disabledEn, { ...disabledEn, captionsSkipLanguages: ['en'] }, { hasCaption: false, videoLanguage: 'en' }).captionAction).toBe('none')
   })
 })

@@ -320,6 +320,7 @@ const VideoPlayer = (
   const selectAudioRef = useRef<((trackId: string | undefined, drc: boolean) => Promise<void>) | undefined>(undefined)
   const lastSettingsRef = useRef(getSettings())
   const selfCaptionWriteRef = useRef(false)
+  const manualCaptionRef = useRef(false)
   const [captionTracks, setCaptionTracks] = useState<CaptionTrack[]>([])
   const captionTracksRef = useRef<CaptionTrack[]>([])
   captionTracksRef.current = captionTracks
@@ -641,8 +642,10 @@ const VideoPlayer = (
       setCaptionTracks(controller.captionTracks)
       setTranslationLanguages(controller.translationLanguages)
       selectCaptionRef.current = controller.selectCaption
+      manualCaptionRef.current = false
       const videoLanguage = detectVideoLanguage(controller.audioTracks, controller.captionTracks)
       const wanted = startingCaption(controller.captionTracks, controller.translationLanguages, getSettings(), navigator.language, videoLanguage)
+      captionRef.current = wanted
       setCaption(wanted)
       if (wanted) {
         const selectCaption = controller.selectCaption
@@ -684,6 +687,8 @@ const VideoPlayer = (
       setCaptionTracks([])
       setTranslationLanguages([])
       selectCaptionRef.current = undefined
+      manualCaptionRef.current = false
+      captionRef.current = undefined
       setAutoMuted(false)
       if (ownedSession) {
         const { api, promise } = ownedSession
@@ -713,9 +718,12 @@ const VideoPlayer = (
       setStableVolume(next.stableVolume)
       void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
     }
+    const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
     const sync = planPlayerSettingsSync(prev, next, {
       hasCaption: Boolean(captionRef.current),
       selfWrite: selfCaptionWriteRef.current,
+      manualOverride: manualCaptionRef.current,
+      videoLanguage,
     })
     const el = videoRef.current
     if (el) {
@@ -759,6 +767,7 @@ const VideoPlayer = (
 
   // stores the LANGUAGE rather than the track id, since ids are per video and the next video would not recognize one
   const applyCaption = useCallback((next: CaptionPick | undefined) => {
+    manualCaptionRef.current = true
     const updateCaptionSettings = (patch: Partial<Pick<ReturnType<typeof getSettings>, 'captionsEnabled' | 'captionsLanguage'>>) => {
       selfCaptionWriteRef.current = true
       try {

@@ -131,7 +131,7 @@ export const languageMatches = (candidate: string | undefined, target: string | 
   return !leftSub || !rightSub
 }
 
-/** Infers the video's spoken language from original/first audio tracks, else ASR or single caption tracks. */
+/** Infers the video's spoken language from original/first audio tracks or ASR caption tracks. */
 export const detectVideoLanguage = (
   audioTracks: readonly Pick<AudioTrack, 'language' | 'original'>[],
   captionTracks: readonly CaptionTrack[],
@@ -142,7 +142,6 @@ export const detectVideoLanguage = (
   if (firstAudio) return normalizeLanguageCode(firstAudio.language)
   const asr = captionTracks.find((track) => track.auto && normalizeLanguageCode(track.languageCode))
   if (asr) return normalizeLanguageCode(asr.languageCode)
-  if (captionTracks.length === 1) return normalizeLanguageCode(captionTracks[0]?.languageCode)
   return undefined
 }
 

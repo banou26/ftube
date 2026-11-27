@@ -357,7 +357,7 @@ describe('subtitle language preferences and video-language skipping', () => {
     expect(languageMatches('fr', 'de')).toBe(false)
   })
 
-  it('detects video language from original audio, first audio, ASR caption, or sole caption track', () => {
+  it('detects video language from original audio, first audio, or ASR caption tracks without guessing from a single authored track', () => {
     expect(detectVideoLanguage(
       [
         { language: 'en', original: false },
@@ -372,7 +372,8 @@ describe('subtitle language preferences and video-language skipping', () => {
     )).toBe('fr-FR')
 
     expect(detectVideoLanguage([], tracks)).toBe('en')
-    expect(detectVideoLanguage([], [tracks[2]!])).toBe('fr')
+    // A single authored subtitle track (e.g. English subs on a Japanese video with untagged audio) must not be guessed as the video's spoken language.
+    expect(detectVideoLanguage([], [tracks[2]!])).toBeUndefined()
     expect(detectVideoLanguage([], [tracks[0]!, tracks[2]!])).toBeUndefined()
   })
 

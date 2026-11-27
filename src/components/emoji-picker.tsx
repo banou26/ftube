@@ -296,7 +296,7 @@ export const filterCustomEmojis = (
   return customEmojis.filter(entry => entry.shortcut.toLowerCase().includes(term))
 }
 
-/** Partitions custom emojis into channel membership emojis and YouTube global emojis. */
+/** Partitions custom emojis into channel membership emojis and YouTube global emojis (unclassified custom emojis default to Channel). */
 export const splitCustomEmojis = (customEmojis: readonly CustomEmoji[]) => {
   const channel: CustomEmoji[] = []
   const youtube: CustomEmoji[] = []

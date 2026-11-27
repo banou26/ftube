@@ -2,7 +2,7 @@ import type { NotificationsQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 import { Bell } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { useLocation } from 'wouter'
 
@@ -123,7 +123,10 @@ const panelStyle = css`
     color: var(--text-primary);
   }
 
-  .dismiss-all {
+  .dismiss-all,
+  .panel-header [role='menuitem'].dismiss-all {
+    width: auto;
+    height: auto;
     padding: 0.4rem 1rem;
     border: none;
     border-radius: 1.6rem;
@@ -135,7 +138,10 @@ const panelStyle = css`
     transition: background 0.15s ease;
   }
 
-  .dismiss-all:hover:not(:disabled) {
+  .dismiss-all:hover:not(:disabled),
+  .panel-header [role='menuitem'].dismiss-all:hover:not(:disabled),
+  .dismiss-all:focus-visible,
+  .panel-header [role='menuitem'].dismiss-all:focus-visible {
     background: var(--bg-hover);
   }
 
@@ -229,6 +235,7 @@ export const NotificationsMenu = () => {
   const [, navigate] = useLocation()
   const { ready, signedIn } = useSession()
   const [open, setOpen] = useState(false)
+  const dismissAllRef = useRef<HTMLButtonElement>(null)
   const [loaded, setLoaded] = useState<NotificationPage[]>([])
   const [dismissing, setDismissing] = useState(false)
   const dismissedIds = useDismissedNotifications()
@@ -268,6 +275,16 @@ export const NotificationsMenu = () => {
     key: notification => notification.id,
   })
   const visibleItems = items.filter(notification => !dismissedIds.has(notification.id))
+  const hasVisibleItems = visibleItems.length > 0
+
+  // Move focus onto Dismiss all when async items replace Loading... and unmount the initially focused row.
+  useLayoutEffect(() => {
+    if (!open || !hasVisibleItems) return
+    const button = dismissAllRef.current
+    if (!button) return
+    const menuPanel = button.closest('[role="menu"]')
+    if (menuPanel && !menuPanel.contains(document.activeElement)) button.focus()
+  }, [open, hasVisibleItems])
 
   if (ready && !signedIn) return null
 
@@ -316,7 +333,10 @@ export const NotificationsMenu = () => {
           {visibleItems.length > 0
             ? (
               <button
+                ref={dismissAllRef}
                 type='button'
+                role='menuitem'
+                tabIndex={-1}
                 className='dismiss-all'
                 onClick={onDismissAll}
                 disabled={dismissing}
@@ -352,7 +372,7 @@ export const NotificationsMenu = () => {
           />
         ))}
         {error && !fetching ? <MenuDataFailure error={error} reexecute={reexecute} /> : undefined}
-        {visibleItems.length > 0 && cursor && !fetching && !error
+        {cursor && !fetching && !error
           ? (
             <MenuItem
               label='Show more'

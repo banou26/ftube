@@ -31,20 +31,18 @@ const PREVIEW_BUFFER_GOAL = 10
 // carried between previews and deliberately NOT persisted: a feed may never start talking on its own
 let preferMuted = true
 
-// on by default, as youtube.com's previews are, in the viewer's language unless skipped for the video's spoken language
-const previewCaption = (
-  tracks: CaptionTrack[],
-  audioTracks: readonly AudioTrack[] = [],
-  respectSkip = false,
-) => {
+// Manual CC toggle chooses the preferred track (without video-language skip suppression).
+const previewCaption = (tracks: CaptionTrack[]) =>
+  preferredTrack(tracks, getSettings().captionsLanguage ?? navigator.language)
+
+// Preview autoplay respects video-language subtitle skip preferences alongside preferred language.
+const startingPreviewCaption = (tracks: CaptionTrack[], audioTracks: readonly AudioTrack[]) => {
   const currentSettings = getSettings()
-  if (respectSkip) {
-    const videoLanguage = detectVideoLanguage(audioTracks, tracks)
-    if (videoLanguage && currentSettings.captionsSkipLanguages.some((entry) => languageMatches(videoLanguage, entry))) {
-      return undefined
-    }
+  const videoLanguage = detectVideoLanguage(audioTracks, tracks)
+  if (videoLanguage && currentSettings.captionsSkipLanguages.some((entry) => languageMatches(videoLanguage, entry))) {
+    return undefined
   }
-  return preferredTrack(tracks, currentSettings.captionsLanguage ?? navigator.language)
+  return previewCaption(tracks)
 }
 
 // the preview sits inside the card's watch link, so an unguarded press or click on a control opens the video
@@ -510,7 +508,7 @@ export const HoverPreview = (
         selectCaption.current = controller.selectCaption
         setLive(controller.isLive)
         setReady(true)
-        const wanted = previewCaption(controller.captionTracks, controller.audioTracks, true)
+        const wanted = startingPreviewCaption(controller.captionTracks, controller.audioTracks)
         if (wanted) {
           setCaption(wanted.id)
           void controller.selectCaption(wanted.id).catch(() => setCaption(undefined))

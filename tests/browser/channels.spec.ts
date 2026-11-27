@@ -275,4 +275,39 @@ test('supports custom inactive durations and bulk unsubscribe with confirmation 
     { id: 'UCcccccccccccccccccccccc', isSubscribed: false },
     { id: 'UCcccccccccccccccccccccc', isSubscribed: true },
   ])
+
+  // Undo also restores prior notificationLevel ('ALL' on Old Archive).
+  const levelCallsAfterUndo = await page.evaluate(() => (window as unknown as { __channelLevelCalls?: { id: string, level: string }[] }).__channelLevelCalls ?? [])
+  expect(levelCallsAfterUndo).toEqual([{ id: 'UCcccccccccccccccccccccc', level: 'ALL' }])
+})
+
+test('excludes failed upload-date checks from inactive matches and Unsubscribe all and allows retrying failed checks', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/feed/channels')
+  await expect(async () => {
+    const host = page.locator('[data-channels-harness]')
+    if (await host.count() === 0) {
+      await page.evaluate(async (path) => {
+        const harness = await import(path) as typeof import('./fixtures/menu-data-harness')
+        harness.mountChannelsSurface({ failUploadOnceChannelId: 'UCcccccccccccccccccccccc' })
+      }, '/tests/browser/fixtures/menu-data-harness.tsx')
+    }
+    await expect(host).toBeAttached({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000 })
+
+  const harness = page.locator('[data-channels-harness]')
+  const rows = harness.locator('.list .row')
+  await expect(rows).toHaveCount(3)
+
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-365d')
+  // Failed Old Archive check must NEVER appear as confirmed inactive or enter Unsubscribe all.
+  await expect(harness.getByRole('button', { name: 'Retry 1 failed date check', exact: true })).toBeVisible()
+  await expect(rows).toHaveCount(0)
+  await expect(harness.getByRole('button', { name: /^Unsubscribe all/ })).toHaveCount(0)
+
+  // Retry succeeds on second attempt and surfaces Old Archive as confirmed inactive.
+  await harness.getByRole('button', { name: 'Retry 1 failed date check', exact: true }).click()
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Old Archive')
+  await expect(harness.getByRole('button', { name: 'Unsubscribe all (1)' })).toBeVisible()
 })

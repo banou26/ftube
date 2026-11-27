@@ -521,7 +521,7 @@ const Slide = (
   const dislikes = useDislikes(active || preload ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
   const disliked = meta?.likeStatus === 'DISLIKE'
-  const rawHandle = meta?.channel?.handle ? safeDecode(meta.channel.handle) : undefined
+  const rawHandle = meta?.channel?.handle
   const handle = rawHandle
     ? rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`
     : undefined
