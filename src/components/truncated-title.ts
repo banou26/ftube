@@ -13,7 +13,7 @@ const isTruncatableElement = (node: unknown): node is HTMLElement => {
   const el = node as { nodeType?: number, tagName?: unknown, namespaceURI?: unknown }
   return el.nodeType === 1
     && typeof el.tagName === 'string'
-    && el.namespaceURI !== 'http://www.w3.org/2000/svg'
+    && !(typeof el.namespaceURI === 'string' && el.namespaceURI.endsWith('/svg'))
 }
 
 /** Reports whether an element's single-line or line-clamped text overflows its visible box. */
