@@ -4,10 +4,8 @@ import { css } from '@emotion/react'
 import { Pause, Play, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
-import { updateSettings } from '../settings'
 import { clock } from './controls'
 import { closePlayer } from './session'
-import { bindWheelVolume } from './volume'
 import { VolumeControl } from './volume-control'
 
 /* youtube.com's miniplayer, measured signed out 2026-11-10 at 1280 and 1920 px: while the pointer is on the video, a
@@ -123,17 +121,6 @@ export const MiniplayerControls = (
 ) => {
   const [adjusting, setAdjusting] = useState(false)
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
-  const onVolumeRef = useRef(onVolumeChange)
-  onVolumeRef.current = onVolumeChange
-
-  useEffect(() => {
-    const target = video?.closest('aside[aria-label="Miniplayer"]')
-    if (!video || !target) return
-    return bindWheelVolume(target, video, {
-      onVolumeChange: next => onVolumeRef.current?.(next),
-      onPersist: next => updateSettings(next),
-    })
-  }, [video])
 
   const setAdjustingState = useCallback((next: boolean) => {
     if (!next) {
@@ -199,7 +186,13 @@ export const MiniplayerControls = (
             </button>
             {/* a live presentation timeline is the stream's own clock, with no duration to show */}
             {isLive ? undefined : <span className='time'>{clock(state.currentTime)} / {clock(state.duration)}</span>}
-            <VolumeControl video={video} state={state} variant='mini' onAdjustingChange={setAdjustingState} />
+            <VolumeControl
+              video={video}
+              state={state}
+              variant='mini'
+              onAdjustingChange={setAdjustingState}
+              onWheelVolumeChange={onVolumeChange}
+            />
           </>
         )
         : undefined}

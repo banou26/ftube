@@ -21,7 +21,6 @@ import { setPanel } from './session'
 const GRID_SIZE = 12
 // the upward wheel travel that closes an open grid, so a trackpad's first few pixels do not
 const WHEEL_PULL = 100
-const CLOSE_COOLDOWN_MS = 400
 
 const round = css`
   display: grid;
@@ -242,30 +241,24 @@ export const FullscreenView = ({ shown, settings }: { shown: boolean, settings: 
     const surface = rootRef.current?.parentElement
     if (!surface) return
     let pull = 0
-    let closedAt = 0
     const onWheel = (event: WheelEvent) => {
-      if ((event.target as Element).closest('[role="dialog"], [role="menu"]')) return
+      if ((event.target as Element).closest('[role="dialog"], [role="menu"], .group.volume')) return
       const { grid: open, setGrid: toggle } = latest.current
-      if (!open) {
-        pull = 0
-        if (Date.now() - closedAt < CLOSE_COOLDOWN_MS) {
-          event.preventDefault()
-          event.stopImmediatePropagation()
-        }
-        return
-      }
+      const down = event.deltaY > 0
       // an open grid scrolls its list, and closes on a pull up from the list's top
-      if (event.deltaY >= 0 || (scrollRef.current?.scrollTop ?? 0) > 0) {
+      if (open && (down || (scrollRef.current?.scrollTop ?? 0) > 0)) {
         pull = 0
         return
       }
       event.preventDefault()
-      event.stopImmediatePropagation()
+      if (down === open) {
+        pull = 0
+        return
+      }
       pull = Math.sign(pull) === Math.sign(event.deltaY) ? pull + event.deltaY : event.deltaY
       if (Math.abs(pull) < WHEEL_PULL) return
       pull = 0
-      closedAt = Date.now()
-      toggle(false)
+      toggle(!open)
     }
     surface.addEventListener('wheel', onWheel, { passive: false, capture: true })
     return () => surface.removeEventListener('wheel', onWheel, { capture: true })

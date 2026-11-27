@@ -80,11 +80,9 @@ test('shows the title, opens a grid of the related videos, and plays one in full
   const initialVolume = await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)
   await page.mouse.move(640, 300)
   await page.mouse.wheel(0, 120)
-  await expect(grid).toHaveCount(0)
-  await expect.poll(() => player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBeLessThan(initialVolume)
-  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
-  await press(page, player.getByRole('button', { name: 'More videos' }))
   await expect(grid).toBeVisible()
+  expect(await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBe(initialVolume)
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
   // and stay hidden over the open grid, though the pointer is moving
   await page.mouse.move(600, 320)
   await expect.poll(() => opacity(heading)).toBe(0)
@@ -105,6 +103,11 @@ test('shows the title, opens a grid of the related videos, and plays one in full
   await expect(grid).toHaveCount(0)
   await page.waitForTimeout(100)
   expect(await player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBe(volBeforeClose)
+  const volumeGroupBox = (await player.locator('.group.volume').boundingBox())!
+  await page.mouse.move(volumeGroupBox.x + volumeGroupBox.width / 2, volumeGroupBox.y + volumeGroupBox.height / 2)
+  await page.mouse.wheel(0, 120)
+  await expect.poll(() => player.locator('video').evaluate(el => (el as HTMLVideoElement).volume)).toBeLessThan(volBeforeClose)
+  await expect(grid).toHaveCount(0)
   await page.keyboard.press('v')
   await expect(grid).toBeVisible()
 

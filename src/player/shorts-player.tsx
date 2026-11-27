@@ -880,21 +880,6 @@ const ShortsPlayer = (
     })
   }, [active, videoEl, visibleStatus])
 
-  useEffect(() => {
-    const root = rootRef.current
-    if (!active || !fullscreen || !root || !videoEl || visibleStatus) return
-    return bindWheelVolume(root, videoEl, {
-      shouldIgnore: event =>
-        event.target instanceof Element
-        && Boolean(event.target.closest('[role="menu"], [role="dialog"], .volume-pill')),
-      onVolumeChange: (next) => {
-        setVolume(next.volume)
-        setMuted(next.muted)
-      },
-      onPersist: next => updateSettings(next),
-    })
-  }, [active, fullscreen, videoEl, visibleStatus])
-
   const mediaState = useMemo<ShortsMediaState>(() => ({
     captionTracks,
     translationLanguages,

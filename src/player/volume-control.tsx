@@ -2,9 +2,10 @@ import type { TargetedEvent } from 'preact'
 
 import { css } from '@emotion/react'
 import { Volume1, Volume2, VolumeX } from 'lucide-react'
+import { useEffect, useRef } from 'preact/hooks'
 
 import { updateSettings } from '../settings'
-import { applyVideoVolume, effectiveVolumeOf, toggleVideoMute } from './volume'
+import { applyVideoVolume, bindWheelVolume, effectiveVolumeOf, toggleVideoMute } from './volume'
 
 const rangeStyle = css`
   flex: none;
@@ -94,10 +95,25 @@ export type VolumeControlProps = {
   state: { volume: number, muted: boolean }
   variant: 'bar' | 'mini'
   onAdjustingChange?: (adjusting: boolean) => void
+  onWheelVolumeChange?: (next: { volume: number, muted: boolean }) => void
 }
 
 /** Shared mute toggle and volume slider for both the full player bar and docked miniplayer. */
-export const VolumeControl = ({ video, state, variant, onAdjustingChange }: VolumeControlProps) => {
+export const VolumeControl = ({ video, state, variant, onAdjustingChange, onWheelVolumeChange }: VolumeControlProps) => {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const onWheelRef = useRef(onWheelVolumeChange)
+  onWheelRef.current = onWheelVolumeChange
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    return bindWheelVolume(root, video, {
+      stopPropagation: true,
+      onVolumeChange: next => onWheelRef.current?.(next),
+      onPersist: next => updateSettings(next),
+    })
+  }, [video])
+
   const config = VARIANT_CONFIG[variant]
   const effectiveVolume = effectiveVolumeOf(state)
   const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 0.5 ? Volume1 : Volume2
@@ -145,7 +161,7 @@ export const VolumeControl = ({ video, state, variant, onAdjustingChange }: Volu
 
   if (variant === 'mini') {
     return (
-      <div className='mini-volume'>
+      <div ref={rootRef} className='mini-volume'>
         {button}
         {slider}
       </div>
@@ -153,7 +169,7 @@ export const VolumeControl = ({ video, state, variant, onAdjustingChange }: Volu
   }
 
   return (
-    <div className='group volume'>
+    <div ref={rootRef} className='group volume'>
       {button}
       <div className='volume-slider'>
         {slider}

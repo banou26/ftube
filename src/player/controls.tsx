@@ -742,6 +742,7 @@ type ControlsProps = {
   docked?: boolean
   /** Called right before user controls pause playback explicitly. */
   onUserPause?: () => void
+  onWheelVolumeChange?: (next: { volume: number, muted: boolean }) => void
 }
 
 export const PlayerControls = (
@@ -750,7 +751,7 @@ export const PlayerControls = (
     ambientMode = true, onAmbientMode, annotations = true, onAnnotations,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
-    sleepTimer, sleepMenu = 0, docked = false, onUserPause,
+    sleepTimer, sleepMenu = 0, docked = false, onUserPause, onWheelVolumeChange,
   }: ControlsProps,
 ) => {
   const [scrubbing, setScrubbing] = useState(false)
@@ -1240,7 +1241,7 @@ export const PlayerControls = (
               : state.paused ? <Play size={22} fill='currentColor' strokeWidth={0} /> : <Pause size={22} fill='currentColor' strokeWidth={0} />}
           </button>
           {onNext ? <button type='button' className='control group next' aria-label='Next' onClick={onNext}><SkipForward size={22} fill='currentColor' strokeWidth={2} /></button> : undefined}
-          <VolumeControl video={video} state={state} variant='bar' />
+          <VolumeControl video={video} state={state} variant='bar' onWheelVolumeChange={onWheelVolumeChange} />
           {/* a live presentation timeline is the stream's own clock: the position reads like 3348:05:43 and the duration is 0 */}
           {isLive
             ? (

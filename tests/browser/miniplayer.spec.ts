@@ -190,7 +190,21 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
   expect(scrollBefore).toBeGreaterThan(0)
   await page.mouse.move(restoredPicture.left + 100, restoredPicture.top + 60)
 
-  // Scrolling over the miniplayer adjusts volume by 5% per step without scrolling the page behind it.
+  // Scrolling over the miniplayer outside .mini-volume scrolls the page without changing volume.
+  await page.mouse.wheel(0, -120)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(scrollBefore)
+  expect(await video.evaluate(element => ({
+    volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
+    muted: (element as HTMLVideoElement).muted,
+  }))).toEqual({ volume: 0.5, muted: false })
+
+  await page.evaluate((y) => window.scrollTo(0, y), scrollBefore)
+  const scrollBeforeVolume = await page.evaluate(() => window.scrollY)
+  const miniVolume = page.locator('aside[aria-label="Miniplayer"] .mini-volume')
+  const miniVolumeBox = (await miniVolume.boundingBox())!
+  await page.mouse.move(miniVolumeBox.x + miniVolumeBox.width / 2, miniVolumeBox.y + miniVolumeBox.height / 2)
+
+  // Scrolling over .mini-volume adjusts volume by 5% per step without scrolling the page behind it.
   await page.mouse.wheel(0, -120)
   await expect.poll(() => video.evaluate(element => ({
     volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
@@ -200,7 +214,7 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     const raw = JSON.parse(localStorage.getItem('yt-client:settings') || '{}') as { volume?: number, muted?: boolean }
     return { volume: raw.volume, muted: raw.muted }
   })).toEqual({ volume: 0.55, muted: false })
-  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeVolume)
 
   await page.mouse.wheel(0, 120)
   await page.mouse.wheel(0, 120)
@@ -208,7 +222,7 @@ test('draws youtube.com\'s box, title and channel, and Expand, Close, Play and t
     volume: Number((element as HTMLVideoElement).volume.toFixed(2)),
     muted: (element as HTMLVideoElement).muted,
   }))).toEqual({ volume: 0.45, muted: false })
-  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeVolume)
 
   // Scrolling down past zero mutes cleanly and only scrolling up unmutes from 0 -> 0.05.
   await volumeSlider.fill('0.05')
