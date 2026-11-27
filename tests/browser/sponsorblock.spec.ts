@@ -226,6 +226,7 @@ test('a spec that routes nothing gets the empty answers', async ({ page }) => {
 
 test('Settings turns Skip sponsors off and on, and credits SponsorBlock', async ({ page }) => {
   await page.goto('/settings')
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
   const toggle = page.getByRole('checkbox', { name: 'Skip sponsors' })
   await expect(toggle).toBeChecked()
   await toggle.click()

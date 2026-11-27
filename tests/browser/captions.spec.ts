@@ -113,6 +113,7 @@ test.describe('in a Japanese browser', () => {
   test('keeps the recommended track once Settings always shows captions', async ({ page }) => {
     test.setTimeout(240_000)
     await page.goto('/settings')
+    await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
     await page.getByRole('checkbox', { name: 'Always show captions', exact: true }).check()
 
     await page.goto(VIDEO)

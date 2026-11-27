@@ -21,7 +21,7 @@ const contrastFromRgb = (fg: string, bg: string) => {
 
 const openAppearanceTab = async (page: import('@playwright/test').Page) => {
   await page.goto('/settings')
-  await page.getByRole('tab', { name: 'Appearance', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
   const custom = page.locator('#custom-appearance')
   await expect(custom).toBeVisible()
   return custom
@@ -330,35 +330,35 @@ test('refreshes the browser favicon immediately when picking a custom theme acce
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/app.webmanifest')
 })
 
-test('organizes Settings into General and Appearance tabs and previews all accent-affected UI elements', async ({ page }) => {
+test('organizes Settings into side-menu sections and previews all accent-affected UI elements in Customization', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto('/settings')
 
   const main = page.getByRole('main')
-  const generalTab = main.getByRole('tab', { name: 'General', exact: true })
-  const appearanceTab = main.getByRole('tab', { name: 'Appearance', exact: true })
-  await expect(generalTab).toHaveAttribute('aria-selected', 'true')
-  await expect(appearanceTab).toHaveAttribute('aria-selected', 'false')
+  const nav = main.getByRole('navigation', { name: 'Settings' })
+  const generalNav = nav.getByRole('button', { name: 'General', exact: true })
+  const customizationNav = nav.getByRole('button', { name: 'Customization', exact: true })
+  await expect(generalNav).toHaveAttribute('aria-current', 'page')
+  await expect(customizationNav).not.toHaveAttribute('aria-current', 'page')
 
-  await expect(main.getByRole('heading', { name: 'Playback', exact: true })).toBeVisible()
   await expect(main.getByRole('checkbox', { name: 'Hide Shorts', exact: true })).toBeVisible()
   await expect(main.locator('#custom-appearance')).toBeHidden()
   await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeHidden()
   await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeHidden()
 
-  await appearanceTab.click()
-  await expect(appearanceTab).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/\/settings\?tab=appearance$/)
+  await customizationNav.click()
+  await expect(customizationNav).toHaveAttribute('aria-current', 'page')
+  await expect(page).toHaveURL(/\/settings\?section=customization$/)
   await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeVisible()
   await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeVisible()
-  await expect(main.getByRole('heading', { name: 'Playback', exact: true })).toBeHidden()
+  await expect(main.getByRole('checkbox', { name: 'Hide Shorts', exact: true })).toBeHidden()
 
   const custom = main.locator('#custom-appearance')
   await expect(custom).toBeVisible()
 
-  // Persistence across reload while on Appearance tab
+  // Persistence across reload while on Customization section
   await page.reload()
-  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(main.locator('#custom-appearance')).toBeVisible()
 
   const brandMark = custom.locator('.preview-brand-mark path').first()
@@ -426,17 +426,17 @@ test('organizes Settings into General and Appearance tabs and previews all accen
     ).toBe(true)
   }
 
-  // Deep link from /settings#custom-appearance and header menu opens Appearance tab directly
+  // Deep link from /settings#custom-appearance and header menu opens Customization section directly
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/settings#custom-appearance')
-  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(custom).toBeVisible()
 
   await page.goto('/privacy')
   await page.getByRole('button', { name: 'More', exact: true }).click()
   await page.getByRole('menuitem', { name: /^Appearance/ }).click()
   await page.getByRole('menuitem', { name: 'Custom appearance' }).click()
-  await expect(main.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(custom).toBeVisible()
 
   await custom.getByRole('button', { name: 'Reset to default', exact: true }).click()

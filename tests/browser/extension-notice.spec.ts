@@ -39,7 +39,7 @@ const openPanel = async (page: Page) => {
 }
 
 test('offers the extension when it is absent', async ({ page }) => {
-  await page.goto('/settings')
+  await page.goto('/settings?section=advanced')
   await expect(pillOf(page)).toBeVisible()
   await expect(settingsLinkOf(page)).toHaveAttribute('href', 'https://www.fkn.app/#why')
 
@@ -86,7 +86,7 @@ test('closes the panel on escape and on a click outside it', async ({ page }) =>
 })
 
 test('stops offering once declined, and settings brings it back', async ({ page }) => {
-  await page.goto('/settings')
+  await page.goto('/settings?section=advanced')
   await openPanel(page)
   await panelOf(page).getByRole('button', { name: 'Don\'t show this again' }).click()
   await expect(pillOf(page)).toHaveCount(0)
@@ -102,7 +102,7 @@ test('stops offering once declined, and settings brings it back', async ({ page 
 
 test('says nothing at all when the extension is installed', async ({ page }) => {
   await exposeExtension(page)
-  await page.goto('/settings')
+  await page.goto('/settings?section=advanced')
   await expect(page.getByText('Through the FKN extension')).toBeVisible()
   await expect(pillOf(page)).toHaveCount(0)
   await expect(toggleOf(page)).toHaveCount(0)
@@ -110,7 +110,7 @@ test('says nothing at all when the extension is installed', async ({ page }) => 
 })
 
 test('withdraws the offer when the extension appears mid-session', async ({ page }) => {
-  await page.goto('/settings')
+  await page.goto('/settings?section=advanced')
   await expect(pillOf(page)).toBeVisible()
 
   await page.evaluate((event) => {
