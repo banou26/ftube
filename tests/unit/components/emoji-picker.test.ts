@@ -26,6 +26,7 @@ vi.mock('preact/hooks', () => ({
   useRef: () => ({ current: null }),
   useState: () => [false, () => {}],
 }))
+vi.mock('wouter', () => ({ Link: () => null }))
 
 const {
   EMOJI_CATEGORIES,
