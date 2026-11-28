@@ -214,6 +214,8 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
   page.on('pageerror', error => pageErrors.push(error.message))
 
   await hideFknNotice(page)
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
   await installMockPlayback(page)
   await page.route('**/src/player/shaka.ts*', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: SHAKA_SHORTS_MOCK_JS }),
@@ -312,10 +314,12 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
   await expect(mini).toHaveCount(0)
 
   // Play a Short again, dock on Home, and verify Close miniplayer shuts it down cleanly.
-  await page.goto('/shorts/shortvid002')
-  const secondVideo = page.locator('[data-short-id="shortvid002"][data-active="true"] video')
+  await page.getByRole('link', { name: 'Shorts', exact: true }).click()
+  await expect(page).toHaveURL(/\/shorts(\/shortvid001)?$/)
+  const restartedVideo = page.locator('[data-short-id="shortvid001"][data-active="true"] video')
+  await expect(restartedVideo).toBeVisible({ timeout: 30_000 })
   await expect.poll(
-    () => secondVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
+    () => restartedVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
     { timeout: 30_000 },
   ).toBeGreaterThan(0.5)
   await page.getByRole('link', { name: 'FTube home', exact: true }).click()

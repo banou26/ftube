@@ -181,6 +181,8 @@ test('collapses mobile Watch and Shorts miniplayers into a compact strip when Se
   page.on('pageerror', error => pageErrors.push(error.message))
 
   await hideFknNotice(page)
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
   await installMockPlayback(page)
   await page.route('**/src/player/shaka.ts*', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: SHAKA_FULL_MOCK_JS }),
