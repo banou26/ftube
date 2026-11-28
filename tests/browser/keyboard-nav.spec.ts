@@ -46,8 +46,24 @@ test('stays inactive by default and supports spatial grid/control navigation plu
   await expect(listChoice).toHaveAttribute('data-kb-nav-focus', 'true')
   await page.keyboard.press('h')
   await expect(gridChoice).toHaveAttribute('data-kb-nav-focus', 'true')
+  const pillRadius = await gridChoice.evaluate(el => getComputedStyle(el).borderTopLeftRadius)
+  expect(pillRadius).not.toBe('6px')
+
   await page.keyboard.press('l')
   await expect(listChoice).toHaveAttribute('data-kb-nav-focus', 'true')
+
+  // Moving focus elsewhere (focusin / Tab / programmatic focus) clears the spatial marker.
+  await hideShorts.focus()
+  await expect(page.locator('[data-kb-nav-focus="true"]')).toHaveCount(0)
+
+  // Settings sidebar navigation keeps native arrow switching while keyboard navigation is enabled.
+  const nav = page.getByRole('main').getByRole('navigation', { name: 'Settings' })
+  await nav.getByRole('button', { name: 'General', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page).toHaveURL(/\/settings\?section=notifications$/)
+  await nav.getByRole('button', { name: 'Notifications', exact: true }).focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(page).toHaveURL(/\/settings$/)
 
   await page.locator('#settings-section-heading').click()
   await expect(page.locator('[data-kb-nav-focus="true"]')).toHaveCount(0)

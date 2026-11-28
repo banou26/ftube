@@ -3012,6 +3012,15 @@ describe('youtube source', () => {
       sentTimeText: { simpleText: '5m ago' },
     })
 
+    const cmdExecFallbackEndpoint = {
+      type: 'NavigationEndpoint',
+      metadata: { api_url: '/youtubei/v1/notification/record_interactions' },
+      payload: { serializedInteractionEntity: 'tok-fallback' },
+      command: new YTNodes.CommandExecutorCommand({ commands: [] }),
+      call: async () => { throw new Error('must execute metadata api_url directly when command subcommands have no getApiPath') },
+    }
+    ;(cmdExecFallbackEndpoint.command as unknown as { commands: unknown[] }).commands = [uiOnlyCmd]
+
     const emptyPage: FakeNotifications = { contents: [], getContinuation: async () => emptyPage }
     client.getNotifications = async () => ({
       contents: [
@@ -3037,6 +3046,16 @@ describe('youtube source', () => {
             ],
           },
         },
+        {
+          notification_id: 'n-cmd-fallback',
+          short_message: { text: 'Upload CMD Fallback' },
+          sent_time: { text: '3m ago' },
+          menu: {
+            items: [
+              { text: 'Hide this notification', endpoint: cmdExecFallbackEndpoint },
+            ],
+          },
+        },
         emptyNavNotification,
         {
           notification_id: 'n-pref-only',
@@ -3055,10 +3074,17 @@ describe('youtube source', () => {
 
     const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
     await source.notifications()
-    await expect(source.dismissNotifications(['n-fr', 'n-cmd', 'n-empty', 'n-pref-only'])).resolves.toEqual(['n-fr', 'n-cmd', 'n-empty', 'n-pref-only'])
+    await expect(source.dismissNotifications(['n-fr', 'n-cmd', 'n-cmd-fallback', 'n-empty', 'n-pref-only'])).resolves.toEqual([
+      'n-fr',
+      'n-cmd',
+      'n-cmd-fallback',
+      'n-empty',
+      'n-pref-only',
+    ])
     expect(executed).toEqual([
       { path: 'notification/record_interactions', args: { serializedInteractionEntity: 'tok-fr' } },
       { path: 'feedback', args: { feedbackTokens: ['fb-1'], isFeedbackTokenUnencrypted: false } },
+      { path: 'notification/record_interactions', args: { serializedInteractionEntity: 'tok-fallback' } },
     ])
   })
 })

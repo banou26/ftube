@@ -172,7 +172,7 @@ export type ClassifiedChatMessage = {
   emojis: OverlayEmojiToken[]
 }
 
-const EMOJI_TOKEN_RE = /(?:[#*0-9]\uFE0F?\u20E3|[\u{1F1E6}-\u{1F1FF}]{2}|\p{Extended_Pictographic}(?:(?:\uFE0F|\u200D|\p{Emoji_Modifier})\p{Extended_Pictographic}?)*)/gu
+const EMOJI_TOKEN_RE = /(?:[#*0-9]\uFE0F?\u20E3|[\u{1F1E6}-\u{1F1FF}]{2}|(?:[\u00A9\u00AE\u2122]\uFE0F|(?![\u00A9\u00AE\u2122](?!\uFE0F))\p{Extended_Pictographic})(?:(?:\uFE0F|\u200D|\p{Emoji_Modifier})\p{Extended_Pictographic}?)*)/gu
 
 /** Extracts Unicode + custom emoji runs and detects message punctuation/casing categories. */
 export const classifyChatMessage = (

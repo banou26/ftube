@@ -52,6 +52,11 @@ const isTypingElement = (target: EventTarget | null): boolean => {
   return false
 }
 
+const CUSTOM_ARROW_CONTROL_SELECTOR = '[role="slider"], [role="tablist"], [role="radiogroup"], [role="grid"], [role="separator"]'
+
+const isOwnedArrowControl = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement && Boolean(target.closest(CUSTOM_ARROW_CONTROL_SELECTOR))
+
 const isElementVisible = (element: HTMLElement): boolean => {
   if (element.closest('[aria-hidden="true"]')) return false
   const rect = element.getBoundingClientRect()
@@ -242,7 +247,10 @@ export const KeyboardNavigationHost = (
           focusMarked(innerTarget)
           return
         }
-        playerRoot.tabIndex = -1
+        if (!playerRoot.hasAttribute('tabindex')) {
+          playerRoot.tabIndex = -1
+          playerRoot.addEventListener('blur', () => playerRoot.removeAttribute('tabindex'), { once: true })
+        }
         focusMarked(playerRoot)
       }
     }
@@ -304,29 +312,38 @@ export const KeyboardNavigationHost = (
         return
       }
 
-      if (isShorts && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      const mainEl = document.querySelector('main')
+      const insideMainOrBody = !active || active === document.body || active === document.documentElement || Boolean(mainEl?.contains(active))
+      if (isShorts && insideMainOrBody && (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' || key === ' ' || key === 'k' || key === 'm' || key === 'c' || key === 'f')) {
         return
       }
 
-      const direction = directionForKey(key, !isWatch)
+      if (isOwnedArrowControl(event.target)) {
+        return
+      }
+
+      const direction = directionForKey(key, !isWatch && !isShorts)
       if (!direction) return
 
       const candidates = collectFocusableCandidates(document)
       if (candidates.length === 0) return
 
-      event.preventDefault()
-      event.stopPropagation()
-
       const activeCandidate = active ? candidates.find((entry) => entry.item === active) : undefined
       if (!activeCandidate) {
         const scope = pageRef.current ?? document.querySelector('main') ?? document
         const preferred = collectFocusableCandidates(scope)[0] ?? candidates[0]
-        if (preferred) focusMarked(preferred.item)
+        if (preferred) {
+          event.preventDefault()
+          event.stopPropagation()
+          focusMarked(preferred.item)
+        }
         return
       }
 
       const nextTarget = findSpatialTarget(activeCandidate.rect, candidates.filter((entry) => entry.item !== active), direction)
       if (nextTarget) {
+        event.preventDefault()
+        event.stopPropagation()
         focusMarked(nextTarget)
       }
     }
@@ -336,15 +353,23 @@ export const KeyboardNavigationHost = (
       clearChord()
     }
 
+    const onFocusIn = (event: FocusEvent) => {
+      if (markedRef.current && event.target !== markedRef.current) {
+        clearMarkedFocus()
+      }
+    }
+
     const onBlur = () => {
       clearChord()
     }
 
-    window.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('focusin', onFocusIn, true)
     window.addEventListener('pointerdown', onPointerDown, true)
     window.addEventListener('blur', onBlur)
     return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('focusin', onFocusIn, true)
       window.removeEventListener('pointerdown', onPointerDown, true)
       window.removeEventListener('blur', onBlur)
       clearMarkedFocus()

@@ -54,6 +54,8 @@ describe('over-screen live chat messages', () => {
     expect(classifyChatMessage('Wait what?').kind).toBe('question')
     expect(classifyChatMessage('Nice clip!').kind).toBe('exclamation')
     expect(classifyChatMessage('hello world 123').kind).toBe('normal')
+    expect(classifyChatMessage('©').kind).toBe('normal')
+    expect(classifyChatMessage('©️').kind).toBe('emoji-only')
   })
 
   it('coerces out-of-range settings and persists updates safely', () => {

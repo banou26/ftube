@@ -1216,6 +1216,11 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     }
     const apiUrl = endpointApiUrl(endpoint)
     if (apiUrl) {
+      if (endpoint.command) {
+        const path = apiUrl.replace(/^\/?(?:youtubei\/v1\/)?/, '')
+        await actions.execute(path, endpoint.payload ?? {})
+        return
+      }
       await endpoint.call(actions)
       return
     }

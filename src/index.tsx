@@ -196,7 +196,6 @@ const globalStyles = css`
   [data-kb-nav-focus='true'] {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 0.6rem;
   }
 `
 
