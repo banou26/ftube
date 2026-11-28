@@ -44,6 +44,17 @@ const SECTIONS: { title: string, rows: [string, string][] }[] = [
       ['Rotate through font sizes (decreasing)', '-'],
     ],
   },
+  {
+    title: 'Keyboard navigation (opt-in)',
+    rows: [
+      ['Move focus spatially (browse & settings)', '← ↓ ↑ → / h j k l'],
+      ['Step focus out of player on Watch', 'Esc'],
+      ['Go to Home', 'g h'],
+      ['Go to Subscriptions / Shorts / You / History', 'g s / g r / g y / g i'],
+      ['Go to All subscriptions / Downloads / Settings', 'g c / g d / g ,'],
+      ['Focus left Guide / video player / Search', 'g g / g p / g /'],
+    ],
+  },
 ]
 
 const style = css`

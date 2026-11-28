@@ -14,6 +14,7 @@ import PartyChat from './components/party-chat'
 import PartySync from './components/party-sync'
 import { useTruncatedTooltips } from './components/truncated-title'
 import ErrorBoundary from './components/ui/error-boundary'
+import { KeyboardNavigationHost } from './navigation/keyboard-nav'
 import PersistentPlayer from './player/persistent-player'
 import { CHANNEL_TAB_PATHS, channelTabFor } from './routes/channel-tabs'
 import HomePage from './routes/home'
@@ -183,7 +184,7 @@ export const useMediaQuery = (query: string) => {
 
 export const App = () => {
   useTruncatedTooltips()
-  const [location] = useLocation()
+  const [location, navigate] = useLocation()
   const search = useSearch()
   const route = routeKeyOf(location, search)
   const [collapsed, setCollapsed] = useState(() => getSettings().guideCollapsed)
@@ -305,6 +306,7 @@ export const App = () => {
       {(overlayOnly || narrow) && drawerOpen ? <Guide variant='drawer' onClose={() => setDrawerOpen(false)} /> : undefined}
       {/* outside the <Switch> on purpose: the one thing that has to survive a route change */}
       <PersistentPlayer />
+      <KeyboardNavigationHost location={location} navigate={navigate} pageRef={pageRef} onOpenGuide={onMenu} />
       <PartySync />
       <PartyChat />
     </div>

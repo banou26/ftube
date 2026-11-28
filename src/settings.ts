@@ -68,6 +68,7 @@ export type Settings = {
   skipSponsors: boolean
   guideCollapsed: boolean
   hideShorts: boolean
+  keyboardNavigation: boolean
   // off for good once dismissed: an offer that keeps coming back after being declined is an ad
   suggestExtension: boolean
   // a CACHE rather than a preference, and the live DOM signal always wins over it
@@ -110,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skipSponsors: true,
   guideCollapsed: false,
   hideShorts: false,
+  keyboardNavigation: false,
   suggestExtension: true,
   customThemeColor: undefined,
   seekHandle: { kind: 'default' },
@@ -182,6 +184,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     skipSponsors: typeof stored.skipSponsors === 'boolean' ? stored.skipSponsors : DEFAULT_SETTINGS.skipSponsors,
     guideCollapsed: typeof stored.guideCollapsed === 'boolean' ? stored.guideCollapsed : DEFAULT_SETTINGS.guideCollapsed,
     hideShorts: typeof stored.hideShorts === 'boolean' ? stored.hideShorts : DEFAULT_SETTINGS.hideShorts,
+    keyboardNavigation: typeof stored.keyboardNavigation === 'boolean' ? stored.keyboardNavigation : DEFAULT_SETTINGS.keyboardNavigation,
     suggestExtension: typeof stored.suggestExtension === 'boolean' ? stored.suggestExtension : DEFAULT_SETTINGS.suggestExtension,
     extensionSeen: typeof stored.extensionSeen === 'boolean' ? stored.extensionSeen : undefined,
     themeChosen: stored.themeChosen === true ? true : undefined,

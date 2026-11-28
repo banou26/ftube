@@ -192,6 +192,12 @@ const globalStyles = css`
   ul {
     list-style: none;
   }
+
+  [data-kb-nav-focus='true'] {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 0.6rem;
+  }
 `
 
 // Before the first render so the page never paints the wrong theme and flashes, and replaces FKN Sandbox title.

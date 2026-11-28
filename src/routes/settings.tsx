@@ -682,6 +682,25 @@ export const SettingsPage = () => {
                   <RecommendationsResetRow dismissedCount={dismissedCount} />
                 </div>
               </div>
+
+              <div className='setting-row'>
+                <h3 className='group-label'>Navigation</h3>
+                <div className='group-controls'>
+                  <div className='row'>
+                    <div>
+                      <div className='row-label'>Full keyboard navigation</div>
+                      <p className='sub-note'>Navigate cards and controls with arrow keys or h/j/k/l, and jump between sections with g chords.</p>
+                    </div>
+                    <input
+                      type='checkbox'
+                      className='toggle'
+                      aria-label='Full keyboard navigation'
+                      checked={settings.keyboardNavigation}
+                      onChange={() => set({ keyboardNavigation: !settings.keyboardNavigation })}
+                    />
+                  </div>
+                </div>
+              </div>
             </>
           )
           : activeSection === 'notifications'
