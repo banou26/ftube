@@ -143,13 +143,15 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
       setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: req.id, result } })), 0)
     }
     if (req.method === 'shorts') {
-      reply({
-        items: [
-          { id: 'shortvid001', poster: thumbUrl, title: 'Vertical Short One' },
-          { id: 'shortvid002', poster: thumbUrl, title: 'Vertical Short Two' },
-        ],
-        cursor: null,
-      })
+      const seed = typeof req.args?.[0] === 'string' ? req.args[0] : undefined
+      const all = [
+        { id: 'shortvid001', poster: thumbUrl, title: 'Vertical Short One' },
+        { id: 'shortvid002', poster: thumbUrl, title: 'Vertical Short Two' },
+      ]
+      const ordered = seed && all.some(item => item.id === seed)
+        ? [all.find(item => item.id === seed)!, ...all.filter(item => item.id !== seed)]
+        : all
+      reply({ items: ordered, cursor: null })
       return
     }
     if (req.method === 'home') {
