@@ -611,17 +611,25 @@ export const SettingsPage = () => {
     document.getElementById('custom-appearance')?.scrollIntoView({ block: 'start' })
   }, [activeSection, customizationTab])
 
-  const selectSection = (next: SettingsSectionId) => {
+  const applySection = (next: SettingsSectionId) => {
     if (next !== activeSection && typeof window !== 'undefined') window.scrollTo(0, 0)
     setActiveSection(next)
     if (next === 'customization') setCustomizationTab('appearance')
+  }
+
+  const selectSection = (next: SettingsSectionId) => {
+    applySection(next)
     navigate(next === 'general' ? '/settings' : `/settings?section=${next}`, { replace: true })
   }
 
-  const selectCustomizationTab = (next: CustomizationTabId) => {
+  const applyCustomizationTab = (next: CustomizationTabId) => {
     if (next !== customizationTab && typeof window !== 'undefined') window.scrollTo(0, 0)
     setActiveSection('customization')
     setCustomizationTab(next)
+  }
+
+  const selectCustomizationTab = (next: CustomizationTabId) => {
+    applyCustomizationTab(next)
     navigate(
       next === 'appearance' ? '/settings?section=customization' : `/settings?section=customization&tab=${next}`,
       { replace: true },
@@ -703,11 +711,7 @@ export const SettingsPage = () => {
                 id={`settings-nav-${section.id}`}
                 aria-current={active ? 'page' : undefined}
                 className={active ? 'nav-item active' : 'nav-item'}
-                onClick={() => {
-                  if (section.id !== activeSection && typeof window !== 'undefined') window.scrollTo(0, 0)
-                  setActiveSection(section.id)
-                  if (section.id === 'customization') setCustomizationTab('appearance')
-                }}
+                onClick={() => applySection(section.id)}
                 onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onNavKeyDown(index, event)}
               >
                 {section.label}
@@ -861,11 +865,7 @@ export const SettingsPage = () => {
                           aria-controls={`customization-panel-${tab.id}`}
                           tabIndex={active ? 0 : -1}
                           className={active ? 'sub-tab active' : 'sub-tab'}
-                          onClick={() => {
-                            if (tab.id !== customizationTab && typeof window !== 'undefined') window.scrollTo(0, 0)
-                            setActiveSection('customization')
-                            setCustomizationTab(tab.id)
-                          }}
+                          onClick={() => applyCustomizationTab(tab.id)}
                           onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onCustomizationTabKeyDown(index, event)}
                         >
                           {tab.label}

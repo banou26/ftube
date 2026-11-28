@@ -123,40 +123,54 @@ test('withdraws the offer when the extension appears mid-session', async ({ page
 })
 
 test('matches native YouTube header button sizing, monochrome icon contrast, and responsive collapse (APP-1123)', async ({ page }) => {
-  await page.setViewportSize({ width: 1600, height: 900 })
-  await page.goto('/settings')
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
   const trigger = pillOf(page)
-  await expect(trigger).toBeVisible({ timeout: 30_000 })
-  await expect(trigger).toContainText('Faster with the FKN extension')
 
-  const wide = await trigger.evaluate((button) => {
-    const icon = button.querySelector('svg')!
-    const btnCs = getComputedStyle(button)
-    const iconCs = getComputedStyle(icon)
-    const box = button.getBoundingClientRect()
-    return {
-      height: Math.round(box.height),
-      btnColor: btnCs.color,
-      iconColor: iconCs.color,
+  for (const width of [1920, 1871]) {
+    await page.setViewportSize({ width, height: 900 })
+    if (width === 1920) {
+      await page.goto('/settings')
+      await expect(trigger).toBeVisible({ timeout: 30_000 })
     }
-  })
-  expect(wide.height).toBe(36)
-  expect(wide.iconColor).toBe(wide.btnColor)
+    await expect(trigger).toContainText('Faster with the FKN extension')
+    const wide = await trigger.evaluate((button) => {
+      const icon = button.querySelector('svg')!
+      const btnCs = getComputedStyle(button)
+      const iconCs = getComputedStyle(icon)
+      const box = button.getBoundingClientRect()
+      const searchBox = document.querySelector('header form[role="search"]')!.getBoundingClientRect()
+      return {
+        height: Math.round(box.height),
+        btnColor: btnCs.color,
+        iconColor: iconCs.color,
+        searchOffset: Math.abs(searchBox.x + searchBox.width / 2 - window.innerWidth / 2),
+      }
+    })
+    expect(wide.height).toBe(36)
+    expect(wide.iconColor).toBe(wide.btnColor)
+    expect(wide.searchOffset, `off centre at ${width}`).toBeLessThanOrEqual(10)
+  }
 
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  const compact = await trigger.evaluate((button) => {
-    const label = button.querySelector('.label')!
-    const btnCs = getComputedStyle(button)
-    const box = button.getBoundingClientRect()
-    return {
-      width: Math.round(box.width),
-      height: Math.round(box.height),
-      borderRadius: btnCs.borderTopLeftRadius,
-      labelDisplay: getComputedStyle(label).display,
-    }
-  })
-  expect(compact.labelDisplay).toBe('none')
-  expect([compact.width, compact.height]).toEqual([40, 40])
-  expect(compact.borderRadius).toMatch(/^(50%|20px)$/)
+  for (const width of [1600, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const compact = await trigger.evaluate((button) => {
+      const label = button.querySelector('.label')!
+      const btnCs = getComputedStyle(button)
+      const box = button.getBoundingClientRect()
+      const searchBox = document.querySelector('header form[role="search"]')!.getBoundingClientRect()
+      return {
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+        borderRadius: btnCs.borderTopLeftRadius,
+        labelDisplay: getComputedStyle(label).display,
+        searchOffset: Math.abs(searchBox.x + searchBox.width / 2 - window.innerWidth / 2),
+      }
+    })
+    expect(compact.labelDisplay).toBe('none')
+    expect([compact.width, compact.height]).toEqual([40, 40])
+    expect(compact.borderRadius).toMatch(/^(50%|20px)$/)
+    expect(compact.searchOffset, `off centre at ${width}`).toBeLessThanOrEqual(10)
+  }
 })

@@ -11,9 +11,6 @@ import { Link } from 'wouter'
 
 import { Popup, useDismiss } from './popup'
 
-const isModifiedClick = (event: MouseEvent) =>
-  event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0
-
 type IconComponent = FunctionComponent<{ size?: number, strokeWidth?: number }>
 
 // Widened past role=menuitem deliberately: whichever role a row picks it still has to be found by the navigation query.
@@ -356,8 +353,7 @@ export const MenuItem = (
             ;(event.currentTarget as HTMLElement).click()
           }
         }}
-        onClick={(event: MouseEvent) => {
-          if (isModifiedClick(event)) return
+        onClick={() => {
           onSelect?.()
           if (dismisses) menu?.close()
         }}

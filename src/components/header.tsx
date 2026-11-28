@@ -551,12 +551,16 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
 
   const currentQuery = new URLSearchParams(search).get('search_query') ?? undefined
 
-  const submitQuery = (query: string) => {
-    const trimmed = query.trim()
-    if (!trimmed) return
+  const closeSuggestions = () => {
     setSuggestOpen(false)
     setActiveSuggestion(-1)
     setTyped(undefined)
+  }
+
+  const submitQuery = (query: string) => {
+    const trimmed = query.trim()
+    if (!trimmed) return
+    closeSuggestions()
     navigate(`/results?search_query=${encodeURIComponent(trimmed)}`)
   }
 
@@ -660,6 +664,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
               <ul className='suggestions' id='search-suggestions' role='listbox'>
                 {suggestions.map((suggestion, index) => {
                   const parts = splitSuggestion(typed ?? debounced, suggestion.query)
+                  const query = suggestion.query.trim()
                   return (
                     <li
                       key={suggestion.query}
@@ -672,13 +677,9 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
                     >
                       <Link
                         className='suggestion-link'
-                        href={`/results?search_query=${encodeURIComponent(suggestion.query)}`}
+                        href={`/results?search_query=${encodeURIComponent(query)}`}
                         tabIndex={-1}
-                        onClick={() => {
-                          setSuggestOpen(false)
-                          setActiveSuggestion(-1)
-                          setTyped(undefined)
-                        }}
+                        onClick={closeSuggestions}
                       >
                         <Search size={16} strokeWidth={1.5} />
                         {suggestion.name

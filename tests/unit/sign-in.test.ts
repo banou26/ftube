@@ -320,6 +320,20 @@ describe('the sign-in window', () => {
     expect(stored[SIGNED_IN_KEY]).toBe('1')
   })
 
+  it('surfaces a persistent LocatorUnsupportedError after the transient startup tolerance expires', async () => {
+    const login = fakeLogin()
+    lib.isLocatorUnsupported.mockImplementation((err) => (err as { name?: string })?.name === 'LocatorUnsupportedError')
+    login.page.locatorCountError = Object.assign(new Error('locator unsupported in this build'), { name: 'LocatorUnsupportedError' })
+    const { reload } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await poll(8)
+    await vi.waitFor(() => expect(login.close).toHaveBeenCalledOnce())
+    expect(showToast).toHaveBeenCalledWith('Sign-in could not open.', expect.objectContaining({ label: 'Try again' }))
+    expect(reload).not.toHaveBeenCalled()
+  })
+
   it('ends at once as signed in for a jar another fkn.app app already signed in, with no click', async () => {
     const login = fakeLogin()
     login.page.avatar = true

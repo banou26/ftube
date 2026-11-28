@@ -163,8 +163,9 @@ const style = css`
     color: var(--text-primary);
   }
 
-  /* Icon only below this width so the header end stays inside its 1fr track and keeps the search box centered. */
-  @media (max-width: 1540px) {
+  /* Icon only below this width: signed-out .end measures 551px with the labeled offer (2 * 551 + 764 = 1866px),
+     so keeping the text wider than this pushes the centered 73.2rem search box off the page center line. */
+  @media (max-width: 1870px) {
     .pill .label {
       display: none;
     }

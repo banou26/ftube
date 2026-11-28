@@ -139,10 +139,13 @@ const isAssistDenied = (clientSource: ClientSource, error: unknown): boolean => 
   return name === 'PermissionDeniedError' || name === 'LocatorDeniedError'
 }
 
-const isTransientLocatorUnsupported = (clientSource: ClientSource, error: unknown): boolean =>
+const isLocatorUnsupported = (clientSource: ClientSource, error: unknown): boolean =>
   resolveClient(clientSource)?.isLocatorUnsupported?.(error)
   || loadedLib()?.isLocatorUnsupported?.(error)
   || (error as { name?: unknown } | null)?.name === 'LocatorUnsupportedError'
+
+// Cover 5 one-second polls (isSignedIn + onTick) for frame/document mount; fail after that if locator stays unsupported.
+const MAX_TRANSIENT_LOCATOR_UNSUPPORTED = 10
 
 const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<void> => {
   const base = youtubeAuthAdapter({
@@ -154,14 +157,23 @@ const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<voi
   })
   const baseOnTick = base.onTick
   let assistDisabled = false
+  let consecutiveLocatorUnsupported = 0
+
+  const tolerateLocatorUnsupported = (error: unknown): boolean => {
+    if (!isLocatorUnsupported(clientSource, error)) return false
+    consecutiveLocatorUnsupported += 1
+    return consecutiveLocatorUnsupported <= MAX_TRANSIENT_LOCATOR_UNSUPPORTED
+  }
 
   return {
     ...base,
     isSignedIn: async (frame, ctx) => {
       try {
-        return await base.isSignedIn(frame, ctx)
+        const signedIn = await base.isSignedIn(frame, ctx)
+        consecutiveLocatorUnsupported = 0
+        return signedIn
       } catch (error) {
-        if (isTransientLocatorUnsupported(clientSource, error)) return false
+        if (tolerateLocatorUnsupported(error)) return false
         throw error
       }
     },
@@ -169,8 +181,12 @@ const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<voi
       if (assistDisabled || ctx.signal.aborted) return
       try {
         await baseOnTick?.(ctx)
-        if (ctx.signal.aborted || !isYouTubeOrigin(ctx.origin)) return
+        if (ctx.signal.aborted || !isYouTubeOrigin(ctx.origin)) {
+          consecutiveLocatorUnsupported = 0
+          return
+        }
         if (await isLocatorVisible(ctx.frame, SIGN_IN_LINK)) {
+          consecutiveLocatorUnsupported = 0
           if (originHost(ctx.origin) === MOBILE_YOUTUBE_HOST) {
             await ctx.once('click-service-login', async () => {
               await ctx.frame.locator(SIGN_IN_LINK).first().click({ reason: SIGN_IN_INTERACTION_REASON })
@@ -183,8 +199,9 @@ const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<voi
             await ctx.frame.locator(MOBILE_YOU_TAB).first().click({ reason: SIGN_IN_INTERACTION_REASON })
           })
         }
+        consecutiveLocatorUnsupported = 0
       } catch (error) {
-        if (isTransientLocatorUnsupported(clientSource, error)) return
+        if (tolerateLocatorUnsupported(error)) return
         if (isAssistDenied(clientSource, error)) {
           assistDisabled = true
           return

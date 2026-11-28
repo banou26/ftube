@@ -59,7 +59,7 @@ const triggerStyle = css`
     opacity: 0.85;
   }
 
-  @media (max-width: 1359px) {
+  @media (max-width: 1470px) {
     padding: 0 1rem;
 
     .label {
