@@ -221,6 +221,7 @@ export const App = () => {
     }
     setCollapsed(value => updateSettings({ guideCollapsed: !value }).guideCollapsed)
   }, [overlayOnly, narrow])
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
 
   // youtube.com's Skip navigation lands on the page's first control, or on the page itself when it has none
   const onSkip = useCallback(() => {
@@ -303,7 +304,7 @@ export const App = () => {
           </ErrorBoundary>
         </div>
       </div>
-      {(overlayOnly || narrow) && drawerOpen ? <Guide variant='drawer' onClose={() => setDrawerOpen(false)} /> : undefined}
+      {(overlayOnly || narrow) && drawerOpen ? <Guide variant='drawer' onClose={closeDrawer} /> : undefined}
       {/* outside the <Switch> on purpose: the one thing that has to survive a route change */}
       <PersistentPlayer />
       <KeyboardNavigationHost location={location} navigate={navigate} pageRef={pageRef} onOpenGuide={onMenu} />

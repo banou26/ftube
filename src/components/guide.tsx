@@ -2,7 +2,7 @@ import type { FunctionComponent } from 'preact'
 
 import { css } from '@emotion/react'
 import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Layers, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Radio, Scissors, SquarePlay, SquareUser, ThumbsUp, Trophy } from 'lucide-react'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
@@ -716,26 +716,97 @@ const drawerStyle = css`
   }
 `
 
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+
+const getVisibleFocusable = (container: HTMLElement): HTMLElement[] =>
+  [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden',
+  )
+
+const markBackgroundInert = (drawerRoot: HTMLElement): (() => void) => {
+  const saved: { el: HTMLElement, inert: boolean, ariaHidden: string | null }[] = []
+  let current: HTMLElement | null = drawerRoot
+  while (current && current !== document.body) {
+    const parent: HTMLElement | null = current.parentElement
+    if (!parent) break
+    for (const sibling of parent.children) {
+      if (sibling === current || !(sibling instanceof HTMLElement)) continue
+      saved.push({
+        el: sibling,
+        inert: sibling.inert,
+        ariaHidden: sibling.getAttribute('aria-hidden'),
+      })
+      sibling.inert = true
+      sibling.setAttribute('aria-hidden', 'true')
+    }
+    current = parent
+  }
+  return () => {
+    for (const entry of saved) {
+      entry.el.inert = entry.inert
+      if (entry.ariaHidden === null) entry.el.removeAttribute('aria-hidden')
+      else entry.el.setAttribute('aria-hidden', entry.ariaHidden)
+    }
+  }
+}
+
 export const Guide = (
   { variant, onClose }:
   { variant: 'expanded' | 'mini' | 'drawer', onClose?: () => void }
 ) => {
   const hideShorts = useSetting('hideShorts')
   const miniEntries = hideShorts ? MINI_ENTRIES.filter(entry => entry.href !== '/shorts') : MINI_ENTRIES
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
-  useEffect(() => {
+  // Move focus into the modal drawer before paint, trap Tab/Shift+Tab, block background AT/keyboard, and restore opener focus on close.
+  useLayoutEffect(() => {
     if (variant !== 'drawer') return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose?.()
-    }
+    const drawer = drawerRef.current
+    const panel = panelRef.current
+    if (!drawer || !panel) return
+
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const restoreBackground = markBackgroundInert(drawer)
+    const first = getVisibleFocusable(panel)[0]
+    if (first) first.focus()
+    else panel.focus()
+
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', onKeyDown)
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onCloseRef.current?.()
+        return
+      }
+      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return
+      event.preventDefault()
+      const focusable = getVisibleFocusable(panel)
+      if (focusable.length === 0) {
+        panel.focus()
+        return
+      }
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      const index = active ? focusable.indexOf(active) : -1
+      const nextIndex = index === -1
+        ? (event.shiftKey ? focusable.length - 1 : 0)
+        : (index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
+      focusable[nextIndex]!.focus()
     }
-  }, [variant, onClose])
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.body.style.overflow = previousOverflow
+      restoreBackground()
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [variant])
 
   return (
     variant === 'mini'
@@ -746,9 +817,9 @@ export const Guide = (
       )
       : variant === 'drawer'
         ? (
-          <div css={drawerStyle}>
+          <div ref={drawerRef} css={drawerStyle}>
             <div className='scrim' onClick={onClose} />
-            <nav className='panel' role='dialog' aria-modal='true' aria-label='Guide'>
+            <nav ref={panelRef} className='panel' role='dialog' aria-modal='true' aria-label='Guide' tabIndex={-1}>
               <div className='panel-header'>
                 <button type='button' className='icon-button' aria-label='Close guide' onClick={onClose}>
                   <Menu size={24} strokeWidth={1.5} />
