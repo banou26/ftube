@@ -399,12 +399,13 @@ const getFullscreenTarget = (): Element | null => {
 
 /** Portaled non-interactive overlay projecting live chat messages across the screen, or contained inside a player surface. */
 export const OverScreenOverlay = (
-  { settings, event, resetSeq, previewSeq, contained = false, source }: {
+  { settings, event, resetSeq, previewSeq, contained = false, paused = false, source }: {
     settings: OverScreenSettings
     event: OverlayChatEvent | undefined
     resetSeq: number
     previewSeq: number
     contained?: boolean
+    paused?: boolean
     source?: string
   },
 ) => {
@@ -422,6 +423,8 @@ export const OverScreenOverlay = (
   const itemElsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
 
   const clearAll = () => {
     for (const timer of timersRef.current.values()) clearTimeout(timer)
@@ -446,15 +449,15 @@ export const OverScreenOverlay = (
   }, [resetSeq])
 
   useEffect(() => {
-    if (!settings.enabled) {
+    if (!settings.enabled || paused) {
       clearAll()
       lastSpawnAtRef.current = undefined
     }
-  }, [settings.enabled])
+  }, [settings.enabled, paused])
 
   const spawnRows = (rows: readonly ChatRow[], ignoreSlowMode = false) => {
     const activeSettings = settingsRef.current
-    if (!activeSettings.enabled || rows.length === 0) return
+    if (!activeSettings.enabled || pausedRef.current || rows.length === 0) return
 
     const spawned: ActiveOverlayItem[] = []
     for (const row of rows) {
@@ -538,7 +541,7 @@ export const OverScreenOverlay = (
       )
     }
 
-    if (settingsRef.current.enabled && event.items.length > 0) {
+    if (settingsRef.current.enabled && !pausedRef.current && event.items.length > 0) {
       spawnRows(event.items)
     }
   }, [event])
@@ -546,7 +549,7 @@ export const OverScreenOverlay = (
   useEffect(() => {
     if (previewSeq === lastPreviewSeqRef.current) return
     lastPreviewSeqRef.current = previewSeq
-    if (!settingsRef.current.enabled) return
+    if (!settingsRef.current.enabled || pausedRef.current) return
     spawnRows(PREVIEW_SAMPLES.map((sample, index) => ({
       ...sample,
       id: `${sample.id}-${previewSeq}-${index}`,
@@ -554,7 +557,7 @@ export const OverScreenOverlay = (
   }, [previewSeq])
 
   useLayoutEffect(() => {
-    if (!contained || !settings.enabled || items.length === 0) return
+    if (!contained || !settings.enabled || paused || items.length === 0) return
     const overlay = overlayRef.current
     if (!overlay) return
 
@@ -586,9 +589,9 @@ export const OverScreenOverlay = (
     const observer = new ResizeObserver(positionAll)
     observer.observe(overlay)
     return () => observer.disconnect()
-  }, [contained, settings.enabled, items, settings.fontSizePx, settings.fontFamily, settings.showAvatar, settings.showAuthor])
+  }, [contained, settings.enabled, paused, items, settings.fontSizePx, settings.fontFamily, settings.showAvatar, settings.showAuthor])
 
-  if (!settings.enabled || (!contained && !portalTarget)) return null
+  if (!settings.enabled || paused || (!contained && !portalTarget)) return null
 
   const fontFamily = OVERLAY_FONT_STACKS[settings.fontFamily]
 

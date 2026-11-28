@@ -28,7 +28,7 @@ import { createRestartBudget, isStreamRefusal, resetsEngine } from './restart'
 import { revealCards } from './cards'
 import { registerSeek, clearSeek } from './seek'
 import { clampToWindow, liveResumeTime, seekWindow, timeAtShare } from './seek-window'
-import { closePlayer, setPanel, setPlayingChapter } from './session'
+import { closePlayer, setPanel, setPlayerPaused, setPlayingChapter } from './session'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
@@ -395,6 +395,11 @@ const VideoPlayer = (
   const chapterList = chapters ?? []
   const chapterIndex = chapterIndexAt(chapterList, state.currentTime)
   useEffect(() => setPlayingChapter(chapterIndex), [chapterIndex])
+  // Wait until playback has initialized so initial pre-play mounting does not mark live chat overlays paused.
+  useEffect(() => {
+    if (!player || loading) return
+    setPlayerPaused(state.paused || state.ended)
+  }, [player, loading, state.paused, state.ended])
   const frame = useFrame()
   const grid = frame?.grid ?? false
   const annotationsEnabled = annotations !== false

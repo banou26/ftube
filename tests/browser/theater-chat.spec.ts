@@ -287,3 +287,87 @@ test('preserves live chat reading position when leaving theater mode and keeps p
   await expect(secondaryLog).toContainText('Message #91:')
   await expect.poll(() => secondaryLog.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(36)
 })
+
+test('hides over-screen messages while live stream is paused and resumes on play', async ({ page }) => {
+  const host = await mountTheaterWatch(page, 'theater-paused-1440', { width: 1440, height: 900 }, { isLive: true })
+  const rail = host.locator('aside.theater-chat-rail')
+  await expect(rail).toBeVisible()
+
+  const toggleBtn = rail.getByRole('button', { name: 'Over-screen chat messages', exact: true })
+  await toggleBtn.click()
+  await expect(toggleBtn).toHaveAttribute('aria-pressed', 'true')
+
+  const overlay = page.locator('[data-over-screen-overlay="true"]')
+  await expect(overlay).toBeVisible()
+
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'before-pause',
+        kind: 'TEXT',
+        text: 'Before pausing live stream',
+        runs: [{ text: 'Before pausing live stream' }],
+        author: { id: 'UC-1', name: 'Alice', handle: '@alice' },
+      }],
+    })
+  })
+  await expect(overlay.locator('[data-overlay-item="before-pause"]')).toBeVisible()
+
+  // Pausing playback hides and clears active overlay messages.
+  await page.evaluate(() => window.__watchHarness?.setPaused(true))
+  await expect(overlay).toHaveCount(0)
+
+  // Messages arriving while paused stay in chat log without displaying over screen.
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'during-pause',
+        kind: 'TEXT',
+        text: 'Arrived while paused',
+        runs: [{ text: 'Arrived while paused' }],
+        author: { id: 'UC-2', name: 'Bob', handle: '@bob' },
+      }],
+    })
+  })
+  await expect(rail.locator('.log')).toContainText('Arrived while paused')
+  await expect(overlay).toHaveCount(0)
+
+  // Also verify when chat panel is hidden while paused, paused messages stay hidden and do not replay on resume.
+  await rail.getByRole('button', { name: 'Hide chat', exact: true }).click()
+  const showBtn = host.getByRole('button', { name: 'Show chat', exact: true })
+  await expect(showBtn).toBeVisible()
+  await expect(overlay).toHaveCount(0)
+
+  await expect.poll(() => page.evaluate(() => window.__watchHarness?.liveChatPollReady ?? false)).toBe(true)
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'during-pause-hidden',
+        kind: 'TEXT',
+        text: 'Arrived while paused and hidden',
+        runs: [{ text: 'Arrived while paused and hidden' }],
+        author: { id: 'UC-3', name: 'Cara', handle: '@cara' },
+      }],
+    })
+  })
+  await expect.poll(() => page.evaluate(() => window.__watchHarness?.liveChatPollReady ?? false)).toBe(true)
+  await expect(overlay).toHaveCount(0)
+
+  // Resuming playback restores the overlay without replaying missed messages from while paused.
+  await page.evaluate(() => window.__watchHarness?.setPaused(false))
+  await expect(overlay).toBeVisible()
+  await expect(overlay.locator('[data-overlay-item]')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'after-resume',
+        kind: 'TEXT',
+        text: 'Resumed live message',
+        runs: [{ text: 'Resumed live message' }],
+        author: { id: 'UC-4', name: 'Dan', handle: '@dan' },
+      }],
+    })
+  })
+  await expect(overlay.locator('[data-overlay-item="after-resume"]')).toContainText('Resumed live message')
+})

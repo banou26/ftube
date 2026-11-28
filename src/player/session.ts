@@ -22,11 +22,13 @@ export type PlayerSession = {
   chapter: number
   // the list open beside the player, or over it in full screen
   panel?: VideoPanel
+  // true while the live/video element is paused or ended so overlays suppress stale live chat
+  paused: boolean
 }
 
 export type VideoPanel = 'chapters' | 'transcript'
 
-let session: PlayerSession = { theater: 'default', claimed: false, chapter: -1 }
+let session: PlayerSession = { theater: 'default', claimed: false, chapter: -1, paused: false }
 const listeners = new Set<() => void>()
 
 const emit = () => {
@@ -67,7 +69,7 @@ export const openPlayer = (
     return
   }
   update({
-    videoId, startAt, title, poster, list, index, playerParams, theater: getSettings().theater, chapter: -1, panel: undefined,
+    videoId, startAt, title, poster, list, index, playerParams, theater: getSettings().theater, chapter: -1, panel: undefined, paused: false,
   })
 }
 
@@ -83,7 +85,7 @@ export const closePlayer = () => {
   update({
     videoId: undefined, startAt: undefined, title: undefined, poster: undefined, list: undefined, index: undefined,
     playerParams: undefined, theater: 'default',
-    chapter: -1, panel: undefined,
+    chapter: -1, panel: undefined, paused: false,
   })
 }
 
@@ -102,6 +104,10 @@ export const setPlayingChapter = (chapter: number) => {
 
 export const setPanel = (panel: VideoPanel | undefined) => {
   if (panel !== session.panel) update({ panel })
+}
+
+export const setPlayerPaused = (paused: boolean) => {
+  if (paused !== session.paused) update({ paused })
 }
 
 export const usePlayerSession = () => {

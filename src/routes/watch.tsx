@@ -1214,6 +1214,7 @@ const WatchPage = () => {
             videoId={videoId}
             subscribed={channel?.isSubscribed ?? undefined}
             hidden={chatHidden}
+            paused={playingHere && playerSession.paused}
             panelContainer={chatSlot}
             onHide={() => setChatHiddenFor(videoId)}
             onShow={() => setChatHiddenFor(undefined)}

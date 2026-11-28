@@ -9,7 +9,7 @@ import { Router } from 'wouter'
 import { memoryLocation } from 'wouter/memory-location'
 
 import { createCache } from '../../../src/graphql'
-import { setTheater as setPlayerTheater } from '../../../src/player/session'
+import { setPlayerPaused, setTheater as setPlayerTheater } from '../../../src/player/session'
 import { coerceTheaterMode } from '../../../src/player/theater'
 import WatchPage from '../../../src/routes/watch'
 import { updateSettings } from '../../../src/settings'
@@ -31,8 +31,10 @@ declare global {
     __watchHarness?: {
       liveChatInitialCalls: number
       closeLiveChatCalls: number
+      liveChatPollReady: boolean
       pushLiveChatPage: (page: WatchHarnessLiveChatPage) => void
       setTheater: (mode: TheaterMode) => void
+      setPaused: (paused: boolean) => void
     }
   }
 }
@@ -73,6 +75,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   let subscribed = options.subscribed ?? false
   let level: NotificationLevel = options.notificationLevel ?? 'PERSONALIZED'
   setPlayerTheater(updateSettings({ theater: coerceTheaterMode(options.theater) }).theater)
+  setPlayerPaused(false)
 
   const app = document.getElementById('app')
   if (app) app.hidden = true
@@ -105,9 +108,11 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const controller = {
     liveChatInitialCalls: 0,
     closeLiveChatCalls: 0,
+    liveChatPollReady: false,
     pushLiveChatPage: (page: WatchHarnessLiveChatPage) => {
       const next = { view: 'TOP', cursor: `theater-cur-${++seq}`, ...page }
       if (pendingPoll) {
+        controller.liveChatPollReady = false
         const resolve = pendingPoll
         pendingPoll = undefined
         resolve(next)
@@ -117,6 +122,9 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
     },
     setTheater: (mode: TheaterMode) => {
       setPlayerTheater(mode)
+    },
+    setPaused: (paused: boolean) => {
+      setPlayerPaused(paused)
     },
   }
   window.__watchHarness = controller
@@ -167,6 +175,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
     liveChat: async (_id: string, cursor?: string) => {
       if (!cursor) {
         pendingPoll = undefined
+        controller.liveChatPollReady = false
         queuedPages.length = 0
         controller.liveChatInitialCalls += 1
         return {
@@ -183,7 +192,9 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
       }
       if (queuedPages.length > 0) return queuedPages.shift()!
       return new Promise((resolve) => {
+        controller.liveChatPollReady = true
         pendingPoll = (page) => {
+          controller.liveChatPollReady = false
           resolve(page)
         }
       })

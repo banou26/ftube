@@ -1524,6 +1524,7 @@ export const LiveChat = ({
   videoId,
   subscribed,
   hidden = false,
+  paused = false,
   panelContainer,
   onHide,
   onShow,
@@ -1532,6 +1533,7 @@ export const LiveChat = ({
   videoId: string
   subscribed?: boolean
   hidden?: boolean
+  paused?: boolean
   panelContainer?: Element | null
   onHide?: () => void
   onShow?: () => void
@@ -2358,6 +2360,7 @@ export const LiveChat = ({
             event={overlayEvent}
             resetSeq={overlayResetSeq}
             previewSeq={previewSeq}
+            paused={paused}
           />
         )
         : undefined}

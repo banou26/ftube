@@ -56,4 +56,24 @@ describe('player session theater persistence and sync', () => {
     updateSettings({ theater: 'theater' })
     expect(getPlayerSession().theater).toBe('theater')
   })
+
+  it('tracks player pause state and resets it when opening a different video or closing playback', async () => {
+    const { getPlayerSession, openPlayer, setPlayerPaused, closePlayer } = await load()
+    openPlayer({ videoId: 'live-1', title: 'Live stream' })
+    expect(getPlayerSession().paused).toBe(false)
+
+    setPlayerPaused(true)
+    expect(getPlayerSession().paused).toBe(true)
+
+    // Metadata updates for the same video keep the active pause state intact.
+    openPlayer({ videoId: 'live-1', title: 'Updated live stream' })
+    expect(getPlayerSession().paused).toBe(true)
+
+    openPlayer({ videoId: 'live-2', title: 'Next video' })
+    expect(getPlayerSession().paused).toBe(false)
+
+    setPlayerPaused(true)
+    closePlayer()
+    expect(getPlayerSession().paused).toBe(false)
+  })
 })
