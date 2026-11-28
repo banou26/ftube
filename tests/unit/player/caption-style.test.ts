@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { CAPTION_OPTIONS, captionDeclarations, stepCaptionSize } from '../../../src/player/caption-style'
+import { CAPTION_FONT_STACKS, CAPTION_OPTIONS, captionDeclarations, stepCaptionSize } from '../../../src/player/caption-style'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 
 const declarations = (look: Partial<typeof DEFAULT_SETTINGS>, base = 16.5) =>
@@ -23,10 +23,15 @@ describe('the Subtitles Options panel', () => {
     ])
   })
 
-  it('starts on youtube.com\'s defaults', () => {
+  it('starts on youtube.com\'s defaults and exposes a font stack for every font family choice', () => {
     expect(CAPTION_OPTIONS.map(option => option.choices.find(choice => choice.value === DEFAULT_SETTINGS[option.key])?.label)).toStrictEqual([
       'Proportional Sans-Serif', 'White', '100%', 'Black', '75%', 'None', '100%',
     ])
+    const fontChoices = CAPTION_OPTIONS.find(option => option.key === 'captionFont')?.choices ?? []
+    expect(fontChoices.length).toBeGreaterThan(0)
+    for (const choice of fontChoices) {
+      expect(CAPTION_FONT_STACKS[String(choice.value)]?.trim().length).toBeGreaterThan(0)
+    }
   })
 })
 

@@ -21,7 +21,7 @@ import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
 import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from '../settings'
-import { CAPTION_OPTIONS } from './caption-style'
+import { CAPTION_FONT_STACKS, CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
 import { PLAYER_SETTINGS_MENU_ITEMS } from './control-layout'
 import { buildHeatmapGeometry, HEATMAP_VIEWBOX_HEIGHT, HEATMAP_VIEWBOX_WIDTH } from './heatmap'
@@ -1634,7 +1634,19 @@ export const PlayerControls = (
               icon={settings[menu.key] === choice.value ? Check : undefined}
               onSelect={() => updateSettings({ [menu.key]: choice.value })}
             >
-              {choice.label}
+              {menu.key === 'captionFont'
+                ? (
+                  <span
+                    data-caption-font={String(choice.value)}
+                    style={{
+                      fontFamily: CAPTION_FONT_STACKS[String(choice.value)],
+                      ...(choice.value === 'Small Capitals' ? { fontVariant: 'small-caps' } : {}),
+                    }}
+                  >
+                    {choice.label}
+                  </span>
+                )
+                : choice.label}
             </MenuItem>
           ))}
         </Popup>

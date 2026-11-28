@@ -71,7 +71,7 @@ test('projects incremental chat and emoji-only messages over the screen with cus
   await pickMenuOption(page, panel, 'ALL CAPS animation', 'Pop in')
   await pickMenuOption(page, panel, 'Question animation', 'Fade')
   await pickMenuOption(page, panel, 'Exclamation animation', 'Bounce')
-  await panel.getByLabel('Overlay font', { exact: true }).selectOption('mono')
+  await pickMenuOption(page, panel, 'Overlay font', 'Monospace')
   await panel.getByRole('button', { name: 'Test preview', exact: true }).click()
 
   await expect(overlay.locator('[data-overlay-kind="normal"][data-overlay-animation="shake"]')).toHaveCount(1)
@@ -388,4 +388,27 @@ test('animates over-screen animation menu items live, preserves Escape layering,
     els.map((el) => getComputedStyle(el).animationName),
   )
   expect(reducedNames).toEqual(['none', 'none', 'none', 'none', 'none'])
+  await page.keyboard.press('Escape')
+
+  // Font style selector renders each option and selected trigger in its own font family.
+  const fontCombo = panel.getByRole('combobox', { name: 'Overlay font', exact: true })
+  await fontCombo.click()
+  const fontList = page.getByRole('listbox', { name: 'Overlay font', exact: true })
+  await expect(fontList).toBeVisible()
+  const fontSamples = await fontList.locator('[data-font-family]').evaluateAll((els) =>
+    els.map((el) => ({
+      value: el.getAttribute('data-font-family'),
+      fontFamily: getComputedStyle(el).fontFamily.toLowerCase(),
+    })),
+  )
+  expect(fontSamples.find((s) => s.value === 'system')?.fontFamily).toContain('roboto')
+  expect(fontSamples.find((s) => s.value === 'rounded')?.fontFamily).toContain('rounded')
+  expect(fontSamples.find((s) => s.value === 'mono')?.fontFamily).toContain('monospace')
+  expect(fontSamples.find((s) => s.value === 'serif')?.fontFamily).toContain('georgia')
+  expect(fontSamples.find((s) => s.value === 'display')?.fontFamily).toContain('impact')
+
+  await fontList.getByRole('option', { name: 'Serif', exact: true }).click()
+  await expect(fontList).toHaveCount(0)
+  const triggerFont = await fontCombo.locator('.trigger-label').evaluate((el) => getComputedStyle(el).fontFamily.toLowerCase())
+  expect(triggerFont).toContain('georgia')
 })

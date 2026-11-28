@@ -39,9 +39,11 @@ import { isSelfMention, splitMentionRuns } from './live-chat-helpers'
 import {
   OVERLAY_EMOJI_ANIMATIONS,
   OVERLAY_FONT_FAMILIES,
+  OVERLAY_FONT_STACKS,
   OVERLAY_TEXT_ANIMATIONS,
   OVERLAY_TYPE_ANIMATION_FIELDS,
   type OverlayEmojiAnimation,
+  type OverlayFontFamily,
   type OverlayTextAnimation,
   resetOverScreenSettings,
   updateOverScreenSettings,
@@ -990,18 +992,9 @@ export const chatStyles = css`
     color: var(--text-secondary);
   }
 
-  .over-screen-row select,
   .over-screen-row input[type='range'] {
     font: inherit;
     font-size: 1.25rem;
-  }
-
-  .over-screen-row select {
-    padding: 0.45rem 0.8rem;
-    border: 1px solid var(--border-strong);
-    border-radius: 0.7rem;
-    background: var(--bg-input);
-    color: var(--text-primary);
   }
 
   .over-screen-range {
@@ -2186,19 +2179,18 @@ export const LiveChat = ({
                         onChange={(emojiAnimation: OverlayEmojiAnimation) => updateOverScreenSettings({ emojiAnimation })}
                       />
                     </div>
-                    <label className='over-screen-row'>
+                    <div className='over-screen-row'>
                       <span>Font style</span>
-                      <select
-                        aria-label='Overlay font'
+                      <PreviewSelect
+                        ariaLabel='Overlay font'
                         value={overScreen.fontFamily}
-                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
-                          updateOverScreenSettings({ fontFamily: event.currentTarget.value as typeof overScreen.fontFamily })}
-                      >
-                        {OVERLAY_FONT_FAMILIES.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                        options={OVERLAY_FONT_FAMILIES.map((option) => ({
+                          ...option,
+                          fontFamily: OVERLAY_FONT_STACKS[option.value],
+                        }))}
+                        onChange={(fontFamily: OverlayFontFamily) => updateOverScreenSettings({ fontFamily })}
+                      />
+                    </div>
                     <label className='over-screen-row'>
                       <span>Font size</span>
                       <span className='over-screen-range'>

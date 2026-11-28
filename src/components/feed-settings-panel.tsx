@@ -16,6 +16,7 @@ import {
   addBlockedChannel,
   addBlockedKeyword,
   addCustomFeedFilter,
+  FEED_FONT_OPTIONS,
   removeBlockedChannel,
   removeBlockedKeyword,
   removeCustomFeedFilter,
@@ -28,6 +29,7 @@ import {
   useFeedViewSettings,
 } from '../feeds/settings'
 import { updateSettings, useSetting } from '../settings'
+import { PreviewSelect } from './preview-select'
 
 type PanelTab = 'card' | 'filters' | 'blocklist'
 
@@ -738,23 +740,19 @@ export const FeedSettingsPanel = (
                   Bold titles
                 </label>
 
-                <label className='field'>
+                <div className='field'>
                   <span className='field-head'>
                     <span>Font</span>
                   </span>
-                  <select
-                    className='select'
-                    aria-label='Card font'
+                  <PreviewSelect
+                    ariaLabel='Card font'
+                    align='start'
+                    fullWidth
                     value={cardStyle.font}
-                    onChange={(event: TargetedEvent<HTMLSelectElement>) =>
-                      patchCard({ font: event.currentTarget.value as FeedFontFamily })}
-                  >
-                    <option value='default'>Default</option>
-                    <option value='sans'>Sans-serif</option>
-                    <option value='serif'>Serif</option>
-                    <option value='mono'>Monospace</option>
-                  </select>
-                </label>
+                    options={FEED_FONT_OPTIONS}
+                    onChange={(font: FeedFontFamily) => patchCard({ font })}
+                  />
+                </div>
 
                 <div className='field'>
                   <span className='field-head'>

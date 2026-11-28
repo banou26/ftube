@@ -17,6 +17,9 @@ const FONTS: Record<string, string> = {
   'Small Capitals': 'Arial, Helvetica, Verdana, "Marcellus SC", sans-serif',
 }
 
+/** Font stacks mapped by Subtitles Options font family name for cue styling and menu previews. */
+export const CAPTION_FONT_STACKS: Readonly<Record<string, string>> = FONTS
+
 const COLORS: Record<string, string> = {
   White: '255, 255, 255',
   Yellow: '255, 255, 0',

@@ -103,7 +103,23 @@ test('opens the live side panel to customize Grid and List cards, toggle duratio
   await panel.getByLabel('Title size').fill('22')
   await panel.getByLabel('Title size').dispatchEvent('input')
   await panel.getByLabel('Bold titles').check()
-  await panel.getByLabel('Card font').selectOption('serif')
+  const cardFontCombo = panel.getByRole('combobox', { name: 'Card font', exact: true })
+  await cardFontCombo.click()
+  const cardFontList = page.getByRole('listbox', { name: 'Card font', exact: true })
+  await expect(cardFontList).toBeVisible()
+  const cardFontSamples = await cardFontList.locator('[data-font-family]').evaluateAll((els) =>
+    els.map((el) => ({
+      value: el.getAttribute('data-font-family'),
+      fontFamily: getComputedStyle(el).fontFamily.toLowerCase(),
+    })),
+  )
+  expect(cardFontSamples.find((s) => s.value === 'default')?.fontFamily).toContain('roboto')
+  expect(cardFontSamples.find((s) => s.value === 'sans')?.fontFamily).toContain('sans-serif')
+  expect(cardFontSamples.find((s) => s.value === 'serif')?.fontFamily).toContain('georgia')
+  expect(cardFontSamples.find((s) => s.value === 'mono')?.fontFamily).toContain('monospace')
+  await cardFontList.getByRole('option', { name: 'Serif', exact: true }).click()
+  await expect(cardFontList).toHaveCount(0)
+  expect(await cardFontCombo.locator('.trigger-label').evaluate((el) => getComputedStyle(el).fontFamily.toLowerCase())).toContain('georgia')
   await panel.getByLabel('Title color').fill('#3ea6ff')
   await panel.getByLabel('Title color').dispatchEvent('input')
   await panel.getByLabel('Metadata color').fill('#cccccc')

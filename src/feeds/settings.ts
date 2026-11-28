@@ -141,6 +141,14 @@ const FONT_STACKS: Record<Exclude<FeedFontFamily, 'default'>, string> = {
   mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 }
 
+/** Card font style options paired with each option's preview font stack. */
+export const FEED_FONT_OPTIONS: readonly { value: FeedFontFamily, label: string, fontFamily: string }[] = [
+  { value: 'default', label: 'Default', fontFamily: "'Roboto', Arial, sans-serif" },
+  { value: 'sans', label: 'Sans-serif', fontFamily: FONT_STACKS.sans },
+  { value: 'serif', label: 'Serif', fontFamily: FONT_STACKS.serif },
+  { value: 'mono', label: 'Monospace', fontFamily: FONT_STACKS.mono },
+]
+
 const SURFACES: readonly FeedSurface[] = ['subscriptions', 'channel', 'home', 'other']
 const DURATION_PRESETS: readonly DurationPreset[] = ['any', 'under4', '4to20', 'over20', 'custom']
 const UPLOAD_DATE_PRESETS: readonly UploadDatePreset[] = ['any', 'today', 'week', 'month', 'year']

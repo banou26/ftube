@@ -198,3 +198,28 @@ test('fits crowded custom left-side controls cleanly inside a 390px phone player
   await player.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(player.getByRole('menu', { name: 'Player settings' })).toBeVisible()
 })
+
+test('renders each caption font family option in its own typeface inside player settings', async ({ page }) => {
+  const player = await mountPlayerHarness(page)
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await player.getByRole('menuitem', { name: /^Subtitles/ }).click()
+  await player.getByRole('menuitem', { name: 'Options', exact: true }).click()
+  await player.getByRole('menuitem', { name: /^Font family/ }).click()
+
+  const menu = player.getByRole('menu', { name: 'Font family', exact: true })
+  await expect(menu).toBeVisible()
+  const samples = await menu.locator('[data-caption-font]').evaluateAll((els) =>
+    els.map((el) => ({
+      name: el.getAttribute('data-caption-font'),
+      fontFamily: getComputedStyle(el).fontFamily.toLowerCase(),
+      fontVariant: getComputedStyle(el).fontVariant,
+    })),
+  )
+  expect(samples.find((s) => s.name === 'Monospaced Serif')?.fontFamily).toContain('courier')
+  expect(samples.find((s) => s.name === 'Proportional Serif')?.fontFamily).toContain('times')
+  expect(samples.find((s) => s.name === 'Monospaced Sans-Serif')?.fontFamily).toContain('monospace')
+  expect(samples.find((s) => s.name === 'Proportional Sans-Serif')?.fontFamily).toContain('roboto')
+  expect(samples.find((s) => s.name === 'Casual')?.fontFamily).toContain('comic sans')
+  expect(samples.find((s) => s.name === 'Cursive')?.fontFamily).toContain('cursive')
+  expect(samples.find((s) => s.name === 'Small Capitals')?.fontVariant).toBe('small-caps')
+})
