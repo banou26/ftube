@@ -384,9 +384,9 @@ const HoverSeekHarnessView = () => {
   const shelfRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    setVideoThumb(videoRef.current?.querySelector('a.thumb') as HTMLElement | null)
-    setShortThumb(shortRef.current?.querySelector('a.thumb') as HTMLElement | null)
-    setShelfThumb(shelfRef.current?.querySelector('a.thumb') as HTMLElement | null)
+    setVideoThumb(videoRef.current?.querySelector('.thumb-wrap') as HTMLElement | null)
+    setShortThumb(shortRef.current?.querySelector('.thumb-wrap') as HTMLElement | null)
+    setShelfThumb(shelfRef.current?.querySelector('.thumb-wrap') as HTMLElement | null)
     const win = window as unknown as {
       __previewSeekHarness?: {
         setPosition: (ratio: number) => void

@@ -54,9 +54,9 @@ test('renders clickable description links, READ MORE, duration badge, and hover 
   await expect(thumb.locator('.badge')).toHaveText(/^\d+(:\d{2}){1,2}$/)
 
   // Hovering the featured thumbnail mounts the inline HoverPreview player and moving onto the text unmounts it
-  await expect(thumb.locator('video')).toHaveCount(0)
+  await expect(featured.locator('video')).toHaveCount(0)
   await thumb.hover()
-  await expect(thumb.locator('video')).toHaveCount(1)
+  await expect(featured.locator('video')).toHaveCount(1)
   await titleLink.hover()
-  await expect(thumb.locator('video')).toHaveCount(0)
+  await expect(featured.locator('video')).toHaveCount(0)
 })

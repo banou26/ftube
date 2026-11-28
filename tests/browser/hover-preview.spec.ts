@@ -122,7 +122,7 @@ plain('a click on the bar seeks there, and a drag scrubs storyboard frames and s
   expect(cover.width).toBeGreaterThanOrEqual(root.width - 2)
   expect(cover.height).toBeGreaterThanOrEqual(root.height - 2)
   expect(Math.abs(seconds(await card.locator('.scrub-time').innerText()) - duration * 0.7)).toBeLessThan(duration * 0.01)
-  const mute = card.getByRole('button', { name: /mute preview/i, includeHidden: true })
+  const mute = card.getByRole('button', { name: /mute preview/i })
   await expect(mute).toHaveCount(0)
 
   await page.mouse.up()
@@ -159,9 +159,9 @@ plain('a playing preview counts down the time left, shows its knob only over the
   await expect(left).toHaveCount(1)
   await expect.poll(knobOpacity).toBe('0')
 
-  await card.getByRole('button', { name: 'Unmute preview', includeHidden: true }).click()
+  await card.getByRole('button', { name: 'Unmute preview' }).click()
   expect(await video.evaluate((element: HTMLVideoElement) => element.muted)).toBe(false)
-  await card.getByRole('button', { name: 'Mute preview', includeHidden: true }).click()
+  await card.getByRole('button', { name: 'Mute preview' }).click()
   expect(await video.evaluate((element: HTMLVideoElement) => element.muted)).toBe(true)
   expect(new URL(page.url()).pathname).toBe('/results')
 
@@ -174,7 +174,7 @@ plain('a preview shows captions by default, and its CC button turns them off', a
   plain.setTimeout(240_000)
   const card = await hoverCourse(page)
   const video = card.locator('video')
-  const cc = card.getByRole('button', { name: 'Subtitles/CC', includeHidden: true })
+  const cc = card.getByRole('button', { name: 'Subtitles/CC' })
   await expect(cc).toHaveAttribute('aria-pressed', 'true')
   const showing = () => video.evaluate((element: HTMLVideoElement) =>
     [...element.textTracks].filter(track => track.mode === 'showing').map(track => track.activeCues?.length ?? 0))
@@ -859,12 +859,12 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
   const videoCard = page.locator('[data-previews="seek-video"] article')
   const shortTile = page.locator('[data-previews="seek-short"] article.tile')
   const shelfTile = page.locator('[data-previews="seek-short-shelf"] article.tile')
-  await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
-  await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
-  await expect(shelfTile.locator('a.thumb .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+  await expect(videoCard.locator('.thumb-wrap .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+  await expect(shortTile.locator('.thumb-wrap .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
+  await expect(shelfTile.locator('.thumb-wrap .scrubber .knob[data-seek-handle="icon"] svg')).toBeVisible({ timeout: 60_000 })
 
   for (const card of [videoCard, shortTile, shelfTile]) {
-    const layout = await card.locator('a.thumb .scrubber').evaluate((scrubber) => {
+    const layout = await card.locator('.thumb-wrap .scrubber').evaluate((scrubber) => {
       const track = scrubber.querySelector('.track')!
       const csTrack = getComputedStyle(track)
       return {
@@ -881,7 +881,7 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
   const assertInsideThumb = async (card: Locator, expectedKind: 'icon' | 'emoji') => {
     const thumb = card.locator('a.thumb')
     await thumb.scrollIntoViewIfNeeded()
-    const scrubber = thumb.locator('.scrubber')
+    const scrubber = card.locator('.thumb-wrap .scrubber')
     const knob = scrubber.locator(`.knob[data-seek-handle="${expectedKind}"]`)
 
     for (const ratio of [0, 0.35, 1]) {
@@ -925,9 +925,9 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
   await page.evaluate(() => {
     (window as unknown as { __previewSeekHarness: { setSeekHandle: (handle: { kind: string, value?: string }) => void } }).__previewSeekHarness.setSeekHandle({ kind: 'emoji', value: '🚀' })
   })
-  await expect(videoCard.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
-  await expect(shortTile.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
-  await expect(shelfTile.locator('a.thumb .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+  await expect(videoCard.locator('.thumb-wrap .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+  await expect(shortTile.locator('.thumb-wrap .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
+  await expect(shelfTile.locator('.thumb-wrap .scrubber .knob[data-seek-handle="emoji"]')).toContainText('🚀')
 
   await assertInsideThumb(videoCard, 'emoji')
   await assertInsideThumb(shortTile, 'emoji')
@@ -940,11 +940,12 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
   for (const card of [videoCard, shelfTile]) {
     const thumb = card.locator('a.thumb')
     await thumb.scrollIntoViewIfNeeded()
-    const defaultKnob = thumb.locator('.scrubber .knob[data-seek-handle="default"]')
+    const scrubber = card.locator('.thumb-wrap .scrubber')
+    const defaultKnob = scrubber.locator('.knob[data-seek-handle="default"]')
     await expect(defaultKnob).toBeAttached()
     await page.mouse.move(0, 0)
     await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
-    const bar = (await thumb.locator('.scrubber').boundingBox())!
+    const bar = (await scrubber.boundingBox())!
     await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height - 2)
     await expect.poll(() => defaultKnob.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
     const [thumbBox, knobBox] = [await thumb.boundingBox(), await defaultKnob.boundingBox()]

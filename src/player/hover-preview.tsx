@@ -1,7 +1,9 @@
+import type { TargetedKeyboardEvent } from 'preact'
+
 import { css } from '@emotion/react'
 import { Captions, CaptionsOff, Radio, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { useLocation } from 'wouter'
+import { Link, useLocation } from 'wouter'
 
 import type { AudioTrack, CaptionTrack, Storyboard } from '../frame/protocol'
 import type { StoryboardFrame } from '../frame/storyboard'
@@ -17,6 +19,7 @@ import { cardState } from './card-params'
 import { clock } from './controls'
 import { computeHoverDwellMs } from './hover-dwell'
 import { warmShaka } from './prefetch'
+import { previewSeekStep } from './preview-seek'
 import { SeekKnob } from './seek-knob'
 import { bindSmoothPlaybackLoop } from './smooth-progress'
 
@@ -51,7 +54,7 @@ const startingPreviewCaption = (tracks: CaptionTrack[], audioTracks: readonly Au
   return previewCaption(tracks)
 }
 
-// the preview sits inside the card's watch link, so an unguarded press or click on a control opens the video
+// Keep corner buttons and the scrubber isolated from the painted surface link underneath.
 const guard = (event: Event) => {
   event.preventDefault()
   event.stopPropagation()
@@ -103,8 +106,19 @@ export const hoverPreviewStyle = css`
   opacity: 0;
   transition: opacity 0.18s ease;
 
+  &:not([data-painted]) {
+    pointer-events: none;
+  }
+
   &[data-painted] {
     opacity: 1;
+  }
+
+  .preview-surface-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -133,12 +147,18 @@ export const hoverPreviewStyle = css`
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 2;
+    z-index: 3;
     height: 2.4rem;
     display: flex;
     align-items: flex-end;
     cursor: pointer;
     touch-action: none;
+    pointer-events: auto;
+  }
+
+  .scrubber:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: -2px;
   }
 
   .scrubber .track {
@@ -154,6 +174,10 @@ export const hoverPreviewStyle = css`
      before the press rather than after it. */
   .scrubber:hover .track {
     height: 0.6rem;
+  }
+
+  .scrubber:focus-visible .track {
+    height: 0.5rem;
   }
 
   /* Buffered sits UNDER played and over the track, the same three-layer stack
@@ -187,6 +211,7 @@ export const hoverPreviewStyle = css`
   }
 
   .scrubber:hover .knob,
+  .scrubber:focus-visible .knob,
   .scrubber.scrubbing .knob {
     opacity: 1;
   }
@@ -241,6 +266,7 @@ export const hoverPreviewStyle = css`
     position: absolute;
     left: 50%;
     top: 50%;
+    z-index: 2;
     background-color: #000;
     background-repeat: no-repeat;
     pointer-events: none;
@@ -250,6 +276,7 @@ export const hoverPreviewStyle = css`
     position: absolute;
     left: 50%;
     top: 50%;
+    z-index: 2;
     transform: translate(-50%, -50%);
     padding: 0 1.2rem;
     border-radius: 1.6rem;
@@ -293,6 +320,7 @@ export const hoverPreviewStyle = css`
     position: absolute;
     right: 0.8rem;
     bottom: 0.8rem;
+    z-index: 2;
     padding: 0.1rem 0.4rem;
     border-radius: 0.4rem;
     background: var(--bg-badge);
@@ -319,9 +347,11 @@ export const hoverPreviewStyle = css`
     position: absolute;
     top: 0.8rem;
     right: 0.8rem;
+    z-index: 3;
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
+    pointer-events: auto;
   }
 
   .corner button {
@@ -341,6 +371,11 @@ export const hoverPreviewStyle = css`
   .corner button:hover {
     background: rgba(0, 0, 0, 0.8);
   }
+
+  .corner button:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: 2px;
+  }
 `
 
 export type HoverPreviewScrubberProps = {
@@ -348,6 +383,8 @@ export type HoverPreviewScrubberProps = {
   position: number
   buffered: number
   scrubbing: boolean
+  duration?: number
+  currentTime?: number
   hover?: { time: number }
   frame?: StoryboardFrame
   previewLeft?: number
@@ -357,6 +394,7 @@ export type HoverPreviewScrubberProps = {
   onPointerUp?: (event: PointerEvent) => void
   onPointerCancel?: () => void
   onClick?: (event: Event) => void
+  onSeekTime?: (time: number) => void
 }
 
 /** Interactive progress bar and seek knob rendered along the bottom edge of a card preview. */
@@ -366,6 +404,8 @@ export const HoverPreviewScrubber = (
     position,
     buffered,
     scrubbing,
+    duration,
+    currentTime,
     hover,
     frame,
     previewLeft = 0,
@@ -375,53 +415,79 @@ export const HoverPreviewScrubber = (
     onPointerUp,
     onPointerCancel,
     onClick,
+    onSeekTime,
   }: HoverPreviewScrubberProps,
-) => (
-  <div
-    className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
-    onPointerLeave={onPointerLeave}
-    onPointerDown={onPointerDown}
-    onPointerMove={onPointerMove}
-    onPointerUp={onPointerUp}
-    onPointerCancel={onPointerCancel}
-    onClick={onClick}
-  >
-    <div className='track'>
-      <div className='buffered' style={{ width: `${Math.round(buffered * 100)}%` }} />
-      <div className='fill' style={{ width: `${position * 100}%` }} />
-      <SeekKnob
-        handle={seekHandle}
-        size={14}
-        style={{
-          // Clamping non-default handles prevents edge clipping on preview cards while trading exact end alignment with .fill.
-          left: seekHandle.kind === 'default'
-            ? `${position * 100}%`
-            : `clamp(1.4rem, ${position * 100}%, calc(100% - 1.4rem))`,
-        }}
-      />
+) => {
+  const effectiveDuration = duration && Number.isFinite(duration) && duration > 0 ? duration : 100
+  const effectiveTime = currentTime !== undefined && Number.isFinite(currentTime)
+    ? Math.max(0, Math.min(effectiveDuration, currentTime))
+    : Math.max(0, Math.min(effectiveDuration, position * effectiveDuration))
+  return (
+    <div
+      className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
+      role='slider'
+      tabIndex={0}
+      aria-label='Seek preview'
+      aria-orientation='horizontal'
+      aria-valuemin={0}
+      aria-valuemax={Math.round(effectiveDuration)}
+      aria-valuenow={Math.round(effectiveTime)}
+      aria-valuetext={duration && duration > 0 ? `${clock(effectiveTime)} of ${clock(effectiveDuration)}` : undefined}
+      onPointerLeave={onPointerLeave}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClick={onClick}
+      onKeyDown={(event: TargetedKeyboardEvent<HTMLDivElement>) => {
+        if (event.key === ' ') {
+          event.stopPropagation()
+          return
+        }
+        const next = previewSeekStep(effectiveTime, effectiveDuration, event.key, event.shiftKey)
+        if (next === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        onSeekTime?.(next)
+      }}
+    >
+      <div className='track'>
+        <div className='buffered' style={{ width: `${Math.round(buffered * 100)}%` }} />
+        <div className='fill' style={{ width: `${position * 100}%` }} />
+        <SeekKnob
+          handle={seekHandle}
+          size={14}
+          style={{
+            // Clamping non-default handles prevents edge clipping on preview cards while trading exact end alignment with .fill.
+            left: seekHandle.kind === 'default'
+              ? `${position * 100}%`
+              : `clamp(1.4rem, ${position * 100}%, calc(100% - 1.4rem))`,
+          }}
+        />
+      </div>
+      {hover && !scrubbing
+        ? (
+          <div className='preview' style={{ left: `${previewLeft}px` }}>
+            {frame
+              ? (
+                <div
+                  className='preview-frame'
+                  style={{
+                    width: `${frame.width}px`,
+                    height: `${frame.height}px`,
+                    backgroundImage: `url("${frame.url}")`,
+                    backgroundPosition: `-${frame.x}px -${frame.y}px`,
+                  }}
+                />
+              )
+              : undefined}
+            <div className='preview-time'>{clock(hover.time)}</div>
+          </div>
+        )
+        : undefined}
     </div>
-    {hover && !scrubbing
-      ? (
-        <div className='preview' style={{ left: `${previewLeft}px` }}>
-          {frame
-            ? (
-              <div
-                className='preview-frame'
-                style={{
-                  width: `${frame.width}px`,
-                  height: `${frame.height}px`,
-                  backgroundImage: `url("${frame.url}")`,
-                  backgroundPosition: `-${frame.x}px -${frame.y}px`,
-                }}
-              />
-            )
-            : undefined}
-          <div className='preview-time'>{clock(hover.time)}</div>
-        </div>
-      )
-      : undefined}
-  </div>
-)
+  )
+}
 
 /**
  * A muted inline preview drawn over a card thumbnail.
@@ -438,11 +504,13 @@ export const HoverPreviewScrubber = (
  * watch page is read with, as youtube.com reads its own.
  */
 export const HoverPreview = (
-  { videoId, href, playerParams, carryTime = true, onFail }: {
+  { videoId, href, playerParams, carryTime = true, linkState, immediate = false, onFail }: {
     videoId: string
     href: string
     playerParams?: string
     carryTime?: boolean
+    linkState?: unknown
+    immediate?: boolean
     onFail?: () => void
   },
 ) => {
@@ -495,7 +563,7 @@ export const HoverPreview = (
       releasePreviewAudio(token)
       onFailRef.current?.()
     }
-    const dwellMs = computeHoverDwellMs()
+    const dwellMs = immediate ? 0 : computeHoverDwellMs()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
@@ -616,7 +684,7 @@ export const HoverPreview = (
     event.preventDefault()
     const url = new URL(href, location.origin)
     url.searchParams.set('t', `${at}s`)
-    navigate(url.pathname + url.search, { state: cardState(playerParams) })
+    navigate(url.pathname + url.search, { state: linkState ?? cardState(playerParams) })
   }
 
   const toggleCaption = () => {
@@ -650,9 +718,21 @@ export const HoverPreview = (
     : 0
 
   return (
-    <div css={hoverPreviewStyle} data-painted={painted ? '' : undefined} onClick={openAtTime}>
+    <div css={hoverPreviewStyle} data-painted={painted ? '' : undefined}>
       {/* No preload='none': an element told not to preload never runs its resource selection, so the MediaSource sits at networkState 0 forever */}
       <video ref={videoRef} muted playsInline tabIndex={-1} aria-hidden='true' />
+      {painted
+        ? (
+          <Link
+            href={href}
+            state={linkState ?? (carryTime ? cardState(playerParams) : undefined)}
+            className='preview-surface-link'
+            tabIndex={-1}
+            aria-hidden='true'
+            onClick={openAtTime}
+          />
+        )
+        : undefined}
       {scrubFrame
         ? (
           <div
@@ -674,6 +754,9 @@ export const HoverPreview = (
             <button
               type='button'
               aria-label={muted ? 'Unmute preview' : 'Mute preview'}
+              onKeyDown={(event: TargetedKeyboardEvent<HTMLButtonElement>) => {
+                if (event.key === ' ') event.stopPropagation()
+              }}
               onClick={() => {
                 const video = videoRef.current
                 if (!video) return
@@ -691,7 +774,15 @@ export const HoverPreview = (
             </button>
             {captionTracks.length > 0
               ? (
-                <button type='button' aria-label='Subtitles/CC' aria-pressed={caption !== undefined} onClick={toggleCaption}>
+                <button
+                  type='button'
+                  aria-label='Subtitles/CC'
+                  aria-pressed={caption !== undefined}
+                  onKeyDown={(event: TargetedKeyboardEvent<HTMLButtonElement>) => {
+                    if (event.key === ' ') event.stopPropagation()
+                  }}
+                  onClick={toggleCaption}
+                >
                   {caption ? <Captions size={16} strokeWidth={2} /> : <CaptionsOff size={16} strokeWidth={2} />}
                 </button>
               )
@@ -722,6 +813,8 @@ export const HoverPreview = (
             position={position}
             buffered={buffered}
             scrubbing={Boolean(scrub)}
+            duration={duration}
+            currentTime={scrub ? scrub.ratio * duration : time}
             hover={hover}
             frame={frame}
             previewLeft={previewLeft}
@@ -740,6 +833,12 @@ export const HoverPreview = (
             }}
             onPointerCancel={() => setScrub(undefined)}
             onClick={guard}
+            onSeekTime={(next: number) => {
+              const video = videoRef.current
+              if (!video || !video.duration) return
+              video.currentTime = next
+              setTime(next)
+            }}
           />
         )
         : undefined}

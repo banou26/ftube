@@ -11,6 +11,7 @@ import { formatDuration, formatMeta } from '../components/format'
 import { linkifyRuns } from '../components/linkify'
 import { PlaylistCard } from '../components/playlist-card'
 import { PostCard } from '../components/post-card'
+import { PreviewTriggerButton, usePreviewActivation } from '../components/preview-trigger'
 import { Rail } from '../components/rail'
 import { RichText } from '../components/rich-text'
 import { MusicNote } from '../components/row-marks'
@@ -45,16 +46,22 @@ const style = css`
     gap: 2.4rem;
   }
 
-  .featured-thumb {
+  .featured-thumb-wrap {
     position: relative;
     flex: none;
-    display: block;
     width: 42.4rem;
     max-width: 100%;
     aspect-ratio: 16 / 9;
     border-radius: 1.2rem;
     overflow: hidden;
     background: var(--bg-elevated);
+  }
+
+  .featured-thumb {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .featured-thumb img {
@@ -443,17 +450,15 @@ const FeaturedVideo = ({ featured }: { featured: Featured }) => {
   const prefetch = usePrefetchOnIntent(featured.id)
   const [hovered, setHovered] = useState(false)
   const playerParams = featured.isUpcoming !== true ? featured.inlinePlayerParams ?? undefined : undefined
+  const preview = usePreviewActivation({ canPreview: Boolean(playerParams), hovered })
   const state = cardState(playerParams)
   const descriptionRuns = featured.description ? linkifyRuns(featured.description, featured.descriptionRuns) : []
   return (
     <section className='featured' aria-label='Featured video'>
-      <Link
-        href={watchHref}
-        state={state}
-        className='featured-thumb'
-        tabIndex={-1}
-        aria-hidden='true'
-        onPointerEnter={(event: TargetedPointerEvent<HTMLAnchorElement>) => {
+      <div
+        className='featured-thumb-wrap'
+        {...preview.containerProps}
+        onPointerEnter={(event: TargetedPointerEvent<HTMLDivElement>) => {
           if (!playerParams) prefetch.onPointerEnter()
           if (event.pointerType === 'mouse') setHovered(true)
         }}
@@ -463,18 +468,30 @@ const FeaturedVideo = ({ featured }: { featured: Featured }) => {
         }}
         onPointerDown={playerParams ? undefined : prefetch.onPointerDown}
       >
-        {featured.thumbnail
-          ? <Thumbnail src={featured.thumbnail} srcSet={featured.thumbnailSrcset} sizes='(max-width: 768px) 100vw, 42.4rem' />
+        <Link href={watchHref} state={state} className='featured-thumb' tabIndex={-1} aria-hidden='true'>
+          {featured.thumbnail
+            ? <Thumbnail src={featured.thumbnail} srcSet={featured.thumbnailSrcset} sizes='(max-width: 768px) 100vw, 42.4rem' />
+            : undefined}
+          {featured.isLive
+            ? <span className='badge live'>LIVE</span>
+            : duration
+            ? <span className='badge'>{featured.isMusic ? <MusicNote /> : undefined}{duration}</span>
+            : undefined}
+        </Link>
+        {playerParams
+          ? (
+            <PreviewTriggerButton
+              title={featured.title}
+              active={preview.keyboardActive}
+              onToggle={preview.toggleKeyboard}
+              buttonRef={preview.triggerRef}
+            />
+          )
           : undefined}
-        {hovered && playerParams
-          ? <HoverPreview videoId={featured.id} href={watchHref} playerParams={playerParams} />
+        {preview.active && playerParams
+          ? <HoverPreview videoId={featured.id} href={watchHref} playerParams={playerParams} immediate={preview.keyboardActive} />
           : undefined}
-        {featured.isLive
-          ? <span className='badge live'>LIVE</span>
-          : duration
-          ? <span className='badge'>{featured.isMusic ? <MusicNote /> : undefined}{duration}</span>
-          : undefined}
-      </Link>
+      </div>
       <div className='featured-text'>
         <h2 className='featured-title'>
           <Link

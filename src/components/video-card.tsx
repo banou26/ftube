@@ -26,6 +26,7 @@ import { lineFor, MenuDataFailure } from './data-failure'
 import { dismissChannel, dismissVideo, undismissChannel, undismissVideo } from './dismissed-videos'
 import { formatDuration, rowByline } from './format'
 import { WATCH_LATER_ID } from './playlist'
+import { PreviewTriggerButton, usePreviewActivation } from './preview-trigger'
 import { CornerBadge, MembersOnly, MusicNote, RowMeta, ShortsMark } from './row-marks'
 import { Thumbnail } from './thumbnail'
 import { Menu, MenuItem, MenuSeparator } from './ui/menu'
@@ -467,7 +468,8 @@ const style = css`
     }
   }
 
-  .thumb {
+  .thumb-wrap,
+  & > .thumb {
     position: relative;
     display: block;
     width: var(--feed-grid-thumb-width, 100%);
@@ -475,6 +477,13 @@ const style = css`
     border-radius: var(--feed-thumb-radius, 1.2rem);
     overflow: hidden;
     background: var(--bg-elevated);
+  }
+
+  .thumb-wrap > .thumb {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   &.thumb-end:not(.list) {
@@ -491,7 +500,8 @@ const style = css`
   /* Shorts are vertical, and a 16/9 box would letterbox one into a slot mostly
      made of background. The card keeps its grid column and only the thumbnail
      changes shape, so the surrounding layout is untouched. */
-  &.short .thumb {
+  &.short .thumb-wrap,
+  &.short > .thumb {
     aspect-ratio: 9 / 16;
   }
 
@@ -727,13 +737,15 @@ const style = css`
     flex-direction: row-reverse;
   }
 
-  &.list .thumb {
+  &.list .thumb-wrap,
+  &.list > .thumb {
     flex: none;
     width: var(--feed-list-thumb-width, 24rem);
     max-width: 45%;
   }
 
-  &.list.short .thumb {
+  &.list.short .thumb-wrap,
+  &.list.short > .thumb {
     width: min(var(--feed-list-thumb-width, 24rem), 14rem);
   }
 
@@ -748,7 +760,8 @@ const style = css`
       gap: 1.2rem;
     }
 
-    &.list .thumb {
+    &.list .thumb-wrap,
+    &.list > .thumb {
       width: min(var(--feed-list-thumb-width, 24rem), 14rem);
       max-width: 44%;
     }
@@ -844,6 +857,7 @@ export const VideoCard = (
     canPreview,
     animatedThumbnail: video.animatedThumbnail,
   })
+  const preview = usePreviewActivation({ canPreview, hovered: hover.hovered })
   const classes = [
     variant,
     layout === 'list' ? 'list' : undefined,
@@ -862,40 +876,53 @@ export const VideoCard = (
       style={hover.tintStyle}
       {...hover.handlers}
     >
-      <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
-        {video.thumbnail
-          ? <Thumbnail src={video.thumbnail} srcSet={video.thumbnailSrcset} sizes='(max-width: 500px) 100vw, 38rem' />
+      <div className='thumb-wrap' {...preview.containerProps}>
+        <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
+          {video.thumbnail
+            ? <Thumbnail src={video.thumbnail} srcSet={video.thumbnailSrcset} sizes='(max-width: 500px) 100vw, 38rem' />
+            : undefined}
+          {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
+          {video.thumbnailBadge ? <CornerBadge label={video.thumbnailBadge} /> : undefined}
+          {video.isLive
+            ? <span className='badge live'>LIVE</span>
+            : hover.moving
+            ? undefined
+            : duration
+            ? <span className='badge'>{video.isMusic ? <MusicNote /> : undefined}{duration}</span>
+            : carouselShort
+            ? <span className='badge'><ShortsMark /></span>
+            : undefined}
+          {progress !== undefined
+            ? (
+              <span className='progress'>
+                <span style={{ width: `${progress}%` }} />
+              </span>
+            )
+            : undefined}
+        </Link>
+        {canPreview
+          ? (
+            <PreviewTriggerButton
+              title={video.title}
+              active={preview.keyboardActive}
+              onToggle={preview.toggleKeyboard}
+              buttonRef={preview.triggerRef}
+            />
+          )
           : undefined}
-        {hover.hovered && canPreview
+        {preview.active
           ? (
             <HoverPreview
               videoId={video.id}
               href={watchHref}
               playerParams={playerParams}
               carryTime={!carouselShort}
+              immediate={preview.keyboardActive}
               onFail={video.animatedThumbnail ? hover.handlePreviewFail : undefined}
             />
           )
           : undefined}
-        {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
-        {video.thumbnailBadge ? <CornerBadge label={video.thumbnailBadge} /> : undefined}
-        {video.isLive
-          ? <span className='badge live'>LIVE</span>
-          : hover.moving
-          ? undefined
-          : duration
-          ? <span className='badge'>{video.isMusic ? <MusicNote /> : undefined}{duration}</span>
-          : carouselShort
-          ? <span className='badge'><ShortsMark /></span>
-          : undefined}
-        {progress !== undefined
-          ? (
-            <span className='progress'>
-              <span style={{ width: `${progress}%` }} />
-            </span>
-          )
-          : undefined}
-      </Link>
+      </div>
       <div className='details'>
         {byline === 'names' && video.collaborators?.length && avatar
           ? (

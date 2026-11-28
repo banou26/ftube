@@ -15,6 +15,7 @@ import { DataFailure } from '../components/data-failure'
 import { formatDuration, formatMeta, rowByline } from '../components/format'
 import { GroupsButton } from '../components/groups-button'
 import { playlistHrefFor } from '../components/playlist'
+import { PreviewTriggerButton, usePreviewActivation } from '../components/preview-trigger'
 import { Rail } from '../components/rail'
 import { MusicNote } from '../components/row-marks'
 import { SearchCard } from '../components/search-card'
@@ -355,13 +356,21 @@ const style = css`
     min-width: 0;
   }
 
-  .result .thumb {
+  .result .thumb-wrap,
+  .result-placeholder .thumb {
     position: relative;
     display: block;
     aspect-ratio: 16 / 9;
     border-radius: 1.2rem;
     overflow: hidden;
     background: var(--bg-chip);
+  }
+
+  .result .thumb-wrap > .thumb {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .result .thumb img {
@@ -745,7 +754,8 @@ const style = css`
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .result .thumb {
+    .result .thumb-wrap,
+    .result-placeholder .thumb {
       max-width: none;
       min-width: 0;
     }
@@ -798,6 +808,7 @@ const VideoRow = ({ row, showDuration = true }: { row: SearchVideoFragment, show
   const playerParams = row.isUpcoming !== true ? row.inlinePlayerParams ?? undefined : undefined
   const prefetch = usePrefetchOnIntent(row.id, playerParams)
   const [hovered, setHovered] = useState(false)
+  const preview = usePreviewActivation({ canPreview: Boolean(playerParams), hovered })
   const watchHref = watchHrefFor(row.id)
   const duration = showDuration ? formatDuration(row.durationSeconds) : undefined
   const meta = formatMeta(row.viewCount, row.publishedText)
@@ -818,13 +829,27 @@ const VideoRow = ({ row, showDuration = true }: { row: SearchVideoFragment, show
       }}
       onPointerDown={prefetch.onPointerDown}
     >
-      <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
-        {row.thumbnail ? <Thumbnail src={row.thumbnail} srcSet={row.thumbnailSrcset} sizes='50rem' /> : undefined}
-        {hovered && playerParams ? <HoverPreview videoId={row.id} href={watchHref} playerParams={playerParams} /> : undefined}
-        {row.isLive
-          ? <span className='badge live'>LIVE</span>
-          : duration ? <span className='badge'>{row.isMusic ? <MusicNote /> : undefined}{duration}</span> : undefined}
-      </Link>
+      <div className='thumb-wrap' {...preview.containerProps}>
+        <Link href={watchHref} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
+          {row.thumbnail ? <Thumbnail src={row.thumbnail} srcSet={row.thumbnailSrcset} sizes='50rem' /> : undefined}
+          {row.isLive
+            ? <span className='badge live'>LIVE</span>
+            : duration ? <span className='badge'>{row.isMusic ? <MusicNote /> : undefined}{duration}</span> : undefined}
+        </Link>
+        {playerParams
+          ? (
+            <PreviewTriggerButton
+              title={row.title}
+              active={preview.keyboardActive}
+              onToggle={preview.toggleKeyboard}
+              buttonRef={preview.triggerRef}
+            />
+          )
+          : undefined}
+        {preview.active && playerParams
+          ? <HoverPreview videoId={row.id} href={watchHref} playerParams={playerParams} immediate={preview.keyboardActive} />
+          : undefined}
+      </div>
       <div className='info'>
         <div className='title-row'>
           <h2 className='title'>

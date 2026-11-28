@@ -7,6 +7,7 @@ import { HoverPreview } from '../player/hover-preview'
 import { shortsHrefFor } from '../player/links'
 import { useCardHover } from './card-hover-tint'
 import { formatViews } from './format'
+import { PreviewTriggerButton, usePreviewActivation } from './preview-trigger'
 import { Thumbnail } from './thumbnail'
 import { VideoCardMenu } from './video-card'
 
@@ -56,13 +57,21 @@ export const shortsTileStyle = css`
     }
   }
 
-  .thumb {
+  .thumb-wrap,
+  & > .thumb {
     position: relative;
     display: block;
     aspect-ratio: 2 / 3;
     border-radius: 1.2rem;
     overflow: hidden;
     background: var(--bg-elevated);
+  }
+
+  .thumb-wrap > .thumb {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .thumb img {
@@ -150,6 +159,7 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
     canPreview,
     animatedThumbnail: short.animatedThumbnail,
   })
+  const preview = usePreviewActivation({ canPreview, hovered: hover.hovered })
   return (
     <article
       css={shortsTileStyle}
@@ -157,21 +167,35 @@ export const ShortsTile = ({ short }: { short: VideoCardData }) => {
       style={hover.tintStyle}
       {...hover.handlers}
     >
-      <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
-        {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}
-        {hover.hovered && canPreview
+      <div className='thumb-wrap' {...preview.containerProps}>
+        <Link href={href} state={state} className='thumb' tabIndex={-1} aria-hidden='true'>
+          {short.thumbnail ? <Thumbnail src={short.thumbnail} srcSet={short.thumbnailSrcset} sizes='21rem' /> : undefined}
+          {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
+        </Link>
+        {canPreview
+          ? (
+            <PreviewTriggerButton
+              title={short.title}
+              active={preview.keyboardActive}
+              onToggle={preview.toggleKeyboard}
+              buttonRef={preview.triggerRef}
+            />
+          )
+          : undefined}
+        {preview.active
           ? (
             <HoverPreview
               videoId={short.id}
               href={href}
               playerParams={playerParams}
               carryTime={false}
+              linkState={state}
+              immediate={preview.keyboardActive}
               onFail={short.animatedThumbnail ? hover.handlePreviewFail : undefined}
             />
           )
           : undefined}
-        {hover.moving ? <img className='moving' src={hover.moving} alt='' /> : undefined}
-      </Link>
+      </div>
       <div className='details'>
         <h3 className='title'>
           <Link href={href} state={state}>{short.title}</Link>

@@ -56,7 +56,7 @@ test('unmuting a card preview pauses audible dock and restores it only if it was
   // Hover second card -> Unmute preview: docked player must stop being audible while preview plays unmuted.
   await secondRow.locator('.thumb').hover()
   await expect(secondRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
-  await secondRow.getByRole('button', { name: 'Unmute preview', includeHidden: true }).click()
+  await secondRow.getByRole('button', { name: 'Unmute preview' }).click()
 
   await expect.poll(async () => await videoState(page)).toMatchObject({
     dock: { paused: true, audible: false },
@@ -116,7 +116,7 @@ test('returning to Watch, playing docked player, or closing miniplayer respects 
 
   await secondRow.locator('.thumb').hover()
   await expect(secondRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
-  await secondRow.getByRole('button', { name: 'Unmute preview', includeHidden: true }).click()
+  await secondRow.getByRole('button', { name: 'Unmute preview' }).click()
   await expect.poll(async () => (await videoState(page)).previews[0]?.audible).toBe(true)
 
   await dock.getByRole('button', { name: 'Expand', exact: true }).click({ force: true })
@@ -148,10 +148,10 @@ test('returning to Watch, playing docked player, or closing miniplayer respects 
     audibleCount: 1,
   })
   expect((await videoState(page)).previews[0]?.muted).toBe(true)
-  await expect(secondRow.getByRole('button', { name: 'Unmute preview', includeHidden: true })).toBeVisible()
+  await expect(secondRow.getByRole('button', { name: 'Unmute preview' })).toBeVisible()
 
   // Unmute preview again, then close miniplayer: leaving the card must not throw or leave dock playing.
-  await secondRow.getByRole('button', { name: 'Unmute preview', includeHidden: true }).click()
+  await secondRow.getByRole('button', { name: 'Unmute preview' }).click()
   await expect.poll(async () => (await videoState(page)).dock?.paused).toBe(true)
   expect((await videoState(page)).previews[0]?.audible).toBe(true)
 
