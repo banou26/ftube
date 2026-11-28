@@ -3,14 +3,25 @@ import { expect, hideFknNotice, test } from './test'
 const HARNESS = '/tests/browser/fixtures/ambient-edges-harness.tsx'
 const SETTINGS_MOD = '/src/settings.ts'
 
-test('configures ambient area, spread, and filling mode in Settings with persistence', async ({ page }) => {
+test('configures ambient area, spread, filling mode, and live preview in Playback settings with persistence', async ({ page }) => {
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await hideFknNotice(page)
   await page.goto('/settings?section=customization')
 
   const main = page.getByRole('main')
+  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toHaveCount(0)
+
+  await main.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\?section=playback$/)
+
   const ambientCheckbox = main.getByRole('checkbox', { name: 'Ambient mode', exact: true })
   await expect(ambientCheckbox).toBeChecked()
+
+  const preview = main.locator('[data-ambient-preview="true"]')
+  await expect(preview).toBeVisible()
+  await expect(preview).toHaveAttribute('data-ambient-area', 'around')
+  await expect(preview).toHaveAttribute('data-ambient-spread', '100')
+  await expect(preview).toHaveAttribute('data-ambient-fill-mode', 'edge')
 
   const areaGroup = main.getByRole('group', { name: 'Ambient area', exact: true })
   const fillGroup = main.getByRole('group', { name: 'Filling mode', exact: true })
@@ -18,6 +29,8 @@ test('configures ambient area, spread, and filling mode in Settings with persist
   await expect(areaGroup).toBeVisible()
   await expect(spreadSlider).toHaveValue('100')
   await expect(fillGroup).toBeVisible()
+  await expect(main.getByText('Soft halo glowing evenly around all sides of the player.')).toBeVisible()
+  await expect(main.getByText('Samples the outer edges of the video so nearby glow matches each border.')).toBeVisible()
 
   await areaGroup.getByRole('button', { name: 'Full page', exact: true }).click()
   await main.getByRole('group', { name: 'Ambient spread presets', exact: true }).getByRole('button', { name: '150%', exact: true }).click()
@@ -27,12 +40,18 @@ test('configures ambient area, spread, and filling mode in Settings with persist
   await expect(spreadSlider).toHaveValue('150')
   await expect(main.locator('[data-ambient-spread-value]')).toHaveText('150%')
   await expect(fillGroup.getByRole('button', { name: 'Vivid', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(preview).toHaveAttribute('data-ambient-area', 'full-page')
+  await expect(preview).toHaveAttribute('data-ambient-spread', '150')
+  await expect(preview).toHaveAttribute('data-ambient-fill-mode', 'vivid')
+  await expect(main.getByText('Fills the entire page backdrop behind the header and sidebar.')).toBeVisible()
+  await expect(main.getByText('Boosts color saturation and brightness for a stronger glow.')).toBeVisible()
 
-  // Toggling Ambient mode off hides the customization sub-options without erasing them.
+  // Toggling Ambient mode off hides the customization sub-options and preview without erasing them.
   await ambientCheckbox.uncheck()
   await expect(areaGroup).toHaveCount(0)
   await expect(spreadSlider).toHaveCount(0)
   await expect(fillGroup).toHaveCount(0)
+  await expect(preview).toHaveCount(0)
 
   await page.reload()
   await expect(ambientCheckbox).not.toBeChecked()
@@ -40,6 +59,7 @@ test('configures ambient area, spread, and filling mode in Settings with persist
   await expect(areaGroup.getByRole('button', { name: 'Full page', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(spreadSlider).toHaveValue('150')
   await expect(fillGroup.getByRole('button', { name: 'Vivid', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(preview).toHaveAttribute('data-ambient-area', 'full-page')
 })
 
 test('applies generous Shorts spread, rail layering, sides, top-bottom, vivid filter, and full-page fixed glow live', async ({ page }) => {

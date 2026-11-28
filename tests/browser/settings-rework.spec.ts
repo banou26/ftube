@@ -54,11 +54,11 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
   await expect(page).toHaveURL(/\/settings\?section=notifications$/)
   await expect(main.getByRole('link', { name: 'Manage channel notifications' })).toHaveAttribute('href', '/feed/channels')
 
-  // Customization keeps Theme, Ambient mode, and expanded CustomAppearance preview.
+  // Customization keeps Theme and expanded CustomAppearance preview (Ambient mode lives under Playback and performance).
   await nav.getByRole('button', { name: 'Customization', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=customization$/)
   await expect(main.getByRole('button', { name: 'Dark', exact: true })).toBeVisible()
-  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeVisible()
+  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toHaveCount(0)
   await expect(main.locator('#custom-appearance')).toBeVisible()
 
   // Time management controls live sleep timer state.
@@ -129,10 +129,24 @@ test('supports legacy ?tab=appearance / #custom-appearance deep links and zero h
   ).toBe(true)
 })
 
-test('configures preferred subtitle language and video-language skip list with persistence', async ({ page }) => {
+test('configures preferred subtitle language and video-language skip list with aligned controls and persistence', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
   const main = await openSettings(page, '/settings?section=playback')
 
   const preferredSelect = main.getByLabel('Preferred subtitle language', { exact: true })
+  const alwaysCaptions = main.getByRole('checkbox', { name: 'Always show captions', exact: true })
+  const skipSelect = main.getByLabel('Add skipped video language', { exact: true })
+  const skipAdd = main.getByRole('button', { name: 'Add', exact: true })
+  const [captionRight, prefRight, skipSelectRight, skipAddRight] = await Promise.all([
+    alwaysCaptions.boundingBox().then(b => b!.x + b!.width),
+    preferredSelect.boundingBox().then(b => b!.x + b!.width),
+    skipSelect.boundingBox().then(b => b!.x + b!.width),
+    skipAdd.boundingBox().then(b => b!.x + b!.width),
+  ])
+  expect(Math.abs(prefRight - captionRight)).toBeLessThanOrEqual(2)
+  expect(Math.abs(skipSelectRight - prefRight)).toBeLessThanOrEqual(2)
+  expect(Math.abs(skipAddRight - prefRight)).toBeLessThanOrEqual(2)
+
   await expect(preferredSelect).toHaveValue('')
   await preferredSelect.selectOption('ja')
   await expect(preferredSelect).toHaveValue('ja')

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { Link, useLocation, useSearch } from 'wouter'
 
 import { useDocumentTitle } from '../app'
+import { AmbientPreview } from '../components/ambient-preview'
 import { CustomAppearance } from '../components/custom-appearance'
 import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
@@ -345,6 +346,24 @@ const page = css`
     gap: 0.8rem;
   }
 
+  .row-stack-top {
+    align-items: flex-start;
+  }
+
+  .skip-lang-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.8rem;
+  }
+
+  .skip-lang-custom {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.8rem;
+  }
+
   .spread-slider {
     width: 14rem;
     accent-color: var(--accent);
@@ -400,6 +419,17 @@ const page = css`
       grid-template-columns: minmax(0, 1fr);
       gap: 1rem;
       padding: 1.8rem 0;
+    }
+
+    .row.row-stack-top {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .skip-lang-controls,
+    .skip-lang-custom {
+      align-items: flex-start;
+      justify-content: flex-start;
     }
   }
 `
@@ -706,91 +736,6 @@ export const SettingsPage = () => {
                     </div>
                   </div>
 
-                  <div className='setting-row'>
-                    <h3 className='group-label'>Display</h3>
-                    <div className='group-controls'>
-                      <CheckboxRow
-                        label='Ambient mode'
-                        checked={settings.ambientMode}
-                        onChange={() => set({ ambientMode: !settings.ambientMode })}
-                      />
-                      {settings.ambientMode
-                        ? (
-                          <>
-                            <div className='row'>
-                              <div className='row-label'>Ambient area</div>
-                              <div className='choices' role='group' aria-label='Ambient area'>
-                                {AMBIENT_AREA_OPTIONS.map(option => (
-                                  <button
-                                    type='button'
-                                    key={option.value}
-                                    className={settings.ambientArea === option.value ? 'choice active' : 'choice'}
-                                    aria-pressed={settings.ambientArea === option.value}
-                                    onClick={() => set({ ambientArea: option.value })}
-                                  >
-                                    {option.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                            <div className='row'>
-                              <div>
-                                <div className='row-label'>Ambient spread</div>
-                                <p className='sub-note'>Controls how far ambient colors bleed around the player.</p>
-                              </div>
-                              <div className='inline-fields'>
-                                <input
-                                  type='range'
-                                  className='spread-slider'
-                                  min={AMBIENT_SPREAD_MIN}
-                                  max={AMBIENT_SPREAD_MAX}
-                                  step={5}
-                                  aria-label='Ambient spread'
-                                  value={settings.ambientSpread}
-                                  onInput={(event: { currentTarget: HTMLInputElement }) => set({
-                                    ambientSpread: Number(event.currentTarget.value),
-                                  })}
-                                />
-                                <span className='spread-value' data-ambient-spread-value='true'>
-                                  {`${settings.ambientSpread}%`}
-                                </span>
-                                <div className='choices' role='group' aria-label='Ambient spread presets'>
-                                  {AMBIENT_SPREAD_PRESETS.map(preset => (
-                                    <button
-                                      type='button'
-                                      key={preset}
-                                      className={settings.ambientSpread === preset ? 'choice active' : 'choice'}
-                                      aria-pressed={settings.ambientSpread === preset}
-                                      onClick={() => set({ ambientSpread: preset })}
-                                    >
-                                      {`${preset}%`}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                            <div className='row'>
-                              <div className='row-label'>Filling mode</div>
-                              <div className='choices' role='group' aria-label='Filling mode'>
-                                {AMBIENT_FILL_MODE_OPTIONS.map(option => (
-                                  <button
-                                    type='button'
-                                    key={option.value}
-                                    className={settings.ambientFillMode === option.value ? 'choice active' : 'choice'}
-                                    aria-pressed={settings.ambientFillMode === option.value}
-                                    onClick={() => set({ ambientFillMode: option.value })}
-                                  >
-                                    {option.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </>
-                        )
-                        : undefined}
-                    </div>
-                  </div>
-
                   <div className='setting-row appearance-group'>
                     <CustomAppearance settings={settings} onUpdate={set} />
                   </div>
@@ -875,6 +820,108 @@ export const SettingsPage = () => {
                               )
                             })}
                           </div>
+                        </div>
+                      </div>
+
+                      <div className='setting-row'>
+                        <h3 className='group-label'>Ambient mode</h3>
+                        <div className='group-controls'>
+                          <CheckboxRow
+                            label='Ambient mode'
+                            checked={settings.ambientMode}
+                            onChange={() => set({ ambientMode: !settings.ambientMode })}
+                          />
+                          {settings.ambientMode
+                            ? (
+                              <>
+                                <AmbientPreview
+                                  area={settings.ambientArea}
+                                  spread={settings.ambientSpread}
+                                  fillMode={settings.ambientFillMode}
+                                />
+                                <div className='row'>
+                                  <div>
+                                    <div className='row-label'>Ambient area</div>
+                                    <p className='sub-note'>
+                                      {AMBIENT_AREA_OPTIONS.find(option => option.value === settings.ambientArea)?.description}
+                                    </p>
+                                  </div>
+                                  <div className='choices' role='group' aria-label='Ambient area'>
+                                    {AMBIENT_AREA_OPTIONS.map(option => (
+                                      <button
+                                        type='button'
+                                        key={option.value}
+                                        className={settings.ambientArea === option.value ? 'choice active' : 'choice'}
+                                        aria-pressed={settings.ambientArea === option.value}
+                                        title={option.description}
+                                        onClick={() => set({ ambientArea: option.value })}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className='row'>
+                                  <div>
+                                    <div className='row-label'>Ambient spread</div>
+                                    <p className='sub-note'>Controls how far ambient colors bleed around the player.</p>
+                                  </div>
+                                  <div className='inline-fields'>
+                                    <input
+                                      type='range'
+                                      className='spread-slider'
+                                      min={AMBIENT_SPREAD_MIN}
+                                      max={AMBIENT_SPREAD_MAX}
+                                      step={5}
+                                      aria-label='Ambient spread'
+                                      value={settings.ambientSpread}
+                                      onInput={(event: { currentTarget: HTMLInputElement }) => set({
+                                        ambientSpread: Number(event.currentTarget.value),
+                                      })}
+                                    />
+                                    <span className='spread-value' data-ambient-spread-value='true'>
+                                      {`${settings.ambientSpread}%`}
+                                    </span>
+                                    <div className='choices' role='group' aria-label='Ambient spread presets'>
+                                      {AMBIENT_SPREAD_PRESETS.map(preset => (
+                                        <button
+                                          type='button'
+                                          key={preset}
+                                          className={settings.ambientSpread === preset ? 'choice active' : 'choice'}
+                                          aria-pressed={settings.ambientSpread === preset}
+                                          onClick={() => set({ ambientSpread: preset })}
+                                        >
+                                          {`${preset}%`}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className='row'>
+                                  <div>
+                                    <div className='row-label'>Filling mode</div>
+                                    <p className='sub-note'>
+                                      {AMBIENT_FILL_MODE_OPTIONS.find(option => option.value === settings.ambientFillMode)?.description}
+                                    </p>
+                                  </div>
+                                  <div className='choices' role='group' aria-label='Filling mode'>
+                                    {AMBIENT_FILL_MODE_OPTIONS.map(option => (
+                                      <button
+                                        type='button'
+                                        key={option.value}
+                                        className={settings.ambientFillMode === option.value ? 'choice active' : 'choice'}
+                                        aria-pressed={settings.ambientFillMode === option.value}
+                                        title={option.description}
+                                        onClick={() => set({ ambientFillMode: option.value })}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            )
+                            : undefined}
                         </div>
                       </div>
 
@@ -1019,12 +1066,12 @@ export const SettingsPage = () => {
                                 : undefined}
                             </div>
                           </div>
-                          <div className='row'>
+                          <div className='row row-stack-top'>
                             <div>
                               <div className='row-label'>Never show subtitles for video languages</div>
                               <p className='sub-note'>Skip automatic subtitles when the video speaks one of these languages.</p>
                             </div>
-                            <div className='inline-fields'>
+                            <div className='skip-lang-controls'>
                               <select
                                 className='select'
                                 aria-label='Add skipped video language'
@@ -1044,29 +1091,31 @@ export const SettingsPage = () => {
                                     </option>
                                   ))}
                               </select>
-                              <input
-                                type='text'
-                                className='lang-input'
-                                aria-label='Custom skipped video language code'
-                                placeholder='e.g. pt-BR'
-                                value={skipLangDraft}
-                                onInput={(event: { currentTarget: HTMLInputElement }) => setSkipLangDraft(event.currentTarget.value)}
-                              />
-                              <button
-                                type='button'
-                                className='choice'
-                                onClick={() => {
-                                  const normalized = normalizeLanguageCode(skipLangDraft)
-                                  if (!normalized) {
-                                    showToast('Enter a valid language code (for example en or pt-BR)')
-                                    return
-                                  }
-                                  set({ captionsSkipLanguages: [...settings.captionsSkipLanguages, normalized] })
-                                  setSkipLangDraft('')
-                                }}
-                              >
-                                Add
-                              </button>
+                              <div className='skip-lang-custom'>
+                                <input
+                                  type='text'
+                                  className='lang-input'
+                                  aria-label='Custom skipped video language code'
+                                  placeholder='e.g. pt-BR'
+                                  value={skipLangDraft}
+                                  onInput={(event: { currentTarget: HTMLInputElement }) => setSkipLangDraft(event.currentTarget.value)}
+                                />
+                                <button
+                                  type='button'
+                                  className='choice'
+                                  onClick={() => {
+                                    const normalized = normalizeLanguageCode(skipLangDraft)
+                                    if (!normalized) {
+                                      showToast('Enter a valid language code (for example en or pt-BR)')
+                                      return
+                                    }
+                                    set({ captionsSkipLanguages: [...settings.captionsSkipLanguages, normalized] })
+                                    setSkipLangDraft('')
+                                  }}
+                                >
+                                  Add
+                                </button>
+                              </div>
                             </div>
                           </div>
                           {settings.captionsSkipLanguages.length > 0

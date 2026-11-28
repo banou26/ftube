@@ -10,18 +10,56 @@ export const AMBIENT_SPREAD_MIN = 25
 export const AMBIENT_SPREAD_MAX = 200
 export const AMBIENT_SPREAD_DEFAULT = 100
 
-export const AMBIENT_AREA_OPTIONS: { value: AmbientArea, label: string }[] = [
-  { value: 'around', label: 'Around player' },
-  { value: 'sides', label: 'Sides only' },
-  { value: 'top-bottom', label: 'Top & bottom' },
-  { value: 'full-page', label: 'Full page' },
+export type AmbientOption<T extends string> = {
+  value: T
+  label: string
+  description: string
+}
+
+export const AMBIENT_AREA_OPTIONS: AmbientOption<AmbientArea>[] = [
+  {
+    value: 'around',
+    label: 'Around player',
+    description: 'Soft halo glowing evenly around all sides of the player.',
+  },
+  {
+    value: 'sides',
+    label: 'Sides only',
+    description: 'Wider glow concentrated along the left and right edges.',
+  },
+  {
+    value: 'top-bottom',
+    label: 'Top & bottom',
+    description: 'Ambient glow along the top and bottom borders only.',
+  },
+  {
+    value: 'full-page',
+    label: 'Full page',
+    description: 'Fills the entire page backdrop behind the header and sidebar.',
+  },
 ]
 
-export const AMBIENT_FILL_MODE_OPTIONS: { value: AmbientFillMode, label: string }[] = [
-  { value: 'edge', label: 'Edge match' },
-  { value: 'stretch', label: 'Full frame' },
-  { value: 'average', label: 'Average color' },
-  { value: 'vivid', label: 'Vivid' },
+export const AMBIENT_FILL_MODE_OPTIONS: AmbientOption<AmbientFillMode>[] = [
+  {
+    value: 'edge',
+    label: 'Edge match',
+    description: 'Samples the outer edges of the video so nearby glow matches each border.',
+  },
+  {
+    value: 'stretch',
+    label: 'Full frame',
+    description: 'Stretches the whole video frame softly behind the player.',
+  },
+  {
+    value: 'average',
+    label: 'Average color',
+    description: 'Blends the frame into a single smooth overall color.',
+  },
+  {
+    value: 'vivid',
+    label: 'Vivid',
+    description: 'Boosts color saturation and brightness for a stronger glow.',
+  },
 ]
 
 export const AMBIENT_SPREAD_PRESETS = [50, 100, 150, 200] as const
