@@ -223,10 +223,14 @@ const slideAccessibilityAudit = async (root: ReturnType<Page['locator']>, id: st
     }
   }, FOCUSABLE_QUERY)
 
-const walkTabInsideMain = async (page: Page, expectedActiveSlideId: string) => {
+const pressTab = async (page: Page, browserName: string) => {
+  await page.keyboard.press(process.platform === 'darwin' && browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
+}
+
+const walkTabInsideMain = async (page: Page, browserName: string, expectedActiveSlideId: string) => {
   const visited: { slideId: string | null, label: string }[] = []
   for (let step = 0; step < 30; step++) {
-    await page.keyboard.press('Tab')
+    await pressTab(page, browserName)
     const info = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null
       const slide = el?.closest<HTMLElement>('[data-short-id]')
@@ -245,7 +249,7 @@ const walkTabInsideMain = async (page: Page, expectedActiveSlideId: string) => {
   return visited
 }
 
-test('keeps inactive Shorts controls out of keyboard tab order and accessibility tree across paused advance and end of feed (APP-1077)', async ({ page }) => {
+test('keeps inactive Shorts controls out of keyboard tab order and accessibility tree across paused advance and end of feed (APP-1077)', async ({ page, browserName }) => {
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await page.route('https://www.youtube.com/**', route => route.abort())
   await page.route('**/src/player/shaka.ts*', route =>
@@ -292,7 +296,7 @@ test('keeps inactive Shorts controls out of keyboard tab order and accessibility
   const firstBtn = slide1.getByRole('button', { name: /^(Play|Pause)$/ })
   await firstBtn.focus()
   await expect(firstBtn).toBeFocused()
-  const walk1 = await walkTabInsideMain(page, 'short-1')
+  const walk1 = await walkTabInsideMain(page, browserName, 'short-1')
   expect(walk1.some(entry => entry.label === 'Next short')).toBe(true)
 
   // 2. Pause active short-1 while its Play/Pause button holds focus, then advance via ArrowDown
@@ -329,7 +333,7 @@ test('keeps inactive Shorts controls out of keyboard tab order and accessibility
   // Even though short-1 was paused before leaving, no inactive Play button remains in the accessibility tree
   await expect(root.getByRole('button', { name: /^(Play|Pause)$/ })).toHaveCount(1)
 
-  const walk2 = await walkTabInsideMain(page, 'short-2')
+  const walk2 = await walkTabInsideMain(page, browserName, 'short-2')
   expect(walk2.some(entry => entry.label === 'Next short')).toBe(true)
 
   // 3. Advance to end of feed (short-3) via Next short pager button -> disabled Next hands focus to Previous short
@@ -390,7 +394,7 @@ const samplePoints = async (page: Page, points: readonly { x: number, y: number 
 
 const SHORT_RAIL_ACTIONS = ['Like', 'Dislike', 'Comments', 'Share', 'More actions'] as const
 
-test('makes Shorts action button backgrounds transparent in ambient mode, keeps focus ring and clickability, and restores solid chip backgrounds when ambient mode is off (APP-1073)', async ({ page }) => {
+test('makes Shorts action button backgrounds transparent in ambient mode, keeps focus ring and clickability, and restores solid chip backgrounds when ambient mode is off (APP-1073)', async ({ page, browserName }) => {
   for (const scenario of [
     { name: 'desktop-dark', width: 1280, height: 900, theme: 'dark', expectedSolidBg: 'rgb(39, 39, 39)', minOpacity: 0.68, minGreenLead: 4 },
     { name: 'desktop-light', width: 1280, height: 900, theme: 'light', expectedSolidBg: 'rgb(242, 242, 242)', minOpacity: 0.22, minGreenLead: 1 },
@@ -446,7 +450,7 @@ test('makes Shorts action button backgrounds transparent in ambient mode, keeps 
       const btn = slide.getByRole('button', { name: label, exact: true })
       for (let step = 0; step < 4; step++) {
         if (await btn.evaluate(el => el === document.activeElement)) break
-        await page.keyboard.press('Tab')
+        await pressTab(page, browserName)
       }
       expect(await btn.evaluate(el => el === document.activeElement), `${scenario.name} ${label} not keyboard-focused`).toBe(true)
       const focusRing = await btn.evaluate((el) => {
