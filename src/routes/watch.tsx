@@ -1073,6 +1073,7 @@ const WatchPage = () => {
                   key={`description:${videoId}`}
                   {...descriptionOf(watch)}
                   videoId={videoId}
+                  thumbnail={videoId ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg` : undefined}
                   chapters={chapters}
                   currentChapter={chapter}
                   onViewChapters={() => setPanel('chapters')}

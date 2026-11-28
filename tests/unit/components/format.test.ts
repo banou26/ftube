@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { descriptionMeta, formatAgo, formatCompact, formatCount, parseStartSeconds, videoDetailsOf } from '../../../src/components/format'
+import {
+  descriptionHoverDetails,
+  descriptionMeta,
+  formatAgo,
+  formatCompact,
+  formatCount,
+  parseStartSeconds,
+  videoDetailsOf,
+} from '../../../src/components/format'
 
 describe('start offsets', () => {
   it('accepts both forms upstream mints for `t`', () => {
@@ -67,6 +75,25 @@ describe('the description line', () => {
     expect(descriptionMeta({ expanded: false, viewCountText: '12 views', publishedDateText: 'Oct 25, 2009' })).toBe('12 views  Oct 25, 2009')
     expect(descriptionMeta({ expanded: true, shortViewCountText: '1.8B views' })).toBe('1.8B views')
     expect(descriptionMeta({ expanded: true })).toBe('')
+  })
+
+  it('builds an exact hover tooltip only while collapsed and when exact text adds detail', () => {
+    expect(descriptionHoverDetails({ expanded: false, ...texts })).toBe('1,832,711,164 views • Oct 25, 2009')
+    expect(descriptionHoverDetails({ expanded: true, ...texts })).toBeUndefined()
+    expect(descriptionHoverDetails({
+      expanded: false,
+      viewCountText: '12 views',
+      shortViewCountText: '12 views',
+      publishedDateText: 'Oct 25, 2009',
+      relativeDateText: 'Oct 25, 2009',
+    })).toBeUndefined()
+    expect(descriptionHoverDetails({
+      expanded: false,
+      viewCountText: '42,258 views',
+      shortViewCountText: '42K views',
+      publishedDateText: 'Nov 26, 2026',
+    })).toBe('42,258 views • Nov 26, 2026')
+    expect(descriptionHoverDetails({ expanded: false })).toBeUndefined()
   })
 })
 

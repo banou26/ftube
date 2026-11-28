@@ -86,6 +86,29 @@ export const descriptionMeta = (
   return parts.filter(part => part).join('  ')
 }
 
+/**
+ * Exact view count and date shown in a collapsed description's hover tooltip
+ * when either adds detail past the collapsed summary line.
+ */
+export const descriptionHoverDetails = (
+  { expanded, viewCountText, shortViewCountText, publishedDateText, relativeDateText }: {
+    expanded: boolean
+    viewCountText?: string | null
+    shortViewCountText?: string | null
+    publishedDateText?: string | null
+    relativeDateText?: string | null
+  },
+) => {
+  if (expanded) return undefined
+  const collapsedViews = (shortViewCountText ?? viewCountText)?.trim()
+  const exactViews = (viewCountText ?? shortViewCountText)?.trim()
+  const collapsedDate = (relativeDateText ?? publishedDateText)?.trim()
+  const exactDate = (publishedDateText ?? relativeDateText)?.trim()
+  if (!exactViews && !exactDate) return undefined
+  if (exactViews === collapsedViews && exactDate === collapsedDate) return undefined
+  return [exactViews, exactDate].filter(Boolean).join(' • ')
+}
+
 // YouTube's `t` parameter is minted both as a bare count of seconds ('90', '90s') and in the compound form ('1h2m3s')
 /**
  * YouTube's `t` parameter, in seconds.

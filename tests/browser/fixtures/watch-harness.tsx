@@ -31,14 +31,16 @@ export type WatchHarnessOptions = {
   longDescription?: boolean
   withChips?: boolean
   chipDelays?: Record<string, number>
+  relatedThumbnail?: string
 }
 
-const makeRelatedVideo = (id: string, title: string, channelName = 'Creator') => ({
+const makeRelatedVideo = (id: string, title: string, channelName = 'Creator', thumbnail?: string) => ({
   id,
   title,
   durationSeconds: 320,
   viewCount: '84K views',
   publishedText: '3 days ago',
+  thumbnail: thumbnail ?? null,
   badges: [],
   channel: { id: `UC-${id}`, name: channelName, isVerified: true },
 })
@@ -56,10 +58,10 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const { hook, searchHook } = memoryLocation({ path: `/watch?v=${videoId}` })
 
   const baseRelated = [
-    makeRelatedVideo('rel-all-1', 'All Related Video 1', 'Alpha Channel'),
-    makeRelatedVideo('rel-all-2', 'All Related Video 2', 'Beta Channel'),
+    makeRelatedVideo('rel-all-1', 'All Related Video 1', 'Alpha Channel', options.relatedThumbnail),
+    makeRelatedVideo('rel-all-2', 'All Related Video 2', 'Beta Channel', options.relatedThumbnail),
     ...(options.longDescription
-      ? Array.from({ length: 14 }, (_, i) => makeRelatedVideo(`rel-long-${i + 1}`, `Long Related Video ${i + 1}`, 'Stream Archives'))
+      ? Array.from({ length: 14 }, (_, i) => makeRelatedVideo(`rel-long-${i + 1}`, `Long Related Video ${i + 1}`, 'Stream Archives', options.relatedThumbnail))
       : []),
   ]
   const descriptionText = options.longDescription

@@ -1,3 +1,5 @@
+import type { TargetedPointerEvent } from 'preact'
+
 import type { WatchMetaQuery } from '../generated/graphql'
 import type { PlayerChapter } from '../player/chapters'
 import type { RichTextRun } from './rich-text'
@@ -9,8 +11,9 @@ import { Link } from 'wouter'
 
 import { registerCards } from '../player/cards'
 import { seekTo } from '../player/seek'
+import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
 import { ChapterCards } from './chapters'
-import { descriptionMeta, videoDetailsOf } from './format'
+import { descriptionHoverDetails, descriptionMeta, videoDetailsOf } from './format'
 import { Rail } from './rail'
 import { hashtagHrefFor, RichText } from './rich-text'
 import { Thumbnail } from './thumbnail'
@@ -40,8 +43,9 @@ const style = css`
     cursor: pointer;
   }
 
-  &.collapsed:hover {
-    background: var(--bg-hover-strong);
+  &.collapsed:hover,
+  &.collapsed:has(:focus-visible) {
+    background: var(--card-hover-bg, var(--bg-hover-strong));
   }
 
   .meta {
@@ -52,8 +56,46 @@ const style = css`
     overflow-wrap: anywhere;
   }
 
+  .counts-wrap {
+    position: relative;
+    display: inline-block;
+  }
+
   .counts {
     white-space: pre-wrap;
+  }
+
+  .counts-tooltip {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 0.6rem);
+    z-index: var(--z-popup);
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.4rem;
+    background: var(--bg-badge, rgba(33, 33, 33, 0.94));
+    color: var(--text-on-media, #ffffff);
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.6rem;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  &.collapsed .counts-wrap:hover .counts-tooltip,
+  &.collapsed .counts-wrap:focus-within .counts-tooltip {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &,
+    .counts-tooltip {
+      transition: none;
+    }
   }
 
   .hashtag {
@@ -427,7 +469,7 @@ const DETAIL_ICON = {
 export const DescriptionBox = (
   {
     viewCountText, publishedDateText, shortViewCountText, relativeDateText, likeCount, likeCountText, hashtags = [],
-    description, runs, videoId, chapters = [], currentChapter = -1, onViewChapters, onShowTranscript, music, channelCard, open = false,
+    description, runs, videoId, thumbnail, chapters = [], currentChapter = -1, onViewChapters, onShowTranscript, music, channelCard, open = false,
   }: {
     viewCountText?: string | null
     publishedDateText?: string | null
@@ -439,6 +481,7 @@ export const DescriptionBox = (
     description?: string | null
     runs?: readonly RichTextRun[]
     videoId?: string
+    thumbnail?: string | null
     chapters?: readonly PlayerChapter[]
     currentChapter?: number
     onViewChapters?: () => void
@@ -454,11 +497,14 @@ export const DescriptionBox = (
   const [expanded, setExpanded] = useState(false)
   // the panel's text fits its 20 lines, so it offers no ...more
   const [fits, setFits] = useState(false)
+  const [tintRequested, setTintRequested] = useState(false)
   const full = expanded || open
   const clamped = !expanded && !(open && fits)
   const snippetRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLElement>(null)
   const [revealed, setRevealed] = useState(0)
+  useEffect(() => setTintRequested(false), [thumbnail, full])
+  const hoverTint = useCardHoverTint(full ? undefined : thumbnail, !full && tintRequested)
   useEffect(() => {
     if (!channelCard || open) return
     return registerCards(() => {
@@ -486,17 +532,34 @@ export const DescriptionBox = (
   const expand = () => setExpanded(true)
   const less = <button type='button' className='less' onClick={() => setExpanded(false)}>Show less</button>
   const counts = descriptionMeta({ expanded: full, viewCountText, shortViewCountText, publishedDateText, relativeDateText })
+  const hoverDetails = descriptionHoverDetails({ expanded: full, viewCountText, shortViewCountText, publishedDateText, relativeDateText })
   const details = videoDetailsOf({ publishedDateText, viewCountText, shortViewCountText, likeCount, likeCountText })
   return (
     <div
       css={open ? [style, panelStyle] : style}
       className={full ? undefined : 'collapsed'}
+      style={full ? undefined : cardHoverStyle(hoverTint)}
+      onPointerEnter={full
+        ? undefined
+        : (event: TargetedPointerEvent<HTMLDivElement>) => {
+            if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
+          }}
+      onFocusCapture={full ? undefined : () => setTintRequested(true)}
       onClick={full ? undefined : expand}
     >
       {counts || hashtags.length > 0
         ? (
           <div className='meta'>
-            {counts ? <span className='counts'>{counts}</span> : undefined}
+            {counts
+              ? hoverDetails
+                ? (
+                  <span className='counts-wrap'>
+                    <span className='counts'>{counts}</span>
+                    <span className='counts-tooltip' role='tooltip'>{hoverDetails}</span>
+                  </span>
+                )
+                : <span className='counts'>{counts}</span>
+              : undefined}
             {hashtags.map(tag => {
               const href = hashtagHrefFor(tag)
               return href

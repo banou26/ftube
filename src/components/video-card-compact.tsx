@@ -3,11 +3,12 @@ import type { TargetedPointerEvent } from 'preact'
 import type { VideoCardData, WatchContext } from './video-card'
 
 import { css } from '@emotion/react'
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { usePrefetchOnIntent } from '../player/prefetch'
 import { BylineNames } from './byline'
+import { cardHoverStyle, useCardHoverTint } from './card-hover-tint'
 import { formatDuration, rowByline } from './format'
 import { CornerBadge, MembersOnly, MusicNote, RowMeta } from './row-marks'
 import { Thumbnail } from './thumbnail'
@@ -15,9 +16,39 @@ import { VerifiedBadge } from './verified-badge'
 import { resumePercent, VideoCardMenu, watchHrefFor } from './video-card'
 
 const style = css`
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: flex-start;
   min-width: 0;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: var(--card-hover-inset, -0.6rem);
+    z-index: -1;
+    border-radius: var(--card-hover-radius, 1.2rem);
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 0.15s ease;
+  }
+
+  @media (hover: hover) {
+    &:hover::before {
+      background: var(--card-hover-bg, var(--bg-hover));
+    }
+  }
+
+  &:has(:focus-visible)::before,
+  &:has(.more-menu[data-open])::before {
+    background: var(--card-hover-bg, var(--bg-hover));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before {
+      transition: none;
+    }
+  }
 
   /* --compact-thumb-width lets a wider column, the watch sidebar on a wide
      screen, grow the thumbnail */
@@ -171,13 +202,18 @@ export const VideoCardCompact = ({ video, context, recommendable }: { video: Vid
   const progress = resumePercent(video.progressPercent)
   const prefetch = usePrefetchOnIntent(video.id)
   const [hovered, setHovered] = useState(false)
+  const [tintRequested, setTintRequested] = useState(false)
+  useEffect(() => setTintRequested(false), [video.thumbnail])
+  const hoverTint = useCardHoverTint(video.thumbnail, hovered || tintRequested)
   // youtube.com plays these few seconds over the still in the watch page's column, where it mounts no player
   const moving = hovered && video.animatedThumbnail ? video.animatedThumbnail : undefined
   return (
     <article
       css={style}
+      style={cardHoverStyle(hoverTint)}
       onPointerEnter={(event: TargetedPointerEvent<HTMLElement>) => {
         prefetch.onPointerEnter()
+        if (event.pointerType === 'mouse' || event.pointerType === 'pen') setTintRequested(true)
         if (event.pointerType === 'mouse') setHovered(true)
       }}
       onPointerLeave={() => {
@@ -185,6 +221,7 @@ export const VideoCardCompact = ({ video, context, recommendable }: { video: Vid
         setHovered(false)
       }}
       onPointerDown={prefetch.onPointerDown}
+      onFocusCapture={() => setTintRequested(true)}
     >
       <Link href={watchHref} className='thumb' tabIndex={-1} aria-hidden='true'>
         {video.thumbnail ? <Thumbnail src={video.thumbnail} srcSet={video.thumbnailSrcset} sizes='16.8rem' /> : undefined}
