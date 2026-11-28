@@ -166,6 +166,7 @@ for (const viewport of VIEWPORTS) {
       // Scrubbing Start timestamp to 0:03 seeks the video and repaints the live preview canvas.
       const startInput = dialog.getByLabel('Start timestamp')
       await startInput.fill('0:03')
+      await expect(startInput).toBeFocused()
       await startInput.press('Enter')
 
       await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.currentTime() ?? 0)).toBeGreaterThanOrEqual(2.5)

@@ -3,7 +3,7 @@ import type { AudioTrack, DownloadFormatOption, DownloadFormatsResult } from '..
 
 import { css } from '@emotion/react'
 import { Download, Pause, Play, RefreshCw, RotateCcw, Scissors } from 'lucide-react'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { LARGE_DOWNLOAD_WARNING_BYTES, MAX_DOWNLOAD_BYTES } from '../downloads/bytes'
@@ -524,6 +524,8 @@ export const DownloadDialog = (
   const previewingRef = useRef(false)
   const previewSeqRef = useRef(0)
   const restoreWatchStateRef = useRef<() => void>(() => {})
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   const hasWatchPlayer = player.videoId === videoId
 
@@ -557,10 +559,10 @@ export const DownloadDialog = (
   }
   restoreWatchStateRef.current = restoreWatchState
 
-  const handleClose = () => {
-    restoreWatchState()
-    onClose()
-  }
+  const handleClose = useCallback(() => {
+    restoreWatchStateRef.current()
+    onCloseRef.current()
+  }, [])
 
   useEffect(() => {
     let active = true
