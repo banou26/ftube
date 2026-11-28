@@ -139,6 +139,11 @@ const isAssistDenied = (clientSource: ClientSource, error: unknown): boolean => 
   return name === 'PermissionDeniedError' || name === 'LocatorDeniedError'
 }
 
+const isTransientLocatorUnsupported = (clientSource: ClientSource, error: unknown): boolean =>
+  resolveClient(clientSource)?.isLocatorUnsupported?.(error)
+  || loadedLib()?.isLocatorUnsupported?.(error)
+  || (error as { name?: unknown } | null)?.name === 'LocatorUnsupportedError'
+
 const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<void> => {
   const base = youtubeAuthAdapter({
     entryUrl: SIGN_IN_URL,
@@ -152,6 +157,14 @@ const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<voi
 
   return {
     ...base,
+    isSignedIn: async (frame, ctx) => {
+      try {
+        return await base.isSignedIn(frame, ctx)
+      } catch (error) {
+        if (isTransientLocatorUnsupported(clientSource, error)) return false
+        throw error
+      }
+    },
     onTick: async (ctx: AuthStepContext) => {
       if (assistDisabled || ctx.signal.aborted) return
       try {
@@ -171,6 +184,7 @@ const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<voi
           })
         }
       } catch (error) {
+        if (isTransientLocatorUnsupported(clientSource, error)) return
         if (isAssistDenied(clientSource, error)) {
           assistDisabled = true
           return

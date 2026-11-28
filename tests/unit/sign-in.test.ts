@@ -25,6 +25,7 @@ const createFakeFrame = () => {
     mobileYouTab: boolean
     rejectedMarker: boolean
     rejectedRetry: boolean
+    locatorCountError: Error | undefined
     clickError: Error | undefined
   } = {
     avatar: false,
@@ -33,6 +34,7 @@ const createFakeFrame = () => {
     mobileYouTab: false,
     rejectedMarker: false,
     rejectedRetry: false,
+    locatorCountError: undefined,
     clickError: undefined,
   }
   const docListeners = new Set<DocListener>()
@@ -65,10 +67,16 @@ const createFakeFrame = () => {
       calls.push('style')
     }),
     locator: (selector: string) => {
-      const count = async () => countFor(selector)
+      const count = async () => {
+        if (page.locatorCountError) throw page.locatorCountError
+        return countFor(selector)
+      }
       const handle = {
         count,
-        isVisible: async () => countFor(selector) > 0,
+        isVisible: async () => {
+          if (page.locatorCountError) throw page.locatorCountError
+          return countFor(selector) > 0
+        },
         click: vi.fn(async (options?: { reason?: string }) => {
           clickReasons.push({ selector, reason: options?.reason })
           calls.push(`click ${selector}`)
@@ -106,7 +114,7 @@ const terminal = new Error('cloud.attachFrame: the attached window closed; attac
 const lib = vi.hoisted(() => ({
   attachFrame: vi.fn<(options: Record<string, unknown>) => Promise<unknown>>(),
   isLocatorInvalid: () => false,
-  isLocatorUnsupported: () => false,
+  isLocatorUnsupported: vi.fn<(error: unknown) => boolean>(() => false),
   isPermissionDenied: vi.fn<(error: unknown) => boolean>(() => false),
   isLocatorDenied: vi.fn<(error: unknown) => boolean>(() => false),
   isTerminalError: (error: unknown) => (error as Error).message.includes('attach a fresh window'),
@@ -183,6 +191,7 @@ describe('the sign-in window', () => {
     resetIdentity.mockClear()
     startPlatform.mockClear()
     lib.attachFrame.mockReset()
+    lib.isLocatorUnsupported.mockReset().mockReturnValue(false)
     lib.isPermissionDenied.mockReset().mockReturnValue(false)
     lib.isLocatorDenied.mockReset().mockReturnValue(false)
     lib.loaded = true
@@ -270,6 +279,38 @@ describe('the sign-in window', () => {
     expect(styleTags.length).toBeGreaterThanOrEqual(1)
     expect(styleTags[0]).toContain('accounts/answer/7675428')
     expect(calls).toContain('click a[href*="/restart"]')
+    login.page.rejectedMarker = false
+    login.page.rejectedRetry = false
+    login.page.avatar = true
+    login.emitDocument('https://www.youtube.com')
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
+  it('tolerates transient LocatorUnsupportedError across isSignedIn and onTick during BAN-70 recovery until the document mounts', async () => {
+    const login = fakeLogin()
+    lib.isLocatorUnsupported.mockImplementation((err) => (err as { name?: string })?.name === 'LocatorUnsupportedError')
+    login.page.locatorCountError = Object.assign(new Error('the proxied document is not available yet'), { name: 'LocatorUnsupportedError' })
+    const { reload, stored } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await poll(2)
+    expect(login.close).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+
+    login.page.locatorCountError = undefined
+    login.page.link = false
+    login.page.rejectedMarker = true
+    login.page.rejectedRetry = true
+    login.emitDocument('https://accounts.google.com')
+    await poll(1)
+    expect(styleTags.length).toBeGreaterThanOrEqual(1)
+    expect(styleTags[0]).toContain('accounts/answer/7675428')
+    expect(calls).toContain('click a[href*="/restart"]')
+
     login.page.rejectedMarker = false
     login.page.rejectedRetry = false
     login.page.avatar = true
@@ -594,6 +635,7 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
     resetIdentity.mockClear()
     startPlatform.mockClear()
     lib.attachFrame.mockReset()
+    lib.isLocatorUnsupported.mockReset().mockReturnValue(false)
     lib.isPermissionDenied.mockReset().mockReturnValue(false)
     lib.isLocatorDenied.mockReset().mockReturnValue(false)
     lib.loaded = true
