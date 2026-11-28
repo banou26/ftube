@@ -135,3 +135,47 @@ test('discards stale slower chip responses and resets active chip when navigatin
   await expect(rail.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(host.getByText('All Related Video 1')).toBeVisible()
 })
+
+test('uses edge fade arrows without snap and resets scroll position across videos with matching chip counts', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const host = await mount(page, { withChips: true })
+
+  const rail = host.getByRole('region', { name: 'Related video filters' })
+  const track = rail.locator('.track')
+  const more = rail.getByRole('button', { name: 'More filters', exact: true })
+  await expect(more).toBeVisible()
+
+  const snapType = await track.evaluate(el => getComputedStyle(el).scrollSnapType)
+  expect(snapType).toBe('none')
+
+  const bounds = await Promise.all([rail.boundingBox(), more.boundingBox()])
+  expect(bounds[1]!.x + bounds[1]!.width).toBeLessThanOrEqual(bounds[0]!.x + bounds[0]!.width + 1)
+  expect(bounds[1]!.height).toBeGreaterThanOrEqual(bounds[0]!.height - 2)
+
+  for (let i = 0; i < 8; i += 1) {
+    if (await more.count() === 0) break
+    await more.click()
+    await page.waitForTimeout(180)
+  }
+  await expect(more).toHaveCount(0)
+  const atEnd = await track.evaluate(el => el.scrollWidth - el.clientWidth - el.scrollLeft)
+  expect(atEnd).toBeLessThanOrEqual(2)
+
+  const prev = rail.getByRole('button', { name: 'Previous filters', exact: true })
+  await expect(prev).toBeVisible()
+  for (let i = 0; i < 8; i += 1) {
+    if (await prev.count() === 0) break
+    await prev.click()
+    await page.waitForTimeout(180)
+  }
+  await expect(prev).toHaveCount(0)
+  expect(await track.evaluate(el => el.scrollLeft)).toBeLessThanOrEqual(1)
+
+  await more.click()
+  await expect.poll(() => track.evaluate(el => el.scrollLeft)).toBeGreaterThan(20)
+
+  await host.locator('aside.secondary a[href^="/watch?v=rel-all-1"]').first().click()
+  await expect(host.locator('h1')).toContainText('Harness Video rel-all-1')
+  await expect.poll(() => track.evaluate(el => el.scrollLeft)).toBeLessThanOrEqual(1)
+  await expect(prev).toHaveCount(0)
+})

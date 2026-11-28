@@ -132,17 +132,6 @@ const style = css`
     min-width: 0;
     margin-bottom: 0.4rem;
     --rail-gap: 0.8rem;
-    --rail-arrow-top: 0;
-    --rail-arrow-right: 0;
-  }
-
-  .related-chips .arrow {
-    width: 3.2rem;
-    height: 3.2rem;
-  }
-
-  .related-chips .arrow.left {
-    left: 0;
   }
 
   .related-chip {
@@ -1104,7 +1093,7 @@ const WatchPage = () => {
               {relatedChips.length > 0
                 ? (
                   <div className='related-chips' role='region' aria-label='Related video filters'>
-                    <Rail label='filters' count={relatedChips.length}>
+                    <Rail label='filters' count={relatedChips.length} variant='edge' resetKey={videoId}>
                       {relatedChips.map(chip => {
                         const active = chip.id === activeChipId
                         return (
