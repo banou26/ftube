@@ -3,7 +3,7 @@ import type { TargetedEvent, TargetedKeyboardEvent, TargetedSubmitEvent } from '
 import { css } from '@emotion/react'
 import { PoweredByFkn } from '@fkn/lib/react'
 import { ArrowLeft, CircleUserRound, Menu, Search, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
@@ -13,7 +13,7 @@ import { AccountMenu } from './account-menu'
 import { DownloadsMenu } from './downloads-menu'
 import { ExtensionNotice } from './extension-notice'
 import { HeaderMenu } from './header-menu'
-import { setMobileSearchOpen, useMobileSearchOpen } from './mobile-search'
+import { MOBILE_SEARCH_MAX_WIDTH, registerHeaderSearchFocus, setMobileSearchOpen, useMobileSearchOpen } from './mobile-search'
 import { NotificationsMenu } from './notifications-menu'
 import { PartyWidget } from './party-widget'
 import { splitSuggestion } from './suggestion'
@@ -486,6 +486,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
   const ambientMode = useSetting('ambientMode')
   const isAmbientRoute = location === '/watch' || location === '/shorts' || location.startsWith('/shorts/')
   const [atTop, setAtTop] = useState(() => typeof window === 'undefined' || window.scrollY <= 4)
+  const headerRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [typed, setTyped] = useState<string | undefined>(undefined)
   const [debounced, setDebounced] = useState('')
@@ -526,21 +527,34 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
     return () => observer.disconnect()
   }, [engineReady])
 
+  const focusSearch = useCallback(() => {
+    if (window.matchMedia(`(max-width: ${MOBILE_SEARCH_MAX_WIDTH}px)`).matches) {
+      // Reveal the mobile search box synchronously before focus() so touch activation preserves the user gesture.
+      headerRef.current?.classList.add('search-open')
+      setMobileSearchOpen(true)
+    }
+    const input = inputRef.current
+    if (!input) return false
+    input.focus()
+    return document.activeElement === input
+  }, [])
+
+  useEffect(() => registerHeaderSearchFocus(focusSearch), [focusSearch])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== '/' || event.defaultPrevented) return
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       event.preventDefault()
-      if (window.matchMedia('(max-width: 656px)').matches) setMobileSearchOpen(true)
-      inputRef.current?.focus()
+      focusSearch()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [focusSearch])
 
   // m.youtube.com puts the caret in the box as it opens, where youtube.com's narrow window waits for a second tap
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (searchOpen) inputRef.current?.focus()
   }, [searchOpen])
 
@@ -622,6 +636,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
 
   return (
     <header
+      ref={headerRef}
       css={style}
       className={[searchOpen ? 'search-open' : '', transparentHeader ? 'transparent' : ''].filter(Boolean).join(' ') || undefined}
     >

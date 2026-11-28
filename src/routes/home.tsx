@@ -1,7 +1,7 @@
 import type { HomeFeedPage } from './home-feed'
 
 import { css } from '@emotion/react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 
@@ -11,6 +11,7 @@ import { DataFailure } from '../components/data-failure'
 import { isDismissedVideo, useDismissed } from '../components/dismissed-videos'
 import { FeedSettingsPanel } from '../components/feed-settings-panel'
 import { FeedFilterChips, FeedViewButtons } from '../components/feed-view-controls'
+import { focusHeaderSearch } from '../components/mobile-search'
 import { FeedSentinel, useInfiniteFeed } from '../components/use-infinite-feed'
 import { ShortsShelf } from '../components/shorts-shelf'
 import { VideoGrid } from '../components/video-grid'
@@ -225,6 +226,33 @@ const style = css`
     line-height: 2rem;
     color: var(--text-secondary);
   }
+
+  .empty-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    min-height: 3.6rem;
+    margin-top: 2rem;
+    padding: 0.6rem 1.8rem;
+    border: none;
+    border-radius: 1.8rem;
+    background: var(--bg-inverse);
+    color: var(--text-inverse);
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .empty-action:hover {
+    background: var(--bg-inverse-hover);
+  }
+
+  .empty-action:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: 2px;
+  }
 `
 
 const HomePage = () => {
@@ -282,10 +310,22 @@ const HomePage = () => {
     ))
   }, [page, chip])
 
+  const chips = rail.chips.filter(entry => entry.id !== rail.allId)
+  const hasFeedContent = items.length > 0 || visibleShorts.length > 0
+  const showDisplayControls = hasFeedContent || chips.length > 0
+  const empty = !fetching && !error && visibleItems.length === 0 && (stalled || !cursor)
+
+  useEffect(() => {
+    if (!showDisplayControls && panelOpen) setPanelOpen(false)
+  }, [showDisplayControls, panelOpen])
+
   useEffect(() => {
     const scroller = scrollerRef.current
     const track = trackRef.current
-    if (!scroller || !track) return
+    if (!showDisplayControls || !scroller || !track) {
+      setArrows({ start: false, end: false })
+      return
+    }
     const measure = () => {
       const start = scroller.scrollLeft > 1
       const end = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1
@@ -300,7 +340,7 @@ const HomePage = () => {
       observer.disconnect()
       scroller.removeEventListener('scroll', measure)
     }
-  }, [])
+  }, [showDisplayControls, chips.length])
 
   const scrollRail = (direction: -1 | 1) => {
     const scroller = scrollerRef.current
@@ -313,62 +353,63 @@ const HomePage = () => {
     setLoaded({ chip, pages: pages[pages.length - 1] === page ? pages : [...pages, page] })
   }
 
-  const chips = rail.chips.filter(entry => entry.id !== rail.allId)
-  const empty = !fetching && !error && visibleItems.length === 0 && (stalled || !cursor)
-
   return (
     <main css={style}>
-      <div className='rail'>
-        <div className='rail-chips' hidden={chips.length === 0}>
-          {arrows.start
-            ? (
-              <button type='button' className='rail-arrow start' aria-label='Scroll filters left' onClick={() => scrollRail(-1)}>
-                <span className='circle'>
-                  <ChevronLeft size={24} strokeWidth={1.5} />
-                </span>
-              </button>
-            )
-            : undefined}
-          <div className='chips' ref={scrollerRef}>
-            <div className='track' ref={trackRef}>
-              <button
-                type='button'
-                className={chip === undefined ? 'chip active' : 'chip'}
-                aria-pressed={chip === undefined}
-                onClick={() => setChip(undefined)}
-              >
-                All
-              </button>
-              {chips.map(entry => (
-                <button
-                  key={entry.id}
-                  type='button'
-                  className={entry.id === chip ? 'chip active' : 'chip'}
-                  aria-pressed={entry.id === chip}
-                  onClick={() => setChip(entry.id)}
-                >
-                  {entry.label}
-                </button>
-              ))}
+      {showDisplayControls
+        ? (
+          <div className='rail'>
+            <div className='rail-chips' hidden={chips.length === 0}>
+              {arrows.start
+                ? (
+                  <button type='button' className='rail-arrow start' aria-label='Scroll filters left' onClick={() => scrollRail(-1)}>
+                    <span className='circle'>
+                      <ChevronLeft size={24} strokeWidth={1.5} />
+                    </span>
+                  </button>
+                )
+                : undefined}
+              <div className='chips' ref={scrollerRef}>
+                <div className='track' ref={trackRef}>
+                  <button
+                    type='button'
+                    className={chip === undefined ? 'chip active' : 'chip'}
+                    aria-pressed={chip === undefined}
+                    onClick={() => setChip(undefined)}
+                  >
+                    All
+                  </button>
+                  {chips.map(entry => (
+                    <button
+                      key={entry.id}
+                      type='button'
+                      className={entry.id === chip ? 'chip active' : 'chip'}
+                      aria-pressed={entry.id === chip}
+                      onClick={() => setChip(entry.id)}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {arrows.end
+                ? (
+                  <button type='button' className='rail-arrow end' aria-label='Scroll filters right' onClick={() => scrollRail(1)}>
+                    <span className='circle'>
+                      <ChevronRight size={24} strokeWidth={1.5} />
+                    </span>
+                  </button>
+                )
+                : undefined}
             </div>
+            <FeedViewButtons
+              surface='home'
+              panelOpen={panelOpen}
+              onTogglePanel={() => setPanelOpen(open => !open)}
+            />
           </div>
-          {arrows.end
-            ? (
-              <button type='button' className='rail-arrow end' aria-label='Scroll filters right' onClick={() => scrollRail(1)}>
-                <span className='circle'>
-                  <ChevronRight size={24} strokeWidth={1.5} />
-                </span>
-              </button>
-            )
-            : undefined}
-        </div>
-        <FeedViewButtons
-          surface='home'
-          panelOpen={panelOpen}
-          onTogglePanel={() => setPanelOpen(open => !open)}
-        />
-      </div>
-      {feedSettings.customFilters.length > 0
+        )
+        : undefined}
+      {showDisplayControls && feedSettings.customFilters.length > 0
         ? (
           <div className='custom-rail-chips'>
             <FeedFilterChips />
@@ -383,6 +424,10 @@ const HomePage = () => {
             <div className='empty'>
               <h2>Try searching to get started</h2>
               <p>Start watching videos to help us build a feed of videos you'll love.</p>
+              <button type='button' className='empty-action' onClick={focusHeaderSearch}>
+                <Search size={18} strokeWidth={1.75} aria-hidden='true' />
+                Search videos
+              </button>
             </div>
           )
           : <p className='notice'>No videos under this filter.</p>
@@ -406,7 +451,9 @@ const HomePage = () => {
         ? <button type='button' className='load-more' onClick={onMore}>Load more</button>
         : undefined}
       <FeedSentinel onVisible={onMore} disabled={fetching || !cursor || Boolean(error) || stalled} />
-      <FeedSettingsPanel surface='home' open={panelOpen} onClose={() => setPanelOpen(false)} />
+      {showDisplayControls
+        ? <FeedSettingsPanel surface='home' open={panelOpen} onClose={() => setPanelOpen(false)} />
+        : undefined}
     </main>
   )
 }

@@ -5,7 +5,9 @@ import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
 import { Parser, YT } from 'youtubei.js'
 
+import { Route, Switch, useSearch } from 'wouter'
 import { createCache } from '../../../src/graphql'
+import Header from '../../../src/components/header'
 import HomePage from '../../../src/routes/home'
 import { createYoutubeSource } from '../../../src/sources/youtube'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -183,4 +185,52 @@ export const mountFilterableHome = () => {
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
   })
   render(<Provider value={client}><HomePage /></Provider>, host)
+}
+
+const SearchLanding = () => {
+  const search = useSearch()
+  const query = new URLSearchParams(search).get('search_query') ?? ''
+  return <div data-home-search-result={query}>Search results: {query}</div>
+}
+
+/**
+ * Mounts Header + HomePage inside a Client + Router shell for testing empty vs populated guest Home interactions
+ * (search focus, mobile search open/back, search submit, and display control visibility).
+ */
+export const mountHomeApp = (populated: boolean) => {
+  document.documentElement.dataset.engine = 'ready'
+  document.getElementById('app')?.remove()
+  document.querySelector('[data-home-app-harness]')?.remove()
+  const host = document.createElement('div')
+  host.setAttribute('data-home-app-harness', populated ? 'populated' : 'empty')
+  document.body.append(host)
+
+  const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse((init?.body as string | undefined) ?? '{}') as { operationName?: string }
+    if (body.operationName === 'Session') {
+      return new Response(
+        JSON.stringify({ data: { session: { signedIn: false, name: null, avatar: null, handle: null, accounts: [] } } }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    }
+    if (body.operationName === 'SearchSuggestions') {
+      return new Response(JSON.stringify({ data: { searchSuggestions: [] } }), { headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({ data: feed(populated) }), { headers: { 'content-type': 'application/json' } })
+  }
+
+  const client = new Client({ url: '/home-app-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  history.replaceState(null, '', '/')
+  render(
+    <Provider value={client}>
+      <div style={{ paddingTop: 'var(--header-height)' }}>
+        <Header />
+        <Switch>
+          <Route path='/' component={HomePage} />
+          <Route path='/results' component={SearchLanding} />
+        </Switch>
+      </div>
+    </Provider>,
+    host,
+  )
 }

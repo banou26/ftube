@@ -1,13 +1,27 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import {
   MOBILE_SEARCH_MAX_WIDTH,
+  focusHeaderSearch,
   getMobileSearchOpen,
+  registerHeaderSearchFocus,
   setMobileSearchOpen,
   shouldCollapseMiniplayer,
   subscribeMobileSearchOpen,
 } from '../../../src/components/mobile-search'
 
 describe('mobile search state and miniplayer collapse helper', () => {
+  it('routes focusHeaderSearch through the registered Header handler until unregistered', () => {
+    const focusHandler = vi.fn(() => true)
+    const unregister = registerHeaderSearchFocus(focusHandler)
+
+    expect(focusHeaderSearch()).toBe(true)
+    expect(focusHandler).toHaveBeenCalledTimes(1)
+
+    unregister()
+    expect(focusHeaderSearch()).toBe(false)
+    expect(focusHandler).toHaveBeenCalledTimes(1)
+  })
+
   it('tracks and notifies listeners only when mobile search state changes', () => {
     setMobileSearchOpen(false)
     expect(getMobileSearchOpen()).toBe(false)
