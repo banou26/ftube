@@ -71,12 +71,20 @@ test('navigates to /feed/channels from Subscriptions feed and left guide categor
   await harness.getByLabel('Filter by group').selectOption('all')
 
   // 6. Filter by last video posted date (loads upload dates automatically)
+  await expect(harness.getByLabel('Filter by last video posted').locator('option')).toHaveText([
+    'Any upload date',
+    'Posted in last week',
+    'Posted in last month',
+    'Custom',
+    'Inactivity',
+  ])
   await harness.getByLabel('Filter by last video posted').selectOption('7d')
   await expect(rows).toHaveCount(1, { timeout: 15_000 })
   await expect(rows.first()).toContainText('Alpha Tech')
   await expect(rows.first()).toContainText(/Last video 2 days ago/)
 
-  await harness.getByLabel('Filter by last video posted').selectOption('inactive-365d')
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-custom')
+  await harness.getByRole('button', { name: '1 year', exact: true }).click()
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText('Old Archive')
 
@@ -167,7 +175,7 @@ test('keeps the subscription list populated and updates matches dynamically whil
   await expect(rows).toHaveCount(3)
 
   // Selecting an upload-date filter while dates are still pending keeps channels visible instead of blanking out.
-  await harness.getByLabel('Filter by last video posted').selectOption('inactive-365d')
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-custom')
   const progress = harness.getByRole('progressbar', { name: 'Checking channel upload dates' })
   await expect(progress).toBeVisible()
   await expect(progress).toHaveAttribute('aria-valuenow', '0')
@@ -299,7 +307,7 @@ test('excludes failed upload-date checks from inactive matches and Unsubscribe a
   const rows = harness.locator('.list .row')
   await expect(rows).toHaveCount(3)
 
-  await harness.getByLabel('Filter by last video posted').selectOption('inactive-365d')
+  await harness.getByLabel('Filter by last video posted').selectOption('inactive-custom')
   // Failed Old Archive check must NEVER appear as confirmed inactive or enter Unsubscribe all.
   await expect(harness.getByRole('button', { name: 'Retry 1 failed date check', exact: true })).toBeVisible()
   await expect(rows).toHaveCount(0)

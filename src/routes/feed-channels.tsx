@@ -812,13 +812,10 @@ const FeedChannelsPage = () => {
           onChange={(event: TargetedEvent<HTMLSelectElement>) => setActivity(event.currentTarget.value as ActivityWindow)}
         >
           <option value='all'>Any upload date</option>
-          <option value='7d'>Posted in last 7 days</option>
-          <option value='30d'>Posted in last 30 days</option>
-          <option value='90d'>Posted in last 90 days</option>
-          <option value='365d'>Posted in last year</option>
-          <option value='inactive-365d'>Inactive (1+ year)</option>
-          <option value='inactive-custom'>Inactive (custom)…</option>
-          <option value='custom'>Custom date range…</option>
+          <option value='7d'>Posted in last week</option>
+          <option value='30d'>Posted in last month</option>
+          <option value='custom'>Custom</option>
+          <option value='inactive-custom'>Inactivity</option>
         </select>
         <select
           className='select'
