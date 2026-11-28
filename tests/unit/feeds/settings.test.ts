@@ -63,6 +63,7 @@ describe('feed view settings store', () => {
       thumbSize: 300,
       thumbPosition: 'end',
       cardWidth: 960,
+      listColumns: 3,
       titleSize: 20,
       titleColor: '#3ea6ff',
       boldTitle: true,
@@ -77,6 +78,7 @@ describe('feed view settings store', () => {
     expect(listVars).toEqual({
       '--feed-list-thumb-width': '300px',
       '--feed-list-max-width': '960px',
+      '--feed-list-columns': '3',
       '--feed-row-gap': '24px',
       '--feed-title-size': '20px',
       '--feed-title-weight': '700',
@@ -132,10 +134,11 @@ describe('feed view settings store', () => {
   })
 
   it('coerces corrupted localStorage values without throwing', () => {
-    localStorage.setItem('yt-client:feed-view', '{"layouts":{"subscriptions":"bogus"},"cardStyles":{"list":{"thumbSize":9999,"titleColor":"not-a-hex"}}}')
+    localStorage.setItem('yt-client:feed-view', '{"layouts":{"subscriptions":"bogus"},"cardStyles":{"list":{"thumbSize":9999,"listColumns":99,"titleColor":"not-a-hex"}}}')
     const recovered = reloadFeedViewSettings()
     expect(recovered.layouts.subscriptions).toBe('grid')
     expect(recovered.cardStyles.list.thumbSize).toBe(420)
+    expect(recovered.cardStyles.list.listColumns).toBe(4)
     expect(recovered.cardStyles.list.titleColor).toBe('')
   })
 })

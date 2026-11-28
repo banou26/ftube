@@ -16,6 +16,8 @@ export type FeedCardStyle = {
   thumbPosition: ThumbnailPosition
   /** Grid: minimum column width px (220-520). List: max card width px (0 = full width, or 560-1600). */
   cardWidth: number
+  /** List: number of grid columns (1-4). */
+  listColumns: number
   titleSize: number
   titleColor: string
   boldTitle: boolean
@@ -76,6 +78,7 @@ export const DEFAULT_GRID_CARD_STYLE: FeedCardStyle = {
   thumbSize: 100,
   thumbPosition: 'start',
   cardWidth: 380,
+  listColumns: 1,
   titleSize: 16,
   titleColor: '',
   boldTitle: false,
@@ -90,6 +93,7 @@ export const DEFAULT_LIST_CARD_STYLE: FeedCardStyle = {
   thumbSize: 240,
   thumbPosition: 'start',
   cardWidth: 0,
+  listColumns: 1,
   titleSize: 16,
   titleColor: '',
   boldTitle: false,
@@ -175,6 +179,7 @@ const coerceCardStyle = (mode: FeedLayoutMode, raw: unknown): FeedCardStyle => {
       : clampInt(input.thumbSize, defaults.thumbSize, 60, 100),
     thumbPosition: input.thumbPosition === 'end' ? 'end' : 'start',
     cardWidth,
+    listColumns: clampInt(input.listColumns, defaults.listColumns, 1, 4),
     titleSize: clampInt(input.titleSize, defaults.titleSize, 12, 26),
     titleColor: normalizeHexColor(input.titleColor) ?? '',
     boldTitle: typeof input.boldTitle === 'boolean' ? input.boldTitle : defaults.boldTitle,
@@ -433,6 +438,7 @@ export const feedCardCssVars = (layout: FeedLayoutMode, style: FeedCardStyle): R
   if (layout === 'list') {
     vars['--feed-list-thumb-width'] = `${style.thumbSize}px`
     if (style.cardWidth > 0) vars['--feed-list-max-width'] = `${style.cardWidth}px`
+    if (style.listColumns > 1) vars['--feed-list-columns'] = String(style.listColumns)
     vars['--feed-row-gap'] = `${style.rowGap}px`
   } else {
     if (style.thumbSize < 100) vars['--feed-grid-thumb-width'] = `${style.thumbSize}%`

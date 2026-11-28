@@ -659,33 +659,56 @@ export const FeedSettingsPanel = (
                     </label>
                   )
                   : (
-                    <div className='field'>
-                      <span className='field-head'>
-                        <span>Card width</span>
-                        <span className='field-val'>
-                          {cardStyle.cardWidth === 0 ? 'Full' : `${cardStyle.cardWidth} px`}
+                    <>
+                      <div className='field'>
+                        <span className='field-head'>
+                          <span>Columns</span>
+                          <span className='field-val'>
+                            {cardStyle.listColumns === 1 ? '1 column' : `${cardStyle.listColumns} columns`}
+                          </span>
                         </span>
-                      </span>
-                      <div className='row-inline'>
-                        <input
-                          type='range'
-                          aria-label='Card width'
-                          min={560}
-                          max={1600}
-                          step={20}
-                          value={cardStyle.cardWidth === 0 ? 1200 : cardStyle.cardWidth}
-                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
-                            patchCard({ cardWidth: Number(event.currentTarget.value) })}
-                        />
-                        {cardStyle.cardWidth !== 0
-                          ? (
-                            <button type='button' className='small-btn' onClick={() => patchCard({ cardWidth: 0 })}>
-                              Full
+                        <div className='segmented' role='group' aria-label='List columns'>
+                          {[1, 2, 3, 4].map(columns => (
+                            <button
+                              key={columns}
+                              type='button'
+                              className='seg-btn'
+                              aria-pressed={cardStyle.listColumns === columns}
+                              onClick={() => patchCard({ listColumns: columns })}
+                            >
+                              {String(columns)}
                             </button>
-                          )
-                          : undefined}
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                      <div className='field'>
+                        <span className='field-head'>
+                          <span>Card width</span>
+                          <span className='field-val'>
+                            {cardStyle.cardWidth === 0 ? 'Full' : `${cardStyle.cardWidth} px`}
+                          </span>
+                        </span>
+                        <div className='row-inline'>
+                          <input
+                            type='range'
+                            aria-label='Card width'
+                            min={560}
+                            max={1600}
+                            step={20}
+                            value={cardStyle.cardWidth === 0 ? 1200 : cardStyle.cardWidth}
+                            onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                              patchCard({ cardWidth: Number(event.currentTarget.value) })}
+                          />
+                          {cardStyle.cardWidth !== 0
+                            ? (
+                              <button type='button' className='small-btn' onClick={() => patchCard({ cardWidth: 0 })}>
+                                Full
+                              </button>
+                            )
+                            : undefined}
+                        </div>
+                      </div>
+                    </>
                   )}
 
                 <label className='field'>

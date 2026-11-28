@@ -28,6 +28,25 @@ const style = css`
     gap: var(--feed-row-gap, 1.6rem);
   }
 
+  &.list.list-multi {
+    display: grid;
+    grid-template-columns: repeat(var(--feed-list-columns, 2), minmax(0, 1fr));
+    column-gap: 1.6rem;
+    row-gap: var(--feed-row-gap, 1.6rem);
+  }
+
+  @media (max-width: 1200px) {
+    &.list.list-multi {
+      grid-template-columns: repeat(min(var(--feed-list-columns, 2), 2), minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 768px) {
+    &.list.list-multi {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   @media (max-width: 500px) {
     &:not(.list),
     &.channel:not(.list) {
@@ -69,7 +88,10 @@ export const VideoGrid = (
     descriptionLines?: number
   },
 ) => {
-  const classes = [variant, layout === 'list' ? 'list' : undefined].filter(Boolean).join(' ')
+  const listMulti = layout === 'list' && (cardStyle?.listColumns ?? 1) > 1
+  const classes = [variant, layout === 'list' ? 'list' : undefined, listMulti ? 'list-multi' : undefined]
+    .filter(Boolean)
+    .join(' ')
   const vars = cardStyle ? feedCardCssVars(layout, cardStyle) : undefined
   return (
     <div css={style} className={classes || undefined} style={vars}>

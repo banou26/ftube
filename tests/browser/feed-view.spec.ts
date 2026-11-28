@@ -379,3 +379,46 @@ test('applies channel card description length 1-4 lines cleanly without header C
   await expect(channelRoot.locator('article .description')).toHaveCount(0)
   await expect(showChannelToggle).not.toBeChecked()
 })
+
+test('lays out multi-column list view in row-major order, persists across reload, and collapses on narrow viewports', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const root = await openFeedPage(page, '/feed/subscriptions')
+
+  await root.getByRole('button', { name: 'List view', exact: true }).click()
+  await root.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+  const panel = root.getByRole('complementary', { name: 'Feed display settings' })
+
+  await panel.getByRole('group', { name: 'List columns' }).getByRole('button', { name: '3', exact: true }).click()
+  const readBoxes = () => root.locator('article.list').evaluateAll(cards =>
+    cards.slice(0, 4).map((el) => {
+      const box = el.getBoundingClientRect()
+      return { x: box.x, y: box.y, width: box.width }
+    }),
+  )
+
+  const rowMajor = await readBoxes()
+  expect(rowMajor[0]!.x).toBeLessThan(rowMajor[1]!.x)
+  expect(rowMajor[1]!.x).toBeLessThan(rowMajor[2]!.x)
+  expect(Math.abs(rowMajor[0]!.y - rowMajor[1]!.y)).toBeLessThanOrEqual(2)
+  expect(Math.abs(rowMajor[0]!.y - rowMajor[2]!.y)).toBeLessThanOrEqual(2)
+  expect(rowMajor[3]!.y).toBeGreaterThan(rowMajor[0]!.y + 20)
+  expect(Math.abs(rowMajor[3]!.x - rowMajor[0]!.x)).toBeLessThanOrEqual(2)
+
+  await page.reload()
+  const reloaded = await openFeedPage(page, '/feed/subscriptions')
+  const afterReload = await reloaded.locator('article.list').evaluateAll(cards =>
+    cards.slice(0, 3).map(el => el.getBoundingClientRect().x),
+  )
+  expect(afterReload[0]!).toBeLessThan(afterReload[1]!)
+  expect(afterReload[1]!).toBeLessThan(afterReload[2]!)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  const phoneBoxes = await reloaded.locator('article.list').evaluateAll(cards =>
+    cards.slice(0, 2).map(el => el.getBoundingClientRect()),
+  )
+  expect(Math.abs(phoneBoxes[0]!.x - phoneBoxes[1]!.x)).toBeLessThanOrEqual(2)
+  expect(phoneBoxes[1]!.y).toBeGreaterThan(phoneBoxes[0]!.y + 20)
+  const phoneOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(phoneOverflow).toBeLessThanOrEqual(0)
+})

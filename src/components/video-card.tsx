@@ -718,6 +718,7 @@ const style = css`
     align-items: flex-start;
     gap: 1.6rem;
     width: 100%;
+    min-width: 0;
     max-width: var(--feed-list-max-width, 100%);
   }
 
