@@ -78,10 +78,21 @@ test('unmuting a card preview pauses audible dock and restores it only if it was
   await expect.poll(async () => (await videoState(page)).dock?.paused).toBe(true)
   expect((await videoState(page)).audibleCount).toBeLessThanOrEqual(1)
 
+  await page.evaluate(() => {
+    const win = window as unknown as { __dockPlayCount?: number }
+    win.__dockPlayCount = 0
+    const dockVideo = document.querySelector('aside[aria-label="Miniplayer"] video') as HTMLVideoElement | null
+    dockVideo?.addEventListener('play', () => {
+      win.__dockPlayCount = (win.__dockPlayCount ?? 0) + 1
+    })
+  })
+
   await thirdRow.locator('.thumb').hover()
   await expect(thirdRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
-  await expect.poll(async () => (await videoState(page)).audibleCount).toBeLessThanOrEqual(1)
+  await expect.poll(async () => (await videoState(page)).previews[0]?.audible).toBe(true)
+  expect((await videoState(page)).audibleCount).toBe(1)
   expect((await videoState(page)).dock?.paused).toBe(true)
+  expect(await page.evaluate(() => (window as unknown as { __dockPlayCount?: number }).__dockPlayCount)).toBe(0)
 
   await leaveCard(page, thirdRow)
   await expect(thirdRow.locator('video')).toHaveCount(0)
@@ -89,6 +100,7 @@ test('unmuting a card preview pauses audible dock and restores it only if it was
     dock: { paused: false, audible: true },
     audibleCount: 1,
   })
+  expect(await page.evaluate(() => (window as unknown as { __dockPlayCount?: number }).__dockPlayCount)).toBe(1)
 
   // If the user explicitly paused the docked player, unmuting and leaving a preview keeps dock paused.
   await dock.locator('video').hover({ position: { x: 80, y: 50 } })

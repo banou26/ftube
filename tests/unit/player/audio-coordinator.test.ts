@@ -2,7 +2,7 @@ import type { AudioMediaLike } from '../../../src/player/audio-coordinator'
 
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 
-import { createAudioCoordinator, isMediaAudible } from '../../../src/player/audio-coordinator'
+import { createAudioCoordinator, isMediaAudible, PREVIEW_HANDOFF_MS } from '../../../src/player/audio-coordinator'
 
 type MockVideo = AudioMediaLike & {
   paused: boolean
@@ -215,6 +215,47 @@ describe('createAudioCoordinator', () => {
     coordinator.releasePreviewAudio(2)
     vi.runAllTimers()
     expect(dock.playCalls).toBe(0)
+    unregister()
+  })
+
+  it('holds suspended dock across unmuted preview hover handoff until the next card releases or fails', () => {
+    vi.useFakeTimers()
+    const coordinator = createAudioCoordinator()
+    const dock = makeVideo()
+    let preview2Muted = false
+
+    const unregister = coordinator.registerPrimaryPlayer({ id: 'v1', video: dock, docked: true })
+    coordinator.claimPreviewAudio(1, () => {})
+    expect(dock.paused).toBe(true)
+
+    // Real hover switch: card 1 unmounts first, then card 2 mounts within PREVIEW_HANDOFF_MS and reserves before dwell finishes.
+    coordinator.releasePreviewAudio(1)
+    vi.advanceTimersByTime(Math.floor(PREVIEW_HANDOFF_MS / 2))
+    coordinator.reservePreviewAudio(2)
+    vi.advanceTimersByTime(1000)
+    expect(dock.paused).toBe(true)
+    expect(dock.playCalls).toBe(0)
+
+    // Card 2 claims audio after startup, then releases when pointer leaves.
+    coordinator.claimPreviewAudio(2, () => {
+      preview2Muted = true
+    })
+    expect(preview2Muted).toBe(false)
+    coordinator.releasePreviewAudio(2)
+    vi.advanceTimersByTime(PREVIEW_HANDOFF_MS)
+    expect(dock.paused).toBe(false)
+    expect(dock.playCalls).toBe(1)
+
+    // If a reserved card 3 fails or unmounts before claiming audio, releasing its reservation restores dock.
+    coordinator.claimPreviewAudio(2, () => {})
+    coordinator.releasePreviewAudio(2)
+    coordinator.reservePreviewAudio(3)
+    vi.advanceTimersByTime(PREVIEW_HANDOFF_MS)
+    expect(dock.playCalls).toBe(1)
+    coordinator.releasePreviewAudio(3)
+    vi.advanceTimersByTime(PREVIEW_HANDOFF_MS)
+    expect(dock.playCalls).toBe(2)
+
     unregister()
   })
 })

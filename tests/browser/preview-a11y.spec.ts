@@ -18,6 +18,7 @@ test('exposes Search preview controls and slider to keyboard and screen readers 
 
   const firstRow = page.locator('article.result').nth(0)
   const secondRow = page.locator('article.result').nth(1)
+  const thirdRow = page.locator('article.result').nth(2)
   await expect(firstRow.getByRole('link', { name: 'First Search Video', exact: true })).toBeVisible({ timeout: 30_000 })
 
   // Dock First Search Video so we can also confirm preview Space/Escape never collide with docked player shortcuts.
@@ -87,6 +88,10 @@ test('exposes Search preview controls and slider to keyboard and screen readers 
 
   await pressTab(page, browserName)
   await expect(slider).toBeFocused()
+  const scrollBeforeSpace = await page.evaluate(() => window.scrollY)
+  await page.keyboard.press('Space')
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeSpace)
+  expect(await dock.locator('video').evaluate((v: HTMLVideoElement) => v.paused)).toBe(true)
   await page.evaluate(() => {
     const video = document.querySelectorAll('article.result')[1]?.querySelector('video') as HTMLVideoElement | null
     if (video) video.currentTime = 20
@@ -125,6 +130,24 @@ test('exposes Search preview controls and slider to keyboard and screen readers 
   await expect(slider).toBeFocused()
   await pressTab(page, browserName)
   await expect(secondRow.getByRole('link', { name: 'Second Preview Video', exact: true })).toBeFocused()
+  await expect(secondRow.locator('video')).toHaveCount(0)
+
+  // Clicking blank space outside stops keyboard preview; hovering another card also stops an active keyboard preview.
+  await previewTrigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(secondRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
+  await expect(stopTrigger).toHaveAttribute('aria-pressed', 'true')
+  const toolbarBox = (await page.locator('.toolbar').boundingBox())!
+  await page.mouse.click(toolbarBox.x + toolbarBox.width * 0.7, toolbarBox.y + toolbarBox.height / 2)
+  await expect(secondRow.locator('video')).toHaveCount(0)
+  await expect(previewTrigger).toHaveAttribute('aria-pressed', 'false')
+
+  await previewTrigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(secondRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
+  await thirdRow.locator('.thumb').hover()
+  await expect(thirdRow.locator('[data-painted]')).toBeVisible({ timeout: 20_000 })
+  await expect(previewTrigger).toHaveAttribute('aria-pressed', 'false')
   await expect(secondRow.locator('video')).toHaveCount(0)
 })
 

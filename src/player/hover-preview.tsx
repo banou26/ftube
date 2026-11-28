@@ -14,7 +14,7 @@ import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { startEngine } from '../engine/client'
 import { getSettings, useSetting } from '../settings'
-import { claimPreviewAudio, releasePreviewAudio } from './audio-coordinator'
+import { claimPreviewAudio, releasePreviewAudio, reservePreviewAudio } from './audio-coordinator'
 import { cardState } from './card-params'
 import { clock } from './controls'
 import { computeHoverDwellMs } from './hover-dwell'
@@ -114,6 +114,11 @@ export const hoverPreviewStyle = css`
     opacity: 1;
   }
 
+  &[data-painted] .corner,
+  &[data-painted] .scrubber:not(.live) {
+    pointer-events: auto;
+  }
+
   .preview-surface-link {
     position: absolute;
     inset: 0;
@@ -153,7 +158,6 @@ export const hoverPreviewStyle = css`
     align-items: flex-end;
     cursor: pointer;
     touch-action: none;
-    pointer-events: auto;
   }
 
   .scrubber:focus-visible {
@@ -351,7 +355,6 @@ export const hoverPreviewStyle = css`
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
-    pointer-events: auto;
   }
 
   .corner button {
@@ -441,6 +444,7 @@ export const HoverPreviewScrubber = (
       onClick={onClick}
       onKeyDown={(event: TargetedKeyboardEvent<HTMLDivElement>) => {
         if (event.key === ' ') {
+          event.preventDefault()
           event.stopPropagation()
           return
         }
@@ -568,6 +572,7 @@ export const HoverPreview = (
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
     setMuted(preferMuted)
+    if (!preferMuted) reservePreviewAudio(token)
 
     const audioEvents = ['play', 'playing', 'volumechange', 'pause', 'ended'] as const
     for (const eventName of audioEvents) video.addEventListener(eventName, syncPreviewAudio)
@@ -748,7 +753,7 @@ export const HoverPreview = (
         )
         : undefined}
       {scrub ? <div className='scrub-time'>{clock(scrub.ratio * duration)}</div> : undefined}
-      {ready && !scrub
+      {painted && ready && !scrub
         ? (
           <div className='corner' onPointerDown={guard} onClick={guard}>
             <button
@@ -791,13 +796,13 @@ export const HoverPreview = (
         )
         : undefined}
       {/* time LEFT, as youtube.com's preview counts, and out of the way while the pointer is on the bar */}
-      {ready && live
+      {painted && ready && live
         ? <span className='time live'><Radio size={12} strokeWidth={2.5} />LIVE</span>
-        : ready && !scrub && !hover
+        : painted && ready && !scrub && !hover
         ? <span className='time'>{clock(duration - time)}</span>
         : undefined}
       {/* youtube.com's preview bar seeks back through a live stream's window, as the watch page's does; this one stays full at the edge */}
-      {ready && live
+      {painted && ready && live
         ? (
           <div className='scrubber live'>
             <div className='track'>
@@ -806,7 +811,7 @@ export const HoverPreview = (
           </div>
         )
         : undefined}
-      {ready && !live
+      {painted && ready && !live
         ? (
           <HoverPreviewScrubber
             seekHandle={seekHandle}

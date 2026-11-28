@@ -58,6 +58,7 @@ export const usePreviewActivation = ({ canPreview, hovered }: {
 }) => {
   const [keyboardActive, setKeyboardActive] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const stopperRef = useRef<(() => void) | undefined>(undefined)
 
   const stopKeyboard = useCallback((refocus = false) => {
@@ -72,6 +73,25 @@ export const usePreviewActivation = ({ canPreview, hovered }: {
   useEffect(() => {
     if (!canPreview && keyboardActive) stopKeyboard(false)
   }, [canPreview, keyboardActive, stopKeyboard])
+
+  useEffect(() => {
+    if (canPreview && hovered && !keyboardActive && stopActiveKeyboardPreview) {
+      stopActiveKeyboardPreview()
+    }
+  }, [canPreview, hovered, keyboardActive])
+
+  useEffect(() => {
+    if (!keyboardActive) return
+    const onPointerDown = (event: PointerEvent) => {
+      const container = containerRef.current
+      if (!container) return
+      if (event.target instanceof Node && !container.contains(event.target)) {
+        stopKeyboard(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [keyboardActive, stopKeyboard])
 
   useEffect(() => () => {
     if (stopperRef.current && stopActiveKeyboardPreview === stopperRef.current) {
@@ -98,7 +118,8 @@ export const usePreviewActivation = ({ canPreview, hovered }: {
   }, [keyboardActive, startKeyboard, stopKeyboard])
 
   const containerProps = {
-    onFocusOut: (event: TargetedFocusEvent<HTMLElement>) => {
+    ref: containerRef,
+    onFocusOut: (event: TargetedFocusEvent<HTMLDivElement>) => {
       if (!keyboardActive) return
       const related = event.relatedTarget
       // Guard against null relatedTarget (WebKit omits it on button clicks).
@@ -106,7 +127,7 @@ export const usePreviewActivation = ({ canPreview, hovered }: {
         stopKeyboard(false)
       }
     },
-    onKeyDown: (event: TargetedKeyboardEvent<HTMLElement>) => {
+    onKeyDown: (event: TargetedKeyboardEvent<HTMLDivElement>) => {
       if (!keyboardActive || event.key !== 'Escape') return
       event.preventDefault()
       event.stopPropagation()
