@@ -2978,4 +2978,87 @@ describe('youtube source', () => {
     client.session.logged_in = false
     await expect(source.dismissNotifications(['n-hide'])).rejects.toThrow('sign in to dismiss notifications')
   })
+
+  it('handles real NavigationEndpoint snake_case metadata, non-English hide labels, CommandExecutorCommand, and empty recordClickEndpoint', async () => {
+    const client = createFakeClient()
+    const executed: { path: string, args: unknown }[] = []
+    client.actions = {
+      execute: async (path: string, args?: unknown) => {
+        executed.push({ path, args })
+        return { success: true, data: {} }
+      },
+    } as never
+
+    const frHideEndpoint = new YTNodes.NavigationEndpoint({
+      recordNotificationInteractionsEndpoint: { serializedInteractionEntity: 'tok-fr' },
+      commandMetadata: { webCommandMetadata: { apiUrl: '/youtubei/v1/notification/record_interactions', sendPost: true } },
+    })
+    const prefEndpoint = new YTNodes.NavigationEndpoint({
+      modifyChannelNotificationPreferenceEndpoint: { params: 'mute-ch' },
+      commandMetadata: { webCommandMetadata: { apiUrl: '/youtubei/v1/notification/modify_channel_preference', sendPost: true } },
+    })
+    const feedbackCmd = { getApiPath: () => 'feedback', buildRequest: () => ({ feedbackTokens: ['fb-1'], isFeedbackTokenUnencrypted: false }) }
+    const uiOnlyCmd = { type: 'RemoveFromSection' }
+    const cmdExecEndpoint = {
+      type: 'NavigationEndpoint',
+      command: new YTNodes.CommandExecutorCommand({ commands: [] }),
+      call: async () => { throw new Error('must unwrap command.commands instead of calling last element') },
+    }
+    ;(cmdExecEndpoint.command as unknown as { commands: unknown[] }).commands = [feedbackCmd, uiOnlyCmd]
+
+    const emptyNavNotification = new YTNodes.Notification({
+      notificationId: 'n-empty',
+      shortMessage: { simpleText: 'No click endpoint upload' },
+      sentTimeText: { simpleText: '5m ago' },
+    })
+
+    const emptyPage: FakeNotifications = { contents: [], getContinuation: async () => emptyPage }
+    client.getNotifications = async () => ({
+      contents: [
+        {
+          notification_id: 'n-fr',
+          short_message: { text: 'Upload FR' },
+          sent_time: { text: '1m ago' },
+          record_click_endpoint: new YTNodes.NavigationEndpoint(undefined as never),
+          menu: {
+            items: [
+              { text: 'Masquer les notifications de cette chaine', endpoint: prefEndpoint },
+              { text: 'Masquer cette notification', endpoint: frHideEndpoint },
+            ],
+          },
+        },
+        {
+          notification_id: 'n-cmd',
+          short_message: { text: 'Upload CMD' },
+          sent_time: { text: '2m ago' },
+          menu: {
+            items: [
+              { text: 'Hide this notification', endpoint: cmdExecEndpoint },
+            ],
+          },
+        },
+        emptyNavNotification,
+        {
+          notification_id: 'n-pref-only',
+          short_message: { text: 'Only channel pref item' },
+          sent_time: { text: '6m ago' },
+          record_click_endpoint: new YTNodes.NavigationEndpoint(undefined as never),
+          menu: {
+            items: [
+              { text: 'Mute channel', endpoint: prefEndpoint },
+            ],
+          },
+        },
+      ],
+      getContinuation: async () => emptyPage,
+    })
+
+    const source = createYoutubeSource({ fetch: globalThis.fetch, createClient: async () => client, signedIn: () => true })
+    await source.notifications()
+    await expect(source.dismissNotifications(['n-fr', 'n-cmd', 'n-empty', 'n-pref-only'])).resolves.toEqual(['n-fr', 'n-cmd', 'n-empty', 'n-pref-only'])
+    expect(executed).toEqual([
+      { path: 'notification/record_interactions', args: { serializedInteractionEntity: 'tok-fr' } },
+      { path: 'feedback', args: { feedbackTokens: ['fb-1'], isFeedbackTokenUnencrypted: false } },
+    ])
+  })
 })

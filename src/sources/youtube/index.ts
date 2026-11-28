@@ -317,6 +317,7 @@ export type YoutubeClient = {
     execute(endpoint: '/feedback', args: { feedbackTokens: string[], shouldMerge: boolean, isFeedbackTokenUnencrypted: boolean, parse: false }): Promise<unknown>
     execute(endpoint: '/guide', args: { parse: false }): Promise<{ data?: unknown }>
     execute(endpoint: string, args: { params: string, parse: false }): Promise<{ data: unknown }>
+    execute(endpoint: string, args: Record<string, unknown>): Promise<unknown>
   }
 }
 
@@ -1158,30 +1159,89 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
     return result
   }
 
-  const notificationClicks = new Map<string, EndpointNode>()
-  const notificationDismissals = new Map<string, EndpointNode>()
+  type NotificationEndpoint = EndpointNode & {
+    type?: string
+    name?: string
+    payload?: Record<string, unknown>
+    metadata?: { api_url?: unknown, apiUrl?: unknown }
+    commands?: NotificationEndpoint[]
+    command?: {
+      getApiPath?: () => string
+      buildRequest?: () => Record<string, unknown>
+      commands?: { getApiPath?: () => string, buildRequest?: () => Record<string, unknown> }[]
+    }
+  }
+
+  const notificationClicks = new Map<string, NotificationEndpoint>()
+  const notificationDismissals = new Map<string, NotificationEndpoint>()
 
   const REJECT_DISMISS_ICONS = new Set(['NOTIFICATIONS_OFF', 'BELL_OFF', 'MUTE', 'VOLUME_OFF', 'UNSUBSCRIBE'])
-  const HIDE_DISMISS_ICONS = new Set(['HIDE', 'EYE_OFF', 'VISIBILITY_OFF', 'NOT_INTERESTED'])
+  const HIDE_DISMISS_ICONS = new Set(['HIDE', 'EYE_OFF', 'VISIBILITY_OFF', 'NOT_INTERESTED', 'REMOVE_CIRCLE_OUTLINE', 'DO_NOT_DISTURB', 'CLOSE'])
 
-  const notificationDismissEndpoint = (node: unknown): EndpointNode | undefined => {
+  const endpointApiUrl = (endpoint?: NotificationEndpoint): string => {
+    const raw = endpoint?.metadata?.api_url ?? endpoint?.metadata?.apiUrl
+    return typeof raw === 'string' ? raw : ''
+  }
+
+  const isNotificationInteractionEndpoint = (endpoint?: NotificationEndpoint): boolean => {
+    if (!endpoint) return false
+    if (endpointApiUrl(endpoint).includes('notification/record_interactions')) return true
+    if (endpoint.name === 'recordNotificationInteractionsEndpoint') return true
+    if (endpoint.payload && ('serializedInteractionEntity' in endpoint.payload || 'serializedRecordNotificationInteractionsRequest' in endpoint.payload)) {
+      return true
+    }
+    if (endpoint.commands?.some(child => isNotificationInteractionEndpoint(child))) return true
+    return Boolean(endpoint.command?.commands?.some(sub => typeof sub.getApiPath === 'function' && sub.getApiPath().includes('notification/record_interactions')))
+  }
+
+  const invokeNotificationEndpoint = async (actions: YoutubeClient['actions'], endpoint: NotificationEndpoint): Promise<void> => {
+    const subcommands = endpoint.command?.commands
+    if (Array.isArray(subcommands) && subcommands.length > 0) {
+      let executedAny = false
+      for (const sub of subcommands) {
+        if (typeof sub?.getApiPath === 'function') {
+          await actions.execute(sub.getApiPath(), sub.buildRequest?.() ?? {})
+          executedAny = true
+        }
+      }
+      if (executedAny) return
+    }
+    if (Array.isArray(endpoint.commands) && endpoint.commands.length > 0) {
+      for (const child of endpoint.commands) await invokeNotificationEndpoint(actions, child)
+      return
+    }
+    if (endpoint.command && typeof endpoint.command.getApiPath === 'function') {
+      await endpoint.call(actions)
+      return
+    }
+    const apiUrl = endpointApiUrl(endpoint)
+    if (apiUrl) {
+      await endpoint.call(actions)
+      return
+    }
+    if (isNotificationInteractionEndpoint(endpoint)) {
+      await actions.execute('notification/record_interactions', endpoint.payload ?? {})
+      return
+    }
+    if (endpoint.type === 'NavigationEndpoint') return
+    await endpoint.call(actions)
+  }
+
+  const notificationDismissEndpoint = (node: unknown): NotificationEndpoint | undefined => {
     type MenuItemNode = {
       text?: unknown
       label?: unknown
       tooltip?: unknown
       icon_type?: unknown
-      endpoint?: EndpointNode & {
-        payload?: { serializedRecordNotificationInteractionsRequest?: unknown }
-        metadata?: { apiUrl?: unknown }
-      }
+      endpoint?: NotificationEndpoint
     }
     const items = (node as { menu?: { items?: MenuItemNode[] } }).menu?.items
     if (!Array.isArray(items)) return undefined
+    let interactionFallback: NotificationEndpoint | undefined
     for (const item of items) {
       const endpoint = item?.endpoint
       if (!endpoint || typeof endpoint.call !== 'function') continue
-      const apiUrl = typeof endpoint.metadata?.apiUrl === 'string' ? endpoint.metadata.apiUrl : ''
-      if (apiUrl.includes('modify_channel_preference')) continue
+      if (endpointApiUrl(endpoint).includes('modify_channel_preference')) continue
       const iconType = typeof item.icon_type === 'string' ? item.icon_type.toUpperCase() : ''
       if (REJECT_DISMISS_ICONS.has(iconType)) continue
       const label = [item.text, item.label, item.tooltip]
@@ -1193,8 +1253,11 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       if (HIDE_DISMISS_ICONS.has(iconType) || /\b(hide|dismiss|remove)\b/.test(label)) {
         return endpoint
       }
+      if (!interactionFallback && label.length > 0 && isNotificationInteractionEndpoint(endpoint)) {
+        interactionFallback = endpoint
+      }
     }
-    return undefined
+    return interactionFallback
   }
 
   const notificationPage = (feed: NotificationsFeed): SourceNotificationPage => {
@@ -2306,7 +2369,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const active = await client
       requireSignIn(active, 'update a notification')
       const endpoint = notificationClicks.get(id)
-      if (endpoint) await endpoint.call(active.actions)
+      if (endpoint) await invokeNotificationEndpoint(active.actions, endpoint)
       return id
     },
     dismissNotifications: async (ids) => {
@@ -2322,7 +2385,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
           const id = remaining.shift()!
           const endpoint = notificationDismissals.get(id) ?? notificationClicks.get(id)
           try {
-            if (endpoint) await endpoint.call(active.actions)
+            if (endpoint) await invokeNotificationEndpoint(active.actions, endpoint)
             notificationDismissals.delete(id)
             notificationClicks.delete(id)
             succeeded.add(id)
