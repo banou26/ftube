@@ -840,6 +840,8 @@ export const ShortsPage = () => {
   const [saving, setSaving] = useState<string | undefined>(undefined)
   const [descriptionFor, setDescriptionFor] = useState<string | undefined>(undefined)
   const [openMenuCount, setOpenMenuCount] = useState(0)
+  const openMenuCountRef = useRef(openMenuCount)
+  openMenuCountRef.current = openMenuCount
   const onMenuOpenChange = useCallback((open: boolean) => {
     setOpenMenuCount(count => Math.max(0, count + (open ? 1 : -1)))
   }, [])
@@ -1058,7 +1060,15 @@ export const ShortsPage = () => {
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as HTMLElement | null
       const root = scrollerRef.current
-      if (!target || !root || !root.contains(target) || target.closest('[role="dialog"]')) {
+      if (!target || !root) {
+        focusedRegionRef.current = null
+        return
+      }
+      if (!root.contains(target) && openMenuCountRef.current > 0 && target.closest('[role="menu"]')) {
+        focusedRegionRef.current = 'slide'
+        return
+      }
+      if (!root.contains(target) || target.closest('[role="dialog"]')) {
         focusedRegionRef.current = null
         return
       }
@@ -1076,6 +1086,9 @@ export const ShortsPage = () => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null
       const root = scrollerRef.current
+      if (openMenuCountRef.current > 0 && target instanceof Element && target.closest('[role="menu"]')) {
+        return
+      }
       if (!target || !root || !root.contains(target)) focusedRegionRef.current = null
     }
     document.addEventListener('focusin', onFocusIn)
@@ -1089,13 +1102,14 @@ export const ShortsPage = () => {
   useLayoutEffect(() => {
     const root = scrollerRef.current
     const restoredId = restoredIdRef.current
-    if (!root || !restoredId) return
+    if (!restoredId) return
+    restoredIdRef.current = undefined
+    if (!root) return
     const slide = root.querySelector<HTMLElement>(`[data-short-id="${CSS.escape(restoredId)}"]`)
     if (!slide) return
-    restoredIdRef.current = undefined
     const delta = slide.getBoundingClientRect().top - root.getBoundingClientRect().top
     if (Math.abs(delta) > 1) root.scrollTo({ top: root.scrollTop + delta, behavior: 'instant' })
-  }, [items.length])
+  }, [dismissedInSession, items.length])
 
   useLayoutEffect(() => {
     const root = scrollerRef.current

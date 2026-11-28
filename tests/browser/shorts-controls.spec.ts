@@ -303,10 +303,12 @@ test('keeps inactive Shorts controls out of keyboard tab order and accessibility
   await expect(playBtn1).toBeVisible()
   await playBtn1.focus()
   await expect(playBtn1).toBeFocused()
+  await expect(slide2.locator('.paused-glyph')).toHaveCount(0)
 
   await page.keyboard.press('ArrowDown')
   await expect(slide2).toHaveAttribute('data-active', 'true', { timeout: 10_000 })
   await expect(slide2.locator('.byline .name')).toHaveText('Second Channel', { timeout: 10_000 })
+  await expect(slide2.locator('.paused-glyph')).toHaveCount(0)
 
   // Focus transferred cleanly into active short-2 (never stranded on short-1 or document.body)
   const focusAfterDown = await page.evaluate(() => ({

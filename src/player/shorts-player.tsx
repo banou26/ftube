@@ -453,7 +453,7 @@ const ShortsPlayer = (
   const [pendingRefusal, setPendingRefusal] = useState<string | undefined>(undefined)
   const [autoMuted, setAutoMuted] = useState(false)
   const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
-  const [paused, setPaused] = useState(!active)
+  const [paused, setPaused] = useState(false)
   const seekHandle = useSetting('seekHandle')
   const ambientMode = useSetting('ambientMode')
   const [playbackRate, setPlaybackRate] = useState(() => getSettings().playbackRate)
@@ -669,7 +669,7 @@ const ShortsPlayer = (
     if (!video || !controller || !ready) return
     if (!active) {
       video.pause()
-      setPaused(true)
+      setPaused(false)
       if (video.currentTime > 0) video.currentTime = 0
       setProgress(0)
       setAutoMuted(false)
@@ -755,7 +755,7 @@ const ShortsPlayer = (
       })
     }
     const sync = () => {
-      setPaused(video.paused)
+      setPaused(activeRef.current ? video.paused : false)
       setMuted(video.muted)
       setVolume(video.volume)
       reportPlayback()
