@@ -1,7 +1,7 @@
 import type { ShortsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, MessageCircle, MoreVertical, Share2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, MessageCircle, MoreVertical, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useRoute } from 'wouter'
@@ -267,47 +267,6 @@ const style = css`
 
   .comments-scrim {
     display: none;
-  }
-
-  .comments-panel header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.6rem;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: 1.6rem;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .comments-title {
-    display: flex;
-    align-items: baseline;
-    gap: 0.8rem;
-  }
-
-  .comments-count {
-    font-size: 1.4rem;
-    font-weight: 400;
-    color: var(--text-secondary);
-  }
-
-  .comments-panel .body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 1.6rem 1.6rem;
-  }
-
-  .icon-button {
-    display: grid;
-    place-items: center;
-    width: 4rem;
-    height: 4rem;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--text-primary);
-    cursor: pointer;
   }
 
   .notice,
@@ -683,18 +642,12 @@ const Slide = (
           aria-hidden={active ? undefined : true}
           ref={commentsPanelRef}
         >
-          <header>
-            <span className='comments-title'>
-              Comments
-              {meta?.commentCountText ? <span className='comments-count'>{meta.commentCountText}</span> : undefined}
-            </span>
-            <button type='button' className='icon-button' aria-label='Close comments' onClick={onCloseComments}>
-              <X size={24} strokeWidth={1.5} />
-            </button>
-          </header>
-          <div className='body'>
-            <Comments videoId={id} />
-          </div>
+          <Comments
+            videoId={id}
+            variant='compact'
+            commentCountText={meta?.commentCountText}
+            onClose={onCloseComments}
+          />
         </aside>
       )
       : undefined}

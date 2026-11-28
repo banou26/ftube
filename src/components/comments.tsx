@@ -5,7 +5,7 @@ import type { CommentCoreFragment, CommentRepliesQuery, CommentSort, CommentsQue
 import type { RydComment, RydCommentSort } from '../ryd-comments'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronUp, Heart, ListFilter, Pin, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Heart, ListFilter, Pin, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
 import { Link } from 'wouter'
@@ -215,7 +215,7 @@ const style = css`
     outline-offset: 2px;
   }
 
-  .body {
+  .comment > .body {
     flex: 1;
     min-width: 0;
     margin-left: 1.6rem;
@@ -238,16 +238,38 @@ const style = css`
   .byline {
     display: flex;
     align-items: baseline;
-    gap: 0.8rem;
+    flex-wrap: nowrap;
+    gap: 0.6rem;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .author {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    max-width: 100%;
     font-size: 1.3rem;
     font-weight: 500;
     color: var(--text-primary);
   }
 
+  .name-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .author svg,
+  .reply-row .name svg {
+    flex: none;
+  }
+
   .age {
+    flex: none;
+    white-space: nowrap;
     font-size: 1.2rem;
     color: var(--text-secondary);
   }
@@ -471,6 +493,8 @@ const style = css`
   }
 
   .reply-row > .body {
+    flex: 1;
+    min-width: 0;
     margin-left: 0;
   }
 
@@ -646,6 +670,9 @@ const style = css`
   .reply-row .name {
     display: inline-flex;
     align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    max-width: 100%;
     font-size: 1.3rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -661,10 +688,187 @@ const style = css`
     text-decoration: none;
   }
 
-  .disabled-notice {
+  .disabled-notice,
+  .empty-notice {
     margin: 2.4rem 0 0;
     font-size: 1.4rem;
     color: var(--text-secondary);
+  }
+
+  &.compact {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    margin-top: 0;
+  }
+
+  &.compact .compact-header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 1.2rem 1.2rem 1.2rem 1.6rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  &.compact .compact-title {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 2.4rem;
+    color: var(--text-primary);
+  }
+
+  &.compact .comments-count {
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  &.compact .compact-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  &.compact .compact-icon-button {
+    display: grid;
+    place-items: center;
+    width: 3.6rem;
+    height: 3.6rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  &.compact .compact-icon-button:hover {
+    background: var(--bg-hover);
+  }
+
+  &.compact .compact-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 1.2rem 1.6rem 1.6rem;
+  }
+
+  &.compact .compact-footer {
+    flex: none;
+    border-top: 1px solid var(--border-subtle);
+    padding: 1rem 1.6rem;
+    background: inherit;
+  }
+
+  &.compact .compact-footer .composer.top {
+    margin: 0;
+  }
+
+  &.compact .compact-footer .composer.top .composer-avatar {
+    width: 2.8rem;
+    height: 2.8rem;
+    font-size: 1.3rem;
+  }
+
+  &.compact .compact-footer .composer-prompt {
+    margin: 0;
+    padding: 0.4rem 0;
+  }
+
+  &.compact .list {
+    gap: 1.6rem;
+  }
+
+  &.compact .comment > .avatar {
+    width: 3.2rem;
+    height: 3.2rem;
+  }
+
+  &.compact .comment > .body {
+    margin-left: 1.2rem;
+  }
+
+  &.compact .comment.has-replies:not(:has(> .body > .replies-block > .reply-list))::before {
+    top: 3.6rem;
+    left: 1.6rem;
+    width: 1.4rem;
+  }
+
+  &.compact .actions {
+    gap: 0.2rem;
+    flex-wrap: wrap;
+  }
+
+  &.compact .action {
+    width: 2.8rem;
+    height: 2.8rem;
+  }
+
+  &.compact .like-count {
+    margin-left: 0;
+    margin-right: 0.4rem;
+  }
+
+  &.compact .reply {
+    height: 2.8rem;
+    padding: 0 1rem;
+  }
+
+  &.compact .replies {
+    height: 3.2rem;
+    margin-left: -1rem;
+    padding: 0 1rem;
+    font-size: 1.3rem;
+    color: var(--accent);
+  }
+
+  &.compact .reply-list {
+    padding-left: 1.6rem;
+  }
+
+  &.compact .reply-rows > .thread-line {
+    left: -1.8rem;
+    width: 1.8rem;
+  }
+
+  &.compact .reply-rows > .reply-row::before {
+    left: -1.2rem;
+    width: 0.9rem;
+  }
+
+  &.compact .reply-rows > .reply-row:has(+ .reply-row)::after {
+    left: -1.2rem;
+  }
+
+  &.compact .reply-row {
+    gap: 1rem;
+  }
+
+  &.compact .reply-list.flat {
+    margin-left: -3.4rem;
+    padding-left: 0;
+  }
+
+  &.compact .reply-list.flat > .reply-rows > .reply-row::before,
+  &.compact .reply-list.flat > .reply-rows > .reply-row::after {
+    display: none;
+  }
+
+  &.compact .show-more {
+    margin-top: 1.6rem;
+  }
+
+  &.compact .disabled-notice,
+  &.compact .empty-notice {
+    margin-top: 0;
   }
 `
 
@@ -1054,12 +1258,14 @@ const AuthorAvatarButton = (
   : <span className='avatar fallback'>?</span>
 
 const ReplyRow = (
-  { reply, videoId, customEmojis, activeProfileKey, onOpenProfile }: {
+  { reply, videoId, customEmojis, activeProfileKey, onOpenProfile, depth, compact }: {
     reply: CommentNode
     videoId?: string
     customEmojis?: readonly CustomEmoji[]
     activeProfileKey: string | null
     onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
+    depth: number
+    compact: boolean
   },
 ) => {
   const replyAuthor = reply.author
@@ -1077,7 +1283,7 @@ const ReplyRow = (
           {replyAuthor
             ? (
               <Link href={`/channel/${replyAuthor.id}`} className={reply.isCreator ? 'name creator' : 'name'}>
-                {replyAuthor.name}
+                <span className='name-text'>{replyAuthor.name}</span>
                 <VerifiedBadge channel={replyAuthor} size={12} />
               </Link>
             )
@@ -1097,6 +1303,8 @@ const ReplyRow = (
               customEmojis={customEmojis}
               activeProfileKey={activeProfileKey}
               onOpenProfile={onOpenProfile}
+              depth={depth + 1}
+              compact={compact}
             />
           )
           : undefined}
@@ -1110,7 +1318,7 @@ const ReplyRow = (
  * collapsible along its vertical thread rail.
  */
 const ReplyThread = (
-  { initialReplies, cursor, count, defaultOpen = false, videoId, customEmojis, activeProfileKey, onOpenProfile }: {
+  { initialReplies, cursor, count, defaultOpen = false, videoId, customEmojis, activeProfileKey, onOpenProfile, depth = 1, compact = false }: {
     initialReplies?: readonly CommentNode[]
     cursor?: string | null
     count?: number | null
@@ -1119,6 +1327,8 @@ const ReplyThread = (
     customEmojis?: readonly CustomEmoji[]
     activeProfileKey: string | null
     onOpenProfile: (key: string, author: CommentProfileAuthor, anchor: HTMLElement) => void
+    depth?: number
+    compact?: boolean
   },
 ) => {
   const hasInitial = Boolean(initialReplies && initialReplies.length > 0)
@@ -1140,8 +1350,15 @@ const ReplyThread = (
     pages: [...seeded, ...loaded, ...(page ? [page] : [])],
     key: reply => reply.id,
   })
-  const resolvedCount = count ?? (hasInitial ? initialReplies!.length : undefined)
-  const label = resolvedCount === 1 ? '1 reply' : `${resolvedCount ?? ''} replies`.trim()
+  const positiveCount = typeof count === 'number' && count > 0 ? count : undefined
+  const resolvedCount = positiveCount ?? (items.length > 0 ? items.length : undefined)
+  const label = resolvedCount === undefined
+    ? 'Replies'
+    : resolvedCount === 1
+      ? '1 reply'
+      : `${resolvedCount} replies`
+  // Cap visual indentation at depth 2 in narrow Shorts panels so deeper nested replies keep full width.
+  const flat = Boolean(compact && depth >= 3)
   const showMore = !fetching && !error && (hasInitial && !fetchingMore ? Boolean(cursor) : Boolean(next))
   const onShowMore = () => {
     if (!fetchingMore) {
@@ -1171,17 +1388,21 @@ const ReplyThread = (
       </button>
       {open
         ? (
-          <div className='reply-list'>
+          <div className={flat ? 'reply-list flat' : 'reply-list'} data-depth={depth}>
             {items.length > 0
               ? (
                 <div className='reply-rows'>
-                  <button
-                    type='button'
-                    className='thread-line'
-                    aria-label='Collapse replies'
-                    title='Collapse replies'
-                    onClick={collapse}
-                  />
+                  {!flat
+                    ? (
+                      <button
+                        type='button'
+                        className='thread-line'
+                        aria-label='Collapse replies'
+                        title='Collapse replies'
+                        onClick={collapse}
+                      />
+                    )
+                    : undefined}
                   {items.map(reply => (
                     <ReplyRow
                       key={reply.id}
@@ -1190,6 +1411,8 @@ const ReplyThread = (
                       customEmojis={customEmojis}
                       activeProfileKey={activeProfileKey}
                       onOpenProfile={onOpenProfile}
+                      depth={depth}
+                      compact={compact}
                     />
                   ))}
                 </div>
@@ -1305,7 +1528,7 @@ const RydReplies = ({ rootId, count }: { rootId: string, count: number }) => {
   )
 }
 
-const RydComments = ({ videoId }: { videoId: string }) => {
+const RydComments = ({ videoId, compact = false }: { videoId: string, compact?: boolean }) => {
   const [enabled, setEnabled] = useState(() => getSettings().showDislikes)
   const [sort, setSort] = useState<RydCommentSort>('top')
   const [items, setItems] = useState<RydComment[]>([])
@@ -1348,29 +1571,18 @@ const RydComments = ({ videoId }: { videoId: string }) => {
     })
   }
 
-  if (!enabled || (!loading && items.length === 0)) {
-    return (
-      <section css={style}>
-        <p className='disabled-notice'>Comments are turned off.</p>
-      </section>
-    )
+  const notice = <p className='disabled-notice'>Comments are turned off.</p>
+  if (!enabled || (!loading && items.length === 0) || (loading && items.length === 0)) {
+    return compact ? notice : <section css={style}>{notice}</section>
   }
 
-  if (loading && items.length === 0) {
-    return (
-      <section css={style}>
-        <p className='disabled-notice'>Comments are turned off.</p>
-      </section>
-    )
-  }
-
-  return (
-    <section css={style} data-ryd-comments='true'>
+  const content = (
+    <>
       <p className='disabled-notice'>Comments are turned off on YouTube. Showing Return YouTube Dislike comments.</p>
       <div className='heading-row'>
         <h2 className='heading'>Return YouTube Dislike comments</h2>
         <Menu
-          align='start'
+          align={compact ? 'end' : 'start'}
           trigger={
             <button type='button' className='sort'>
               <ListFilter size={24} strokeWidth={1.5} />
@@ -1394,7 +1606,7 @@ const RydComments = ({ videoId }: { videoId: string }) => {
             <span className='avatar fallback' aria-hidden='true'>{comment.authorName.slice(0, 1).toUpperCase()}</span>
             <div className='body'>
               <div className='byline'>
-                <span className='author'>{comment.authorName}</span>
+                <span className='author'><span className='name-text'>{comment.authorName}</span></span>
                 {comment.createdAt ? <span className='age'>{formatAgo(comment.createdAt)}{comment.edited ? ' (edited)' : ''}</span> : undefined}
               </div>
               <div className='comment-text'>
@@ -1416,17 +1628,21 @@ const RydComments = ({ videoId }: { videoId: string }) => {
           </button>
         )
         : undefined}
-    </section>
+    </>
   )
+  return compact ? content : <section css={style} data-ryd-comments='true'>{content}</section>
 }
 
-/** A video's comments, or with `post` instead, a channel post's. */
-export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis }: {
+/** A video's comments, or with `post` instead, a channel post's. `variant='compact'` renders a unified Shorts drawer layout with pinned footer composer. */
+export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis, variant = 'default', onClose }: {
   videoId?: string
   post?: { id: string, channelId: string }
   commentCountText?: string | null
   extraCustomEmojis?: readonly CustomEmoji[]
+  variant?: 'default' | 'compact'
+  onClose?: () => void
 }) => {
+  const compact = variant === 'compact'
   const [sort, setSort] = useState<CommentSort>('TOP')
   // pages carry the sort they came from: without it the accumulator dedupes a reorder into a drop
   const [loaded, setLoaded] = useState<{ sort: CommentSort, pages: CommentPage[] }>({ sort, pages: [] })
@@ -1456,22 +1672,180 @@ export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis }:
   // the first page carries the full count ('2,461,151 Comments'); later pages carry none, and the watch read only the rounded '2.4M'
   const firstPage = loadedPages[0] ?? page
   const count = firstPage?.countText ?? commentCountText
+  const compactCount = count ? count.replace(/\s*comments?$/i, '').trim() : undefined
   const customEmojis = mergeCustomEmojis(firstPage?.customEmojis, extraCustomEmojis)
   const heading = count ? /comment/i.test(count) ? count : `${count} Comments` : 'Comments'
   const onMore = () => {
     if (!page?.cursor || fetching) return
     setLoaded({ sort, pages: loadedPages[loadedPages.length - 1] === page ? loadedPages : [...loadedPages, page] })
   }
+  const initialError = Boolean(error && items.length === 0 && !fetching)
+  const isDisabled = Boolean(page?.disabled && items.length === 0)
+  const isEmpty = !fetching && !error && items.length === 0 && !page?.disabled
+
+  const commentList = (
+    <div className='list'>
+      {items.map(comment => {
+        const author = comment.author
+        const inlineReplies = comment.replies ?? []
+        const hasReplies = Boolean(comment.repliesCursor || inlineReplies.length > 0 || comment.replyCount)
+        return (
+          <div className={hasReplies ? 'comment has-replies' : 'comment'} key={comment.id}>
+            <AuthorAvatarButton
+              profileKey={comment.id}
+              author={author}
+              activeProfileKey={activeProfile?.key ?? null}
+              onOpenProfile={toggleProfile}
+            />
+            <div className='body'>
+              {comment.isPinned
+                ? (
+                  <div className='pinned' data-pinned-comment='true'>
+                    <Pin size={13} strokeWidth={1.75} aria-hidden='true' />
+                    <span>{comment.pinnedText || 'Pinned'}</span>
+                  </div>
+                )
+                : undefined}
+              <div className='byline'>
+                {author
+                  ? (
+                    <Link href={`/channel/${author.id}`} className={comment.isCreator ? 'author creator' : 'author'}>
+                      <span className='name-text'>{author.name}</span>
+                      <VerifiedBadge channel={author} size={12} />
+                    </Link>
+                  )
+                  : undefined}
+                {comment.publishedText ? <span className='age'>{comment.publishedText}</span> : undefined}
+              </div>
+              <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
+              <CommentActions comment={comment} customEmojis={customEmojis} />
+              {inlineReplies.length > 0 || comment.repliesCursor
+                ? (
+                  <ReplyThread
+                    initialReplies={inlineReplies}
+                    cursor={comment.repliesCursor}
+                    count={comment.replyCount}
+                    defaultOpen={false}
+                    videoId={videoId}
+                    customEmojis={customEmojis}
+                    activeProfileKey={activeProfile?.key ?? null}
+                    onOpenProfile={toggleProfile}
+                    depth={1}
+                    compact={compact}
+                  />
+                )
+                : comment.replyCount
+                  ? <div className='replies'>{comment.replyCount === 1 ? '1 reply' : `${comment.replyCount} replies`}</div>
+                  : undefined}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  const sortMenu = (align: 'start' | 'end', iconOnly: boolean) => (
+    <Menu
+      align={align}
+      trigger={
+        iconOnly
+          ? (
+            <button type='button' className='compact-icon-button' aria-label='Sort comments'>
+              <ListFilter size={20} strokeWidth={1.75} />
+            </button>
+          )
+          : (
+            <button type='button' className='sort'>
+              <ListFilter size={24} strokeWidth={1.5} />
+              <span className='sort-label'>Sort by</span>
+            </button>
+          )
+      }
+    >
+      {SORTS.map(option => (
+        <MenuItem
+          key={option.value}
+          label={option.label}
+          checked={option.value === sort}
+          onSelect={() => setSort(option.value)}
+        />
+      ))}
+    </Menu>
+  )
+
+  if (compact) {
+    return (
+      <section css={style} className='compact'>
+        <div className='compact-header'>
+          <h2 className='compact-title'>
+            Comments
+            {compactCount ? <span className='comments-count'>{compactCount}</span> : undefined}
+          </h2>
+          <div className='compact-header-actions'>
+            {!initialError && !isDisabled ? sortMenu('end', true) : undefined}
+            {onClose
+              ? (
+                <button type='button' className='compact-icon-button' aria-label='Close comments' onClick={onClose}>
+                  <X size={20} strokeWidth={1.75} />
+                </button>
+              )
+              : undefined}
+          </div>
+        </div>
+        <div className='compact-scroll'>
+          {initialError
+            ? <DataFailure error={error} reexecute={reexecute} />
+            : isDisabled
+              ? (videoId && !post ? <RydComments videoId={videoId} compact /> : <p className='disabled-notice'>Comments are turned off.</p>)
+              : fetching && items.length === 0
+                ? <p className='age'>Loading comments…</p>
+                : isEmpty
+                  ? <p className='empty-notice'>No comments yet.</p>
+                  : (
+                    <>
+                      {commentList}
+                      {activeProfile
+                        ? (
+                          <CommentProfileCard
+                            author={activeProfile.author}
+                            anchor={activeProfile.anchor}
+                            onClose={() => setActiveProfile(null)}
+                          />
+                        )
+                        : undefined}
+                      {error && !fetching
+                        ? <DataFailure error={error} reexecute={reexecute} />
+                        : page?.cursor
+                          ? (
+                            <button type='button' className='show-more' disabled={fetching} onClick={onMore}>
+                              Show more
+                            </button>
+                          )
+                          : undefined}
+                    </>
+                  )}
+        </div>
+        {!initialError && !isDisabled
+          ? (
+            <div className='compact-footer'>
+              <Composer videoId={videoId} post={post} customEmojis={customEmojis} />
+            </div>
+          )
+          : undefined}
+      </section>
+    )
+  }
+
   // a first-page failure REPORTS rather than unmounting: returning null reads as "no comments"
-  if (error && items.length === 0 && !fetching) {
+  if (initialError) {
     return (
       <section css={style}>
         <DataFailure error={error} reexecute={reexecute} />
       </section>
     )
   }
-  if (!fetching && !error && items.length === 0 && !page?.disabled && !page?.countText) return null
-  if (page?.disabled && items.length === 0) {
+  if (isEmpty && !page?.countText) return null
+  if (isDisabled) {
     if (videoId && !post) return <RydComments videoId={videoId} />
     return (
       <section css={style}>
@@ -1483,82 +1857,10 @@ export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis }:
     <section css={style}>
       <div className='heading-row'>
         <h2 className='heading'>{heading}</h2>
-        <Menu
-          align='start'
-          trigger={
-            <button type='button' className='sort'>
-              <ListFilter size={24} strokeWidth={1.5} />
-              <span className='sort-label'>Sort by</span>
-            </button>
-          }
-        >
-          {SORTS.map(option => (
-            <MenuItem
-              key={option.value}
-              label={option.label}
-              checked={option.value === sort}
-              onSelect={() => setSort(option.value)}
-            />
-          ))}
-        </Menu>
+        {sortMenu('start', false)}
       </div>
       <Composer videoId={videoId} post={post} customEmojis={customEmojis} />
-      <div className='list'>
-        {items.map(comment => {
-          const author = comment.author
-          const inlineReplies = comment.replies ?? []
-          const hasReplies = Boolean(comment.repliesCursor || inlineReplies.length > 0 || comment.replyCount)
-          return (
-            <div className={hasReplies ? 'comment has-replies' : 'comment'} key={comment.id}>
-              <AuthorAvatarButton
-                profileKey={comment.id}
-                author={author}
-                activeProfileKey={activeProfile?.key ?? null}
-                onOpenProfile={toggleProfile}
-              />
-              <div className='body'>
-                {comment.isPinned
-                  ? (
-                    <div className='pinned' data-pinned-comment='true'>
-                      <Pin size={13} strokeWidth={1.75} aria-hidden='true' />
-                      <span>{comment.pinnedText || 'Pinned'}</span>
-                    </div>
-                  )
-                  : undefined}
-                <div className='byline'>
-                  {author
-                    ? (
-                      <Link href={`/channel/${author.id}`} className={comment.isCreator ? 'author creator' : 'author'}>
-                        {author.name}
-                        <VerifiedBadge channel={author} size={12} />
-                      </Link>
-                    )
-                    : undefined}
-                  {comment.publishedText ? <span className='age'>{comment.publishedText}</span> : undefined}
-                </div>
-                <CommentText runs={comment.runs} text={comment.text} videoId={videoId} />
-                <CommentActions comment={comment} customEmojis={customEmojis} />
-                {inlineReplies.length > 0 || comment.repliesCursor
-                  ? (
-                    <ReplyThread
-                      initialReplies={inlineReplies}
-                      cursor={comment.repliesCursor}
-                      count={comment.replyCount}
-                      defaultOpen={false}
-                      videoId={videoId}
-                      customEmojis={customEmojis}
-                      activeProfileKey={activeProfile?.key ?? null}
-                      onOpenProfile={toggleProfile}
-                    />
-                  )
-                  : comment.replyCount
-                    ? <div className='replies'>{comment.replyCount === 1 ? '1 reply' : `${comment.replyCount} replies`}</div>
-                    : undefined}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {commentList}
       {activeProfile
         ? (
           <CommentProfileCard

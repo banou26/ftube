@@ -123,3 +123,62 @@ test('mobile Shorts viewport keeps comments panel and scrim limited to the activ
   await expect(root.locator('.comments-scrim')).toHaveCount(1)
   await expect(page.getByRole('complementary', { name: 'Comments' })).toHaveCount(1)
 })
+
+test('uses a single compact header, pins the composer while scrolling, avoids 0 replies, keeps bylines inline, and caps reply nesting depth', async ({ page }) => {
+  const root = await openShortsHarness(page, { width: 1280, height: 900 })
+  const slide1 = root.locator('[data-short-id="short-1"]')
+
+  await slide1.getByRole('button', { name: 'Comments', exact: true }).click()
+  const panel = slide1.locator('.comments-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('Comment on short-1')
+
+  // Single header with sort and close controls, zero duplicate headings inside scroll container.
+  await expect(panel.locator('.compact-header')).toHaveCount(1)
+  await expect(panel.locator('h2')).toHaveCount(1)
+  await expect(panel.getByRole('button', { name: 'Sort comments', exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Close comments', exact: true })).toBeVisible()
+
+  // Single-line byline age even with a long author handle.
+  const firstByline = panel.locator('.comment').first().locator('.byline')
+  const ageBox = (await firstByline.locator('.age').boundingBox())!
+  expect(ageBox.height).toBeLessThanOrEqual(24)
+
+  // Composer stays pinned in footer when the list scrolls.
+  const footer = panel.locator('.compact-footer')
+  const scroll = panel.locator('.compact-scroll')
+  await expect(footer.getByRole('textbox', { name: 'Add a comment', exact: true })).toBeVisible()
+  const footerBefore = (await footer.boundingBox())!
+  await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  const footerAfter = (await footer.boundingBox())!
+  expect(Math.abs(footerAfter.y - footerBefore.y)).toBeLessThanOrEqual(1)
+  await scroll.evaluate((el) => { el.scrollTop = 0 })
+
+  // Expanding level-1 and depth-3 replies must never show "0 replies" and caps visual nesting past depth 2.
+  const firstComment = panel.locator('.comment').first()
+  await firstComment.getByRole('button', { name: '1 reply', exact: true }).first().click()
+  const depth3Reply = firstComment.locator('.reply-list[data-depth="3"]')
+  await expect(depth3Reply).toBeVisible()
+  expect(await panel.locator('button.replies').allTextContents()).not.toContain('0 replies')
+  await depth3Reply.getByRole('button', { name: '1 reply', exact: true }).click()
+  await expect(firstComment).toContainText('Depth 4 deepest reply shares depth 2 rail.')
+
+  const depthMetrics = await firstComment.evaluate((el) => {
+    const scrollContainer = el.closest('.compact-scroll') as HTMLElement
+    const bodies = [1, 2, 3, 4].map((d) => {
+      const body = el.querySelector<HTMLElement>(`.reply-list[data-depth="${d}"] > .reply-rows > .reply-row > .body`)!
+      const rect = body.getBoundingClientRect()
+      return { depth: d, left: Math.round(rect.left), width: Math.round(rect.width) }
+    })
+    return {
+      overflow: scrollContainer.scrollWidth - scrollContainer.clientWidth,
+      bodies,
+    }
+  })
+
+  expect(depthMetrics.overflow).toBeLessThanOrEqual(0)
+  expect(depthMetrics.bodies[2]!.left).toBe(depthMetrics.bodies[1]!.left)
+  expect(depthMetrics.bodies[3]!.left).toBe(depthMetrics.bodies[1]!.left)
+  expect(depthMetrics.bodies[2]!.width).toBeGreaterThanOrEqual(200)
+  expect(depthMetrics.bodies[3]!.width).toBeGreaterThanOrEqual(200)
+})

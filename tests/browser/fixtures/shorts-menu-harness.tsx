@@ -234,15 +234,82 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
       items: [
         {
           id: `comment-${videoId}-1`,
-          author: { id: `UC-commenter-${videoId}`, name: `Commenter ${videoId}`, handle: `@${videoId}` },
+          author: {
+            id: `UC-commenter-${videoId}`,
+            name: videoId === 'short-1' ? 'VeryLongHandleAuthorNameThatMustTruncateGracefullyOnShorts' : `Commenter ${videoId}`,
+            handle: `@${videoId}`,
+          },
           text: `Comment on ${videoId}`,
           runs: [{ text: `Comment on ${videoId}` }],
-          publishedText: '1 hour ago',
+          publishedText: '2 months ago',
           likeCountText: '12',
-          replyCount: 0,
+          replyCount: videoId === 'short-1' ? 1 : 0,
+          replies: videoId === 'short-1'
+            ? [
+                {
+                  id: `reply-${videoId}-depth1`,
+                  author: { id: 'UC-r1', name: 'Depth One User', handle: '@r1' },
+                  text: 'Depth 1 reply text.',
+                  runs: [{ text: 'Depth 1 reply text.' }],
+                  publishedText: '1 month ago',
+                  likeCountText: '4',
+                  replyCount: 1,
+                  replies: [
+                    {
+                      id: `reply-${videoId}-depth2`,
+                      author: { id: 'UC-r2', name: 'Depth Two User', handle: '@r2' },
+                      text: 'Depth 2 reply with replyCount zero bug check.',
+                      runs: [{ text: 'Depth 2 reply with replyCount zero bug check.' }],
+                      publishedText: '3 weeks ago',
+                      likeCountText: '2',
+                      replyCount: 0,
+                      replies: [
+                        {
+                          id: `reply-${videoId}-depth3`,
+                          author: { id: 'UC-r3', name: 'Depth Three User', handle: '@r3' },
+                          text: 'Depth 3 reply must stay wide and readable.',
+                          runs: [{ text: 'Depth 3 reply must stay wide and readable.' }],
+                          publishedText: '2 weeks ago',
+                          likeCountText: '1',
+                          replyCount: 1,
+                          repliesCursor: 'cursor-depth-4',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ]
+            : [],
         },
+        ...(videoId === 'short-1'
+          ? Array.from({ length: 12 }, (_, index) => ({
+            id: `comment-${videoId}-extra-${index}`,
+            author: { id: `UC-extra-${index}`, name: `Viewer ${index + 2}`, handle: `@viewer${index}` },
+            text: `Extra comment row ${index + 2} to fill the scrollable drawer.`,
+            runs: [{ text: `Extra comment row ${index + 2} to fill the scrollable drawer.` }],
+            publishedText: `${index + 1}h ago`,
+            likeCountText: String(index + 1),
+            replyCount: 0,
+          }))
+          : []),
       ],
     }),
+    commentReplies: async (cursor: string) => (cursor === 'cursor-depth-4'
+      ? {
+          items: [
+            {
+              id: 'reply-short-1-depth4',
+              author: { id: 'UC-r4', name: 'Depth Four User', handle: '@r4' },
+              text: 'Depth 4 deepest reply shares depth 2 rail.',
+              runs: [{ text: 'Depth 4 deepest reply shares depth 2 rail.' }],
+              publishedText: '1 day ago',
+              likeCountText: '1',
+              replyCount: 0,
+            },
+          ],
+          cursor: null,
+        }
+      : { items: [], cursor: null }),
   } as unknown as SourceApi
 
   const yoga = createYoga<{ source: SourceApi }>({
