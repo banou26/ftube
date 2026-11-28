@@ -54,8 +54,12 @@ const HarnessShell = ({ initialPath }: { initialPath?: string }) => {
       </div>
       <Switch>
         <Route path='/feed/groups' component={FeedGroupsPage} />
-        <Route path='/feed/groups/:id'>{({ id }: { id: string }) => <GroupPage params={{ id }} />}</Route>
-        <Route path='/channel/:id'>{({ id }: { id: string }) => <ChannelPage id={id} base={`/channel/${id}`} />}</Route>
+        <Route path='/feed/groups/:id'>
+          {({ id }: { id: string }) => <GroupPage params={{ id }} />}
+        </Route>
+        <Route path='/channel/:id'>
+          {({ id }: { id: string }) => <ChannelPage id={id} base={`/channel/${id}`} />}
+        </Route>
         <Route path='/'>
           {() => (
             <main style='padding: 2.4rem 1.6rem'>

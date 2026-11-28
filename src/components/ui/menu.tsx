@@ -19,6 +19,9 @@ const TYPEAHEAD_RESET_MS = 500
 
 const itemsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? [])]
 
+const searchInputOf = (panel: HTMLElement | null) =>
+  panel?.querySelector<HTMLInputElement>('input[type="search"]') ?? null
+
 const focusAt = (panel: HTMLElement | null, index: number) => {
   const list = itemsOf(panel)
   if (list.length === 0) return
@@ -34,6 +37,14 @@ const step = (panel: HTMLElement | null, delta: number) => {
 // the keys an open panel answers: the arrows, Home and End, Tab, and typeahead on the rows' labels
 const navigate = (panel: HTMLElement | null, event: KeyboardEvent, typeahead: { buffer: string, at: number }) => {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    const list = itemsOf(panel)
+    const from = list.indexOf(document.activeElement as HTMLElement)
+    const search = searchInputOf(panel)
+    if (event.key === 'ArrowUp' && from === 0 && search) {
+      event.preventDefault()
+      search.focus()
+      return
+    }
     event.preventDefault()
     step(panel, event.key === 'ArrowDown' ? 1 : -1)
     return
@@ -44,7 +55,15 @@ const navigate = (panel: HTMLElement | null, event: KeyboardEvent, typeahead: { 
     return
   }
   if (event.key === 'Tab') {
-    if (itemsOf(panel).length === 0) return
+    const list = itemsOf(panel)
+    if (list.length === 0) return
+    const from = list.indexOf(document.activeElement as HTMLElement)
+    const search = searchInputOf(panel)
+    if (search && ((event.shiftKey && from === 0) || (!event.shiftKey && from === list.length - 1))) {
+      event.preventDefault()
+      search.focus()
+      return
+    }
     event.preventDefault()
     step(panel, event.shiftKey ? -1 : 1)
     return
@@ -158,6 +177,11 @@ export const Menu = (
 
   useLayoutEffect(() => {
     if (!open) return
+    const search = entry.current === 'first' ? searchInputOf(panelRef.current) : null
+    if (search) {
+      search.focus()
+      return
+    }
     focusAt(panelRef.current, entry.current === 'last' ? -1 : 0)
   }, [open])
 

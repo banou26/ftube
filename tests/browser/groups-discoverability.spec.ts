@@ -43,7 +43,10 @@ test('guides empty group creation and first-channel assignment for guests (APP-1
   await expect(harness.getByText('No channels in this group yet. Use Add to group on any channel page.')).toBeVisible()
   await expect(harness.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
 
-  await harness.getByRole('link', { name: 'Browse channels', exact: true }).click()
+  const browseHome = harness.getByRole('link', { name: 'Browse home', exact: true })
+  await expect(browseHome).toBeVisible()
+  await expect(browseHome).toHaveCSS('text-decoration-line', 'none')
+  await browseHome.click()
   await expect(harness.getByRole('heading', { name: 'Browse Home' })).toBeVisible()
   await harness.getByRole('link', { name: 'NASA', exact: true }).click()
 
@@ -68,8 +71,8 @@ test('guides signed-in viewers from New group and empty group feed to subscripti
   const harness = page.locator('[data-groups-discoverability-harness="true"]')
   await harness.getByRole('button', { name: 'New group', exact: true }).click()
   let dialog = page.getByRole('dialog', { name: 'New group' })
-  await expect(dialog.getByText('No channels yet. Pick from your subscriptions below, or use Add to group on any channel page.')).toBeVisible()
-  await expect(dialog.getByText('No subscriptions yet. Use Add to group on any channel page.')).toBeVisible()
+  await expect(dialog.getByText('No channels yet. Use Add to group on any channel page.')).toBeVisible()
+  await expect(dialog.getByText('No subscriptions yet.')).toBeVisible()
   await expect(dialog.getByRole('searchbox', { name: 'Filter subscriptions' })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
 
@@ -84,6 +87,7 @@ test('guides signed-in viewers from New group and empty group feed to subscripti
 
   await harness.getByRole('link', { name: /Empty Picks/ }).click()
   await expect(harness.getByText('No channels in this group yet. Use Add to group on any channel page.')).toBeVisible()
+  await expect(harness.getByRole('link', { name: 'Browse channels', exact: true })).toHaveAttribute('href', '/feed/channels')
   await harness.getByRole('button', { name: 'Pick from subscriptions', exact: true }).click()
 
   const editDialog = page.getByRole('dialog', { name: 'Edit group' })
@@ -107,7 +111,7 @@ test('shows guest action prompt on channel page and updates trigger label after 
   await expect(addButton).toBeVisible()
   await addButton.click()
 
-  await expect(page.getByText('No sign-in needed. Create a group below to add this channel.')).toBeVisible()
+  await expect(page.getByText('Create a group to add this channel.')).toBeVisible()
   await page.getByRole('menuitem', { name: 'New group', exact: true }).click()
 
   const dialog = page.getByRole('dialog', { name: 'New group' })
@@ -170,6 +174,47 @@ test('shows searchable nested folder paths for unsubscribed channels and persist
   await harness.getByRole('link', { name: 'Open NASA channel', exact: true }).click()
   await harness.getByRole('button', { name: 'Edit groups', exact: true }).click()
   await expect(page.getByRole('menuitemcheckbox', { name: 'Science / Space / NASA Missions', exact: true })).toHaveAttribute('aria-checked', 'true')
+
+  expect(pageErrors).toEqual([])
+})
+
+test('supports keyboard-only filtering, toggling, and focus return in the Groups menu (APP-1052)', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', err => pageErrors.push(err.message))
+
+  await page.addInitScript(() => {
+    if (window.top !== window) return
+    localStorage.setItem('yt-client:groups', JSON.stringify([
+      { id: 'g-science', name: 'Science', emoji: '🔬', channels: [], updatedAt: 1 },
+      { id: 'g-space', name: 'Space', emoji: '🚀', parentId: 'g-science', channels: [], updatedAt: 2 },
+      { id: 'g-nasa', name: 'NASA Missions', emoji: '🛰️', parentId: 'g-space', channels: [], updatedAt: 3 },
+      { id: 'g-music', name: 'Music', emoji: '🎵', channels: [], updatedAt: 4 },
+    ]))
+  })
+
+  await mountHarness(page, { signedIn: true, initialPath: `/channel/${NASA_ID}` })
+  const harness = page.locator('[data-groups-discoverability-harness="true"]')
+
+  const addButton = harness.getByRole('button', { name: 'Add to group', exact: true })
+  await addButton.focus()
+  await page.keyboard.press('Enter')
+
+  const filterInput = page.getByRole('searchbox', { name: 'Filter groups' })
+  await expect(filterInput).toBeFocused()
+  await page.keyboard.type('NASA Missions')
+  await page.keyboard.press('ArrowDown')
+
+  const missionsItem = page.getByRole('menuitemcheckbox', { name: 'Science / Space / NASA Missions', exact: true })
+  await expect(missionsItem).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(missionsItem).toHaveAttribute('aria-checked', 'true')
+
+  await page.keyboard.press('ArrowUp')
+  await expect(filterInput).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(harness.getByRole('button', { name: 'Edit groups', exact: true })).toBeFocused()
 
   expect(pageErrors).toEqual([])
 })

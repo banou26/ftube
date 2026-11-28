@@ -10,7 +10,6 @@ import { gql } from '../generated'
 import { buildGroupPickerEntries, groupButtonLabel } from '../groups/picker'
 import { groupStore, useGroups } from '../groups/store'
 import { suggestGroups } from '../groups/suggest'
-import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
 import GroupDialog from './group-dialog'
 import Dialog from './ui/dialog'
@@ -214,17 +213,18 @@ const dialogStyle = css`
 
 const includes = (group: Group, channelId: string) => group.channels.some(kept => kept.id === channelId)
 
-const emptyPickerMessage = (ready: boolean, signedIn: boolean) =>
-  ready && !signedIn
-    ? 'No sign-in needed. Create a group below to add this channel.'
-    : 'No groups yet. Create a group below to add this channel.'
+const emptyPickerMessage = 'Create a group to add this channel.'
 
 const onSearchKeyDown = (event: KeyboardEvent) => {
-  if (event.key !== 'ArrowDown') return
-  event.preventDefault()
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Tab') return
   const menu = (event.currentTarget as HTMLElement).closest('[role="menu"]')
-  const firstItem = menu?.querySelector<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')
-  firstItem?.focus()
+  const items = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]') ?? [])]
+  if (items.length === 0) return
+  event.preventDefault()
+  const target = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey)
+    ? items[items.length - 1]
+    : items[0]
+  target?.focus()
 }
 
 const useChannelGroups = (
@@ -234,7 +234,6 @@ const useChannelGroups = (
     active: boolean
   },
 ) => {
-  const { signedIn, ready } = useSession()
   const groups = useGroups()
   const [filter, setFilter] = useState('')
   const [tagsRequested, setTagsRequested] = useState(false)
@@ -294,8 +293,6 @@ const useChannelGroups = (
   }
 
   return {
-    signedIn,
-    ready,
     groups,
     entries,
     filter,
@@ -323,8 +320,6 @@ export const GroupsDialog = (
   },
 ) => {
   const {
-    signedIn,
-    ready,
     groups,
     entries,
     filter,
@@ -417,7 +412,7 @@ export const GroupsDialog = (
           )
           : undefined}
         {groups.length === 0
-          ? <p className='picker-note' role='status'>{emptyPickerMessage(ready, signedIn)}</p>
+          ? <p className='picker-note' role='status'>{emptyPickerMessage}</p>
           : (
             <div className='list'>
               {entries.length === 0
@@ -470,8 +465,6 @@ export const GroupsButton = (
 ) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const {
-    signedIn,
-    ready,
     groups,
     entries,
     filter,
@@ -568,7 +561,7 @@ export const GroupsButton = (
             )
             : undefined}
           {groups.length === 0
-            ? <p className='picker-note' role='status'>{emptyPickerMessage(ready, signedIn)}</p>
+            ? <p className='picker-note' role='status'>{emptyPickerMessage}</p>
             : (
               <div className='group-list'>
                 {entries.length === 0

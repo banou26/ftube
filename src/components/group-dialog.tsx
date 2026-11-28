@@ -373,17 +373,23 @@ const ChannelLink = ({ channel, preview }: { channel: GroupChannel, preview: Pre
 )
 
 const SubscriptionPicker = (
-  { chosen, onToggle, onToggleMany, preview }: {
+  { chosen, onToggle, onToggleMany, preview, onHasSubscriptions }: {
     chosen: GroupChannel[]
     onToggle: (channel: GroupChannel, included: boolean) => void
     onToggleMany: (channels: GroupChannel[], included: boolean) => void
     preview: PreviewHover
+    onHasSubscriptions?: (has: boolean) => void
   },
 ) => {
   const [filter, setFilter] = useState('')
   const [{ data, error, fetching }, reexecute] = useQuery({ query: GROUP_SUBSCRIPTIONS_QUERY })
   const allChannels = data?.subscribedChannels ?? []
   const allCount = allChannels.length
+
+  useEffect(() => {
+    if (!fetching && !error) onHasSubscriptions?.(allCount > 0)
+  }, [fetching, error, allCount, onHasSubscriptions])
+
   const query = filter.trim().toLowerCase()
   const channels = allChannels
     .filter(channel => channel.name.toLowerCase().includes(query))
@@ -420,7 +426,7 @@ const SubscriptionPicker = (
       {fetching ? <p className='status'>Loading…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
       {!fetching && !error && allCount === 0
-        ? <p className='status'>No subscriptions yet. Use Add to group on any channel page.</p>
+        ? <p className='status'>No subscriptions yet.</p>
         : undefined}
       {!fetching && !error && allCount > 0 && entries.length === 0
         ? <p className='status'>No matching subscriptions</p>
@@ -498,7 +504,8 @@ export const GroupDialog = (
   const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
-  const emptyPrompt = groupDialogChannelPrompt({ signedIn, selectedCount: channels.length })
+  const [hasSubscriptions, setHasSubscriptions] = useState(true)
+  const emptyPrompt = groupDialogChannelPrompt({ signedIn, ready, selectedCount: channels.length, hasSubscriptions })
 
   const choices = extraIcon && !storedIcons.includes(extraIcon) ? [extraIcon, ...storedIcons] : storedIcons
   const canRemoveIcon = (choice: string) => choice === extraIcon || storedIcons.length > 1
@@ -680,7 +687,7 @@ export const GroupDialog = (
             </div>
           </div>
           {signedIn
-            ? <SubscriptionPicker chosen={channels} onToggle={onToggle} onToggleMany={onToggleMany} preview={preview} />
+            ? <SubscriptionPicker chosen={channels} onToggle={onToggle} onToggleMany={onToggleMany} preview={preview} onHasSubscriptions={setHasSubscriptions} />
             : ready
               ? (
                 <div className='field'>
