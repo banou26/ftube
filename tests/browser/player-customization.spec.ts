@@ -124,10 +124,14 @@ test('customizes main bar control visibility, order across sides, settings menu 
   const customAfterMenu = await openPlayerTab(page)
   for (const label of [
     'Show Stable Volume in settings menu',
+    'Show Annotations in settings menu',
+    'Show Timed comments in settings menu',
     'Show Picture in picture in settings menu',
     'Show Subtitles in settings menu',
     'Show Audio track in settings menu',
     'Show Sleep timer in settings menu',
+    'Show Playback speed in settings menu',
+    'Show Ambient mode in settings menu',
     'Show Quality in settings menu',
   ]) {
     await customAfterMenu.getByRole('checkbox', { name: label }).uncheck()

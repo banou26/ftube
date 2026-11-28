@@ -27,6 +27,7 @@ export type PlayerSettingsMenuItemId =
   | 'stableVolume'
   | 'ambientMode'
   | 'annotations'
+  | 'timedComments'
   | 'pip'
   | 'subtitles'
   | 'audioTrack'
@@ -54,6 +55,7 @@ export const PLAYER_SETTINGS_MENU_ITEMS: readonly { id: PlayerSettingsMenuItemId
   { id: 'stableVolume', label: 'Stable Volume' },
   { id: 'ambientMode', label: 'Ambient mode' },
   { id: 'annotations', label: 'Annotations' },
+  { id: 'timedComments', label: 'Timed comments' },
   { id: 'pip', label: 'Picture in picture' },
   { id: 'subtitles', label: 'Subtitles' },
   { id: 'audioTrack', label: 'Audio track' },

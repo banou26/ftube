@@ -89,6 +89,7 @@ export type Settings = {
   playerBarLayout: PlayerBarLayout
   playerMenuHidden: PlayerSettingsMenuItemId[]
   showMostReplayed: boolean
+  timedComments: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -129,6 +130,7 @@ export const DEFAULT_SETTINGS: Settings = {
   playerBarLayout: DEFAULT_PLAYER_BAR_LAYOUT,
   playerMenuHidden: [],
   showMostReplayed: false,
+  timedComments: false,
 }
 
 const STORAGE_KEY = 'yt-client:settings'
@@ -208,6 +210,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     playerBarLayout: coercePlayerBarLayout(stored.playerBarLayout),
     playerMenuHidden: coercePlayerMenuHidden(stored.playerMenuHidden),
     showMostReplayed: typeof stored.showMostReplayed === 'boolean' ? stored.showMostReplayed : DEFAULT_SETTINGS.showMostReplayed,
+    timedComments: typeof stored.timedComments === 'boolean' ? stored.timedComments : DEFAULT_SETTINGS.timedComments,
   }
 }
 

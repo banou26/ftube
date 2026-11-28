@@ -75,7 +75,7 @@ gql(`
   }
 `)
 
-const COMMENTS_QUERY = gql(`
+export const COMMENTS_QUERY = gql(`
   query Comments($videoId: ID!, $sort: CommentSort, $cursor: String) {
     comments(videoId: $videoId, sort: $sort, cursor: $cursor) { ...CommentPageFields }
   }

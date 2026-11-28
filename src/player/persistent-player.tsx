@@ -392,6 +392,7 @@ const PersistentPlayer = () => {
   useEffect(() => subscribeSettings(settings => setAutoplay(settings.autoplay)), [])
   const ambientMode = useSetting('ambientMode')
   const annotations = useSetting('annotations')
+  const timedComments = useSetting('timedComments')
   const storedMiniplayerWidth = useSetting('miniplayerWidth')
   const storedMiniplayerPosition = useSetting('miniplayerPosition')
   const asideRef = useRef<HTMLElement>(null)
@@ -1019,6 +1020,9 @@ const PersistentPlayer = () => {
                   onAmbientMode={() => updateSettings({ ambientMode: !ambientMode })}
                   annotations={annotations}
                   onAnnotations={() => updateSettings({ annotations: !annotations })}
+                  timedComments={timedComments}
+                  onTimedComments={() => updateSettings({ timedComments: !timedComments })}
+                  commentsHidden={watch?.commentsHidden === true}
                   onVideoElement={setAmbientVideo}
                   chapters={watch?.chapters}
                   heatmap={watch?.heatmap}

@@ -27,6 +27,7 @@ const Harness = ({ width = 900 }: { width?: number }) => {
   const autoplay = useSetting('autoplay')
   const ambientMode = useSetting('ambientMode')
   const annotations = useSetting('annotations')
+  const timedComments = useSetting('timedComments')
   const stableVolume = useSetting('stableVolume')
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
@@ -94,6 +95,8 @@ const Harness = ({ width = 900 }: { width?: number }) => {
             onAmbientMode={() => updateSettings({ ambientMode: !ambientMode })}
             annotations={annotations}
             onAnnotations={() => updateSettings({ annotations: !annotations })}
+            timedComments={timedComments}
+            onTimedComments={() => updateSettings({ timedComments: !timedComments })}
             captionTracks={CAPTIONS}
             caption={undefined}
             onCaption={() => {}}

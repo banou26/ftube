@@ -60,6 +60,7 @@ import { ShortcutsDialog } from './shortcuts'
 import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
 import { decideSurfaceClick, isTouchPointer, shouldAutoHideControlsOnLoad, shouldIgnoreHoverPointer } from './surface-interaction'
+import { TimedCommentsOverlay } from './timed-comments-overlay'
 import { endAction } from './up-next'
 import { usePlayerState } from './use-player-state'
 import { stepVideoVolume, toggleVideoMute } from './volume'
@@ -260,7 +261,7 @@ const captionBase = (video: HTMLVideoElement) => {
 const VideoPlayer = (
   {
     videoId, playerParams, list, title, channelName, startAt, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
-    chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, onVideoElement,
+    chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments, commentsHidden = false, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
@@ -282,6 +283,9 @@ const VideoPlayer = (
     onAmbientMode?: () => void
     annotations?: boolean
     onAnnotations?: () => void
+    timedComments?: boolean
+    onTimedComments?: () => void
+    commentsHidden?: boolean
     onVideoElement?: (video: HTMLVideoElement | null) => void
   },
 ) => {
@@ -1237,6 +1241,19 @@ const VideoPlayer = (
           />
         )
         : undefined}
+      {video && !inPip && !status && !refusal
+        ? (
+          <TimedCommentsOverlay
+            video={video}
+            videoId={videoId}
+            duration={state.duration}
+            enabled={timedComments}
+            isLive={isLive}
+            docked={docked}
+            commentsHidden={commentsHidden}
+          />
+        )
+        : undefined}
       {bezel ? <Bezel key={bezel.id} cue={bezel} /> : undefined}
       {status
         ? (
@@ -1327,6 +1344,8 @@ const VideoPlayer = (
             onAmbientMode={onAmbientMode}
             annotations={annotationsEnabled}
             onAnnotations={onAnnotations}
+            timedComments={timedComments}
+            onTimedComments={onTimedComments}
             captionTracks={captionTracks}
             translationLanguages={translationLanguages}
             caption={caption}

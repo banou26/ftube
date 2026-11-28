@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact'
 import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
-import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv, X } from 'lucide-react'
+import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, MessageSquareText, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
@@ -841,6 +841,8 @@ type ControlsProps = {
   onAmbientMode?: () => void
   annotations?: boolean
   onAnnotations?: () => void
+  timedComments?: boolean
+  onTimedComments?: () => void
   captionTracks: CaptionTrack[]
   translationLanguages?: TranslationLanguage[]
   caption: CaptionPick | undefined
@@ -872,7 +874,7 @@ type ControlsProps = {
 export const PlayerControls = (
   {
     video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
-    ambientMode = true, onAmbientMode, annotations = true, onAnnotations,
+    ambientMode = true, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
     theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], heatmap = EMPTY_HEATMAP, onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false, onUserPause, onWheelVolumeChange,
@@ -1294,6 +1296,8 @@ export const PlayerControls = (
         return Boolean(onAmbientMode)
       case 'annotations':
         return Boolean(onAnnotations)
+      case 'timedComments':
+        return Boolean(!isLive && onTimedComments)
       case 'pip':
         return pipSupported
       case 'audioTrack':
@@ -1322,7 +1326,7 @@ export const PlayerControls = (
     else if ((menu === 'captions' || menu === 'caption-translate' || menu === 'caption-options' || typeof menu === 'object') && !isMenuEntryVisible('subtitles')) {
       setMenu(undefined)
     }
-  }, [menu, settings.playerBarLayout, settings.playerMenuHidden, hasDrc, onStableVolume, onAmbientMode, onAnnotations, pipSupported, audioTracks.length, onAudioTrack, settings.sleepTimerEnabled])
+  }, [menu, isLive, settings.playerBarLayout, settings.playerMenuHidden, hasDrc, onStableVolume, onAmbientMode, onAnnotations, onTimedComments, pipSupported, audioTracks.length, onAudioTrack, settings.sleepTimerEnabled])
 
   const renderSettingsPopup = (popupAlign: 'start' | 'end') => {
     if (menu === 'root') {
@@ -1367,6 +1371,20 @@ export const PlayerControls = (
                 onSelect={onAnnotations}
               >
                 Annotations
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('timedComments') && !isLive && onTimedComments
+            ? (
+              <MenuItem
+                icon={MessageSquareText}
+                role='menuitemcheckbox'
+                selected={timedComments}
+                detail={timedComments ? 'On' : 'Off'}
+                toggle
+                onSelect={onTimedComments}
+              >
+                Timed comments
               </MenuItem>
             )
             : undefined}

@@ -491,9 +491,12 @@ describe('player bar layout and settings menu customization', () => {
     })
     expect(initial.playerMenuHidden).toEqual([])
     expect(initial.showMostReplayed).toBe(false)
+    expect(initial.timedComments).toBe(false)
 
-    expect((await load({ showMostReplayed: 'yes' })).getSettings().showMostReplayed).toBe(false)
-    expect((await load({ showMostReplayed: true })).getSettings().showMostReplayed).toBe(true)
+    expect((await load({ showMostReplayed: 'yes', timedComments: 'yes' })).getSettings().showMostReplayed).toBe(false)
+    expect((await load({ showMostReplayed: 'yes', timedComments: 'yes' })).getSettings().timedComments).toBe(false)
+    expect((await load({ showMostReplayed: true, timedComments: true })).getSettings().showMostReplayed).toBe(true)
+    expect((await load({ showMostReplayed: true, timedComments: true })).getSettings().timedComments).toBe(true)
 
     const coerced = (await load({
       playerBarLayout: {

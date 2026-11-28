@@ -69,7 +69,7 @@ describe('player control layout', () => {
   it('coerces and toggles settings menu items cleanly', () => {
     expect(coercePlayerMenuHidden(null)).toEqual([])
     expect(coercePlayerMenuHidden(['quality', 'quality', 'unknown', 42])).toEqual(['quality'])
-    expect(PLAYER_SETTINGS_MENU_ITEMS.length).toBe(9)
+    expect(PLAYER_SETTINGS_MENU_ITEMS.length).toBe(10)
 
     const once = toggleSettingsMenuItem([], 'ambientMode')
     expect(once).toEqual(['ambientMode'])

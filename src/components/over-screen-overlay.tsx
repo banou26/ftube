@@ -33,6 +33,23 @@ const scrollAcross = keyframes`
   }
 `
 
+const scrollContained = keyframes`
+  0% {
+    opacity: 0;
+    transform: translate3d(100cqi, 0, 0);
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-110%, 0, 0);
+  }
+`
+
 const shakeIn = keyframes`
   0% { opacity: 0; transform: scale(0.85) translate3d(0, 0, 0); }
   12% { opacity: 1; transform: scale(1.04) translate3d(-6px, -2px, 0); }
@@ -204,6 +221,21 @@ const overlayCss = css`
   }
 `
 
+const containedOverlayCss = css`
+  position: absolute;
+  inset: 0;
+  container-type: inline-size;
+  z-index: auto;
+
+  .overlay-item {
+    max-width: min(82%, 68rem);
+  }
+
+  .overlay-item.anim-scroll {
+    animation-name: ${scrollContained};
+  }
+`
+
 type ActiveOverlayItem = {
   key: number
   messageId: string
@@ -269,18 +301,20 @@ const getFullscreenTarget = (): Element | null => {
   return document.fullscreenElement ?? webkitDoc.webkitFullscreenElement ?? null
 }
 
-/** Portaled non-interactive overlay projecting live chat messages across the screen. */
+/** Portaled non-interactive overlay projecting live chat messages across the screen, or contained inside a player surface. */
 export const OverScreenOverlay = (
-  { settings, event, resetSeq, previewSeq }: {
+  { settings, event, resetSeq, previewSeq, contained = false, source }: {
     settings: OverScreenSettings
     event: OverlayChatEvent | undefined
     resetSeq: number
     previewSeq: number
+    contained?: boolean
+    source?: string
   },
 ) => {
   const [items, setItems] = useState<ActiveOverlayItem[]>([])
   const [portalTarget, setPortalTarget] = useState<Element | null>(() =>
-    typeof document === 'undefined' ? null : (getFullscreenTarget() ?? document.body),
+    contained || typeof document === 'undefined' ? null : (getFullscreenTarget() ?? document.body),
   )
   const itemSeqRef = useRef(0)
   const laneIdxRef = useRef(0)
@@ -298,12 +332,13 @@ export const OverScreenOverlay = (
   }
 
   useEffect(() => {
+    if (contained) return
     const syncPortal = () => {
       setPortalTarget(getFullscreenTarget() ?? document.body)
     }
     syncPortal()
     return subscribeFullscreen(syncPortal)
-  }, [])
+  }, [contained])
 
   useEffect(() => clearAll, [])
 
@@ -339,7 +374,7 @@ export const OverScreenOverlay = (
           : 4_000
       const durationMs = Math.max(900, Math.round(baseMs / activeSettings.speed))
       const slot = laneIdxRef.current++
-      const lanePct = 10 + ((slot * 17) % 72)
+      const lanePct = contained ? 10 + ((slot * 17) % 58) : 10 + ((slot * 17) % 72)
       const leftPct = 14 + ((slot * 23) % 58)
       const key = ++itemSeqRef.current
       spawned.push({
@@ -419,15 +454,16 @@ export const OverScreenOverlay = (
     })), true)
   }, [previewSeq])
 
-  if (!settings.enabled || !portalTarget) return null
+  if (!settings.enabled || (!contained && !portalTarget)) return null
 
   const fontFamily = OVERLAY_FONT_STACKS[settings.fontFamily]
 
-  return createPortal(
+  const content = (
     <div
-      css={overlayCss}
+      css={contained ? [overlayCss, containedOverlayCss] : overlayCss}
       aria-hidden='true'
       data-over-screen-overlay='true'
+      data-overlay-source={source}
       data-text-animation={settings.textAnimation}
       data-emoji-animation={settings.emojiAnimation}
       data-font-family={settings.fontFamily}
@@ -503,7 +539,8 @@ export const OverScreenOverlay = (
           </div>
         )
       })}
-    </div>,
-    portalTarget,
+    </div>
   )
+
+  return contained ? content : createPortal(content, portalTarget!)
 }
