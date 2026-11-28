@@ -104,16 +104,14 @@ export const hoverPreviewStyle = css`
      the behaviour the silent-failure design already asked for everywhere else
      in this file. */
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.18s ease;
-
-  &:not([data-painted]) {
-    pointer-events: none;
-  }
 
   &[data-painted] {
     opacity: 1;
   }
 
+  &[data-painted] .preview-surface-link,
   &[data-painted] .corner,
   &[data-painted] .scrubber:not(.live) {
     pointer-events: auto;
@@ -135,6 +133,9 @@ export const hoverPreviewStyle = css`
     width: 100%;
     height: 100%;
     object-fit: cover;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
   }
 
   /* the browser sizes cues to 5% of the element's height, which is 14 px on a 500 px card */
@@ -725,7 +726,7 @@ export const HoverPreview = (
   return (
     <div css={hoverPreviewStyle} data-painted={painted ? '' : undefined}>
       {/* No preload='none': an element told not to preload never runs its resource selection, so the MediaSource sits at networkState 0 forever */}
-      <video ref={videoRef} muted playsInline tabIndex={-1} aria-hidden='true' />
+      <video ref={videoRef} muted playsInline disablePictureInPicture disableRemotePlayback tabIndex={-1} aria-hidden='true' />
       {painted
         ? (
           <Link

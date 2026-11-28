@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
+import { installMockPlayback } from './mock-playback'
 import { answerLookups, dismissFknNotice, expect, hideFknNotice, plainTest, test } from './test'
 
 // Blender Guru's 4 h donut course, with English captions: long enough that every 5% of the bar is minutes. Signed-out
@@ -954,4 +955,80 @@ test('keeps custom icon and emoji seek handles visible and uncropped inside vide
     expect(knobBox!.y).toBeGreaterThanOrEqual(thumbBox!.y)
     expect(knobBox!.y + knobBox!.height).toBeLessThanOrEqual(thumbBox!.y + thumbBox!.height)
   }
+})
+
+test('makes hover preview video non-interactive so card link handles clicks while bottom scrubber stays interactive (APP-1112)', async ({ page }) => {
+  await hideFknNotice(page)
+  await installMockPlayback(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/results?search_query=mock')
+
+  const row = page.locator('article.result').first()
+  const thumb = row.locator('a.thumb')
+  await expect(thumb).toBeVisible({ timeout: 30_000 })
+  await thumb.hover()
+
+  const preview = row.locator('[data-painted]')
+  await expect(preview).toBeVisible({ timeout: 20_000 })
+  const surfaceLink = preview.locator('a.preview-surface-link')
+  const video = preview.locator('video')
+  const scrubber = preview.locator('.scrubber')
+  await expect(surfaceLink).toBeVisible()
+  await expect(scrubber).toBeVisible()
+
+  const thumbBox = (await row.locator('.thumb-wrap').boundingBox())!
+  const cx = Math.round(thumbBox.x + thumbBox.width / 2)
+  const cy = Math.round(thumbBox.y + thumbBox.height / 2)
+
+  const hitCheck = await page.evaluate(({ x, y }) => {
+    const stack = document.elementsFromPoint(x, y)
+    const videoEl = document.querySelector('article.result [data-painted] video') as HTMLVideoElement | null
+    const rootEl = document.querySelector('article.result [data-painted]') as HTMLElement | null
+    const linkEl = document.querySelector('article.result [data-painted] a.preview-surface-link') as HTMLAnchorElement | null
+    const scrubberEl = document.querySelector('article.result [data-painted] .scrubber') as HTMLElement | null
+    return {
+      topTag: stack[0]?.tagName ?? null,
+      topClass: stack[0]?.className ?? null,
+      topHref: (stack[0] as HTMLAnchorElement | undefined)?.getAttribute('href') ?? null,
+      containsVideo: stack.some(el => el.tagName === 'VIDEO'),
+      rootPointerEvents: rootEl ? getComputedStyle(rootEl).pointerEvents : null,
+      videoPointerEvents: videoEl ? getComputedStyle(videoEl).pointerEvents : null,
+      linkPointerEvents: linkEl ? getComputedStyle(linkEl).pointerEvents : null,
+      scrubberPointerEvents: scrubberEl ? getComputedStyle(scrubberEl).pointerEvents : null,
+      disablePiP: videoEl?.disablePictureInPicture ?? false,
+      disableRemote: videoEl?.disableRemotePlayback ?? false,
+    }
+  }, { x: cx, y: cy })
+
+  expect(hitCheck.topTag).toBe('A')
+  expect(hitCheck.topClass).toContain('preview-surface-link')
+  expect(hitCheck.topHref).toBe('/watch?v=dockvid0001')
+  expect(hitCheck.containsVideo).toBe(false)
+  expect(hitCheck.rootPointerEvents).toBe('none')
+  expect(hitCheck.videoPointerEvents).toBe('none')
+  expect(hitCheck.linkPointerEvents).toBe('auto')
+  expect(hitCheck.scrubberPointerEvents).toBe('auto')
+  expect(hitCheck.disablePiP).toBe(true)
+  expect(hitCheck.disableRemote).toBe(true)
+
+  // Right-click target over the painted video hits the card watch link, never the <video>.
+  const contextTarget = await page.evaluate(({ x, y }) => {
+    let seenTag: string | null = null
+    let seenHref: string | null = null
+    document.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const t = e.target as HTMLElement | null
+      seenTag = t?.tagName ?? null
+      seenHref = t?.getAttribute('href') ?? null
+    }, { once: true })
+    const top = document.elementsFromPoint(x, y)[0]
+    top?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: x, clientY: y }))
+    return { seenTag, seenHref }
+  }, { x: cx, y: cy })
+  expect(contextTarget).toEqual({ seenTag: 'A', seenHref: '/watch?v=dockvid0001' })
+
+  // Bottom scrubber stays interactive above the surface link and seeks cleanly.
+  const barBox = (await scrubber.boundingBox())!
+  await page.mouse.click(barBox.x + barBox.width * 0.5, barBox.y + barBox.height - 2)
+  await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).currentTime)).toBeGreaterThan(60)
 })
