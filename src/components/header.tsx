@@ -13,6 +13,7 @@ import { AccountMenu } from './account-menu'
 import { DownloadsMenu } from './downloads-menu'
 import { ExtensionNotice } from './extension-notice'
 import { HeaderMenu } from './header-menu'
+import { setMobileSearchOpen, useMobileSearchOpen } from './mobile-search'
 import { NotificationsMenu } from './notifications-menu'
 import { PartyWidget } from './party-widget'
 import { splitSuggestion } from './suggestion'
@@ -462,8 +463,16 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
   const [debounced, setDebounced] = useState('')
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [activeSuggestion, setActiveSuggestion] = useState(-1)
-  const [searchOpen, setSearchOpen] = useState(false)
+  const searchOpen = useMobileSearchOpen()
   const [engineReady, setEngineReady] = useState(() => document.documentElement.dataset.engine === 'ready')
+
+  useEffect(() => {
+    if (isAmbientRoute) setMobileSearchOpen(false)
+  }, [isAmbientRoute])
+
+  useEffect(() => () => {
+    setMobileSearchOpen(false)
+  }, [])
 
   useEffect(() => {
     if (!isAmbientRoute || !ambientMode) {
@@ -495,6 +504,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       event.preventDefault()
+      if (window.matchMedia('(max-width: 656px)').matches) setMobileSearchOpen(true)
       inputRef.current?.focus()
     }
     window.addEventListener('keydown', onKeyDown)
@@ -510,7 +520,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
   useEffect(() => {
     const narrow = window.matchMedia('(max-width: 656px)')
     const onChange = () => {
-      if (!narrow.matches) setSearchOpen(false)
+      if (!narrow.matches) setMobileSearchOpen(false)
     }
     narrow.addEventListener('change', onChange)
     return () => narrow.removeEventListener('change', onChange)
@@ -600,7 +610,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
           />
         </div>
       </div>
-      <button type='button' className='icon-button back' aria-label='Back' onClick={() => setSearchOpen(false)}>
+      <button type='button' className='icon-button back' aria-label='Back' onClick={() => setMobileSearchOpen(false)}>
         <ArrowLeft size={24} strokeWidth={1.5} />
       </button>
       <form className='search' role='search' onSubmit={onSubmit}>
@@ -675,7 +685,7 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
             : undefined}
         </div>
       </form>
-      <button type='button' className='icon-button open-search' aria-label='Search' onClick={() => setSearchOpen(true)}>
+      <button type='button' className='icon-button open-search' aria-label='Search' onClick={() => setMobileSearchOpen(true)}>
         <Search size={24} strokeWidth={1.5} />
       </button>
       <div className='end'>

@@ -2,12 +2,13 @@ import type { MiniplayerAspect, MiniplayerRect, MiniplayerResizeEdge } from './m
 import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
-import { GripHorizontal } from 'lucide-react'
+import { GripHorizontal, Maximize2, Pause, Play, X } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
+import { setMobileSearchOpen, shouldCollapseMiniplayer, useMobileSearchOpen } from '../components/mobile-search'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { isAllowedWithHideShorts } from '../shorts-filter'
 import {
@@ -25,7 +26,7 @@ import {
   resolveMiniplayerRect,
   stepMiniplayerWidth,
 } from './miniplayer-size'
-import { getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
+import { closePlayer, getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
 import { nextTheaterMode } from './theater'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
@@ -358,6 +359,94 @@ const style = css`
   &.resizing[data-resize-edge='bottom'] .resize-bottom::after {
     opacity: 0.9;
   }
+
+  &.compact {
+    left: 0.8rem;
+    right: 0.8rem;
+    bottom: 0.8rem;
+    top: auto;
+    width: auto;
+    max-width: none;
+    height: 5.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.6rem 0.6rem 0.6rem 0.8rem;
+    border-radius: 1.2rem;
+  }
+
+  &.compact .dock-slot {
+    flex: none;
+    width: 7.2rem;
+    height: 4rem;
+    border-radius: 0.6rem;
+    overflow: hidden;
+    background: #000;
+  }
+
+  &.compact[data-miniplayer-aspect='vertical'] .dock-slot {
+    width: 3.2rem;
+    height: 4.4rem;
+  }
+
+  &.compact .dock-slot .player-host,
+  &.compact .dock-slot div:has(> [data-player-root]),
+  &.compact .dock-slot [data-player-root] {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border-radius: 0.6rem;
+    overflow: hidden;
+  }
+
+  &.compact .dock-slot div:has(> .scrubber),
+  &.compact .dock-slot .scrubber {
+    display: none;
+  }
+
+  &.compact .dock-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    cursor: default;
+    touch-action: auto;
+  }
+
+  &.compact .dock-byline {
+    margin-top: 0.1rem;
+  }
+
+  &.compact .compact-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    flex: none;
+  }
+
+  &.compact .compact-button {
+    display: grid;
+    place-items: center;
+    width: 3.6rem;
+    height: 3.6rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  &.compact .compact-button:hover,
+  &.compact .compact-button:focus-visible {
+    background: var(--bg-hover);
+  }
+
+  &.compact .compact-button:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: 1px;
+  }
 `
 
 const DRAG_THRESHOLD = 5
@@ -407,6 +496,31 @@ const PersistentPlayer = () => {
   const [fullscreen, setFullscreen] = useState(false)
   const isShort = session.kind === 'short'
   const aspect: MiniplayerAspect = docked && isShort ? 'vertical' : 'landscape'
+  const mobileSearchOpen = useMobileSearchOpen()
+  const compact = shouldCollapseMiniplayer({ docked, viewportWidth: viewport.width, mobileSearchOpen })
+  const togglePlayRef = useRef<(() => void) | undefined>(undefined)
+  const [videoPaused, setVideoPaused] = useState(() => Boolean(session.paused))
+
+  useEffect(() => {
+    if (!ambientVideo) {
+      setVideoPaused(Boolean(session.paused))
+      return
+    }
+    const sync = () => setVideoPaused(ambientVideo.paused)
+    sync()
+    ambientVideo.addEventListener('play', sync)
+    ambientVideo.addEventListener('playing', sync)
+    ambientVideo.addEventListener('pause', sync)
+    ambientVideo.addEventListener('ended', sync)
+    ambientVideo.addEventListener('loadedmetadata', sync)
+    return () => {
+      ambientVideo.removeEventListener('play', sync)
+      ambientVideo.removeEventListener('playing', sync)
+      ambientVideo.removeEventListener('pause', sync)
+      ambientVideo.removeEventListener('ended', sync)
+      ambientVideo.removeEventListener('loadedmetadata', sync)
+    }
+  }, [ambientVideo, session.paused])
 
   useEffect(() => {
     if (!docked) {
@@ -418,6 +532,10 @@ const PersistentPlayer = () => {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [docked])
+
+  useEffect(() => {
+    if (compact) stopDragRef.current?.()
+  }, [compact])
 
   useEffect(() => () => {
     stopDragRef.current?.()
@@ -441,7 +559,7 @@ const PersistentPlayer = () => {
       : undefined)
 
   const startMoveDrag = useCallback((event: PointerEvent) => {
-    if (event.button !== 0 || !docked) return
+    if (event.button !== 0 || !docked || compact) return
     if (isInteractiveDragControl(event.target)) return
     const aside = asideRef.current
     if (!aside) return
@@ -858,6 +976,7 @@ const PersistentPlayer = () => {
   const toggleMiniplayer = () => {
     const current = getPlayerSession()
     if (!current.videoId) return
+    setMobileSearchOpen(false)
     navigate(current.claimed ? lastPage.current : expandHrefFor(current))
   }
 
@@ -888,10 +1007,11 @@ const PersistentPlayer = () => {
       <aside
         ref={asideRef}
         css={style}
-        className={[!docked && 'hidden', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
+        className={[!docked && 'hidden', compact && 'compact', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
         data-miniplayer-aspect={docked ? aspect : undefined}
+        data-collapsed={compact ? 'true' : undefined}
         data-resize-edge={drag?.edge}
-        style={docked
+        style={docked && !compact
           ? positionedRect
             ? {
                 left: `${positionedRect.left}px`,
@@ -916,6 +1036,7 @@ const PersistentPlayer = () => {
                     className='dock-title'
                     draggable={false}
                     href={expandHref}
+                    onClick={() => setMobileSearchOpen(false)}
                   >
                     {watch?.title ?? session.title ?? 'Now playing'}
                   </Link>
@@ -939,74 +1060,114 @@ const PersistentPlayer = () => {
                     )
                     : undefined}
                 </div>
-                <button
-                  type='button'
-                  className='dock-move'
-                  aria-label='Move miniplayer'
-                  title='Drag to move miniplayer (double-click to reset)'
-                  onDoubleClick={resetMiniplayerPosition}
-                  onKeyDown={onMoveKeyDown}
-                >
-                  <GripHorizontal size={16} strokeWidth={1.75} />
-                </button>
+                {!compact
+                  ? (
+                    <button
+                      type='button'
+                      className='dock-move'
+                      aria-label='Move miniplayer'
+                      title='Drag to move miniplayer (double-click to reset)'
+                      onDoubleClick={resetMiniplayerPosition}
+                      onKeyDown={onMoveKeyDown}
+                    >
+                      <GripHorizontal size={16} strokeWidth={1.75} />
+                    </button>
+                  )
+                  : undefined}
               </div>
-              <div
-                className='resize-handle resize-left'
-                data-resize='left'
-                aria-hidden='true'
-                onPointerDown={startResize('left')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-              />
-              <div
-                className='resize-handle resize-right'
-                data-resize='right'
-                aria-hidden='true'
-                onPointerDown={startResize('right')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-              />
-              <div
-                className='resize-handle resize-top'
-                data-resize='top'
-                aria-hidden='true'
-                onPointerDown={startResize('top')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-              />
-              <div
-                className='resize-handle resize-bottom'
-                data-resize='bottom'
-                aria-hidden='true'
-                onPointerDown={startResize('bottom')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-              />
-              <div
-                className='resize-handle resize-corner'
-                data-resize='top-left'
-                role='separator'
-                aria-label='Resize miniplayer'
-                aria-orientation='horizontal'
-                aria-valuemin={bounds.min}
-                aria-valuemax={bounds.max}
-                aria-valuenow={renderedWidth}
-                aria-valuetext={`${renderedWidth}px`}
-                tabIndex={0}
-                title='Drag to resize miniplayer (double-click to reset)'
-                onPointerDown={startResize('top-left')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-                onKeyDown={onCornerKeyDown}
-              />
-              <div
-                className='resize-handle resize-bottom-right'
-                data-resize='bottom-right'
-                aria-hidden='true'
-                onPointerDown={startResize('bottom-right')}
-                onClick={stopHandleClick}
-                onDoubleClick={resetMiniplayerWidth}
-              />
+              {compact
+                ? (
+                  <div className='compact-actions'>
+                    <button
+                      type='button'
+                      className='compact-button'
+                      aria-label={videoPaused ? 'Play' : 'Pause'}
+                      title={videoPaused ? 'Play' : 'Pause'}
+                      onClick={() => togglePlayRef.current?.()}
+                    >
+                      {videoPaused ? <Play size={18} strokeWidth={1.75} /> : <Pause size={18} strokeWidth={1.75} />}
+                    </button>
+                    <button
+                      type='button'
+                      className='compact-button'
+                      aria-label='Expand'
+                      title='Expand'
+                      onClick={toggleMiniplayer}
+                    >
+                      <Maximize2 size={16} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type='button'
+                      className='compact-button'
+                      aria-label='Close miniplayer'
+                      title='Close miniplayer'
+                      onClick={() => closePlayer()}
+                    >
+                      <X size={18} strokeWidth={1.75} />
+                    </button>
+                  </div>
+                )
+                : (
+                  <>
+                    <div
+                      className='resize-handle resize-left'
+                      data-resize='left'
+                      aria-hidden='true'
+                      onPointerDown={startResize('left')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                    />
+                    <div
+                      className='resize-handle resize-right'
+                      data-resize='right'
+                      aria-hidden='true'
+                      onPointerDown={startResize('right')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                    />
+                    <div
+                      className='resize-handle resize-top'
+                      data-resize='top'
+                      aria-hidden='true'
+                      onPointerDown={startResize('top')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                    />
+                    <div
+                      className='resize-handle resize-bottom'
+                      data-resize='bottom'
+                      aria-hidden='true'
+                      onPointerDown={startResize('bottom')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                    />
+                    <div
+                      className='resize-handle resize-corner'
+                      data-resize='top-left'
+                      role='separator'
+                      aria-label='Resize miniplayer'
+                      aria-orientation='horizontal'
+                      aria-valuemin={bounds.min}
+                      aria-valuemax={bounds.max}
+                      aria-valuenow={renderedWidth}
+                      aria-valuetext={`${renderedWidth}px`}
+                      tabIndex={0}
+                      title='Drag to resize miniplayer (double-click to reset)'
+                      onPointerDown={startResize('top-left')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                      onKeyDown={onCornerKeyDown}
+                    />
+                    <div
+                      className='resize-handle resize-bottom-right'
+                      data-resize='bottom-right'
+                      aria-hidden='true'
+                      onPointerDown={startResize('bottom-right')}
+                      onClick={stopHandleClick}
+                      onDoubleClick={resetMiniplayerWidth}
+                    />
+                  </>
+                )}
             </>
           )
           : undefined}
@@ -1051,6 +1212,7 @@ const PersistentPlayer = () => {
                   startAt={session.startAt}
                   defaultLoop={isShort}
                   docked={docked}
+                  compact={compact}
                   theater={session.theater}
                   onTheater={() => setTheater(nextTheaterMode(session.theater))}
                   onMiniplayer={toggleMiniplayer}
@@ -1062,6 +1224,7 @@ const PersistentPlayer = () => {
                   onTimedComments={() => updateSettings({ timedComments: !timedComments })}
                   commentsHidden={watch?.commentsHidden === true}
                   onVideoElement={setAmbientVideo}
+                  togglePlayRef={togglePlayRef}
                   chapters={watch?.chapters}
                   heatmap={watch?.heatmap}
                   segments={segments}

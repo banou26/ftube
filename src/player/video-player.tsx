@@ -260,8 +260,8 @@ const captionBase = (video: HTMLVideoElement) => {
 
 const VideoPlayer = (
   {
-    videoId, playerParams, list, title, poster, channelName, startAt, defaultLoop = false, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
-    chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments, commentsHidden = false, onVideoElement,
+    videoId, playerParams, list, title, poster, channelName, startAt, defaultLoop = false, docked = false, compact = false, theater = 'default', onTheater, onMiniplayer, upNext,
+    chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments, commentsHidden = false, onVideoElement, togglePlayRef,
   }: {
     videoId: string
     playerParams?: string
@@ -272,6 +272,7 @@ const VideoPlayer = (
     startAt?: number
     defaultLoop?: boolean
     docked?: boolean
+    compact?: boolean
     theater?: TheaterMode
     onTheater?: () => void
     onMiniplayer?: () => void
@@ -289,6 +290,7 @@ const VideoPlayer = (
     onTimedComments?: () => void
     commentsHidden?: boolean
     onVideoElement?: (video: HTMLVideoElement | null) => void
+    togglePlayRef?: { current?: () => void }
   },
 ) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -1130,19 +1132,30 @@ const VideoPlayer = (
     !inPip ? 'custom-captions' : undefined,
   ].filter(Boolean).join(' ') || undefined
 
-  const togglePlay = () => {
+  const runTogglePlay = (showBezel: boolean) => {
     const current = videoRef.current
     // a click that closes the menu only closes it, as on youtube.com
     if (!current || menuAtPress.current) return
     if (current.paused) {
       void current.play().catch(() => {})
-      flash('play')
+      if (showBezel) flash('play')
     } else {
       markExplicitPause()
       current.pause()
-      flash('pause')
+      if (showBezel) flash('pause')
     }
   }
+  const togglePlay = () => runTogglePlay(true)
+  const compactToggleRef = useRef<() => void>(() => {})
+  compactToggleRef.current = () => runTogglePlay(false)
+  useEffect(() => {
+    if (!togglePlayRef) return
+    const trigger = () => compactToggleRef.current()
+    togglePlayRef.current = trigger
+    return () => {
+      if (togglePlayRef.current === trigger) togglePlayRef.current = undefined
+    }
+  }, [togglePlayRef])
   const onSurfaceClick = (event: MouseEvent) => {
     const pointerType = ('pointerType' in event && typeof event.pointerType === 'string' && event.pointerType)
       || lastPointerTypeRef.current
@@ -1265,7 +1278,7 @@ const VideoPlayer = (
           />
         )
         : undefined}
-      {bezel ? <Bezel key={bezel.id} cue={bezel} /> : undefined}
+      {bezel && !compact ? <Bezel key={bezel.id} cue={bezel} /> : undefined}
       {status
         ? (
           <div className='playback-status'>
@@ -1321,7 +1334,7 @@ const VideoPlayer = (
         : upNext && ending === 'suggestions' && upNext.suggestions.length > 0
           ? <EndScreen videos={upNext.suggestions} onOpen={upNext.onOpen} />
           : undefined}
-      {docked
+      {docked && !compact
         ? (
           <MiniplayerControls
             video={video && !status && !refusal ? video : undefined}
