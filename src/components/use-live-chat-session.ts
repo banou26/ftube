@@ -1,10 +1,11 @@
+import type { StateUpdater } from 'preact/hooks'
 import type { TargetedEvent } from 'preact'
 
 import type { ChatReplayView, LiveChatQuery } from '../generated/graphql'
 import type { CustomEmoji } from './emoji-picker'
 import type { MentionCandidate } from './live-chat-helpers'
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useClient, useMutation, useQuery } from 'urql'
 
 import { gql } from '../generated'
@@ -207,22 +208,160 @@ const sameAuthor = (author: ChatRow['author'] | undefined, self: ViewerIdentity 
   return selfKeys.some((key) => authorKeys.includes(key))
 }
 
-/** Keeps a chat log on its newest line until the reader scrolls up, which `pinned` false offers a way back from. */
-export const usePinnedLog = (lines: unknown, hidden = false, scrollKey?: unknown) => {
-  const [pinned, setPinned] = useState(true)
-  const logRef = useRef<HTMLDivElement>(null)
+/** Snapshot of the topmost visible chat message rows used to preserve reading position across layout moves. */
+export type ChatScrollAnchor = {
+  ids: string[]
+  deltaFromTop: number
+  scrollTop: number
+}
 
-  useEffect(() => {
+const ANCHOR_ID_LIMIT = 6
+
+/** Captures up to six visible `[data-chat-id]` message ids starting at the top of `log` plus the pixel offset. */
+export const captureChatScrollAnchor = (log: HTMLElement): ChatScrollAnchor => {
+  const logRect = log.getBoundingClientRect()
+  const rows = log.querySelectorAll<HTMLElement>('[data-chat-id]')
+  const ids: string[] = []
+  let deltaFromTop = 0
+
+  for (const row of rows) {
+    const id = row.getAttribute('data-chat-id')
+    if (!id) continue
+    const rect = row.getBoundingClientRect()
+    if (rect.bottom <= logRect.top + 1) continue
+    if (ids.length === 0) deltaFromTop = rect.top - logRect.top
+    ids.push(id)
+    if (ids.length >= ANCHOR_ID_LIMIT) break
+  }
+
+  return { ids, deltaFromTop, scrollTop: log.scrollTop }
+}
+
+/** Resolves the clamped `scrollTop` inside `log` that keeps `anchor` aligned at the reading viewport top. */
+export const resolveChatScrollAnchorTop = (log: HTMLElement, anchor: ChatScrollAnchor): number => {
+  const maxScroll = Math.max(0, log.scrollHeight - log.clientHeight)
+  const clampScroll = (value: number) => Math.max(0, Math.min(value, maxScroll))
+  if (anchor.ids.length === 0) return clampScroll(anchor.scrollTop)
+
+  const rows = log.querySelectorAll<HTMLElement>('[data-chat-id]')
+  const byId = new Map<string, HTMLElement>()
+  for (const row of rows) {
+    const id = row.getAttribute('data-chat-id')
+    if (id && anchor.ids.includes(id) && !byId.has(id)) {
+      byId.set(id, row)
+    }
+  }
+
+  for (let matchIndex = 0; matchIndex < anchor.ids.length; matchIndex += 1) {
+    const target = byId.get(anchor.ids[matchIndex]!)
+    if (!target) continue
+    const logRect = log.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const targetTopInScroll = log.scrollTop + (targetRect.top - logRect.top)
+    if (matchIndex === 0) {
+      const safeRow = Math.max(1, targetRect.height)
+      const keepVisible = Math.min(4, safeRow - 1)
+      const minDelta = -(safeRow - 1 - keepVisible)
+      const maxDelta = Math.max(0, logRect.height - Math.max(1, Math.min(4, logRect.height)))
+      const clampedDelta = Math.max(minDelta, Math.min(anchor.deltaFromTop, maxDelta))
+      return clampScroll(targetTopInScroll - clampedDelta)
+    }
+    return clampScroll(targetTopInScroll)
+  }
+
+  return clampScroll(anchor.scrollTop)
+}
+
+/** Keeps a chat log on its newest line until the reader scrolls up, preserving their reading anchor across layout moves. */
+export const usePinnedLog = (lines: unknown, hidden = false, scrollKey?: unknown) => {
+  const [pinned, setPinnedState] = useState(true)
+  const logRef = useRef<HTMLDivElement>(null)
+  const pinnedRef = useRef(true)
+  const lastLogElRef = useRef<HTMLDivElement | null>(null)
+  const anchorRef = useRef<ChatScrollAnchor | undefined>(undefined)
+  const programmaticTargetRef = useRef<number | undefined>(undefined)
+  const programmaticTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => {
+    if (programmaticTimerRef.current !== undefined) {
+      clearTimeout(programmaticTimerRef.current)
+      programmaticTimerRef.current = undefined
+    }
+  }, [])
+
+  const applyScrollTop = useCallback((log: HTMLElement, nextTop: number) => {
+    const maxScroll = Math.max(0, log.scrollHeight - log.clientHeight)
+    const target = Math.max(0, Math.min(nextTop, maxScroll))
+    if (Math.abs(log.scrollTop - target) <= 0.5) return
+    log.scrollTop = target
+    const applied = log.scrollTop
+    programmaticTargetRef.current = applied
+    if (programmaticTimerRef.current !== undefined) clearTimeout(programmaticTimerRef.current)
+    programmaticTimerRef.current = setTimeout(() => {
+      programmaticTimerRef.current = undefined
+      programmaticTargetRef.current = undefined
+    }, 100)
+  }, [])
+
+  const setPinned = useCallback((next: StateUpdater<boolean>) => {
+    if (typeof next === 'boolean') {
+      pinnedRef.current = next
+      if (next) anchorRef.current = undefined
+    }
+    setPinnedState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      pinnedRef.current = resolved
+      if (resolved) anchorRef.current = undefined
+      return resolved
+    })
+  }, [])
+
+  useLayoutEffect(() => {
     if (hidden) return
     const log = logRef.current
-    if (!log || !pinned) return
-    log.scrollTop = log.scrollHeight
-  }, [lines, pinned, hidden, scrollKey])
+    if (!log || !log.isConnected) return
+    lastLogElRef.current = log
+    if (pinned) {
+      anchorRef.current = undefined
+      applyScrollTop(log, log.scrollHeight)
+    } else if (anchorRef.current) {
+      applyScrollTop(log, resolveChatScrollAnchorTop(log, anchorRef.current))
+    }
+  }, [lines, pinned, hidden, scrollKey, applyScrollTop])
+
+  useEffect(() => {
+    if (hidden || typeof ResizeObserver === 'undefined') return
+    const log = logRef.current
+    if (!log || !log.isConnected) return
+    const observer = new ResizeObserver(() => {
+      const current = logRef.current
+      if (!current || !current.isConnected) return
+      if (pinnedRef.current) {
+        applyScrollTop(current, current.scrollHeight)
+      } else if (anchorRef.current) {
+        applyScrollTop(current, resolveChatScrollAnchorTop(current, anchorRef.current))
+      }
+    })
+    observer.observe(log)
+    return () => observer.disconnect()
+  }, [hidden, scrollKey, applyScrollTop])
 
   const onScroll = () => {
     const log = logRef.current
-    if (!log) return
-    setPinned(log.scrollHeight - log.scrollTop - log.clientHeight <= PINNED_SLACK_PX)
+    if (!log || !log.isConnected || log !== lastLogElRef.current) return
+    const target = programmaticTargetRef.current
+    if (target !== undefined) {
+      programmaticTargetRef.current = undefined
+      if (programmaticTimerRef.current !== undefined) {
+        clearTimeout(programmaticTimerRef.current)
+        programmaticTimerRef.current = undefined
+      }
+      if (Math.abs(log.scrollTop - target) <= 2) return
+    }
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight <= PINNED_SLACK_PX
+    pinnedRef.current = atBottom
+    setPinnedState(atBottom)
+    anchorRef.current = atBottom ? undefined : captureChatScrollAnchor(log)
   }
 
   return { logRef, onScroll, pinned, setPinned }

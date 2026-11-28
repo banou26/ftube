@@ -32,6 +32,7 @@ declare global {
       liveChatInitialCalls: number
       closeLiveChatCalls: number
       pushLiveChatPage: (page: WatchHarnessLiveChatPage) => void
+      setTheater: (mode: TheaterMode) => void
     }
   }
 }
@@ -47,6 +48,7 @@ export type WatchHarnessOptions = {
   publishedDateText?: string | null
   isLive?: boolean
   hasChatReplay?: boolean
+  initialLiveChatMessages?: WatchHarnessLiveChatPage['items']
   theater?: TheaterMode | boolean
   longDescription?: boolean
   withChips?: boolean
@@ -113,6 +115,9 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
         queuedPages.push(next)
       }
     },
+    setTheater: (mode: TheaterMode) => {
+      setPlayerTheater(mode)
+    },
   }
   window.__watchHarness = controller
 
@@ -165,7 +170,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
         queuedPages.length = 0
         controller.liveChatInitialCalls += 1
         return {
-          items: [{
+          items: options.initialLiveChatMessages ?? [{
             id: 'tc-1',
             kind: 'TEXT',
             text: 'Hello theater chat!',

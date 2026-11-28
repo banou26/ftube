@@ -1353,7 +1353,7 @@ export const ChatLine = (
   if (message.kind === 'SYSTEM') {
     const restrictedIcon = Boolean(message.iconType && /LOCK|SLOW|SUBSCRIBER|MEMBER/i.test(message.iconType))
     return (
-      <div className='row system' data-chat-kind='system'>
+      <div className='row system' data-chat-id={message.id} data-chat-kind='system'>
         {restrictedIcon ? <Lock size={14} strokeWidth={1.75} aria-hidden='true' /> : <Info size={14} strokeWidth={1.75} aria-hidden='true' />}
         <div>{body}</div>
       </div>
@@ -1362,7 +1362,7 @@ export const ChatLine = (
 
   if (message.kind === 'STICKER' || message.stickerUrl) {
     return (
-      <div className='row paid sticker' data-chat-kind='sticker'>
+      <div className='row paid sticker' data-chat-id={message.id} data-chat-kind='sticker'>
         <div
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
@@ -1385,7 +1385,7 @@ export const ChatLine = (
     const subtitle = message.headerPrimaryText || message.headerSubtext
     const showSub = Boolean(subtitle && subtitle !== message.text)
     return (
-      <div className='row paid membership' data-chat-kind={message.kind === 'GIFT_MEMBERSHIP' ? 'gift-membership' : 'membership'}>
+      <div className='row paid membership' data-chat-id={message.id} data-chat-kind={message.kind === 'GIFT_MEMBERSHIP' ? 'gift-membership' : 'membership'}>
         <div
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#0f7b3e', color: '#fff' }}
@@ -1408,7 +1408,7 @@ export const ChatLine = (
 
   if (message.purchaseAmountText || message.kind === 'PAID') {
     return (
-      <div className='row paid' data-chat-kind='paid'>
+      <div className='row paid' data-chat-id={message.id} data-chat-kind='paid'>
         <div
           className='paid-head'
           style={{ background: message.headerBackgroundColor ?? '#1565c0', color: '#fff' }}
@@ -1427,7 +1427,7 @@ export const ChatLine = (
 
   if (message.kind === 'GIFT') {
     return (
-      <div className='row gift' data-chat-kind='gift'>
+      <div className='row gift' data-chat-id={message.id} data-chat-kind='gift'>
         <ChatAvatar author={message.author} placeholder />
         <div className='gift-body'>
           <Gift size={14} strokeWidth={1.75} className='gift-icon' aria-hidden='true' />
@@ -1440,7 +1440,7 @@ export const ChatLine = (
   }
 
   return (
-    <div className='row'>
+    <div className='row' data-chat-id={message.id}>
       <ChatAvatar author={message.author} placeholder />
       <div>
         {badges}

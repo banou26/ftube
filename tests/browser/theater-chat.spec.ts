@@ -204,3 +204,86 @@ test('keeps live chat session and over-screen messages alive across hide and sho
   await rail.getByRole('button', { name: 'Hide chat', exact: true }).click()
   await expect.poll(() => page.evaluate(() => window.__watchHarness?.closeLiveChatCalls ?? 0)).toBe(1)
 })
+
+const makeBusyMessages = (start: number, end: number) =>
+  Array.from({ length: end - start + 1 }, (_, idx) => {
+    const num = start + idx
+    const text = num % 3 === 0
+      ? `Message #${num}: detailed commentary wrapping across multiple lines when chat width changes between layouts`
+      : `Message #${num}: quick reaction`
+    return {
+      id: `msg-${num}`,
+      kind: 'TEXT',
+      text,
+      runs: [{ text }],
+      author: { id: `UC-${num}`, name: `Chatter${num}`, handle: `@chatter${num}` },
+    }
+  })
+
+const topVisibleRowText = (log: Element) => {
+  const logRect = log.getBoundingClientRect()
+  const rows = Array.from(log.querySelectorAll<HTMLElement>('.row'))
+  const first = rows.find((row) => row.getBoundingClientRect().bottom > logRect.top + 4)
+  return first?.textContent ?? ''
+}
+
+test('preserves live chat reading position when leaving theater mode and keeps pinned viewers at bottom', async ({ page }) => {
+  const host = await mountTheaterWatch(page, 'theater-scroll-1440', { width: 1440, height: 900 }, {
+    isLive: true,
+    initialLiveChatMessages: makeBusyMessages(1, 80),
+  })
+
+  const rail = host.locator('aside.theater-chat-rail')
+  const railLog = rail.locator('.log')
+  await expect(railLog).toContainText('Message #80:')
+  await expect.poll(() => railLog.evaluate((el) => el.scrollHeight > el.clientHeight + 500)).toBe(true)
+
+  // Scroll up to Message #30 in Theater mode
+  await railLog.evaluate((el) => {
+    const target = Array.from(el.querySelectorAll<HTMLElement>('.row')).find((r) => r.textContent?.includes('Message #30:'))
+    if (!target) throw new Error('Message #30 row not found')
+    el.scrollTop = target.offsetTop + 6
+    el.dispatchEvent(new Event('scroll'))
+  })
+  await expect(rail.getByRole('button', { name: 'Jump to latest', exact: true })).toBeVisible()
+  await expect.poll(() => railLog.evaluate(topVisibleRowText)).toContain('Message #30:')
+
+  // Return to Default view while chat is open: width/height change must keep Message #30 visible
+  await page.evaluate(() => window.__watchHarness?.setTheater('default'))
+  await expect(host.locator('aside.theater-chat-rail')).toHaveCount(0)
+  const secondaryChat = host.locator('aside.secondary').getByRole('region', { name: 'Live chat' })
+  await expect(secondaryChat).toBeVisible()
+  const secondaryLog = secondaryChat.locator('.log')
+  await expect(secondaryChat.getByRole('button', { name: 'Jump to latest', exact: true })).toBeVisible()
+  await expect.poll(() => secondaryLog.evaluate(topVisibleRowText)).toContain('Message #30:')
+
+  // Re-enter theater mode, then push new messages right as leaving theater mode
+  await page.evaluate(() => window.__watchHarness?.setTheater('fullscreen'))
+  await expect(rail).toBeVisible()
+  await expect.poll(() => railLog.evaluate(topVisibleRowText)).toContain('Message #30:')
+
+  const burst = makeBusyMessages(81, 90)
+  await page.evaluate((items) => {
+    window.__watchHarness?.pushLiveChatPage({ items })
+    window.__watchHarness?.setTheater('default')
+  }, burst)
+  await expect(secondaryLog).toContainText('Message #90:')
+  await expect.poll(() => secondaryLog.evaluate(topVisibleRowText)).toContain('Message #30:')
+
+  // Returning to pinned bottom keeps pinned viewers glued to newest messages across mode changes
+  await secondaryChat.getByRole('button', { name: 'Jump to latest', exact: true }).click()
+  await expect(secondaryChat.getByRole('button', { name: 'Jump to latest', exact: true })).toHaveCount(0)
+  await expect.poll(() => secondaryLog.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(36)
+
+  await page.evaluate(() => window.__watchHarness?.setTheater('fullscreen'))
+  await expect(railLog).toContainText('Message #90:')
+  await expect.poll(() => railLog.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(36)
+
+  const latest = makeBusyMessages(91, 91)
+  await page.evaluate((items) => {
+    window.__watchHarness?.pushLiveChatPage({ items })
+    window.__watchHarness?.setTheater('default')
+  }, latest)
+  await expect(secondaryLog).toContainText('Message #91:')
+  await expect.poll(() => secondaryLog.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(36)
+})
