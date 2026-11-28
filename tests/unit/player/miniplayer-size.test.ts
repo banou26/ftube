@@ -5,9 +5,12 @@ import {
   coerceMiniplayerPosition,
   coerceMiniplayerWidth,
   DEFAULT_MINIPLAYER_WIDTH,
+  DEFAULT_VERTICAL_MINIPLAYER_WIDTH,
   draggedMiniplayerWidth,
   MAX_MINIPLAYER_WIDTH,
+  MAX_VERTICAL_MINIPLAYER_WIDTH,
   MIN_MINIPLAYER_WIDTH,
+  MIN_VERTICAL_MINIPLAYER_WIDTH,
   miniplayerBoxHeight,
   miniplayerPositionBounds,
   miniplayerWidthBounds,
@@ -193,5 +196,47 @@ describe('miniplayer sizing helpers', () => {
       viewportWidth: 1280,
       viewportHeight: 800,
     })).toEqual({ left: 16, top: 72, width: 560, height: 391 })
+  })
+
+  it('supports vertical 9:16 miniplayer bounds, clamping, drag deltas, resizing, and stepping', () => {
+    expect(DEFAULT_VERTICAL_MINIPLAYER_WIDTH).toBe(240)
+    expect(MIN_VERTICAL_MINIPLAYER_WIDTH).toBe(200)
+    expect(MAX_VERTICAL_MINIPLAYER_WIDTH).toBe(420)
+    expect(miniplayerBoxHeight(240, 76, 'vertical')).toBe(503)
+
+    // At 1280x800, max height is bounded by 800 - 76 - 88 = 636 -> width <= Math.floor(636 * 9 / 16) = 357
+    expect(miniplayerWidthBounds(1280, 800, 'vertical')).toEqual({ min: 200, max: 357 })
+    // Tall screen allows up to MAX_VERTICAL_MINIPLAYER_WIDTH (420)
+    expect(miniplayerWidthBounds(1440, 1200, 'vertical')).toEqual({ min: 200, max: 420 })
+    // Short viewport clamps vertical miniplayer width cleanly to keep it on screen
+    expect(clampMiniplayerWidth(undefined, 1280, 500, 'vertical')).toBe(189)
+    expect(clampMiniplayerWidth(100, 1280, 550, 'vertical')).toBe(200)
+    expect(clampMiniplayerWidth(undefined, 1280, 800, 'vertical')).toBe(240)
+
+    expect(draggedMiniplayerWidth({
+      edge: 'top',
+      startWidth: 240,
+      dx: 0,
+      dy: 160,
+      viewportWidth: 1280,
+      viewportHeight: 1200,
+      aspect: 'vertical',
+    })).toBe(330)
+
+    expect(stepMiniplayerWidth(240, 1, false, 1280, 800, 'vertical')).toBe(280)
+    expect(stepMiniplayerWidth(340, 1, true, 1280, 800, 'vertical')).toBe(357)
+
+    const verticalRect = { left: 16, top: 72, width: 240, height: miniplayerBoxHeight(240, 76, 'vertical') }
+    const resized = resizedMiniplayerRect({
+      startRect: verticalRect,
+      edge: 'bottom-right',
+      dx: 45,
+      dy: 80,
+      viewportWidth: 1280,
+      viewportHeight: 1200,
+      aspect: 'vertical',
+    })
+    expect(resized.width).toBe(285)
+    expect(resized.height).toBe(miniplayerBoxHeight(285, 76, 'vertical'))
   })
 })

@@ -68,6 +68,10 @@ const frameStyle = css`
   position: relative;
   z-index: 1;
 
+  &.vertical {
+    aspect-ratio: 9 / 16;
+  }
+
   /* Fullscreen has to beat BOTH the 16/9 aspect-ratio box and the max-height
      that theater mode puts on this element, or the video is letterboxed inside
      a correctly-fullscreened container. Sizing off the viewport rather than
@@ -115,8 +119,9 @@ const frameStyle = css`
  * others, and all of them close when the video changes or full screen starts or ends.
  */
 export const PlayerFrame = (
-  { details, onFullscreenChange, children }: {
+  { details, aspect = 'landscape', onFullscreenChange, children }: {
     details: FrameDetails
+    aspect?: 'landscape' | 'vertical'
     onFullscreenChange?: (fullscreen: boolean) => void
     children: ComponentChildren
   },
@@ -207,8 +212,10 @@ export const PlayerFrame = (
         ? <view.DescriptionPanel key={details.videoId} details={details} onClose={close} />
         : undefined)
 
+  const classes = [aspect === 'vertical' ? 'vertical' : undefined, panel ? 'panel-open' : undefined].filter(Boolean).join(' ') || undefined
+
   return (
-    <div css={frameStyle} data-player-root ref={ref} className={panel ? 'panel-open' : undefined}>
+    <div css={frameStyle} data-player-root ref={ref} className={classes}>
       <FrameContext.Provider value={{ details, fullscreen, grid, setGrid, aside, setAside: showAside, view }}>
         {children}
         {panel ? <div className='side-panel'>{panel}</div> : undefined}

@@ -1,5 +1,7 @@
 export type MiniplayerResizeEdge = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'bottom-right'
 
+export type MiniplayerAspect = 'landscape' | 'vertical'
+
 export type MiniplayerBounds = { min: number, max: number }
 
 export type MiniplayerPosition = { x: number, y: number }
@@ -17,6 +19,10 @@ export const DEFAULT_MINIPLAYER_WIDTH = 400
 export const MIN_MINIPLAYER_WIDTH = 280
 export const MAX_MINIPLAYER_WIDTH = 1200
 
+export const DEFAULT_VERTICAL_MINIPLAYER_WIDTH = 240
+export const MIN_VERTICAL_MINIPLAYER_WIDTH = 200
+export const MAX_VERTICAL_MINIPLAYER_WIDTH = 420
+
 export const MINIPLAYER_MARGIN = 16
 export const MINIPLAYER_TOP_CLEARANCE = 72
 export const MINIPLAYER_META_HEIGHT = 76
@@ -30,6 +36,13 @@ const MINIPLAYER_KEYBOARD_STEP = 40
 const MINIPLAYER_KEYBOARD_LARGE_STEP = 80
 const FALLBACK_VIEWPORT_WIDTH = 1280
 const FALLBACK_VIEWPORT_HEIGHT = 800
+
+const ASPECT_CONFIG: Record<MiniplayerAspect, { ratioW: number, ratioH: number, defaultWidth: number, minWidth: number, maxWidth: number }> = {
+  landscape: { ratioW: 16, ratioH: 9, defaultWidth: DEFAULT_MINIPLAYER_WIDTH, minWidth: MIN_MINIPLAYER_WIDTH, maxWidth: MAX_MINIPLAYER_WIDTH },
+  vertical: { ratioW: 9, ratioH: 16, defaultWidth: DEFAULT_VERTICAL_MINIPLAYER_WIDTH, minWidth: MIN_VERTICAL_MINIPLAYER_WIDTH, maxWidth: MAX_VERTICAL_MINIPLAYER_WIDTH },
+}
+
+const aspectConfig = (aspect: MiniplayerAspect = 'landscape') => ASPECT_CONFIG[aspect]
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value))
 
@@ -54,16 +67,30 @@ export const coerceMiniplayerPosition = (value: unknown): MiniplayerPosition | u
 }
 
 /** Returns the total CSS pixel height of the miniplayer card for a given width and metadata bar height. */
-export const miniplayerBoxHeight = (width: number, metaHeight = MINIPLAYER_META_HEIGHT): number =>
-  Math.round(width * 9 / 16) + metaHeight
+export const miniplayerBoxHeight = (
+  width: number,
+  metaHeight = MINIPLAYER_META_HEIGHT,
+  aspect: MiniplayerAspect = 'landscape',
+): number => {
+  const { ratioW, ratioH } = aspectConfig(aspect)
+  return Math.round(width * ratioH / ratioW) + metaHeight
+}
 
 /** Returns the inclusive [min, max] CSS pixel width allowed for the miniplayer in the current viewport. */
-export const miniplayerWidthBounds = (viewportWidth: number, viewportHeight: number): MiniplayerBounds => {
+export const miniplayerWidthBounds = (
+  viewportWidth: number,
+  viewportHeight: number,
+  aspect: MiniplayerAspect = 'landscape',
+): MiniplayerBounds => {
   const { width, height } = safeViewport(viewportWidth, viewportHeight)
+  const config = aspectConfig(aspect)
   const maxByWidth = Math.max(160, Math.floor(width - MINIPLAYER_MARGIN_X))
-  const maxByHeight = Math.max(160, Math.floor((height - MINIPLAYER_META_HEIGHT - MINIPLAYER_VERTICAL_RESERVE) * 16 / 9))
-  const max = Math.min(MAX_MINIPLAYER_WIDTH, maxByWidth, maxByHeight)
-  const min = Math.min(MIN_MINIPLAYER_WIDTH, max)
+  const maxByHeight = Math.max(
+    160,
+    Math.floor((height - MINIPLAYER_META_HEIGHT - MINIPLAYER_VERTICAL_RESERVE) * config.ratioW / config.ratioH),
+  )
+  const max = Math.min(config.maxWidth, maxByWidth, maxByHeight)
+  const min = Math.min(config.minWidth, max)
   return { min, max }
 }
 
@@ -72,11 +99,12 @@ export const clampMiniplayerWidth = (
   desiredWidth: number | undefined,
   viewportWidth: number,
   viewportHeight: number,
+  aspect: MiniplayerAspect = 'landscape',
 ): number => {
-  const { min, max } = miniplayerWidthBounds(viewportWidth, viewportHeight)
+  const { min, max } = miniplayerWidthBounds(viewportWidth, viewportHeight, aspect)
   const target = typeof desiredWidth === 'number' && Number.isFinite(desiredWidth)
     ? desiredWidth
-    : DEFAULT_MINIPLAYER_WIDTH
+    : aspectConfig(aspect).defaultWidth
   return Math.round(clamp(target, min, max))
 }
 
@@ -149,30 +177,33 @@ export const nudgeMiniplayerPosition = (
 /**
  * Computes the next miniplayer width while dragging an anchor-free edge (`left`, `top`, or `top-left`).
  * `dx` and `dy` grow positively as the pointer moves left (`startX - clientX`) and up (`startY - clientY`).
- * Corner drags project orthogonally onto the 16:9 diagonal so 1:1 diagonal motion tracks the pointer without seams.
+ * Corner drags project orthogonally onto the aspect diagonal so 1:1 diagonal motion tracks the pointer without seams.
  */
 export const draggedMiniplayerWidth = (
-  { edge, startWidth, dx, dy, viewportWidth, viewportHeight }: {
+  { edge, startWidth, dx, dy, viewportWidth, viewportHeight, aspect = 'landscape' }: {
     edge: MiniplayerResizeEdge
     startWidth: number
     dx: number
     dy: number
     viewportWidth: number
     viewportHeight: number
+    aspect?: MiniplayerAspect
   },
 ): number => {
+  const { ratioW, ratioH } = aspectConfig(aspect)
+  const norm2 = ratioW * ratioW + ratioH * ratioH
   const deltaWidth = edge === 'left'
     ? dx
     : edge === 'right'
       ? -dx
       : edge === 'top'
-        ? dy * (16 / 9)
+        ? dy * (ratioW / ratioH)
         : edge === 'bottom'
-          ? -dy * (16 / 9)
+          ? -dy * (ratioW / ratioH)
           : edge === 'bottom-right'
-            ? (-16 * dx - 9 * dy) * (16 / (16 * 16 + 9 * 9))
-            : (16 * dx + 9 * dy) * (16 / (16 * 16 + 9 * 9))
-  return clampMiniplayerWidth(startWidth + deltaWidth, viewportWidth, viewportHeight)
+            ? (-ratioW * dx - ratioH * dy) * (ratioW / norm2)
+            : (ratioW * dx + ratioH * dy) * (ratioW / norm2)
+  return clampMiniplayerWidth(startWidth + deltaWidth, viewportWidth, viewportHeight, aspect)
 }
 
 /**
@@ -180,7 +211,7 @@ export const draggedMiniplayerWidth = (
  * Uses standard screen deltas (`dx = clientX - startX`, `dy = clientY - startY`).
  */
 export const resizedMiniplayerRect = (
-  { startRect, edge, dx, dy, viewportWidth, viewportHeight, metaHeight = MINIPLAYER_META_HEIGHT }: {
+  { startRect, edge, dx, dy, viewportWidth, viewportHeight, metaHeight = MINIPLAYER_META_HEIGHT, aspect = 'landscape' }: {
     startRect: MiniplayerRect
     edge: MiniplayerResizeEdge
     dx: number
@@ -188,10 +219,13 @@ export const resizedMiniplayerRect = (
     viewportWidth: number
     viewportHeight: number
     metaHeight?: number
+    aspect?: MiniplayerAspect
   },
 ): MiniplayerRect => {
+  const { ratioW, ratioH } = aspectConfig(aspect)
+  const norm2 = ratioW * ratioW + ratioH * ratioH
   const { width: safeVW, height: safeVH } = safeViewport(viewportWidth, viewportHeight)
-  const { min, max } = miniplayerWidthBounds(safeVW, safeVH)
+  const { min, max } = miniplayerWidthBounds(safeVW, safeVH, aspect)
   const startRight = startRect.left + startRect.width
   const startBottom = startRect.top + startRect.height
 
@@ -201,12 +235,12 @@ export const resizedMiniplayerRect = (
     : edge === 'right'
       ? dx
       : edge === 'top'
-        ? -dy * (16 / 9)
+        ? -dy * (ratioW / ratioH)
         : edge === 'bottom'
-          ? dy * (16 / 9)
+          ? dy * (ratioW / ratioH)
           : edge === 'top-left'
-            ? (16 * -dx + 9 * -dy) * (16 / (16 * 16 + 9 * 9))
-            : (16 * dx + 9 * dy) * (16 / (16 * 16 + 9 * 9))
+            ? (ratioW * -dx + ratioH * -dy) * (ratioW / norm2)
+            : (ratioW * dx + ratioH * dy) * (ratioW / norm2)
 
   const minLeftEdge = Math.min(MINIPLAYER_MARGIN, Math.max(0, safeVW - min - MINIPLAYER_MARGIN))
   const edgeMaxWidth = anchorsBottomRight
@@ -214,12 +248,12 @@ export const resizedMiniplayerRect = (
     : Math.max(min, Math.floor(safeVW - MINIPLAYER_MARGIN - startRect.left))
 
   const verticalCap = edge === 'top' || edge === 'top-left'
-    ? Math.max(min, Math.floor((startBottom - MINIPLAYER_TOP_CLEARANCE - metaHeight) * 16 / 9))
+    ? Math.max(min, Math.floor((startBottom - MINIPLAYER_TOP_CLEARANCE - metaHeight) * ratioW / ratioH))
     : max
 
   const effectiveMax = Math.min(max, edgeMaxWidth, verticalCap)
   const nextWidth = Math.round(clamp(startRect.width + deltaWidth, Math.min(min, effectiveMax), effectiveMax))
-  const nextHeight = miniplayerBoxHeight(nextWidth, metaHeight)
+  const nextHeight = miniplayerBoxHeight(nextWidth, metaHeight, aspect)
   const bounds = miniplayerPositionBounds(safeVW, safeVH, nextWidth, nextHeight)
 
   const rawLeft = anchorsBottomRight ? startRight - nextWidth : startRect.left
@@ -239,7 +273,8 @@ export const stepMiniplayerWidth = (
   large: boolean,
   viewportWidth: number,
   viewportHeight: number,
+  aspect: MiniplayerAspect = 'landscape',
 ): number => {
   const delta = direction * (large ? MINIPLAYER_KEYBOARD_LARGE_STEP : MINIPLAYER_KEYBOARD_STEP)
-  return clampMiniplayerWidth(currentWidth + delta, viewportWidth, viewportHeight)
+  return clampMiniplayerWidth(currentWidth + delta, viewportWidth, viewportHeight, aspect)
 }

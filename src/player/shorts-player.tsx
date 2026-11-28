@@ -390,16 +390,24 @@ const captionStyle = (declarations: string) => css`
  * teardown). `onRefused`, when given, takes a terminal refusal once the slide
  * is active in place of showing it.
  */
+export type ShortsPlaybackSnapshot = {
+  videoId: string
+  currentTime: number
+  playing: boolean
+}
+
 const ShortsPlayer = (
-  { videoId, poster, active, preload = false, shortcutsDisabled, menuActions, onMediaState, onVideoElement, onMenuOpenChange, onReady, onRefused }: {
+  { videoId, poster, active, preload = false, initialTime, shortcutsDisabled, menuActions, onMediaState, onVideoElement, onPlaybackChange, onMenuOpenChange, onReady, onRefused }: {
     videoId: string
     poster?: string
     active: boolean
     preload?: boolean
+    initialTime?: number
     shortcutsDisabled?: boolean
     menuActions?: ShortsMenuActions
     onMediaState?: (state: ShortsMediaState) => void
     onVideoElement?: (video: HTMLVideoElement | null) => void
+    onPlaybackChange?: (snapshot: ShortsPlaybackSnapshot) => void
     onMenuOpenChange?: (open: boolean) => void
     onReady?: (ready: boolean) => void
     onRefused?: () => void
@@ -420,6 +428,17 @@ const ShortsPlayer = (
   onVideoElementRef.current = onVideoElement
   const onMediaStateRef = useRef(onMediaState)
   onMediaStateRef.current = onMediaState
+  const onPlaybackChangeRef = useRef(onPlaybackChange)
+  onPlaybackChangeRef.current = onPlaybackChange
+  const prevVideoIdRef = useRef(videoId)
+  const initialTimeRef = useRef(initialTime)
+  const preserveInitialTimeRef = useRef(Boolean(initialTime && initialTime > 0))
+  const tornDownRef = useRef(false)
+  if (prevVideoIdRef.current !== videoId) {
+    prevVideoIdRef.current = videoId
+    initialTimeRef.current = initialTime
+    preserveInitialTimeRef.current = Boolean(initialTime && initialTime > 0)
+  }
 
   const bindVideo = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el
@@ -512,6 +531,7 @@ const ShortsPlayer = (
     // the loop MUST be on the element: restarting through currentTime re-enters the SABR chain as a seek
     video.loop = true
     const abort = new AbortController()
+    tornDownRef.current = false
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -568,7 +588,10 @@ const ShortsPlayer = (
         ? { width: Math.ceil(rect.width * devicePixelRatio), height: Math.ceil(rect.height * devicePixelRatio) }
         : undefined
       const maxHeight = cover ? Math.max(360, cover.height) : 1_080
-      const openOptions = cover ? { cover } : undefined
+      const startTime = preserveInitialTimeRef.current && initialTimeRef.current ? initialTimeRef.current : 0
+      const openOptions = cover
+        ? (startTime > 0 ? { cover, prewarm: false } : { cover })
+        : (startTime > 0 ? { prewarm: false } : undefined)
       const sessionPromise = openOptions
         ? api.openPlayback(videoId, maxHeight, undefined, settings.stableVolume, openOptions)
         : api.openPlayback(videoId, maxHeight, undefined, settings.stableVolume)
@@ -582,7 +605,7 @@ const ShortsPlayer = (
         video,
         videoId,
         stableVolume: settings.stableVolume,
-        startTime: 0,
+        startTime,
         autoPlay: false,
         bufferingGoal: activeRef.current ? ACTIVE_BUFFER_GOAL : PRELOAD_BUFFER_GOAL,
         maxHeight,
@@ -606,6 +629,14 @@ const ShortsPlayer = (
       onFrame()
     })().catch(fail)
     return () => {
+      tornDownRef.current = true
+      if (activeRef.current) {
+        onPlaybackChangeRef.current?.({
+          videoId,
+          currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+          playing: !video.paused && !video.ended,
+        })
+      }
       abort.abort()
       clearTimeout(retryTimer)
       video.removeEventListener('loadeddata', onFrame)
@@ -682,7 +713,13 @@ const ShortsPlayer = (
     } else {
       void controller.selectCaption(undefined).catch(() => {})
     }
-    if (video.currentTime > 0) {
+    const resumeAt = preserveInitialTimeRef.current ? initialTimeRef.current : undefined
+    preserveInitialTimeRef.current = false
+    if (resumeAt !== undefined && resumeAt > 0) {
+      if (Math.abs(video.currentTime - resumeAt) > 0.25) video.currentTime = resumeAt
+      const duration = video.duration
+      setProgress(Number.isFinite(duration) && duration > 0 ? Math.min(1, video.currentTime / duration) : 0)
+    } else if (video.currentTime > 0) {
       video.currentTime = 0
       setProgress(0)
     }
@@ -708,10 +745,19 @@ const ShortsPlayer = (
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+    const reportPlayback = () => {
+      if (tornDownRef.current || !activeRef.current) return
+      onPlaybackChangeRef.current?.({
+        videoId,
+        currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+        playing: !video.paused && !video.ended,
+      })
+    }
     const sync = () => {
       setPaused(video.paused)
       setMuted(video.muted)
       setVolume(video.volume)
+      reportPlayback()
     }
     const tick = () => {
       if (scrubbing) return
@@ -719,8 +765,13 @@ const ShortsPlayer = (
       setProgress(Number.isFinite(duration) && duration > 0 ? video.currentTime / duration : 0)
     }
     video.addEventListener('play', sync)
+    video.addEventListener('playing', sync)
     video.addEventListener('pause', sync)
+    video.addEventListener('ended', reportPlayback)
+    video.addEventListener('timeupdate', reportPlayback)
+    video.addEventListener('seeked', reportPlayback)
     video.addEventListener('volumechange', sync)
+    reportPlayback()
     const unbindProgress = bindSmoothPlaybackLoop(video, tick, () => active && !scrubbing)
     const unsubscribe = subscribeSettings((next) => {
       const prev = lastSettingsRef.current
@@ -768,12 +819,16 @@ const ShortsPlayer = (
     })
     return () => {
       video.removeEventListener('play', sync)
+      video.removeEventListener('playing', sync)
       video.removeEventListener('pause', sync)
+      video.removeEventListener('ended', reportPlayback)
+      video.removeEventListener('timeupdate', reportPlayback)
+      video.removeEventListener('seeked', reportPlayback)
       video.removeEventListener('volumechange', sync)
       unbindProgress()
       unsubscribe()
     }
-  }, [active, scrubbing, attempt])
+  }, [active, scrubbing, attempt, videoId])
 
   const seekToPointer = (event: TargetedPointerEvent<HTMLDivElement>) => {
     const video = videoRef.current

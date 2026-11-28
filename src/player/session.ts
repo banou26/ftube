@@ -6,11 +6,15 @@ import { clearQueue } from './queue'
 
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
 
+export type PlayerKind = 'video' | 'short'
+
 export type PlayerSession = {
   videoId?: string
   startAt?: number
   title?: string
   poster?: string
+  channelName?: string
+  kind: PlayerKind
   // the playlist the video is playing from, with its 0-based position, so the end of the video can move along the queue
   list?: string
   index?: number
@@ -28,7 +32,7 @@ export type PlayerSession = {
 
 export type VideoPanel = 'chapters' | 'transcript'
 
-let session: PlayerSession = { theater: 'default', claimed: false, chapter: -1, paused: false }
+let session: PlayerSession = { kind: 'video', theater: 'default', claimed: false, chapter: -1, paused: false }
 const listeners = new Set<() => void>()
 
 const emit = () => {
@@ -51,25 +55,39 @@ const update = (next: Partial<PlayerSession>) => {
  * whenever the page re-rendered for an unrelated reason.
  */
 export const openPlayer = (
-  { videoId, startAt, title, poster, list, index, playerParams }: {
+  { videoId, startAt, title, poster, channelName, kind, list, index, playerParams }: {
     videoId: string
     startAt?: number
     title?: string
     poster?: string
+    channelName?: string
+    kind?: PlayerKind
     list?: string
     index?: number
     playerParams?: string
   },
 ) => {
+  const nextKind = kind ?? 'video'
   if (session.videoId === videoId) {
     const retitled = title !== undefined && title !== session.title
-    if (retitled || list !== session.list || index !== session.index) {
-      update({ title: title ?? session.title, poster: poster ?? session.poster, list, index })
+    const retyped = nextKind !== session.kind
+    const repostered = poster !== undefined && poster !== session.poster
+    const rechanneled = channelName !== undefined && channelName !== session.channelName
+    if (retitled || retyped || repostered || rechanneled || list !== session.list || index !== session.index) {
+      update({
+        title: title ?? session.title,
+        poster: poster ?? session.poster,
+        channelName: channelName ?? session.channelName,
+        kind: nextKind,
+        list,
+        index,
+      })
     }
     return
   }
   update({
-    videoId, startAt, title, poster, list, index, playerParams, theater: getSettings().theater, chapter: -1, panel: undefined, paused: false,
+    videoId, startAt, title, poster, channelName, kind: nextKind, list, index, playerParams,
+    theater: getSettings().theater, chapter: -1, panel: undefined, paused: false,
   })
 }
 
@@ -83,8 +101,8 @@ export const openPlayer = (
 export const closePlayer = () => {
   clearQueue()
   update({
-    videoId: undefined, startAt: undefined, title: undefined, poster: undefined, list: undefined, index: undefined,
-    playerParams: undefined, theater: 'default',
+    videoId: undefined, startAt: undefined, title: undefined, poster: undefined, channelName: undefined, kind: 'video',
+    list: undefined, index: undefined, playerParams: undefined, theater: 'default',
     chapter: -1, panel: undefined, paused: false,
   })
 }

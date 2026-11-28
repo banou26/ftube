@@ -76,4 +76,37 @@ describe('player session theater persistence and sync', () => {
     closePlayer()
     expect(getPlayerSession().paused).toBe(false)
   })
+
+  it('tracks kind, poster, and channelName for docked Shorts and resets them cleanly', async () => {
+    const { getPlayerSession, openPlayer, closePlayer } = await load()
+    openPlayer({
+      videoId: 'short-01',
+      startAt: 4.5,
+      title: 'Vertical Short',
+      poster: 'data:image/png;base64,short',
+      channelName: 'Short Creator',
+      kind: 'short',
+    })
+
+    expect(getPlayerSession()).toMatchObject({
+      videoId: 'short-01',
+      startAt: 4.5,
+      title: 'Vertical Short',
+      poster: 'data:image/png;base64,short',
+      channelName: 'Short Creator',
+      kind: 'short',
+    })
+
+    // Re-opening the same id via Watch (default kind 'video') clears short mode without losing identity.
+    openPlayer({ videoId: 'short-01', title: 'Vertical Short' })
+    expect(getPlayerSession().kind).toBe('video')
+
+    closePlayer()
+    expect(getPlayerSession()).toMatchObject({
+      videoId: undefined,
+      kind: 'video',
+      channelName: undefined,
+      poster: undefined,
+    })
+  })
 })

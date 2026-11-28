@@ -25,8 +25,9 @@ import { isTypingTarget } from '../player/controls'
 import { shortsHrefFor } from '../player/links'
 import { prefetchPlayback } from '../player/prefetch'
 import { ShortsDescriptionPanel, type ShortsMediaState, type ShortsMenuActions, ShortsOptionsMenu } from '../player/shorts-menu'
-import ShortsPlayer from '../player/shorts-player'
-import { closePlayer } from '../player/session'
+import ShortsPlayer, { type ShortsPlaybackSnapshot } from '../player/shorts-player'
+import { playheadAt } from '../player/seek'
+import { closePlayer, getPlayerSession, openPlayer, playerHost } from '../player/session'
 import { useSetting } from '../settings'
 import { showUndoableToast } from '../undo'
 
@@ -509,6 +510,14 @@ const style = css`
  * a hook on the parent would have to key on the active id and would keep every
  * visited slide's data alive for the life of the route.
  */
+type ActiveShortMeta = {
+  id: string
+  title?: string
+  channelName?: string
+  poster?: string
+  video?: HTMLVideoElement | null
+}
+
 const Slide = (
   {
     id,
@@ -516,6 +525,7 @@ const Slide = (
     fallbackTitle,
     active,
     preload,
+    initialTime,
     commentsOpen,
     shortcutsDisabled,
     descriptionOpen,
@@ -530,6 +540,8 @@ const Slide = (
     onDontRecommend,
     onMenuOpenChange,
     onTitle,
+    onActiveMeta,
+    onPlaybackChange,
     onRefused,
   }: {
     id: string
@@ -537,6 +549,7 @@ const Slide = (
     fallbackTitle?: string | null
     active: boolean
     preload: boolean
+    initialTime?: number
     commentsOpen: boolean
     shortcutsDisabled?: boolean
     descriptionOpen: boolean
@@ -551,6 +564,8 @@ const Slide = (
     onDontRecommend: (channelId?: string, channelName?: string) => void
     onMenuOpenChange?: (open: boolean) => void
     onTitle?: (title?: string) => void
+    onActiveMeta?: (meta: ActiveShortMeta) => void
+    onPlaybackChange?: (snapshot: ShortsPlaybackSnapshot) => void
     onRefused?: () => void
   },
 ) => {
@@ -566,6 +581,7 @@ const Slide = (
   })
   const meta = data?.watch
   const title = meta?.title || fallbackTitle || undefined
+  const channelName = meta?.channel?.name?.trim() || undefined
   const { rate, rating, presses, burst } = useRateVideo(id, meta?.likeStatus)
   const dislikes = useDislikes(active || preload ? id : '')
   const liked = meta?.likeStatus === 'LIKE'
@@ -580,8 +596,10 @@ const Slide = (
   }, [active, commentsOpen])
 
   useEffect(() => {
-    if (active) onTitle?.(title)
-  }, [active, title, onTitle])
+    if (!active) return
+    onTitle?.(title)
+    onActiveMeta?.({ id, title, channelName, poster: poster ?? undefined, video: ambientVideo })
+  }, [active, id, title, channelName, poster, ambientVideo, onTitle, onActiveMeta])
 
   const menuActions = useMemo<ShortsMenuActions>(() => ({
     onDescription,
@@ -608,10 +626,12 @@ const Slide = (
           poster={poster ?? undefined}
           active={active}
           preload={preload}
+          initialTime={initialTime}
           shortcutsDisabled={shortcutsDisabled}
           menuActions={menuActions}
           onMediaState={setMediaState}
           onVideoElement={setAmbientVideo}
+          onPlaybackChange={onPlaybackChange}
           onMenuOpenChange={onMenuOpenChange}
           onReady={onReady}
           onRefused={onRefused}
@@ -752,6 +772,19 @@ export const ShortsPage = () => {
   const [sequence] = useState(() => shortsSequenceIn(history.state))
   if (seed) prefetchPlayback(seed)
   const scrollerRef = useRef<HTMLDivElement>(null)
+  // Capture the docked Short's resume position before closing the persistent player below.
+  const [resumeTime] = useState<number | undefined>(() => {
+    const current = getPlayerSession()
+    if (current.kind !== 'short' || !current.videoId) return undefined
+    if (seed && current.videoId !== seed) return undefined
+    const playhead = playheadAt(current.videoId)
+    if (playhead !== undefined && playhead > 0) return playhead
+    const dockedVideo = playerHost().querySelector('video')
+    if (dockedVideo && Number.isFinite(dockedVideo.currentTime) && dockedVideo.currentTime > 0) {
+      return dockedVideo.currentTime
+    }
+    return current.startAt
+  })
   const [loaded, setLoaded] = useState<ShortsPage[]>([])
   const [activeId, setActiveId] = useState<string | undefined>(seed)
   const [readyIds, setReadyIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -846,8 +879,79 @@ export const ShortsPage = () => {
 
   useDocumentTitle((active ? activeTitle : undefined) || 'Shorts')
 
+  const activePlaybackRef = useRef<{
+    id: string
+    title?: string
+    channelName?: string
+    poster?: string
+    video?: HTMLVideoElement | null
+    currentTime: number
+    playing: boolean
+  } | undefined>(undefined)
+
+  useEffect(() => {
+    if (!activeId) return
+    if (activePlaybackRef.current?.id !== activeId) {
+      activePlaybackRef.current = {
+        id: activeId,
+        title: active?.title ?? undefined,
+        poster: active?.poster ?? undefined,
+        currentTime: 0,
+        playing: false,
+      }
+    }
+  }, [activeId, active?.title, active?.poster])
+
+  const onActiveMeta = useCallback((meta: ActiveShortMeta) => {
+    const prev = activePlaybackRef.current
+    activePlaybackRef.current = {
+      id: meta.id,
+      title: meta.title ?? (prev?.id === meta.id ? prev.title : undefined),
+      channelName: meta.channelName ?? (prev?.id === meta.id ? prev.channelName : undefined),
+      poster: meta.poster ?? (prev?.id === meta.id ? prev.poster : undefined),
+      video: meta.video ?? (prev?.id === meta.id ? prev.video : undefined),
+      currentTime: prev?.id === meta.id ? prev.currentTime : 0,
+      playing: prev?.id === meta.id ? prev.playing : false,
+    }
+  }, [])
+
+  const onPlaybackSnapshot = useCallback((snapshot: ShortsPlaybackSnapshot) => {
+    if (snapshot.videoId !== activeIdRef.current) return
+    const prev = activePlaybackRef.current
+    activePlaybackRef.current = {
+      id: snapshot.videoId,
+      title: prev?.id === snapshot.videoId ? prev.title : undefined,
+      channelName: prev?.id === snapshot.videoId ? prev.channelName : undefined,
+      poster: prev?.id === snapshot.videoId ? prev.poster : undefined,
+      video: prev?.id === snapshot.videoId ? prev.video : undefined,
+      currentTime: snapshot.currentTime,
+      playing: snapshot.playing,
+    }
+  }, [])
+
   // the persistent player survives route changes, so leaving it alive would play two videos at once
   useEffect(() => closePlayer(), [])
+
+  // Hand off an actively playing Short into a vertical miniplayer when navigating away from /shorts (except to /watch).
+  useLayoutEffect(() => () => {
+    const dest = window.location.pathname
+    if (dest.startsWith('/watch') || dest.startsWith('/shorts')) return
+    const snap = activePlaybackRef.current
+    if (!snap) return
+    const livePlaying = snap.video ? (!snap.video.paused && !snap.video.ended) : snap.playing
+    if (!livePlaying) return
+    const liveTime = snap.video && Number.isFinite(snap.video.currentTime) && snap.video.currentTime > 0
+      ? snap.video.currentTime
+      : snap.currentTime
+    openPlayer({
+      videoId: snap.id,
+      startAt: liveTime > 0 ? liveTime : undefined,
+      title: snap.title,
+      channelName: snap.channelName,
+      poster: snap.poster,
+      kind: 'short',
+    })
+  }, [])
 
   const onMore = useCallback(() => {
     if (!page?.cursor || fetching || error) return
@@ -976,6 +1080,7 @@ export const ShortsPage = () => {
               fallbackTitle={short.title}
               active={isActive}
               preload={shouldPreload}
+              initialTime={short.id === seed ? resumeTime : undefined}
               commentsOpen={commentsOpen}
               shortcutsDisabled={overlayOpen}
               descriptionOpen={isActive && descriptionOpen}
@@ -991,6 +1096,8 @@ export const ShortsPage = () => {
                 handleDontRecommend(short.id, channelId, channelName)}
               onMenuOpenChange={setMenuOpen}
               onTitle={setActiveTitle}
+              onActiveMeta={onActiveMeta}
+              onPlaybackChange={onPlaybackSnapshot}
               onRefused={short.id === seed ? undefined : () => setRefused(previous => new Set(previous).add(short.id))}
             />
           </section>

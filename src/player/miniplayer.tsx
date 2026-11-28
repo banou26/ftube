@@ -103,6 +103,16 @@ const style = css`
     color: inherit;
     cursor: pointer;
   }
+
+  @container player (max-width: 230px) {
+    .mini-volume {
+      padding: 0;
+    }
+
+    .mini-volume input[type='range'] {
+      display: none;
+    }
+  }
 `
 
 /**

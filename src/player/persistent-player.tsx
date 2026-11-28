@@ -1,4 +1,4 @@
-import type { MiniplayerRect, MiniplayerResizeEdge } from './miniplayer-size'
+import type { MiniplayerAspect, MiniplayerRect, MiniplayerResizeEdge } from './miniplayer-size'
 import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
@@ -30,6 +30,7 @@ import { nextTheaterMode } from './theater'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
 import { getFullscreenElement, subscribeFullscreen } from './fullscreen'
+import { shortsHrefFor } from './links'
 import { PlayerFrame } from './player-frame'
 import { useSponsorSegments } from './sponsorblock'
 import { hasNextInQueue, markPlayed, nextQueueIndex, pickAutoplay, previousQueueIndex } from './up-next'
@@ -395,6 +396,7 @@ const PersistentPlayer = () => {
   const timedComments = useSetting('timedComments')
   const storedMiniplayerWidth = useSetting('miniplayerWidth')
   const storedMiniplayerPosition = useSetting('miniplayerPosition')
+  const [verticalWidth, setVerticalWidth] = useState<number | undefined>(undefined)
   const asideRef = useRef<HTMLElement>(null)
   const metaRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(readViewport)
@@ -403,6 +405,8 @@ const PersistentPlayer = () => {
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+  const isShort = session.kind === 'short'
+  const aspect: MiniplayerAspect = docked && isShort ? 'vertical' : 'landscape'
 
   useEffect(() => {
     if (!docked) {
@@ -419,15 +423,16 @@ const PersistentPlayer = () => {
     stopDragRef.current?.()
   }, [])
 
-  const bounds = miniplayerWidthBounds(viewport.width, viewport.height)
+  const bounds = miniplayerWidthBounds(viewport.width, viewport.height, aspect)
+  const desiredWidth = aspect === 'vertical' ? verticalWidth : storedMiniplayerWidth
   const renderedWidth = dragMove
     ? dragMove.width
     : drag
       ? drag.width
-      : clampMiniplayerWidth(storedMiniplayerWidth, viewport.width, viewport.height)
+      : clampMiniplayerWidth(desiredWidth, viewport.width, viewport.height, aspect)
 
   const currentMetaHeight = () => metaRef.current?.offsetHeight || MINIPLAYER_META_HEIGHT
-  const boxHeight = miniplayerBoxHeight(renderedWidth, MINIPLAYER_META_HEIGHT)
+  const boxHeight = miniplayerBoxHeight(renderedWidth, MINIPLAYER_META_HEIGHT, aspect)
 
   const positionedRect = dragMove
     ?? drag?.rect
@@ -450,7 +455,7 @@ const PersistentPlayer = () => {
     setViewport(liveViewport)
     const measuredRect = aside.getBoundingClientRect()
     const startWidth = Math.round(measuredRect.width) || renderedWidth
-    const startHeight = Math.round(measuredRect.height) || miniplayerBoxHeight(startWidth, currentMetaHeight())
+    const startHeight = Math.round(measuredRect.height) || miniplayerBoxHeight(startWidth, currentMetaHeight(), aspect)
     const startLeft = Math.round(measuredRect.left)
     const startTop = Math.round(measuredRect.top)
     let moved = false
@@ -595,6 +600,7 @@ const PersistentPlayer = () => {
           viewportWidth: nextViewport.width,
           viewportHeight: nextViewport.height,
           metaHeight,
+          aspect,
         })
         return { width: nextRect.width, rect: nextRect }
       }
@@ -606,6 +612,7 @@ const PersistentPlayer = () => {
           dy: startY - point.clientY,
           viewportWidth: nextViewport.width,
           viewportHeight: nextViewport.height,
+          aspect,
         }),
         rect: undefined,
       }
@@ -636,10 +643,18 @@ const PersistentPlayer = () => {
         if (anchoredMove && lastRect) {
           const commitViewport = readViewport()
           const commitBounds = miniplayerPositionBounds(commitViewport.width, commitViewport.height, lastRect.width, lastRect.height)
-          updateSettings({
-            miniplayerWidth: lastRect.width,
-            miniplayerPosition: positionFromCoords(lastRect.left, lastRect.top, commitBounds),
-          })
+          const nextPosition = positionFromCoords(lastRect.left, lastRect.top, commitBounds)
+          if (aspect === 'vertical') {
+            setVerticalWidth(lastRect.width)
+            updateSettings({ miniplayerPosition: nextPosition })
+          } else {
+            updateSettings({
+              miniplayerWidth: lastRect.width,
+              miniplayerPosition: nextPosition,
+            })
+          }
+        } else if (aspect === 'vertical') {
+          setVerticalWidth(lastWidth)
         } else {
           updateSettings({ miniplayerWidth: lastWidth })
         }
@@ -673,14 +688,15 @@ const PersistentPlayer = () => {
     window.addEventListener('pointercancel', onCancel)
     window.addEventListener('blur', onBlur)
     setDrag({ edge, width: startWidth, rect: lastRect })
-  }, [docked, renderedWidth, storedMiniplayerPosition])
+  }, [docked, renderedWidth, storedMiniplayerPosition, aspect])
 
   const resetMiniplayerWidth = useCallback((event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
     stopDragRef.current?.()
-    updateSettings({ miniplayerWidth: undefined })
-  }, [])
+    if (aspect === 'vertical') setVerticalWidth(undefined)
+    else updateSettings({ miniplayerWidth: undefined })
+  }, [aspect])
 
   const resetMiniplayerPosition = useCallback((event: MouseEvent) => {
     event.preventDefault()
@@ -698,26 +714,31 @@ const PersistentPlayer = () => {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
       event.preventDefault()
       event.stopPropagation()
-      updateSettings({ miniplayerWidth: stepMiniplayerWidth(renderedWidth, 1, event.shiftKey, viewport.width, viewport.height) })
+      const next = stepMiniplayerWidth(renderedWidth, 1, event.shiftKey, viewport.width, viewport.height, aspect)
+      if (aspect === 'vertical') setVerticalWidth(next)
+      else updateSettings({ miniplayerWidth: next })
       return
     }
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       event.preventDefault()
       event.stopPropagation()
-      updateSettings({ miniplayerWidth: stepMiniplayerWidth(renderedWidth, -1, event.shiftKey, viewport.width, viewport.height) })
+      const next = stepMiniplayerWidth(renderedWidth, -1, event.shiftKey, viewport.width, viewport.height, aspect)
+      if (aspect === 'vertical') setVerticalWidth(next)
+      else updateSettings({ miniplayerWidth: next })
       return
     }
     if (event.key === 'Home' || event.key === '0') {
       event.preventDefault()
       event.stopPropagation()
-      updateSettings({ miniplayerWidth: undefined })
+      if (aspect === 'vertical') setVerticalWidth(undefined)
+      else updateSettings({ miniplayerWidth: undefined })
     }
-  }, [renderedWidth, viewport.width, viewport.height])
+  }, [renderedWidth, viewport.width, viewport.height, aspect])
 
   const onMoveKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return
     const step = event.shiftKey ? MINIPLAYER_MOVE_LARGE_STEP : MINIPLAYER_MOVE_STEP
-    const height = miniplayerBoxHeight(renderedWidth, currentMetaHeight())
+    const height = miniplayerBoxHeight(renderedWidth, currentMetaHeight(), aspect)
     let dx = 0
     let dy = 0
     if (event.key === 'ArrowLeft') dx = -step
@@ -823,12 +844,21 @@ const PersistentPlayer = () => {
   // where i leaves the watch page for, as youtube.com returns to the page the video was opened from
   const lastPage = useRef('/')
   useEffect(() => {
-    if (!location.startsWith('/watch')) lastPage.current = search ? `${location}?${search}` : location
+    if (!location.startsWith('/watch') && !location.startsWith('/shorts')) {
+      lastPage.current = search ? `${location}?${search}` : location
+    }
   }, [location, search])
+  const expandHrefFor = (current = session) =>
+    current.videoId
+      ? current.kind === 'short'
+        ? shortsHrefFor(current.videoId)
+        : upNextHref({ id: current.videoId, list: current.list, index: current.index })
+      : '/'
+  const expandHref = expandHrefFor(session)
   const toggleMiniplayer = () => {
     const current = getPlayerSession()
     if (!current.videoId) return
-    navigate(current.claimed ? lastPage.current : upNextHref({ id: current.videoId, list: current.list, index: current.index }))
+    navigate(current.claimed ? lastPage.current : expandHrefFor(current))
   }
 
   const next = count > 1 || pick
@@ -859,6 +889,7 @@ const PersistentPlayer = () => {
         ref={asideRef}
         css={style}
         className={[!docked && 'hidden', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
+        data-miniplayer-aspect={docked ? aspect : undefined}
         data-resize-edge={drag?.edge}
         style={docked
           ? positionedRect
@@ -884,16 +915,20 @@ const PersistentPlayer = () => {
                   <Link
                     className='dock-title'
                     draggable={false}
-                    href={upNextHref({ id: session.videoId!, list: session.list, index: session.index })}
+                    href={expandHref}
                   >
                     {watch?.title ?? session.title ?? 'Now playing'}
                   </Link>
                   {/* youtube.com names the playlist and the place in it where it would name the channel */}
-                  {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name
+                  {playlist || localQueue.currentIndex >= 0 || watch?.channel?.name || session.channelName
                     ? (
                       <div className='dock-byline'>
                         <span className='dock-name'>
-                          {playlist ? playlist.title ?? 'Playlist' : localQueue.currentIndex >= 0 ? 'Queue' : watch?.channel?.name}
+                          {playlist
+                            ? playlist.title ?? 'Playlist'
+                            : localQueue.currentIndex >= 0
+                              ? 'Queue'
+                              : watch?.channel?.name ?? session.channelName}
                         </span>
                         {playlist && count > 0
                           ? <span className='dock-index'>{current + 1} / {count}</span>
@@ -987,6 +1022,7 @@ const PersistentPlayer = () => {
                 docked={docked}
               />
               <PlayerFrame
+                aspect={aspect}
                 onFullscreenChange={setFullscreen}
                 details={{
                   videoId: session.videoId,
@@ -1010,8 +1046,10 @@ const PersistentPlayer = () => {
                   playerParams={session.playerParams}
                   list={session.list}
                   title={watch?.title ?? session.title}
-                  channelName={watch?.channel?.name ?? undefined}
+                  poster={session.poster}
+                  channelName={watch?.channel?.name ?? session.channelName ?? undefined}
                   startAt={session.startAt}
+                  defaultLoop={isShort}
                   docked={docked}
                   theater={session.theater}
                   onTheater={() => setTheater(nextTheaterMode(session.theater))}

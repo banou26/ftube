@@ -260,15 +260,17 @@ const captionBase = (video: HTMLVideoElement) => {
 
 const VideoPlayer = (
   {
-    videoId, playerParams, list, title, channelName, startAt, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
+    videoId, playerParams, list, title, poster, channelName, startAt, defaultLoop = false, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
     chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments, commentsHidden = false, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
     list?: string
     title?: string
+    poster?: string
     channelName?: string
     startAt?: number
+    defaultLoop?: boolean
     docked?: boolean
     theater?: TheaterMode
     onTheater?: () => void
@@ -344,7 +346,10 @@ const VideoPlayer = (
   const [bezel, setBezel] = useState<BezelCue | undefined>(undefined)
   const [shortcuts, setShortcuts] = useState(false)
   const closeShortcuts = useCallback(() => setShortcuts(false), [])
-  const [loop, setLoop] = useState(false)
+  const [loop, setLoop] = useState(Boolean(defaultLoop))
+  useEffect(() => {
+    setLoop(Boolean(defaultLoop))
+  }, [defaultLoop])
   const [cueStyle, setCueStyle] = useState('')
   const [captionBaseSize, setCaptionBaseSize] = useState(0)
   const [inPip, setInPip] = useState(false)
@@ -1112,7 +1117,7 @@ const VideoPlayer = (
   const video = videoElement
   const showSpinner = !status && !refusal && (loading || (Boolean(player) && (state.buffering || state.seeking)))
   const posterUrl = !hasFrame && !status && !refusal && posterTier !== 'none'
-    ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/${posterTier === 'maxres' ? 'maxresdefault' : 'hqdefault'}.jpg`
+    ? poster ?? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/${posterTier === 'maxres' ? 'maxresdefault' : 'hqdefault'}.jpg`
     : undefined
   const time = state.currentTime
   const undoable = skipped !== undefined && time > skipped.to - CLOCK_SLACK && time < skipped.to + SPONSOR_NOTICE
