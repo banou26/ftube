@@ -1,5 +1,7 @@
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
+import { Router } from 'wouter'
+import { memoryLocation } from 'wouter/memory-location'
 
 import { Header } from '../../../src/components/header'
 
@@ -13,7 +15,7 @@ const answer = (operationName: string) => {
 
 // served by the dev server and imported from a spec: the header for a signed-in session, or for one that never
 // answers, as on a cold load before the session probe returns. The transformed host holds the fixed header at `top`.
-export const mountHeader = (session: HarnessSession, top: number) => {
+export const mountHeader = (session: HarnessSession, top: number, path?: string) => {
   const host = document.createElement('div')
   host.setAttribute('data-header-harness', session)
   host.style.cssText = `position: fixed; left: 0; right: 0; top: ${top}px; height: 5.6rem; z-index: 10000; transform: translateZ(0)`
@@ -24,5 +26,17 @@ export const mountHeader = (session: HarnessSession, top: number) => {
     return new Response(JSON.stringify({ data: answer(operationName) }), { headers: { 'content-type': 'application/json' } })
   }
   const client = new Client({ url: '/header-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  if (path !== undefined) {
+    const { hook, searchHook } = memoryLocation({ path })
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <Provider value={client}>
+          <Header />
+        </Provider>
+      </Router>,
+      host,
+    )
+    return
+  }
   render(<Provider value={client}><Header /></Provider>, host)
 }

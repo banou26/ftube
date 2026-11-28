@@ -17,6 +17,7 @@ import { NotificationsMenu } from './notifications-menu'
 import { PartyWidget } from './party-widget'
 import { splitSuggestion } from './suggestion'
 import { useSession } from '../session'
+import { useSetting } from '../settings'
 import { signIn } from '../sign-in'
 
 const SEARCH_SUGGESTIONS_QUERY = gql(`
@@ -68,6 +69,11 @@ const style = css`
   align-items: center;
   padding: 0 1.6rem;
   background: var(--bg-base);
+  transition: background 0.2s ease;
+
+  &.transparent {
+    background: transparent;
+  }
 
   .start {
     position: relative;
@@ -168,10 +174,10 @@ const style = css`
     align-items: center;
     min-width: 0;
     height: 4rem;
-    background: var(--bg-input);
+    background: transparent;
     border: 1px solid var(--border);
-    border-radius: 4rem 0 0 4rem;
-    padding-left: 1.6rem;
+    border-radius: 4rem;
+    padding: 0 0.4rem 0 1.6rem;
     transition: border-color 0.15s ease;
   }
 
@@ -267,7 +273,6 @@ const style = css`
 
   .search-box:focus-within {
     border-color: var(--accent-focus);
-    box-shadow: inset 0 0.1rem 0.2rem rgba(0, 0, 0, 0.3);
   }
 
   .search-box input {
@@ -286,22 +291,21 @@ const style = css`
 
   .search-button {
     flex: none;
-    width: 6.4rem;
-    height: 4rem;
+    width: 3.6rem;
+    height: 3.6rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-input-button);
-    border: 1px solid var(--border);
-    border-left: none;
-    border-radius: 0 4rem 4rem 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
     color: var(--text-primary);
     cursor: pointer;
     transition: background 0.15s ease;
   }
 
   .search-button:hover {
-    background: var(--bg-chip-hover);
+    background: var(--bg-hover);
   }
 
   .end {
@@ -442,8 +446,11 @@ const HeaderAccount = () => {
 }
 
 export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () => void }) => {
-  const [, navigate] = useLocation()
+  const [location, navigate] = useLocation()
   const search = useSearch()
+  const ambientMode = useSetting('ambientMode')
+  const isAmbientRoute = location === '/watch' || location === '/shorts' || location.startsWith('/shorts/')
+  const [atTop, setAtTop] = useState(() => typeof window === 'undefined' || window.scrollY <= 4)
   const inputRef = useRef<HTMLInputElement>(null)
   const [typed, setTyped] = useState<string | undefined>(undefined)
   const [debounced, setDebounced] = useState('')
@@ -451,6 +458,17 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
   const [activeSuggestion, setActiveSuggestion] = useState(-1)
   const [searchOpen, setSearchOpen] = useState(false)
   const [engineReady, setEngineReady] = useState(() => document.documentElement.dataset.engine === 'ready')
+
+  useEffect(() => {
+    if (!isAmbientRoute || !ambientMode) {
+      setAtTop(false)
+      return
+    }
+    const sync = () => setAtTop(window.scrollY <= 4)
+    sync()
+    window.addEventListener('scroll', sync, { passive: true })
+    return () => window.removeEventListener('scroll', sync)
+  }, [isAmbientRoute, ambientMode])
 
   useEffect(() => {
     if (engineReady) return
@@ -552,8 +570,13 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
     submitQuery(inputRef.current?.value ?? '')
   }
 
+  const transparentHeader = isAmbientRoute && ambientMode && atTop && !searchOpen
+
   return (
-    <header css={style} className={searchOpen ? 'search-open' : undefined}>
+    <header
+      css={style}
+      className={[searchOpen ? 'search-open' : '', transparentHeader ? 'transparent' : ''].filter(Boolean).join(' ') || undefined}
+    >
       <div className='start'>
         <button type='button' className='icon-button' aria-label='Guide' onClick={onMenu}>
           <Menu size={24} strokeWidth={1.5} />
@@ -605,6 +628,9 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
           <button type='button' className='clear' aria-label='Clear search query' onClick={onClear}>
             <X size={24} strokeWidth={1.5} />
           </button>
+          <button type='submit' className='search-button' aria-label='Search'>
+            <Search size={20} strokeWidth={1.75} />
+          </button>
           {suggestions.length > 0
             ? (
               <ul className='suggestions' id='search-suggestions' role='listbox'>
@@ -642,9 +668,6 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
             )
             : undefined}
         </div>
-        <button type='submit' className='search-button' aria-label='Search'>
-          <Search size={24} strokeWidth={1.5} />
-        </button>
       </form>
       <button type='button' className='icon-button open-search' aria-label='Search' onClick={() => setSearchOpen(true)}>
         <Search size={24} strokeWidth={1.5} />
