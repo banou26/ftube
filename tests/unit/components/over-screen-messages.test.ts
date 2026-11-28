@@ -64,6 +64,9 @@ describe('over-screen live chat messages', () => {
       enabled: true,
       textAnimation: 'invalid' as never,
       emojiAnimation: 'shatter',
+      capsAnimation: 'shake',
+      questionAnimation: 'invalid' as never,
+      exclamationAnimation: 'bounce',
       fontFamily: 'mono',
       fontSizePx: 200,
       speed: 0.1,
@@ -76,6 +79,9 @@ describe('over-screen live chat messages', () => {
       ...DEFAULT_OVER_SCREEN_SETTINGS,
       enabled: true,
       emojiAnimation: 'shatter',
+      capsAnimation: 'shake',
+      questionAnimation: DEFAULT_OVER_SCREEN_SETTINGS.questionAnimation,
+      exclamationAnimation: 'bounce',
       fontFamily: 'mono',
       fontSizePx: 56,
       speed: 0.5,
@@ -109,10 +115,62 @@ describe('over-screen live chat messages', () => {
     })).toBe('shatter')
 
     expect(resolveOverlayAnimation('caps', {
-      textAnimation: 'scroll',
+      textAnimation: 'fade',
       emojiAnimation: 'burst',
       styleByType: true,
     })).toBe('pop')
+
+    expect(resolveOverlayAnimation('question', {
+      textAnimation: 'fade',
+      emojiAnimation: 'burst',
+      styleByType: true,
+    })).toBe('bounce')
+
+    expect(resolveOverlayAnimation('exclamation', {
+      textAnimation: 'fade',
+      emojiAnimation: 'burst',
+      styleByType: true,
+    })).toBe('pop')
+
+    expect(resolveOverlayAnimation('normal', {
+      textAnimation: 'fade',
+      emojiAnimation: 'burst',
+      styleByType: true,
+    })).toBe('fade')
+
+    expect(resolveOverlayAnimation('question', {
+      textAnimation: 'scroll',
+      emojiAnimation: 'burst',
+      capsAnimation: 'shake',
+      questionAnimation: 'fade',
+      exclamationAnimation: 'bounce',
+      styleByType: true,
+    })).toBe('fade')
+
+    expect(resolveOverlayAnimation('caps', {
+      textAnimation: 'scroll',
+      emojiAnimation: 'burst',
+      capsAnimation: 'shake',
+      questionAnimation: 'fade',
+      exclamationAnimation: 'bounce',
+      styleByType: true,
+    })).toBe('shake')
+
+    expect(resolveOverlayAnimation('exclamation', {
+      textAnimation: 'scroll',
+      emojiAnimation: 'burst',
+      capsAnimation: 'shake',
+      questionAnimation: 'fade',
+      exclamationAnimation: 'bounce',
+      styleByType: true,
+    })).toBe('bounce')
+
+    expect(resolveOverlayAnimation('question', {
+      textAnimation: 'scroll',
+      emojiAnimation: 'burst',
+      questionAnimation: 'fade',
+      styleByType: false,
+    })).toBe('scroll')
 
     expect(resolveOverlayAnimation('caps', {
       textAnimation: 'scroll',

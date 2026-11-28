@@ -89,6 +89,15 @@ const bounceFloat = keyframes`
   100% { opacity: 0; transform: translate3d(0, -18px, 0) scale(0.96); }
 `
 
+const bounceFloatContained = keyframes`
+  0% { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.88); }
+  18% { opacity: 1; transform: translate3d(0, -8px, 0) scale(1.02); }
+  36% { transform: translate3d(0, 3px, 0) scale(0.99); }
+  54% { transform: translate3d(0, -4px, 0) scale(1.01); }
+  72% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  100% { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.97); }
+`
+
 const softFade = keyframes`
   0% { opacity: 0; transform: translate3d(0, 6px, 0); }
   16% { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -280,9 +289,14 @@ const containedOverlayCss = css`
     animation-name: ${popInContained};
   }
 
+  .overlay-item.anim-bounce {
+    animation-name: ${bounceFloatContained};
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .overlay-item.anim-scroll,
-    .overlay-item.anim-pop {
+    .overlay-item.anim-pop,
+    .overlay-item.anim-bounce {
       animation-name: ${softFade};
       animation-timing-function: ease-out;
     }

@@ -9,6 +9,9 @@ export type OverScreenSettings = {
   enabled: boolean
   textAnimation: OverlayTextAnimation
   emojiAnimation: OverlayEmojiAnimation
+  capsAnimation: OverlayTextAnimation
+  questionAnimation: OverlayTextAnimation
+  exclamationAnimation: OverlayTextAnimation
   fontFamily: OverlayFontFamily
   fontSizePx: number
   speed: number
@@ -56,6 +59,9 @@ export const DEFAULT_OVER_SCREEN_SETTINGS: OverScreenSettings = {
   enabled: false,
   textAnimation: 'scroll',
   emojiAnimation: 'burst',
+  capsAnimation: 'pop',
+  questionAnimation: 'bounce',
+  exclamationAnimation: 'pop',
   fontFamily: 'system',
   fontSizePx: 28,
   speed: 1,
@@ -72,6 +78,18 @@ const TEXT_ANIMATION_SET = new Set<string>(OVERLAY_TEXT_ANIMATIONS.map(item => i
 const EMOJI_ANIMATION_SET = new Set<string>(OVERLAY_EMOJI_ANIMATIONS.map(item => item.value))
 const FONT_FAMILY_SET = new Set<string>(OVERLAY_FONT_FAMILIES.map(item => item.value))
 
+const TYPE_ANIMATION_KEYS = {
+  caps: 'capsAnimation',
+  question: 'questionAnimation',
+  exclamation: 'exclamationAnimation',
+} as const
+
+const coerceTextAnimation = (value: unknown, fallback: OverlayTextAnimation): OverlayTextAnimation => (
+  typeof value === 'string' && TEXT_ANIMATION_SET.has(value)
+    ? value as OverlayTextAnimation
+    : fallback
+)
+
 const clampNumber = (value: unknown, fallback: number, min: number, max: number, round = true): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   const bounded = Math.min(max, Math.max(min, value))
@@ -85,12 +103,16 @@ export const coerceOverScreenSettings = (
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_OVER_SCREEN_SETTINGS }
   return {
     enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_OVER_SCREEN_SETTINGS.enabled,
-    textAnimation: typeof raw.textAnimation === 'string' && TEXT_ANIMATION_SET.has(raw.textAnimation)
-      ? raw.textAnimation as OverlayTextAnimation
-      : DEFAULT_OVER_SCREEN_SETTINGS.textAnimation,
+    textAnimation: coerceTextAnimation(raw.textAnimation, DEFAULT_OVER_SCREEN_SETTINGS.textAnimation),
     emojiAnimation: typeof raw.emojiAnimation === 'string' && EMOJI_ANIMATION_SET.has(raw.emojiAnimation)
       ? raw.emojiAnimation as OverlayEmojiAnimation
       : DEFAULT_OVER_SCREEN_SETTINGS.emojiAnimation,
+    capsAnimation: coerceTextAnimation(raw.capsAnimation, DEFAULT_OVER_SCREEN_SETTINGS.capsAnimation),
+    questionAnimation: coerceTextAnimation(raw.questionAnimation, DEFAULT_OVER_SCREEN_SETTINGS.questionAnimation),
+    exclamationAnimation: coerceTextAnimation(
+      raw.exclamationAnimation,
+      DEFAULT_OVER_SCREEN_SETTINGS.exclamationAnimation,
+    ),
     fontFamily: typeof raw.fontFamily === 'string' && FONT_FAMILY_SET.has(raw.fontFamily)
       ? raw.fontFamily as OverlayFontFamily
       : DEFAULT_OVER_SCREEN_SETTINGS.fontFamily,
@@ -234,11 +256,13 @@ export const shouldAcceptOverlayMessage = (
 /** Chooses the animation preset to apply for a classified message. */
 export const resolveOverlayAnimation = (
   kind: OverlayMessageKind,
-  settings: Pick<OverScreenSettings, 'textAnimation' | 'emojiAnimation' | 'styleByType'>,
+  settings: Pick<OverScreenSettings, 'textAnimation' | 'emojiAnimation' | 'styleByType'>
+    & Partial<Pick<OverScreenSettings, 'capsAnimation' | 'questionAnimation' | 'exclamationAnimation'>>,
 ): OverlayTextAnimation | OverlayEmojiAnimation => {
   if (kind === 'emoji-only') return settings.emojiAnimation
-  if (settings.styleByType && (kind === 'caps' || kind === 'exclamation') && settings.textAnimation === 'scroll') {
-    return 'pop'
+  if (settings.styleByType && kind in TYPE_ANIMATION_KEYS) {
+    const key = TYPE_ANIMATION_KEYS[kind as keyof typeof TYPE_ANIMATION_KEYS]
+    return settings[key] ?? DEFAULT_OVER_SCREEN_SETTINGS[key]
   }
   return settings.textAnimation
 }
