@@ -6,7 +6,7 @@ import { expect, test } from './test'
 
 const EXPOSURE_EVENT = 'FKN_WEB_EXTENSION_MAIN_WORLD_CONTENT_SCRIPT_ENABLED_EVENT_KEY'
 
-const pillOf = (page: Page) => page.getByRole('button', { name: 'Faster with the extension' })
+const pillOf = (page: Page) => page.getByRole('button', { name: 'Faster with the FKN extension' })
 const panelOf = (page: Page) => page.getByRole('dialog', { name: 'Faster with the FKN extension' })
 const toggleOf = (page: Page) => page.getByLabel('Offer the extension in the header')
 const settingsLinkOf = (page: Page) => page.getByRole('main').getByRole('link', { name: 'Get the extension' })
@@ -120,4 +120,43 @@ test('withdraws the offer when the extension appears mid-session', async ({ page
 
   await expect(pillOf(page)).toHaveCount(0)
   await expect(page.getByText('Through the FKN extension')).toBeVisible()
+})
+
+test('matches native YouTube header button sizing, monochrome icon contrast, and responsive collapse (APP-1123)', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto('/settings')
+  const trigger = pillOf(page)
+  await expect(trigger).toBeVisible({ timeout: 30_000 })
+  await expect(trigger).toContainText('Faster with the FKN extension')
+
+  const wide = await trigger.evaluate((button) => {
+    const icon = button.querySelector('svg')!
+    const btnCs = getComputedStyle(button)
+    const iconCs = getComputedStyle(icon)
+    const box = button.getBoundingClientRect()
+    return {
+      height: Math.round(box.height),
+      btnColor: btnCs.color,
+      iconColor: iconCs.color,
+    }
+  })
+  expect(wide.height).toBe(36)
+  expect(wide.iconColor).toBe(wide.btnColor)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  const compact = await trigger.evaluate((button) => {
+    const label = button.querySelector('.label')!
+    const btnCs = getComputedStyle(button)
+    const box = button.getBoundingClientRect()
+    return {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      borderRadius: btnCs.borderTopLeftRadius,
+      labelDisplay: getComputedStyle(label).display,
+    }
+  })
+  expect(compact.labelDisplay).toBe('none')
+  expect([compact.width, compact.height]).toEqual([40, 40])
+  expect(compact.borderRadius).toMatch(/^(50%|20px)$/)
 })

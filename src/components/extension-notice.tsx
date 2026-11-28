@@ -61,15 +61,16 @@ const style = css`
   .pill {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    height: 3.2rem;
-    padding: 0 1.2rem;
+    gap: 0.8rem;
+    height: 3.6rem;
+    padding: 0 1.4rem;
     border: none;
-    border-radius: 1.6rem;
+    border-radius: 1.8rem;
     background: var(--bg-chip);
     color: var(--text-primary);
-    font-size: 1.3rem;
+    font-size: 1.4rem;
     font-weight: 500;
+    line-height: 1;
     white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s ease;
@@ -86,13 +87,12 @@ const style = css`
 
   .pill svg {
     flex: none;
-    color: var(--accent);
+    color: currentColor;
   }
 
   @keyframes notice-in {
     from {
       opacity: 0;
-      transform: translateY(-0.4rem);
     }
   }
 
@@ -101,11 +101,10 @@ const style = css`
     top: calc(100% + 0.8rem);
     right: 0;
     z-index: var(--z-popup);
-    /* Wide enough for both actions to sit on one row without either label
-       wrapping. */
-    width: 36rem;
+    width: 34rem;
     max-width: calc(100vw - 3.2rem);
     padding: 1.6rem;
+    border: 1px solid var(--border-subtle);
     border-radius: 1.2rem;
     background: var(--bg-menu);
     box-shadow: var(--shadow-menu);
@@ -133,20 +132,17 @@ const style = css`
     padding: 0 1.6rem;
     border: none;
     border-radius: 1.8rem;
-    /* Paired the way the app pairs every filled control: both tokens flip with
-       the theme together, so the label keeps its contrast. The inverse accent
-       here would be the accent meant for the OPPOSITE background, which in
-       light mode is pale blue and would carry white text at 2:1. */
-    background: var(--accent);
+    background: var(--bg-inverse);
     color: var(--text-inverse);
     font-size: 1.4rem;
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
+    transition: background 0.15s ease;
   }
 
   .install:hover {
-    filter: brightness(1.1);
+    background: var(--bg-inverse-hover);
   }
 
   .never {
@@ -167,20 +163,24 @@ const style = css`
     color: var(--text-primary);
   }
 
-  /* Icon only below this width: with the label, the header's end (355px
-     signed out, measured 2026-11-02) outgrows its 1fr track and pushes the
-     search box off the page's centre line. */
-  @media (max-width: 1500px) {
+  /* Icon only below this width so the header end stays inside its 1fr track and keeps the search box centered. */
+  @media (max-width: 1540px) {
     .pill .label {
       display: none;
     }
 
     .pill {
-      width: 3.6rem;
-      height: 3.6rem;
+      width: 4rem;
+      height: 4rem;
       padding: 0;
       justify-content: center;
       border-radius: 50%;
+      background: transparent;
+    }
+
+    .pill:hover,
+    .pill[aria-expanded='true'] {
+      background: var(--bg-hover);
     }
   }
 
@@ -252,13 +252,13 @@ export const ExtensionNotice = () => {
         type='button'
         className='pill'
         ref={triggerRef}
-        aria-label='Faster with the extension'
+        aria-label='Faster with the FKN extension'
         aria-haspopup='dialog'
         aria-expanded={open}
         onClick={() => setOpen(value => !value)}
       >
-        <Zap size={16} strokeWidth={2} />
-        <span className='label'>Faster with the extension</span>
+        <Zap size={18} strokeWidth={1.75} />
+        <span className='label'>Faster with the FKN extension</span>
       </button>
       {open
         ? (
@@ -266,7 +266,7 @@ export const ExtensionNotice = () => {
             <p className='title'>Faster with the FKN extension</p>
             <div className='actions'>
               <button type='button' className='install' onClick={install}>
-                <Zap size={16} strokeWidth={2} />
+                <Zap size={16} strokeWidth={1.75} />
                 Get the extension
               </button>
               <button

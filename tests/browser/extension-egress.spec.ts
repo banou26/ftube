@@ -38,7 +38,7 @@ test.describe('with the FKN extension installed', () => {
       expect(egress.join(' ')).toContain('FKN extension')
       expect(egress.join(' ')).not.toContain('webvpn tunnel')
 
-      await expect(page.getByRole('button', { name: 'Faster with the extension' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Faster with the FKN extension' })).toHaveCount(0)
     } finally {
       await context.close()
     }
