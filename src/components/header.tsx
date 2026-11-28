@@ -430,6 +430,26 @@ const style = css`
       gap: 0.5rem;
     }
   }
+
+  /* Keep all header controls inside 320px viewports when classic vertical scrollbars reduce clientWidth. */
+  @media (max-width: 340px) {
+    padding: 0 0.4rem;
+
+    .start {
+      gap: 0.4rem;
+    }
+
+    .icon-button {
+      width: 3.2rem;
+      height: 3.2rem;
+    }
+
+    .sign-in {
+      padding: 0 0.8rem;
+      gap: 0.4rem;
+      font-size: 1.3rem;
+    }
+  }
 `
 
 // as the guide does, this keeps the signed-in shape until the session answers, with youtube.com's plain circles in the

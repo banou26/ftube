@@ -172,7 +172,6 @@ const globalStyles = css`
   }
 
   body {
-    min-width: 320px;
     font-family: 'Roboto', Arial, sans-serif;
     font-size: 1.4rem;
     background-color: var(--bg-base);

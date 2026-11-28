@@ -16,7 +16,7 @@ const mountMobileSearch = async (page: Page, width: number) => {
 }
 
 const docHorizontalOverflow = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 
 for (const width of [320, 390, 412] as const) {
   test(`mobile search constrains layout at ${width}px while keeping filter and shelf horizontal scrolling`, async ({ page }) => {
@@ -41,7 +41,7 @@ for (const width of [320, 390, 412] as const) {
     await filterTrack.evaluate((el) => {
       el.scrollTo({ left: el.scrollWidth, behavior: 'instant' })
     })
-    const liveChip = filterTrack.getByRole('button', { name: 'Live', exact: true })
+    const liveChip = filterTrack.getByRole('link', { name: 'Live', exact: true })
     const liveBox = (await liveChip.boundingBox())!
     expect(liveBox.x).toBeGreaterThanOrEqual(0)
     expect(liveBox.x + liveBox.width).toBeLessThanOrEqual(width + 1)
