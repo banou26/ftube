@@ -1,5 +1,6 @@
 import type { OverlayChatEvent } from '../components/use-live-chat-session'
 
+import { css } from '@emotion/react'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 
@@ -11,9 +12,24 @@ import {
   createTimedCommentClockState,
   extractTimedCommentCues,
   finishTimedCommentSeek,
+  formatTimedCommentAnnouncement,
   stepTimedCommentClock,
   timedCommentCueToChatRow,
 } from './timed-comments'
+
+const srOnlyCss = css`
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+`
 
 /**
  * Fetches the first page of top-level comments when `Timed comments` is enabled on a regular
@@ -54,12 +70,16 @@ export const TimedCommentsOverlay = ({
 
   const clockRef = useRef(createTimedCommentClockState())
   const eventSeqRef = useRef(0)
+  const showAuthorRef = useRef(overScreen.showAuthor)
+  showAuthorRef.current = overScreen.showAuthor
   const [overlayEvent, setOverlayEvent] = useState<OverlayChatEvent | undefined>(undefined)
+  const [announcement, setAnnouncement] = useState<{ seq: number, text: string } | undefined>(undefined)
   const [resetSeq, setResetSeq] = useState(0)
 
   const resetOverlay = (initialTime?: number) => {
     clockRef.current = createTimedCommentClockState(initialTime)
     setOverlayEvent(undefined)
+    setAnnouncement(undefined)
     setResetSeq((seq) => seq + 1)
   }
 
@@ -73,12 +93,14 @@ export const TimedCommentsOverlay = ({
     const onSeeking = () => {
       clockRef.current = beginTimedCommentSeek(clockRef.current, video.currentTime)
       setOverlayEvent(undefined)
+      setAnnouncement(undefined)
       setResetSeq((seq) => seq + 1)
     }
 
     const onSeeked = () => {
       clockRef.current = finishTimedCommentSeek(clockRef.current, video.currentTime)
       setOverlayEvent(undefined)
+      setAnnouncement(undefined)
       setResetSeq((seq) => seq + 1)
     }
 
@@ -87,15 +109,21 @@ export const TimedCommentsOverlay = ({
       clockRef.current = result.state
       if (result.clear) {
         setOverlayEvent(undefined)
+        setAnnouncement(undefined)
         setResetSeq((seq) => seq + 1)
         return
       }
       if (result.cue) {
+        const seq = ++eventSeqRef.current
         setOverlayEvent({
-          seq: ++eventSeqRef.current,
+          seq,
           items: [timedCommentCueToChatRow(result.cue)],
           removedIds: [],
           removedAuthorIds: [],
+        })
+        setAnnouncement({
+          seq,
+          text: formatTimedCommentAnnouncement(result.cue, showAuthorRef.current),
         })
       }
     }
@@ -121,13 +149,29 @@ export const TimedCommentsOverlay = ({
   )
 
   return (
-    <OverScreenOverlay
-      settings={overlaySettings}
-      event={overlayEvent}
-      resetSeq={resetSeq}
-      previewSeq={0}
-      contained
-      source='timed-comments'
-    />
+    <>
+      <OverScreenOverlay
+        settings={overlaySettings}
+        event={overlayEvent}
+        resetSeq={resetSeq}
+        previewSeq={0}
+        contained
+        source='timed-comments'
+      />
+      {active
+        ? (
+          <div
+            css={srOnlyCss}
+            role='status'
+            aria-live='polite'
+            aria-atomic='true'
+            data-timed-comments-announcer='true'
+            data-announcement-seq={announcement ? String(announcement.seq) : undefined}
+          >
+            {announcement?.text ?? ''}
+          </div>
+        )
+        : undefined}
+    </>
   )
 }

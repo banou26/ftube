@@ -280,3 +280,12 @@ export const timedCommentCueToChatRow = (cue: TimedCommentCue): ChatRow => ({
       }
     : null,
 })
+
+/** Formats a timed comment cue as plain accessible announcement text for live screen-reader regions. */
+export const formatTimedCommentAnnouncement = (
+  cue: Pick<TimedCommentCue, 'text' | 'author'>,
+  showAuthor: boolean,
+): string => {
+  const authorName = showAuthor ? cue.author?.name?.trim() : undefined
+  return authorName ? `${authorName}: ${cue.text}` : cue.text
+}

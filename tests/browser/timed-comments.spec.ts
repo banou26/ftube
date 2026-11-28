@@ -154,3 +154,62 @@ test('leaves playback usable when comments are disabled, empty, or unavailable',
   await player.getByRole('button', { name: 'Play', exact: true }).click()
   await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.paused())).toBe(false)
 })
+
+test('exposes timed comment cues once to screen readers without moving focus and stays silent when off', async ({ page }) => {
+  const player = await mountHarness(page, { videoId: 'video-1' })
+
+  // With Timed comments off, advancing across cues creates no live announcer region
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(42.3))
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
+  const announcer = player.locator('[data-timed-comments-announcer="true"]')
+  await expect(announcer).toHaveCount(0)
+
+  // Enable Timed comments from Settings, seek to 55s, and keep focus on Seek
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await player.getByRole('menu', { name: 'Player settings' }).getByRole('menuitemcheckbox', { name: /Timed comments/ }).click()
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => window.__timedCommentsHarness?.seekTo(55))
+
+  const seekSlider = player.getByRole('slider', { name: 'Seek' })
+  await seekSlider.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(seekSlider).toBeFocused()
+
+  await expect(announcer).toBeAttached()
+  await expect(announcer).toHaveAttribute('role', 'status')
+  await expect(announcer).toHaveAttribute('aria-live', 'polite')
+  await expect(announcer).toHaveAttribute('aria-atomic', 'true')
+  expect(await announcer.evaluate((el) => Boolean(el.closest('[aria-hidden="true"]')))).toBe(false)
+  await expect(announcer).toHaveText('')
+
+  // Crossing 1:00 announces the cue once without moving focus away from Seek
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
+  await expect(announcer).toHaveText('Viewer: 1:00 Top liked reaction!')
+  await expect(announcer).toHaveAttribute('data-announcement-seq', '1')
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.5))
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.9))
+  await expect(announcer).toHaveAttribute('data-announcement-seq', '1')
+  await expect(seekSlider).toBeFocused()
+
+  const pauseBtn = player.getByRole('button', { name: 'Pause', exact: true })
+  await pauseBtn.focus()
+  await expect(pauseBtn).toBeFocused()
+  await page.keyboard.press(' ')
+  await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.paused())).toBe(true)
+  await page.keyboard.press(' ')
+  await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.paused())).toBe(false)
+
+  // Seeking clears the active announcement and re-crossing re-announces once
+  await page.evaluate(() => window.__timedCommentsHarness?.seekTo(55))
+  await expect(announcer).toHaveText('')
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
+  await expect(announcer).toHaveText('Viewer: 1:00 Top liked reaction!')
+  await expect(announcer).toHaveAttribute('data-announcement-seq', '2')
+
+  // Turning Timed comments off removes the announcer and stays silent past 2:00
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await player.getByRole('menu', { name: 'Player settings' }).getByRole('menuitemcheckbox', { name: /Timed comments/ }).click()
+  await expect(announcer).toHaveCount(0)
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(120.2))
+  await expect(announcer).toHaveCount(0)
+})

@@ -5,6 +5,7 @@ import {
   createTimedCommentClockState,
   extractTimedCommentCues,
   finishTimedCommentSeek,
+  formatTimedCommentAnnouncement,
   isTimestampOnlyComment,
   parseLikeCountText,
   stepTimedCommentClock,
@@ -206,5 +207,24 @@ describe('timed comments helpers and media clock', () => {
     expect(step.clear).toBe(true)
     step = stepTimedCommentClock(state, 60.2, cues)
     expect(step.cue?.id).toBe('c2')
+  })
+
+  it('formats screen-reader announcement text with optional author attribution', () => {
+    expect(formatTimedCommentAnnouncement({
+      text: '10:15 Highlight!',
+      author: { id: 'UC-1', name: ' @Thompson7177 ' },
+    }, true)).toBe('@Thompson7177: 10:15 Highlight!')
+    expect(formatTimedCommentAnnouncement({
+      text: '10:15 Highlight!',
+      author: { id: 'UC-1', name: '@Thompson7177' },
+    }, false)).toBe('10:15 Highlight!')
+    expect(formatTimedCommentAnnouncement({
+      text: '10:15 Highlight!',
+      author: { id: 'UC-1', name: '   ' },
+    }, true)).toBe('10:15 Highlight!')
+    expect(formatTimedCommentAnnouncement({
+      text: '10:15 Highlight!',
+      author: undefined,
+    }, true)).toBe('10:15 Highlight!')
   })
 })
