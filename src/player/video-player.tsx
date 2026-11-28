@@ -6,6 +6,7 @@ import type { Point } from '../components/ui/popup'
 import type { WatchMetaQuery } from '../generated/graphql'
 import type { BezelCue } from './bezel'
 import type { PlayerChapter } from './chapters'
+import type { HeatMarker } from './heatmap'
 import type { SkipSegment } from './sponsorblock'
 import type { TheaterMode } from './theater'
 import type { UpNext } from './up-next'
@@ -259,7 +260,7 @@ const captionBase = (video: HTMLVideoElement) => {
 const VideoPlayer = (
   {
     videoId, playerParams, list, title, channelName, startAt, docked = false, theater = 'default', onTheater, onMiniplayer, upNext,
-    chapters, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, onVideoElement,
+    chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, onVideoElement,
   }: {
     videoId: string
     playerParams?: string
@@ -273,6 +274,7 @@ const VideoPlayer = (
     onMiniplayer?: () => void
     upNext?: PlayerUpNext
     chapters?: readonly PlayerChapter[]
+    heatmap?: readonly HeatMarker[]
     segments?: readonly SkipSegment[]
     teasers?: readonly CardTeaser[]
     cardsAvatar?: string | null
@@ -1337,6 +1339,7 @@ const VideoPlayer = (
             onAutoplay={upNext?.onAutoplay}
             isLive={isLive}
             chapters={chapters}
+            heatmap={heatmap}
             onChapters={() => setPanel('chapters')}
             segments={segments}
             sleepTimer={sleepTimerEnabled ? sleepTimer : undefined}

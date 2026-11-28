@@ -956,6 +956,7 @@ describe('youtube normalization', () => {
         { id: 'rel2', title: 'Related two', metaDelimiter: ' ', badges: [] },
       ],
       chapters: [],
+      heatmap: [],
       cardTeasers: [],
       relatedChips: [],
     })

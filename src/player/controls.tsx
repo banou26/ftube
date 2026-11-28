@@ -3,12 +3,13 @@ import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
 import { AudioLines, Captions, CaptionsOff, Check, ChevronLeft, ChevronRight, Gauge, Languages, Maximize, MessageSquareQuote, Minimize, Moon, Pause, PictureInPicture2, Play, RotateCcw, Settings, SkipForward, SlidersHorizontal, Tv, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { CaptionOption } from './caption-style'
 import type { PlayerChapter } from './chapters'
 import type { PlayerBarControlId, PlayerBarSide, PlayerSettingsMenuItemId } from './control-layout'
+import type { HeatMarker } from './heatmap'
 import type { SleepTimer } from './sleep-timer'
 import type { SkipSegment } from './sponsorblock'
 import type { TheaterMode } from './theater'
@@ -23,6 +24,7 @@ import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from
 import { CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
 import { PLAYER_SETTINGS_MENU_ITEMS } from './control-layout'
+import { buildHeatmapGeometry, HEATMAP_VIEWBOX_HEIGHT, HEATMAP_VIEWBOX_WIDTH } from './heatmap'
 import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
@@ -166,6 +168,47 @@ const style = css`
     touch-action: none;
   }
 
+  .heatmap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.5rem;
+    height: 4rem;
+    pointer-events: none;
+    user-select: none;
+    overflow: visible;
+    opacity: 0;
+    visibility: hidden;
+    transform: scaleY(0);
+    transform-origin: bottom center;
+    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+  }
+
+  .heatmap.visible {
+    opacity: 1;
+    visibility: visible;
+    transform: scaleY(1);
+    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s;
+  }
+
+  .heatmap svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .heatmap-area {
+    fill: rgba(255, 255, 255, 0.36);
+  }
+
+  .heatmap-stroke {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.65);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+  }
+
   .rail {
     position: relative;
     width: 100%;
@@ -242,6 +285,7 @@ const style = css`
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .heatmap,
     .part,
     .played,
     .knob {
@@ -256,6 +300,10 @@ const style = css`
     transform: translateX(-50%);
     pointer-events: none;
     text-align: center;
+  }
+
+  .scrubber.heatmap-visible .preview {
+    margin-bottom: 4.8rem;
   }
 
   .preview-frame {
@@ -620,6 +668,14 @@ const style = css`
   @container player (max-width: 600px) {
     padding: 0 0.8rem;
 
+    .heatmap {
+      height: 3.2rem;
+    }
+
+    .scrubber.heatmap-visible .preview {
+      margin-bottom: 4rem;
+    }
+
     .filmstrip-track {
       margin: 0 -0.8rem;
     }
@@ -746,6 +802,7 @@ type ControlsProps = {
   visible: boolean
   isLive?: boolean
   chapters?: readonly PlayerChapter[]
+  heatmap?: readonly HeatMarker[]
   onChapters?: () => void
   segments?: readonly SkipSegment[]
   /** Told whether a settings menu is open, which keeps the controls shown while the pointer is still. */
@@ -765,7 +822,7 @@ export const PlayerControls = (
     video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
     ambientMode = true, onAmbientMode, annotations = true, onAnnotations,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
-    theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], onChapters, segments = [], onMenu,
+    theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], heatmap = [], onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false, onUserPause, onWheelVolumeChange,
   }: ControlsProps,
 ) => {
@@ -775,12 +832,14 @@ export const PlayerControls = (
   const [preview, setPreview] = useState<number | undefined>(undefined)
   const [stripWidth, setStripWidth] = useState(800)
   const [hover, setHover] = useState<{ time: number, ratio: number } | undefined>(undefined)
+  const [desktopHover, setDesktopHover] = useState(false)
   const [pip, setPip] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [menu, setMenu] = useState<'root' | 'audio' | 'quality' | 'speed' | 'captions' | 'caption-translate' | 'caption-options' | CaptionOption | 'sleep' | undefined>(undefined)
   const [settings, setSettings] = useState(getSettings)
   useEffect(() => subscribeSettings(setSettings), [])
   const controlsRef = useRef<HTMLDivElement>(null)
+  const scrubberRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
@@ -814,6 +873,13 @@ export const PlayerControls = (
     setFilmstrip(false)
     setPreview(undefined)
   }, [])
+
+  useEffect(() => {
+    if (!visible || docked) {
+      setDesktopHover(false)
+      setHover(undefined)
+    }
+  }, [visible, docked])
 
   const sleepMenuSeen = useRef(sleepMenu)
   useEffect(() => {
@@ -908,11 +974,42 @@ export const PlayerControls = (
 
   const clampPlayTime = (time: number) => Math.max(0, Math.min(duration, time))
 
+  const clearHoverState = () => {
+    setDesktopHover(false)
+    setHover(undefined)
+  }
+
+  const clearHoverUnlessPointerInside = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') {
+      clearHoverState()
+      return
+    }
+    const box = scrubberRef.current?.getBoundingClientRect()
+    const inside = Boolean(
+      box
+      && event.clientX >= box.left
+      && event.clientX <= box.right
+      && event.clientY >= box.top
+      && event.clientY <= box.bottom,
+    )
+    if (!inside) clearHoverState()
+  }
+
+  const onScrubberPointerEnter = (event: PointerEvent) => {
+    if (event.pointerType !== 'touch') setDesktopHover(true)
+  }
+
   const onPointerDown = (event: PointerEvent) => {
     // a right-click opens the player menu rather than seeking
     if (duration <= 0 || event.button !== 0) return
+    if (event.pointerType === 'touch') setDesktopHover(false)
+    else setDesktopHover(true)
     const target = event.currentTarget as HTMLElement
-    target.setPointerCapture(event.pointerId)
+    try {
+      target.setPointerCapture(event.pointerId)
+    } catch {
+      // Ignore synthetic or already-ended pointers that lack an active browser capture id.
+    }
     const startPreview = filmstrip && preview !== undefined ? preview : timeAt(event.clientX)
     dragRef.current = {
       source: 'scrubber',
@@ -929,8 +1026,10 @@ export const PlayerControls = (
   }
 
   const onPointerMove = (event: PointerEvent) => {
+    const isTouch = event.pointerType === 'touch'
+    if (!isTouch) setDesktopHover(true)
     const rail = railRef.current
-    if (rail && duration > 0) {
+    if (rail && duration > 0 && (!isTouch || scrubbing)) {
       const box = rail.getBoundingClientRect()
       setHover({
         time: timeAt(event.clientX),
@@ -989,6 +1088,7 @@ export const PlayerControls = (
       )
       if (releasedOverClose) {
         cancelFilmstrip()
+        clearHoverUnlessPointerInside(event)
         return
       }
       const activeWindow = board
@@ -1001,10 +1101,12 @@ export const PlayerControls = (
         setScrubbing(false)
         setPreview(finalTime)
         setFilmstrip(true)
+        clearHoverUnlessPointerInside(event)
         return
       }
       video.currentTime = base + finalTime
       cancelFilmstrip()
+      clearHoverUnlessPointerInside(event)
       return
     }
 
@@ -1012,12 +1114,14 @@ export const PlayerControls = (
     video.currentTime = live ? clampToWindow(live, targetTime) : targetTime
     setScrubbing(false)
     setPreview(undefined)
+    clearHoverUnlessPointerInside(event)
   }
 
   const onPointerCancel = (event: PointerEvent) => {
     const drag = dragRef.current
     const target = event.currentTarget as HTMLElement
     if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+    clearHoverState()
     if (!scrubbing && !drag) return
     cancelFilmstrip()
   }
@@ -1028,7 +1132,11 @@ export const PlayerControls = (
     const rawTileTime = tileEl?.dataset.tileTime
     const tileTime = rawTileTime !== undefined ? Number(rawTileTime) : undefined
     const target = event.currentTarget as HTMLElement
-    target.setPointerCapture(event.pointerId)
+    try {
+      target.setPointerCapture(event.pointerId)
+    } catch {
+      // Ignore synthetic or already-ended pointers that lack an active browser capture id.
+    }
     dragRef.current = {
       source: 'strip',
       startX: event.clientX,
@@ -1158,6 +1266,7 @@ export const PlayerControls = (
     if (menu === 'audio' && !isMenuEntryVisible('audioTrack')) setMenu(undefined)
     else if (menu === 'speed' && !isMenuEntryVisible('playbackSpeed')) setMenu(undefined)
     else if (menu === 'quality' && !isMenuEntryVisible('quality')) setMenu(undefined)
+    else if (menu === 'sleep' && !isMenuEntryVisible('sleepTimer')) setMenu(undefined)
     else if ((menu === 'captions' || menu === 'caption-translate' || menu === 'caption-options' || typeof menu === 'object') && !isMenuEntryVisible('subtitles')) {
       setMenu(undefined)
     }
@@ -1657,6 +1766,11 @@ export const PlayerControls = (
 
   const leftItems = barLayout.left.map(id => renderBarControl(id, 'left')).filter((node): node is ComponentChildren => node !== undefined)
   const rightItems = barLayout.right.map(id => renderBarControl(id, 'right')).filter((node): node is ComponentChildren => node !== undefined)
+  const heatmapGeometry = useMemo(
+    () => (!docked && !isLive && settings.showMostReplayed && duration > 0 ? buildHeatmapGeometry(heatmap, duration) : undefined),
+    [docked, isLive, settings.showMostReplayed, duration, heatmap],
+  )
+  const showHeatmap = Boolean(heatmapGeometry && !filmstrip && (scrubbing || (visible && desktopHover)))
 
   return (
     <div
@@ -1685,7 +1799,8 @@ export const PlayerControls = (
         )
         : undefined}
       <div
-        className={['scrubber', scrubbing ? 'scrubbing' : '', isLive ? 'live' : ''].filter(Boolean).join(' ')}
+        ref={scrubberRef}
+        className={['scrubber', scrubbing ? 'scrubbing' : '', isLive ? 'live' : '', showHeatmap ? 'heatmap-visible' : ''].filter(Boolean).join(' ')}
         role='slider'
         aria-label='Seek'
         aria-valuemin={0}
@@ -1693,12 +1808,28 @@ export const PlayerControls = (
         aria-valuenow={Math.round(position)}
         aria-valuetext={isLive && !behind && preview === undefined ? 'Live' : barClock(position)}
         tabIndex={0}
+        onPointerEnter={onScrubberPointerEnter}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        onPointerLeave={() => setHover(undefined)}
+        onPointerLeave={clearHoverState}
       >
+        {heatmapGeometry
+          ? (
+            <div
+              className={showHeatmap ? 'heatmap visible' : 'heatmap'}
+              data-most-replayed='true'
+              data-heatmap-visible={showHeatmap ? 'true' : 'false'}
+              aria-hidden='true'
+            >
+              <svg viewBox={`0 0 ${HEATMAP_VIEWBOX_WIDTH} ${HEATMAP_VIEWBOX_HEIGHT}`} preserveAspectRatio='none'>
+                <path className='heatmap-area' d={heatmapGeometry.areaPath} />
+                <path className='heatmap-stroke' d={heatmapGeometry.strokePath} />
+              </svg>
+            </div>
+          )
+          : undefined}
         <div className='rail' ref={railRef}>
           {parts.map((part, index) => (
             <div

@@ -1021,6 +1021,7 @@ const PersistentPlayer = () => {
                   onAnnotations={() => updateSettings({ annotations: !annotations })}
                   onVideoElement={setAmbientVideo}
                   chapters={watch?.chapters}
+                  heatmap={watch?.heatmap}
                   segments={segments}
                   teasers={watch?.cardTeasers}
                   cardsAvatar={watch?.channelCard?.avatar}

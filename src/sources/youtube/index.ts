@@ -2131,7 +2131,7 @@ export const createYoutubeSource = ({ fetch, createClient, signedIn, onShortsSee
       const active = await client
       requireSignIn(active, 'rate a video')
       await active.actions.execute(LIKE_ENDPOINT[status], { target: { videoId: id } })
-      return { id, likeStatus: status, related: [], relatedChips: [], descriptionRuns: [], hashtags: [], chapters: [], cardTeasers: [] }
+      return { id, likeStatus: status, related: [], relatedChips: [], descriptionRuns: [], hashtags: [], chapters: [], heatmap: [], cardTeasers: [] }
     },
     removeFromHistory: async (videoId) => {
       const active = await client

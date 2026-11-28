@@ -37,6 +37,7 @@ export const WATCH_META_QUERY = gql(`
       relatedChips { id label selected }
       autoplayId
       chapters { title startSeconds thumbnail }
+      heatmap { startMs durationMs intensity }
       transcriptPanel { panelId params }
       music { countText channelId songs { title artist album thumbnail videoId } }
       channelCard {

@@ -629,6 +629,8 @@ type WatchMeta {
   playlist: WatchPlaylist
   # In playback order, and empty when the video has none.
   chapters: [Chapter!]!
+  # Normalized Most Replayed heat markers across the timeline, empty when unavailable.
+  heatmap: [HeatMarker!]!
   # What youtube.com's description section "Transcript" opens: pass it to
   # `transcript`. Null for a video without one.
   transcriptPanel: TranscriptPanel
@@ -640,6 +642,12 @@ type WatchMeta {
   # What youtube.com slides over the player at set times, each opening the
   # channel card's info cards. Empty for a video without cards.
   cardTeasers: [CardTeaser!]!
+}
+
+type HeatMarker {
+  startMs: Float!
+  durationMs: Float!
+  intensity: Float!
 }
 
 type CardTeaser {

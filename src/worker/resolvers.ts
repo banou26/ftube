@@ -27,6 +27,9 @@ export const resolvers = {
   SearchResult: {
     __resolveType: (result) => SEARCH_RESULT_TYPES[result.kind],
   },
+  WatchMeta: {
+    heatmap: (meta) => meta.heatmap ?? [],
+  },
   Query: {
     home: (_, { chip, cursor }, context) => context.source.home(chip ?? undefined, cursor ?? undefined),
     shorts: (_, { seed, cursor, sequence }, context) =>

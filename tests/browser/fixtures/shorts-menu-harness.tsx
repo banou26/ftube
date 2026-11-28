@@ -166,6 +166,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
             isVerifiedArtist: false,
           },
           chapters: [],
+          heatmap: [],
           cardTeasers: [],
         }
       }
@@ -193,6 +194,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
             isVerifiedArtist: false,
           },
           chapters: [],
+          heatmap: [],
           cardTeasers: [],
         }
       }
@@ -219,6 +221,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
           isVerifiedArtist: false,
         },
         chapters: [],
+        heatmap: [],
         cardTeasers: [],
       }
     },

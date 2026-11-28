@@ -468,6 +468,8 @@ export type SourceWatchMeta = {
   playlist?: SourceWatchPlaylist
   /** In playback order, and empty when the video has none. */
   chapters: SourceChapter[]
+  /** Normalized engagement heat markers spanning the timeline, empty when unavailable. */
+  heatmap: SourceHeatMarker[]
   /** What youtube.com's description section "Transcript" opens, absent for a video without one. */
   transcriptPanel?: SourceTranscriptPanel
   /** youtube.com's description section "Music", absent for a video without one. */
@@ -562,6 +564,12 @@ export type SourceChapter = {
   title: string
   startSeconds: number
   thumbnail?: string
+}
+
+export type SourceHeatMarker = {
+  startMs: number
+  durationMs: number
+  intensity: number
 }
 
 export type SourceTextRun = {

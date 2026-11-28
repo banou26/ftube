@@ -252,6 +252,7 @@ const answers: Record<string, unknown> = {
       relatedChips: [],
       autoplayId: 'watch-related-video',
       chapters: [],
+      heatmap: [],
       transcriptPanel: null,
       music: null,
       channelCard: null,

@@ -88,6 +88,7 @@ export type Settings = {
   appIconChosen?: boolean
   playerBarLayout: PlayerBarLayout
   playerMenuHidden: PlayerSettingsMenuItemId[]
+  showMostReplayed: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -127,6 +128,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appIcon: 'default',
   playerBarLayout: DEFAULT_PLAYER_BAR_LAYOUT,
   playerMenuHidden: [],
+  showMostReplayed: false,
 }
 
 const STORAGE_KEY = 'yt-client:settings'
@@ -205,6 +207,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     appIconChosen: stored.appIconChosen === true ? true : undefined,
     playerBarLayout: coercePlayerBarLayout(stored.playerBarLayout),
     playerMenuHidden: coercePlayerMenuHidden(stored.playerMenuHidden),
+    showMostReplayed: typeof stored.showMostReplayed === 'boolean' ? stored.showMostReplayed : DEFAULT_SETTINGS.showMostReplayed,
   }
 }
 
@@ -298,11 +301,12 @@ export const resetCustomAppearance = () =>
     appIconChosen: undefined,
   })
 
-/** Restores default player control bar layout and settings menu visibility. */
+/** Restores default player control bar layout, settings menu visibility, and heatmap option. */
 export const resetPlayerCustomization = () =>
   updateSettings({
     playerBarLayout: cloneDefaultPlayerBarLayout(),
     playerMenuHidden: [],
+    showMostReplayed: DEFAULT_SETTINGS.showMostReplayed,
   })
 
 const prefersLight = () => {

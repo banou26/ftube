@@ -1,5 +1,6 @@
-import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceFeedChip, SourceGame, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
+import type { SourceBylinePart, SourceCardTeaser, SourceChannel, SourceChannelAbout, SourceChannelCard, SourceChannelShelf, SourceChapter, SourceFeedChip, SourceGame, SourceHeatMarker, SourceInfoCard, SourceNotification, SourceTextRun, SourceComment, SourceLikeStatus, SourceLiveChatEmoji, SourceLiveChatMessage, SourceLiveChatPinnedMessage, SourceLiveChatRun, SourceMix, SourceMusicSection, SourcePost, SourceNotificationLevel, SourcePlaylist, SourcePlaylistItem, SourceSearchCard, SourceSearchShelf, SourceSearchTopic, SourceSession, SourceStoreShelf, SourceTopicVideo, SourceTranscript, SourceTranscriptLine, SourceTranscriptPanel, SourceVideo, SourceWatchMeta, SourceWatchPlaylist } from '../types'
 
+import { sanitizeHeatMarkers } from '../../player/heatmap'
 import { classifyCustomEmoji } from './emoji'
 
 type Thumbnail = {
@@ -1809,7 +1810,38 @@ export const normalizeWatchPlaylist = (input: unknown): SourceWatchPlaylist | un
   }
 }
 
-type ChapterMarker = { value?: { chapters?: { title?: Text, time_range_start_millis?: number, thumbnail?: Thumbnail[] }[] } }
+type ChapterMarker = {
+  value?: {
+    chapters?: { title?: Text, time_range_start_millis?: number, thumbnail?: Thumbnail[] }[]
+    heatmap?: { heat_markers?: HeatMarkerNode[] }
+  }
+}
+
+type HeatMarkerNode = {
+  time_range_start_millis?: unknown
+  marker_duration_millis?: unknown
+  heat_marker_intensity_score_normalized?: unknown
+  startMillis?: unknown
+  durationMillis?: unknown
+  intensityScoreNormalized?: unknown
+}
+
+const toHeatMarker = (node: HeatMarkerNode | null | undefined): SourceHeatMarker | undefined => {
+  if (!node || typeof node !== 'object') return undefined
+  const rawStart = node.time_range_start_millis ?? node.startMillis
+  const rawDuration = node.marker_duration_millis ?? node.durationMillis
+  const rawIntensity = node.heat_marker_intensity_score_normalized ?? node.intensityScoreNormalized
+  const startMs = typeof rawStart === 'string' ? Number(rawStart) : rawStart
+  const durationMs = typeof rawDuration === 'string' ? Number(rawDuration) : rawDuration
+  const intensity = typeof rawIntensity === 'string' ? Number(rawIntensity) : rawIntensity
+  if (typeof startMs !== 'number' || typeof durationMs !== 'number' || typeof intensity !== 'number') return undefined
+  return { startMs, durationMs, intensity }
+}
+
+const toSanitizedHeatMarkers = (nodes: unknown): SourceHeatMarker[] =>
+  Array.isArray(nodes)
+    ? sanitizeHeatMarkers(nodes.map(node => toHeatMarker(node as HeatMarkerNode)).filter((item): item is SourceHeatMarker => item !== undefined))
+    : []
 
 // on the player bar of /next's overlay, which youtubei.js parses outside contents_memo and hands back wrapped
 const normalizeChapters = (input: unknown): SourceChapter[] => {
@@ -1826,6 +1858,45 @@ const normalizeChapters = (input: unknown): SourceChapter[] => {
       ? [{ title, startSeconds: start / 1_000, thumbnail: thumbnail(chapter.thumbnail) }]
       : []
   })
+}
+
+const normalizeHeatmap = (input: unknown): SourceHeatMarker[] => {
+  const memo = (input as WatchNextResponse | undefined)?.contents_memo
+  const macroEntities = (memo?.get('MacroMarkersListEntity') ?? []) as {
+    marker_type?: string
+    isHeatmap?: () => boolean
+    markers?: HeatMarkerNode[]
+  }[]
+  const heatmapEntity = macroEntities.find(entity => entity.marker_type === 'MARKER_TYPE_HEATMAP' || entity.isHeatmap?.() === true)
+  if (heatmapEntity?.markers) {
+    const clean = toSanitizedHeatMarkers(heatmapEntity.markers)
+    if (clean.length > 0) return clean
+  }
+
+  const overlays = (input as { player_overlays?: { is_node?: boolean, item?: () => unknown } } | undefined)?.player_overlays
+  const overlay = (overlays?.is_node ? overlays.item?.() : undefined) as {
+    decorated_player_bar?: { player_bar?: { markers_map?: ChapterMarker[] } }
+  } | null | undefined
+  const overlayMarkers = overlay?.decorated_player_bar?.player_bar?.markers_map ?? []
+  const overlayHeatmap = overlayMarkers.find(marker => (marker.value?.heatmap?.heat_markers?.length ?? 0) > 0)?.value?.heatmap?.heat_markers
+  if (overlayHeatmap) {
+    const clean = toSanitizedHeatMarkers(overlayHeatmap)
+    if (clean.length > 0) return clean
+  }
+
+  const raw = input as {
+    framework_updates?: { entityBatchUpdate?: { mutations?: { payload?: { macroMarkersListEntity?: { markersList?: { markerType?: string, markers?: HeatMarkerNode[] } } } }[] } }
+    frameworkUpdates?: { entityBatchUpdate?: { mutations?: { payload?: { macroMarkersListEntity?: { markersList?: { markerType?: string, markers?: HeatMarkerNode[] } } } }[] } }
+  } | undefined
+  const mutations = raw?.framework_updates?.entityBatchUpdate?.mutations ?? raw?.frameworkUpdates?.entityBatchUpdate?.mutations ?? []
+  for (const mutation of mutations) {
+    const list = mutation?.payload?.macroMarkersListEntity?.markersList
+    if (list?.markerType !== 'MARKER_TYPE_HEATMAP') continue
+    const clean = toSanitizedHeatMarkers(list.markers)
+    if (clean.length > 0) return clean
+  }
+
+  return []
 }
 
 /** The token that opens a finished stream's or premiere's chat replay, off /next's conversation bar. */
@@ -2251,6 +2322,7 @@ export const normalizeWatchMeta = (input: unknown, id: string): SourceWatchMeta 
     autoplayId: watchNext?.autoplay?.sets?.[0]?.autoplay_video?.payload?.videoId || undefined,
     playlist: normalizeWatchPlaylist(watchNext?.playlist),
     chapters: normalizeChapters(input),
+    heatmap: normalizeHeatmap(input),
     transcriptPanel: normalizeTranscriptPanel(input),
     music: normalizeMusicSection(input),
     channelCard: normalizeChannelCard(input),

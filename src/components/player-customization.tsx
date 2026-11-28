@@ -96,6 +96,26 @@ const style = css`
     color: #ffffff;
   }
 
+  .preview-rail-wrap {
+    position: relative;
+    padding-top: 1.4rem;
+  }
+
+  .preview-heatmap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.5rem;
+    height: 1.8rem;
+    pointer-events: none;
+  }
+
+  .preview-heatmap svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
   .preview-rail {
     position: relative;
     height: 0.4rem;
@@ -437,6 +457,7 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
     const previous = {
       playerBarLayout: settings.playerBarLayout,
       playerMenuHidden: settings.playerMenuHidden,
+      showMostReplayed: settings.showMostReplayed,
     }
     resetPlayerCustomization()
     showUndoableToast('Player customization reset to default', {
@@ -450,8 +471,28 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
   return (
     <section css={style} aria-label='Player customization'>
       <div className='preview-box' aria-label='Player bar preview'>
-        <div className='preview-rail' aria-hidden='true'>
-          <div className='preview-rail-fill' />
+        <div className='preview-rail-wrap' aria-hidden='true'>
+          {settings.showMostReplayed
+            ? (
+              <div className='preview-heatmap'>
+                <svg viewBox='0 0 100 20' preserveAspectRatio='none'>
+                  <path
+                    d='M 0 20 L 0 18 C 12 18 18 14 30 14 C 45 14 50 3 62 3 C 74 3 82 15 100 16 L 100 20 Z'
+                    fill='rgba(255, 255, 255, 0.36)'
+                  />
+                  <path
+                    d='M 0 18 C 12 18 18 14 30 14 C 45 14 50 3 62 3 C 74 3 82 15 100 16'
+                    fill='none'
+                    stroke='rgba(255, 255, 255, 0.65)'
+                    strokeWidth='1.2'
+                  />
+                </svg>
+              </div>
+            )
+            : undefined}
+          <div className='preview-rail'>
+            <div className='preview-rail-fill' />
+          </div>
         </div>
         <div className='preview-bar'>
           <div className='preview-left' data-preview-side='left'>
@@ -620,6 +661,24 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
               </div>
             )
           })}
+        </div>
+      </div>
+
+      <div>
+        <h3 className='subhead'>Seek bar</h3>
+        <div className='menu-list'>
+          <div className='menu-row'>
+            <div className='menu-row-main'>
+              <span>Show most replayed moments</span>
+            </div>
+            <input
+              type='checkbox'
+              className='toggle'
+              aria-label='Show most replayed moments'
+              checked={settings.showMostReplayed}
+              onChange={() => onUpdate({ showMostReplayed: !settings.showMostReplayed })}
+            />
+          </div>
         </div>
       </div>
 

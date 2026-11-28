@@ -77,6 +77,7 @@ export const mountTheaterBiggerHarness = (options: TheaterBiggerHarnessOptions =
       related: Array.from({ length: 14 }, (_, i) => makeRelatedVideo(`rel-${i + 1}`, `Suggested Video ${i + 1}`)),
       relatedChips: [],
       chapters: [],
+      heatmap: [],
       cardTeasers: [],
     }),
     comments: async () => ({

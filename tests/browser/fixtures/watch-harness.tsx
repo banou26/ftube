@@ -119,6 +119,7 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
           ]
         : [],
       chapters: [],
+      heatmap: [],
       cardTeasers: [],
     }),
     liveChat: async (_id: string, cursor?: string) => {
