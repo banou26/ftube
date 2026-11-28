@@ -21,6 +21,7 @@ import {
   reconcileSeenSubscriptions,
   useSeenSubscriptions,
 } from '../subscriptions/seen'
+import { APP_VERSION } from '../version'
 import { Logo } from './header'
 import { LIKED_VIDEOS_ID, playlistHrefFor, WATCH_LATER_ID } from './playlist'
 
@@ -547,7 +548,15 @@ const sectionsStyle = css`
   }
 
   .copyright {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.8rem;
     color: var(--text-tertiary);
+  }
+
+  .version {
+    font-variant-numeric: tabular-nums;
   }
 `
 
@@ -585,7 +594,10 @@ const GuideSections = () => {
         <div className='footer-links'>
           <Link href='/privacy'>Privacy</Link>
         </div>
-        <div className='copyright'>© 2026 FTube</div>
+        <div className='copyright'>
+          <span>© 2026 FTube</span>
+          <span className='version' data-app-version={APP_VERSION}>v{APP_VERSION}</span>
+        </div>
       </div>
     </div>
   )
