@@ -5,7 +5,7 @@ import { expect, hideFknNotice, test } from './test'
 
 const SHAKA_FULL_MOCK_JS = `
 const installVideoController = (video, options) => {
-  if (video.__mockInstalled) return video.__mockController
+  if (video.__mockTimer) clearInterval(video.__mockTimer)
   let paused = options.autoPlay === false
   let currentTime = options.startTime || 0
   const duration = 180
@@ -47,6 +47,7 @@ const installVideoController = (video, options) => {
       video.dispatchEvent(new Event('timeupdate'))
     }
   }, 250)
+  video.__mockTimer = timer
 
   const controller = {
     player: {
@@ -76,10 +77,9 @@ const installVideoController = (video, options) => {
     play: async () => video.play(),
     destroy: async () => {
       clearInterval(timer)
+      if (video.__mockTimer === timer) video.__mockTimer = undefined
     },
   }
-  video.__mockInstalled = true
-  video.__mockController = controller
   queueMicrotask(() => {
     if (options.signal?.aborted) return
     video.dispatchEvent(new Event('loadedmetadata'))
