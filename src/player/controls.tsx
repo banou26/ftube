@@ -34,9 +34,12 @@ import { clampToWindow, liveBarClock, liveBarState } from './seek-window'
 import { SeekKnob } from './seek-knob'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
 import { SpeedPicker } from './speed-picker'
+import { isTouchPointer, shouldIgnoreHoverPointer } from './surface-interaction'
 import { VolumeControl } from './volume-control'
 
 export const clock = formatClockSeconds
+
+const EMPTY_HEATMAP: readonly HeatMarker[] = []
 
 /* youtube.com's 2025 bar, measured headless at 1280 and 1920 (the sizes do not scale with the player):
    40 px tall groups on a 30% black wash, 12 px from the sides and 8 px from the bottom, no gradient behind them, and the
@@ -337,18 +340,22 @@ const style = css`
     display: flex;
     align-items: center;
     height: 5.6rem;
+    min-width: 0;
+    max-width: 100%;
   }
 
   /* the groups left of the spacer, which the player's frame can hold short of the middle */
   .left {
     display: flex;
+    flex: 0 1 auto;
     align-items: center;
     gap: 0.8rem;
     min-width: 0;
   }
 
   .spacer {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .control {
@@ -546,6 +553,7 @@ const style = css`
 
   .right {
     display: flex;
+    flex: 0 1 auto;
     align-items: center;
     margin-left: 0.8rem;
     padding: 0 0.4rem;
@@ -558,6 +566,10 @@ const style = css`
 
   .menu-anchor {
     position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
   }
 
   .autoplay-track {
@@ -697,6 +709,14 @@ const style = css`
       margin-left: 0;
     }
 
+    .left > .group,
+    .left > .menu-anchor,
+    .right > .control,
+    .right > .menu-anchor {
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+
     .play,
     .next,
     .volume,
@@ -713,11 +733,16 @@ const style = css`
     }
 
     .time,
-    .live-badge {
+    .live-badge,
+    .chapter {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
       height: 3.6rem;
       padding: 0 0.8rem;
       font-size: 1.2rem;
       line-height: 3.6rem;
+      text-overflow: ellipsis;
     }
 
     .right {
@@ -748,16 +773,43 @@ const style = css`
     }
   }
 
-  /* below 400 px, tighten gaps so an hour-long clock and PiP fit on iPhone widths; below 375 px, hide PiP */
-  @container player (max-width: 400px) {
+  /* allow crowded custom left/right phone bars to flex-shrink gracefully without clipping settings popups */
+  @container player (max-width: 440px) {
     .left {
-      gap: 0.4rem;
+      gap: 0.25rem;
     }
 
     .right {
-      margin-left: 0.4rem;
+      margin-left: 0.25rem;
     }
 
+    .play,
+    .next,
+    .volume,
+    .volume .control,
+    .left > .control.group,
+    .left > .menu-anchor > .control.group {
+      flex: 0 1 3.2rem;
+      width: 3.2rem;
+      min-width: 2.6rem;
+      height: 3.6rem;
+    }
+
+    .right .control {
+      flex: 0 1 3rem;
+      width: 3rem;
+      min-width: 2.4rem;
+    }
+
+    .time,
+    .live-badge {
+      padding: 0 0.6rem;
+      font-size: 1.15rem;
+    }
+  }
+
+  /* below 400 px, tighten icon glyphs; below 375 px, hide PiP */
+  @container player (max-width: 400px) {
     .control > svg {
       width: 1.8rem;
       height: 1.8rem;
@@ -822,7 +874,7 @@ export const PlayerControls = (
     video, state, heights, storyboards, quality, onQuality, audioTracks = [], audioTrackId, onAudioTrack, hasDrc = false, stableVolume = false, onStableVolume,
     ambientMode = true, onAmbientMode, annotations = true, onAnnotations,
     captionTracks, translationLanguages = [], caption, onCaption, onToggleCaption,
-    theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], heatmap = [], onChapters, segments = [], onMenu,
+    theater, onTheater, onNext, autoplay, onAutoplay, visible, isLive = false, chapters = [], heatmap = EMPTY_HEATMAP, onChapters, segments = [], onMenu,
     sleepTimer, sleepMenu = 0, docked = false, onUserPause, onWheelVolumeChange,
   }: ControlsProps,
 ) => {
@@ -980,7 +1032,7 @@ export const PlayerControls = (
   }
 
   const clearHoverUnlessPointerInside = (event: PointerEvent) => {
-    if (event.pointerType === 'touch') {
+    if (isTouchPointer(event.pointerType)) {
       clearHoverState()
       return
     }
@@ -996,13 +1048,13 @@ export const PlayerControls = (
   }
 
   const onScrubberPointerEnter = (event: PointerEvent) => {
-    if (event.pointerType !== 'touch') setDesktopHover(true)
+    if (!shouldIgnoreHoverPointer(event.pointerType)) setDesktopHover(true)
   }
 
   const onPointerDown = (event: PointerEvent) => {
     // a right-click opens the player menu rather than seeking
     if (duration <= 0 || event.button !== 0) return
-    if (event.pointerType === 'touch') setDesktopHover(false)
+    if (isTouchPointer(event.pointerType)) setDesktopHover(false)
     else setDesktopHover(true)
     const target = event.currentTarget as HTMLElement
     try {
@@ -1026,8 +1078,8 @@ export const PlayerControls = (
   }
 
   const onPointerMove = (event: PointerEvent) => {
-    const isTouch = event.pointerType === 'touch'
-    if (!isTouch) setDesktopHover(true)
+    const isTouch = isTouchPointer(event.pointerType)
+    if (!shouldIgnoreHoverPointer(event.pointerType)) setDesktopHover(true)
     const rail = railRef.current
     if (rail && duration > 0 && (!isTouch || scrubbing)) {
       const box = rail.getBoundingClientRect()

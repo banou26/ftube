@@ -23,7 +23,7 @@ const AUDIO_TRACKS = [
   { id: 'ja', label: 'Japanese', isDefault: false, autoDubbed: true },
 ]
 
-const Harness = () => {
+const Harness = ({ width = 900 }: { width?: number }) => {
   const autoplay = useSetting('autoplay')
   const ambientMode = useSetting('ambientMode')
   const annotations = useSetting('annotations')
@@ -31,6 +31,7 @@ const Harness = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [audioTrackId, setAudioTrackId] = useState('en')
+  const height = Math.round((width * 9) / 16)
 
   useEffect(() => {
     const el = videoRef.current
@@ -65,14 +66,14 @@ const Harness = () => {
       data-player-root=''
       style={{
         position: 'relative',
-        width: '900px',
-        height: '506px',
+        width: `${width}px`,
+        height: `${height}px`,
         background: '#000',
         containerType: 'inline-size',
         containerName: 'player',
       }}
     >
-      <video ref={videoRef} width={900} height={506} muted style={{ width: '100%', height: '100%', display: 'block' }} />
+      <video ref={videoRef} width={width} height={height} muted style={{ width: '100%', height: '100%', display: 'block' }} />
       {video
         ? (
           <PlayerControls
@@ -112,10 +113,10 @@ const Harness = () => {
   )
 }
 
-export const mountPlayerCustomizationHarness = () => {
+export const mountPlayerCustomizationHarness = (options: { width?: number } = {}) => {
   document.querySelector('[data-player-customization-harness]')?.remove()
   const host = document.createElement('div')
   host.setAttribute('data-player-customization-host', '')
   document.body.prepend(host)
-  render(<Harness />, host)
+  render(<Harness width={options.width} />, host)
 }

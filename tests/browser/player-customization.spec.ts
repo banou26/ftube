@@ -17,12 +17,12 @@ const openPlayerTab = async (page: import('@playwright/test').Page) => {
   return page.getByRole('region', { name: 'Player customization' })
 }
 
-const mountPlayerHarness = async (page: import('@playwright/test').Page) => {
+const mountPlayerHarness = async (page: import('@playwright/test').Page, width = 900) => {
   await page.goto('/privacy')
-  await page.evaluate(async (path) => {
-    const mod = await import(path) as { mountPlayerCustomizationHarness: () => void }
-    mod.mountPlayerCustomizationHarness()
-  }, HARNESS)
+  await page.evaluate(async ([path, harnessWidth]) => {
+    const mod = await import(path) as { mountPlayerCustomizationHarness: (options?: { width?: number }) => void }
+    mod.mountPlayerCustomizationHarness({ width: harnessWidth })
+  }, [HARNESS, width] as const)
   const player = page.locator('[data-player-customization-harness]')
   await expect(player.locator('.bar')).toBeVisible()
   return player
@@ -149,4 +149,48 @@ test('customizes main bar control visibility, order across sides, settings menu 
   expect(resetRight).toEqual(['autoplay', 'captions', 'settings', 'pip', 'theater', 'fullscreen'])
   await resetPlayer.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(resetPlayer.getByRole('menu', { name: 'Player settings' }).getByRole('menuitem', { name: 'Quality' })).toBeVisible()
+})
+
+test('fits crowded custom left-side controls cleanly inside a 390px phone player bar', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    if (window !== top) return
+    localStorage.setItem('yt-client:settings', JSON.stringify({
+      playerBarLayout: {
+        left: ['play', 'next', 'volume', 'time', 'captions', 'settings', 'pip', 'fullscreen'],
+        right: [],
+        hidden: ['chapter', 'autoplay', 'theater'],
+      },
+    }))
+  })
+
+  const player = await mountPlayerHarness(page, 390)
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    { message: 'no document horizontal overflow with 390px player' },
+  ).toBe(true)
+
+  const fits = await player.locator('.bar').evaluate(
+    el => el.scrollWidth <= el.clientWidth + 1,
+  )
+  expect(fits).toBe(true)
+
+  const playerBox = (await player.boundingBox())!
+  const controlBoxes = await player.locator('.bar [data-control-id]').evaluateAll(els =>
+    els
+      .filter(el => getComputedStyle(el).display !== 'none')
+      .map((el) => {
+        const rect = el.getBoundingClientRect()
+        return { id: (el as HTMLElement).dataset.controlId ?? '', left: rect.left, right: rect.right, width: rect.width }
+      }),
+  )
+  expect(controlBoxes.map(box => box.id)).toEqual(['play', 'next', 'volume', 'time', 'captions', 'settings', 'pip', 'fullscreen'])
+  for (const box of controlBoxes) {
+    expect(box.width).toBeGreaterThan(0)
+    expect(box.left).toBeGreaterThanOrEqual(playerBox.x - 0.5)
+    expect(box.right).toBeLessThanOrEqual(playerBox.x + playerBox.width + 0.5)
+  }
+
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(player.getByRole('menu', { name: 'Player settings' })).toBeVisible()
 })

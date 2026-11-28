@@ -34,6 +34,7 @@ import {
 import { useRef, useState } from 'preact/hooks'
 
 import {
+  cloneDefaultPlayerBarLayout,
   isBarControlVisible,
   moveBarControlByStep,
   moveBarControlToSide,
@@ -42,7 +43,6 @@ import {
   toggleBarControlVisibility,
   toggleSettingsMenuItem,
 } from '../player/control-layout'
-import { resetPlayerCustomization, updateSettings } from '../settings'
 import { showUndoableToast } from '../undo'
 
 type IconComp = FunctionComponent<{ size?: number, strokeWidth?: number, className?: string }>
@@ -459,11 +459,15 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
       playerMenuHidden: settings.playerMenuHidden,
       showMostReplayed: settings.showMostReplayed,
     }
-    resetPlayerCustomization()
+    onUpdate({
+      playerBarLayout: cloneDefaultPlayerBarLayout(),
+      playerMenuHidden: [],
+      showMostReplayed: false,
+    })
     showUndoableToast('Player customization reset to default', {
       label: 'Reset player customization',
       undo: () => {
-        updateSettings(previous)
+        onUpdate(previous)
       },
     })
   }
@@ -533,6 +537,11 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
                   event.preventDefault()
                   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
                   setDropTarget({ side, index: list.length })
+                }}
+                onDragLeave={(event: DragEvent) => {
+                  const related = event.relatedTarget as Node | null
+                  if (related && (event.currentTarget as HTMLElement).contains(related)) return
+                  setDropTarget(prev => (prev?.side === side ? null : prev))
                 }}
                 onDrop={(event: DragEvent) => commitDrop(event, side, list.length)}
               >
