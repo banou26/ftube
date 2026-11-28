@@ -6,10 +6,11 @@ import type { ChatRow, OverlayChatEvent } from './use-live-chat-session'
 
 import { css, keyframes } from '@emotion/react'
 import { createPortal } from 'preact/compat'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 import { subscribeFullscreen } from '../player/fullscreen'
 import {
+  clampContainedOverlayPosition,
   classifyChatMessage,
   OVERLAY_FONT_STACKS,
   resolveOverlayAnimation,
@@ -68,6 +69,15 @@ const popIn = keyframes`
   38% { opacity: 1; transform: scale(1); }
   85% { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(0.92); }
+`
+
+const popInContained = keyframes`
+  0% { opacity: 0; transform: scale(0.72); }
+  16% { opacity: 1; transform: scale(1.03); }
+  28% { transform: scale(0.98); }
+  38% { opacity: 1; transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.95); }
 `
 
 const bounceFloat = keyframes`
@@ -235,22 +245,56 @@ const containedOverlayCss = css`
   z-index: auto;
 
   .overlay-item {
-    max-width: min(82%, 68rem);
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(calc(100% - 2.4rem), 68rem);
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.22;
+  }
+
+  .overlay-item.text-bubble {
+    display: block;
+    border-radius: 1.4rem;
+    padding: 0.3em 0.55em;
+  }
+
+  .overlay-item.text-bubble .overlay-author {
+    margin-right: 0.45em;
+  }
+
+  .overlay-item.emoji-only {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .overlay-item.anim-scroll {
     animation-name: ${scrollContained};
   }
 
+  .overlay-item.anim-pop {
+    animation-name: ${popInContained};
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .overlay-item.anim-scroll {
+    .overlay-item.anim-scroll,
+    .overlay-item.anim-pop {
       animation-name: ${softFade};
       animation-timing-function: ease-out;
+    }
+
+    .overlay-item.anim-scroll {
       left: auto;
-      right: 6%;
+      right: 1.2rem;
     }
   }
 `
+
+export { clampContainedOverlayPosition }
 
 type ActiveOverlayItem = {
   key: number
@@ -338,6 +382,8 @@ export const OverScreenOverlay = (
   const lastEventSeqRef = useRef<number>(0)
   const lastPreviewSeqRef = useRef<number>(previewSeq)
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const itemElsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const settingsRef = useRef(settings)
   settingsRef.current = settings
 
@@ -470,12 +516,48 @@ export const OverScreenOverlay = (
     })), true)
   }, [previewSeq])
 
+  useLayoutEffect(() => {
+    if (!contained || !settings.enabled || items.length === 0) return
+    const overlay = overlayRef.current
+    if (!overlay) return
+
+    const positionAll = () => {
+      const containerWidth = overlay.clientWidth
+      const containerHeight = overlay.clientHeight
+      if (containerWidth <= 0 || containerHeight <= 0) return
+      for (const item of items) {
+        if (item.animation === 'scroll') continue
+        const el = itemElsRef.current.get(item.key)
+        if (!el) continue
+        el.style.left = '12px'
+        el.style.top = '12px'
+        const { leftPx, topPx } = clampContainedOverlayPosition({
+          containerWidth,
+          containerHeight,
+          itemWidth: el.offsetWidth,
+          itemHeight: el.offsetHeight,
+          leftPct: item.leftPct,
+          topPct: item.lanePct,
+        })
+        el.style.left = `${leftPx}px`
+        el.style.top = `${topPx}px`
+      }
+    }
+
+    positionAll()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(positionAll)
+    observer.observe(overlay)
+    return () => observer.disconnect()
+  }, [contained, settings.enabled, items, settings.fontSizePx, settings.fontFamily, settings.showAuthor])
+
   if (!settings.enabled || (!contained && !portalTarget)) return null
 
   const fontFamily = OVERLAY_FONT_STACKS[settings.fontFamily]
 
   const content = (
     <div
+      ref={overlayRef}
       css={contained ? [overlayCss, containedOverlayCss] : overlayCss}
       aria-hidden='true'
       data-over-screen-overlay='true'
@@ -499,11 +581,17 @@ export const OverScreenOverlay = (
         ].filter(Boolean).join(' ')
         const positionStyle = item.animation === 'scroll'
           ? { top: `${item.lanePct}%` }
-          : { top: `${item.lanePct}%`, left: `${item.leftPct}%` }
+          : contained
+            ? { top: '12px', left: '12px' }
+            : { top: `${item.lanePct}%`, left: `${item.leftPct}%` }
 
         return (
           <div
             key={item.key}
+            ref={(node: HTMLDivElement | null) => {
+              if (node) itemElsRef.current.set(item.key, node)
+              else itemElsRef.current.delete(item.key)
+            }}
             className={classes}
             data-overlay-item={item.messageId}
             data-overlay-kind={item.classified.kind}

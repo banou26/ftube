@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import {
+  clampContainedOverlayPosition,
   classifyChatMessage,
   coerceOverScreenSettings,
   DEFAULT_OVER_SCREEN_SETTINGS,
@@ -118,5 +119,56 @@ describe('over-screen live chat messages', () => {
       emojiAnimation: 'burst',
       styleByType: false,
     })).toBe('scroll')
+  })
+
+  it('clamps contained overlay items inside narrow and desktop bounds with gutter', () => {
+    // 390x219 player with wide wrapped bubble at right-edge leftPct 71 clamps inside 12px gutter
+    expect(clampContainedOverlayPosition({
+      containerWidth: 390,
+      containerHeight: 219,
+      itemWidth: 366,
+      itemHeight: 148,
+      leftPct: 71,
+      topPct: 60,
+    })).toEqual({ leftPx: 12, topPx: 59 })
+
+    // Short bubble near right edge on 390px clamps right edge cleanly inside container
+    expect(clampContainedOverlayPosition({
+      containerWidth: 390,
+      containerHeight: 219,
+      itemWidth: 160,
+      itemHeight: 46,
+      leftPct: 71,
+      topPct: 68,
+    })).toEqual({ leftPx: 218, topPx: 149 })
+
+    // Desktop 800x450 mid-frame preserves percentage while right-edge bubbles clamp inward
+    expect(clampContainedOverlayPosition({
+      containerWidth: 800,
+      containerHeight: 450,
+      itemWidth: 200,
+      itemHeight: 48,
+      leftPct: 37,
+      topPct: 27,
+    })).toEqual({ leftPx: 296, topPx: 122 })
+
+    expect(clampContainedOverlayPosition({
+      containerWidth: 800,
+      containerHeight: 450,
+      itemWidth: 320,
+      itemHeight: 72,
+      leftPct: 71,
+      topPct: 60,
+    })).toEqual({ leftPx: 468, topPx: 270 })
+
+    // Oversized tall bubble centers within symmetric vertical slack
+    expect(clampContainedOverlayPosition({
+      containerWidth: 390,
+      containerHeight: 219,
+      itemWidth: 370,
+      itemHeight: 205,
+      leftPct: 71,
+      topPct: 80,
+    })).toEqual({ leftPx: 10, topPx: 7 })
   })
 })

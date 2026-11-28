@@ -19,6 +19,8 @@ export type TimedCommentsScenario = {
   isLive?: boolean
   commentsHidden?: boolean
   initialTime?: number
+  playerWidth?: number
+  playerHeight?: number
 }
 
 declare global {
@@ -100,6 +102,8 @@ const Harness = ({
   const duration = scenario.duration ?? 200
   const isLive = scenario.isLive ?? false
   const commentsHidden = scenario.commentsHidden ?? false
+  const playerWidth = scenario.playerWidth ?? 800
+  const playerHeight = scenario.playerHeight ?? 450
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -186,15 +190,15 @@ const Harness = ({
       data-paused={String(paused)}
       style={{
         position: 'relative',
-        width: '800px',
-        height: '450px',
+        width: `${playerWidth}px`,
+        height: `${playerHeight}px`,
         background: '#000',
         containerType: 'inline-size',
         containerName: 'player',
         overflow: 'hidden',
       }}
     >
-      <video ref={videoRef} width={800} height={450} muted style={{ width: '100%', height: '100%', display: 'block' }} />
+      <video ref={videoRef} width={playerWidth} height={playerHeight} muted style={{ width: '100%', height: '100%', display: 'block' }} />
       {video
         ? (
           <TimedCommentsOverlay
@@ -241,7 +245,8 @@ export const mountTimedCommentsHarness = (initialScenario: TimedCommentsScenario
 
   const host = document.createElement('div')
   host.setAttribute('data-timed-comments-host', '')
-  host.style.cssText = 'position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding: 2.4rem'
+  const padding = initialScenario.playerWidth !== undefined ? '0' : '2.4rem'
+  host.style.cssText = `position: fixed; inset: 0; z-index: 2150; background: var(--bg-base); overflow: auto; padding: ${padding}`
   document.body.prepend(host)
 
   const requestedVideos: string[] = []
@@ -258,6 +263,75 @@ export const mountTimedCommentsHarness = (initialScenario: TimedCommentsScenario
       }
       if (videoId === 'video-error') {
         throw new Error('Comments unavailable')
+      }
+      if (videoId === 'video-long-pop') {
+        return {
+          items: [
+            makeComment({
+              id: 'lp-10',
+              text: 'Absolute perfection!10:15 Highlight, i miss this in 2014, poor me!',
+              likeCountText: '14',
+              authorName: '@Thompson7177',
+              runs: [
+                { text: 'Absolute perfection!' },
+                { text: '10:15', videoId: 'video-long-pop', startSeconds: 10 },
+                { text: ' Highlight, i miss this in 2014, poor me!' },
+              ],
+            }),
+            makeComment({
+              id: 'lp-20',
+              text: '0:20 Superlongunbrokenwordwithoutspacesatallsoevennarrowviewportsmustwrapit!',
+              likeCountText: '20',
+              authorName: 'Reviewer',
+              runs: [
+                { text: '0:20', videoId: 'video-long-pop', startSeconds: 20 },
+                { text: ' Superlongunbrokenwordwithoutspacesatallsoevennarrowviewportsmustwrapit!' },
+              ],
+            }),
+            makeComment({
+              id: 'lp-30',
+              text: '0:30 Every transition in this live drum and bass set lands seamlessly inside compact screens!',
+              likeCountText: '30',
+              authorName: 'Listener',
+              runs: [
+                { text: '0:30', videoId: 'video-long-pop', startSeconds: 30 },
+                { text: ' Every transition in this live drum and bass set lands seamlessly inside compact screens!' },
+              ],
+            }),
+            makeComment({
+              id: 'lp-40',
+              text: '0:40 Checking lane bounds across intermediate Pop bubbles!',
+              likeCountText: '40',
+              runs: [
+                { text: '0:40', videoId: 'video-long-pop', startSeconds: 40 },
+                { text: ' Checking lane bounds across intermediate Pop bubbles!' },
+              ],
+            }),
+            makeComment({
+              id: 'lp-50',
+              text: '0:50 Almost near the right side with multi-line comment wrapping!',
+              likeCountText: '50',
+              runs: [
+                { text: '0:50', videoId: 'video-long-pop', startSeconds: 50 },
+                { text: ' Almost near the right side with multi-line comment wrapping!' },
+              ],
+            }),
+            makeComment({
+              id: 'lp-60',
+              text: '1:00 Absolute perfection right near the right edge at 71 percent offset with 28px font!',
+              likeCountText: '60',
+              authorName: 'EdgeTester',
+              runs: [
+                { text: '1:00', videoId: 'video-long-pop', startSeconds: 60 },
+                { text: ' Absolute perfection right near the right edge at 71 percent offset with 28px font!' },
+              ],
+            }),
+          ],
+          cursor: null,
+          disabled: false,
+          countText: '6 Comments',
+          customEmojis: [],
+        }
       }
       if (videoId === 'video-2') {
         return {

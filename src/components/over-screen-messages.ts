@@ -242,3 +242,43 @@ export const resolveOverlayAnimation = (
   }
   return settings.textAnimation
 }
+
+/** Clamps a contained overlay bubble inside `[gutterPx, container - item - gutterPx]` bounds. */
+export const clampContainedOverlayPosition = ({
+  containerWidth,
+  containerHeight,
+  itemWidth,
+  itemHeight,
+  leftPct,
+  topPct,
+  gutterPx = 12,
+}: {
+  containerWidth: number
+  containerHeight: number
+  itemWidth: number
+  itemHeight: number
+  leftPct: number
+  topPct: number
+  gutterPx?: number
+}): { leftPx: number, topPx: number } => {
+  const safeWidth = Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 0
+  const safeHeight = Number.isFinite(containerHeight) && containerHeight > 0 ? containerHeight : 0
+  const safeItemWidth = Number.isFinite(itemWidth) && itemWidth > 0 ? itemWidth : 0
+  const safeItemHeight = Number.isFinite(itemHeight) && itemHeight > 0 ? itemHeight : 0
+  const safeGutter = Number.isFinite(gutterPx) && gutterPx >= 0 ? gutterPx : 0
+
+  const effGutterX = Math.min(safeGutter, Math.max(0, (safeWidth - safeItemWidth) / 2))
+  const effGutterY = Math.min(safeGutter, Math.max(0, (safeHeight - safeItemHeight) / 2))
+  const minLeft = effGutterX
+  const maxLeft = Math.max(minLeft, safeWidth - safeItemWidth - effGutterX)
+  const minTop = effGutterY
+  const maxTop = Math.max(minTop, safeHeight - safeItemHeight - effGutterY)
+
+  const desiredLeft = (safeWidth * leftPct) / 100
+  const desiredTop = (safeHeight * topPct) / 100
+
+  return {
+    leftPx: Math.round(Math.max(minLeft, Math.min(desiredLeft, maxLeft))),
+    topPx: Math.round(Math.max(minTop, Math.min(desiredTop, maxTop))),
+  }
+}
