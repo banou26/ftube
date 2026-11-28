@@ -1,16 +1,21 @@
+import type { DocumentPipHandle } from './document-pip'
 import type { MiniplayerAspect, MiniplayerRect, MiniplayerResizeEdge } from './miniplayer-size'
+import type { ShortsWheelStep } from './shorts-miniplayer-wheel'
 import type { UpNext } from './up-next'
 
 import { css } from '@emotion/react'
 import { GripHorizontal, Maximize2, Pause, Play, X } from 'lucide-react'
 import { createPortal } from 'preact/compat'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
 
+import { useDismissed } from '../components/dismissed-videos'
 import { setMobileSearchOpen, shouldCollapseMiniplayer, useMobileSearchOpen } from '../components/mobile-search'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
 import { isAllowedWithHideShorts } from '../shorts-filter'
+import { isSpaceTarget, isTypingTarget } from './controls'
+import { isDocumentPipSupported, openDocumentPipWindow } from './document-pip'
 import {
   clampMiniplayerWidth,
   draggedMiniplayerWidth,
@@ -26,17 +31,19 @@ import {
   resolveMiniplayerRect,
   stepMiniplayerWidth,
 } from './miniplayer-size'
-import { closePlayer, getPlayerSession, openPlayer, playerHost, registerPlayerDock, setTheater, usePlayerSession } from './session'
+import { closePlayer, getPlayerSession, openPlayer, playerHost, registerPlayerDock, returnPlayerToDock, setTheater, updateShortsFeed, usePlayerSession } from './session'
 import { nextTheaterMode } from './theater'
 import { upNextHref } from './end-screen'
 import { AmbientGlow } from './ambient-glow'
 import { getFullscreenElement, subscribeFullscreen } from './fullscreen'
 import { shortsHrefFor } from './links'
 import { PlayerFrame } from './player-frame'
+import { SHORTS_FEED_QUERY } from './shorts-feed-query'
 import { useSponsorSegments } from './sponsorblock'
 import { hasNextInQueue, markPlayed, nextQueueIndex, pickAutoplay, previousQueueIndex } from './up-next'
 import { nextInQueueIndex, previousInQueueIndex, syncQueueVideo, useQueue } from './queue'
 import VideoPlayer from './video-player'
+import { toggleVideoMute } from './volume'
 import { descriptionOf, WATCH_META_QUERY } from './watch-query'
 
 const style = css`
@@ -453,7 +460,7 @@ const DRAG_THRESHOLD = 5
 
 const isInteractiveDragControl = (target: EventTarget | null) =>
   target instanceof Element
-  && Boolean(target.closest('button:not(.dock-move), input, select, textarea, [role="slider"], [role="button"], .resize-handle, .scrubber, .mini-volume'))
+  && Boolean(target.closest('button:not(.dock-move), input, select, textarea, [role="slider"], [role="button"], [role="switch"], .resize-handle, .scrubber, .mini-volume'))
 
 const readViewport = () => (typeof document === 'undefined'
   ? { width: 1280, height: 800 }
@@ -480,6 +487,8 @@ const PersistentPlayer = () => {
   const search = useSearch()
   const [autoplay, setAutoplay] = useState(() => getSettings().autoplay)
   useEffect(() => subscribeSettings(settings => setAutoplay(settings.autoplay)), [])
+  const shortsAutoplay = useSetting('shortsAutoplay')
+  const dismissed = useDismissed()
   const ambientMode = useSetting('ambientMode')
   const annotations = useSetting('annotations')
   const timedComments = useSetting('timedComments')
@@ -493,11 +502,19 @@ const PersistentPlayer = () => {
   const [dragMove, setDragMove] = useState<MiniplayerRect | undefined>(undefined)
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
+  const ambientVideoRef = useRef<HTMLVideoElement | null>(null)
+  ambientVideoRef.current = ambientVideo
   const [fullscreen, setFullscreen] = useState(false)
   const isShort = session.kind === 'short'
   const aspect: MiniplayerAspect = docked && isShort ? 'vertical' : 'landscape'
+  const canDocumentPip = isDocumentPipSupported()
+  const [inDocumentPip, setInDocumentPip] = useState(false)
+  const pipHandleRef = useRef<DocumentPipHandle | undefined>(undefined)
+  const pipOpeningRef = useRef(false)
+  const dockedShortRef = useRef(false)
+  dockedShortRef.current = docked && isShort
   const mobileSearchOpen = useMobileSearchOpen()
-  const compact = shouldCollapseMiniplayer({ docked, viewportWidth: viewport.width, mobileSearchOpen })
+  const compact = !inDocumentPip && shouldCollapseMiniplayer({ docked, viewportWidth: viewport.width, mobileSearchOpen })
   const togglePlayRef = useRef<(() => void) | undefined>(undefined)
   const [videoPaused, setVideoPaused] = useState(() => Boolean(session.paused))
 
@@ -973,12 +990,212 @@ const PersistentPlayer = () => {
         : upNextHref({ id: current.videoId, list: current.list, index: current.index })
       : '/'
   const expandHref = expandHrefFor(session)
+
+  const shortsItems = useMemo(() => {
+    if (!isShort || !session.shortsFeed) return []
+    return session.shortsFeed.items.filter(
+      item => item.id === session.videoId || !dismissed.videos.has(item.id),
+    )
+  }, [isShort, session.shortsFeed, session.videoId, dismissed.videos])
+  const shortIndex = isShort && session.videoId
+    ? shortsItems.findIndex(item => item.id === session.videoId)
+    : -1
+  const hasPreviousShort = isShort && shortIndex > 0
+  const hasNextShort = isShort && shortIndex >= 0 && shortIndex < shortsItems.length - 1
+  const hasNextShortRef = useRef(hasNextShort)
+  hasNextShortRef.current = hasNextShort
+
+  const shouldFetchMoreShorts = Boolean(
+    docked && isShort && session.shortsFeed && (
+      session.shortsFeed.needsInitialFeed
+      || (session.shortsFeed.cursor && shortIndex >= 0 && shortIndex >= shortsItems.length - 2)
+    ),
+  )
+  const [{ data: shortsFeedData }] = useQuery({
+    query: SHORTS_FEED_QUERY,
+    variables: {
+      seed: session.shortsFeed?.seed ?? session.videoId,
+      sequence: session.shortsFeed?.sequence,
+      cursor: session.shortsFeed?.needsInitialFeed ? undefined : (session.shortsFeed?.cursor ?? undefined),
+    },
+    pause: !shouldFetchMoreShorts,
+  })
+  const lastMergedShortsPageRef = useRef<unknown>(undefined)
+  useEffect(() => {
+    const nextPage = shortsFeedData?.shorts
+    const current = getPlayerSession()
+    if (!nextPage || !isShort || !current.shortsFeed || lastMergedShortsPageRef.current === nextPage) return
+    lastMergedShortsPageRef.current = nextPage
+    const existingIds = new Set(current.shortsFeed.items.map(item => item.id))
+    const merged = [
+      ...current.shortsFeed.items,
+      ...nextPage.items.filter(item => !existingIds.has(item.id)).map(item => ({
+        id: item.id,
+        title: item.title,
+        poster: item.poster,
+      })),
+    ]
+    updateShortsFeed({
+      ...current.shortsFeed,
+      items: merged,
+      cursor: nextPage.cursor ?? null,
+      needsInitialFeed: false,
+    })
+  }, [shortsFeedData, isShort])
+
+  const focusAfterStepRef = useRef<'prev' | 'next' | undefined>(undefined)
+  const stepShort = useCallback((delta: ShortsWheelStep) => {
+    const target = shortsItems[shortIndex + delta]
+    if (!target) return
+    const activeEl = typeof document !== 'undefined' ? document.activeElement : null
+    const pipActiveEl = pipHandleRef.current?.window.document.activeElement
+    const focused = pipActiveEl ?? activeEl
+    if (focused instanceof Element && focused.matches(':focus-visible')) {
+      if (focused.closest('.short-prev')) focusAfterStepRef.current = 'prev'
+      else if (focused.closest('.short-next')) focusAfterStepRef.current = 'next'
+    }
+    openPlayer({
+      videoId: target.id,
+      startAt: 0,
+      title: target.title ?? undefined,
+      poster: target.poster ?? undefined,
+      channelName: target.channelName ?? undefined,
+      kind: 'short',
+      shortsFeed: getPlayerSession().shortsFeed,
+    })
+    pipHandleRef.current?.syncStyles()
+  }, [shortsItems, shortIndex])
+  const stepShortRef = useRef(stepShort)
+  stepShortRef.current = stepShort
+
+  useLayoutEffect(() => {
+    const intent = focusAfterStepRef.current
+    if (!intent) return
+    focusAfterStepRef.current = undefined
+    const root = playerHost()
+    const selector = intent === 'next' ? '.short-next' : '.short-prev'
+    const preferred = root.querySelector<HTMLButtonElement>(selector)
+    const fallback = root.querySelector<HTMLButtonElement>(intent === 'next' ? '.short-prev' : '.short-next')
+    const target = preferred && !preferred.disabled
+      ? preferred
+      : fallback && !fallback.disabled
+        ? fallback
+        : root.querySelector<HTMLButtonElement>('.play, .expand')
+    target?.focus({ preventScroll: true })
+  }, [session.videoId])
+
+  const restoreHostToDockWithResume = useCallback(() => {
+    const currentVideo = ambientVideoRef.current
+    const shouldResume = Boolean(currentVideo && !currentVideo.paused && !currentVideo.ended)
+    returnPlayerToDock()
+    if (shouldResume && currentVideo?.paused) void currentVideo.play().catch(() => {})
+  }, [])
+
+  const closeDocumentPip = useCallback(() => {
+    pipOpeningRef.current = false
+    const handle = pipHandleRef.current
+    pipHandleRef.current = undefined
+    setInDocumentPip(false)
+    handle?.close()
+    restoreHostToDockWithResume()
+  }, [restoreHostToDockWithResume])
+
   const toggleMiniplayer = () => {
     const current = getPlayerSession()
     if (!current.videoId) return
+    if (pipHandleRef.current) {
+      closeDocumentPip()
+      window.focus()
+    }
     setMobileSearchOpen(false)
     navigate(current.claimed ? lastPage.current : expandHrefFor(current))
   }
+  const toggleMiniplayerRef = useRef(toggleMiniplayer)
+  toggleMiniplayerRef.current = toggleMiniplayer
+
+  const handlePipKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.defaultPrevented || isTypingTarget(event.target)) return
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        stepShortRef.current(1)
+        return
+      case 'ArrowUp':
+        event.preventDefault()
+        stepShortRef.current(-1)
+        return
+      case ' ':
+        if (isSpaceTarget(event.target)) return
+        // falls through
+      case 'k':
+        event.preventDefault()
+        togglePlayRef.current?.()
+        return
+      case 'm':
+        if (ambientVideoRef.current) {
+          event.preventDefault()
+          updateSettings(toggleVideoMute(ambientVideoRef.current))
+        }
+        return
+      case 'i':
+        event.preventDefault()
+        toggleMiniplayerRef.current()
+        return
+      case 'Escape':
+        event.preventDefault()
+        closeDocumentPip()
+    }
+  }, [closeDocumentPip])
+
+  const toggleDocumentPip = useCallback(async () => {
+    if (pipHandleRef.current) {
+      closeDocumentPip()
+      return
+    }
+    if (!canDocumentPip || !dockedShortRef.current || pipOpeningRef.current) return
+    pipOpeningRef.current = true
+    try {
+      const current = getPlayerSession()
+      const handle = await openDocumentPipWindow({
+        host: playerHost(),
+        title: watch?.title ?? current.title ?? 'FTube Shorts',
+        onClose: () => {
+          pipHandleRef.current = undefined
+          setInDocumentPip(false)
+          restoreHostToDockWithResume()
+        },
+        onKeyDown: handlePipKeyDown,
+      })
+      if (!handle) return
+      if (!dockedShortRef.current || !pipOpeningRef.current) {
+        handle.close()
+        restoreHostToDockWithResume()
+        return
+      }
+      pipHandleRef.current = handle
+      setInDocumentPip(true)
+    } finally {
+      pipOpeningRef.current = false
+    }
+  }, [canDocumentPip, closeDocumentPip, handlePipKeyDown, restoreHostToDockWithResume, watch?.title])
+
+  useEffect(() => {
+    if ((!docked || !isShort) && (pipHandleRef.current || pipOpeningRef.current)) closeDocumentPip()
+  }, [docked, isShort, closeDocumentPip])
+
+  useEffect(() => {
+    if (!inDocumentPip || !pipHandleRef.current) return
+    pipHandleRef.current.window.document.title = watch?.title ?? session.title ?? 'FTube Shorts'
+    pipHandleRef.current.syncStyles()
+  }, [inDocumentPip, watch?.title, session.title, session.videoId])
+
+  useEffect(() => () => {
+    pipOpeningRef.current = false
+    pipHandleRef.current?.close()
+    pipHandleRef.current = undefined
+    returnPlayerToDock()
+  }, [])
 
   const next = count > 1 || pick
     ? () => {
@@ -1007,7 +1224,7 @@ const PersistentPlayer = () => {
       <aside
         ref={asideRef}
         css={style}
-        className={[!docked && 'hidden', compact && 'compact', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
+        className={[(!docked || inDocumentPip) && 'hidden', compact && 'compact', drag && 'resizing', dragMove && 'moving'].filter(Boolean).join(' ') || undefined}
         data-miniplayer-aspect={docked ? aspect : undefined}
         data-collapsed={compact ? 'true' : undefined}
         data-resize-edge={drag?.edge}
@@ -1023,7 +1240,7 @@ const PersistentPlayer = () => {
             : { width: `${renderedWidth}px` }
           : undefined}
         aria-label='Miniplayer'
-        aria-hidden={!docked}
+        aria-hidden={!docked || inDocumentPip}
         onPointerDown={startMoveDrag}
       >
         <div className='dock-slot' ref={registerPlayerDock} />
@@ -1210,9 +1427,14 @@ const PersistentPlayer = () => {
                   poster={session.poster}
                   channelName={watch?.channel?.name ?? session.channelName ?? undefined}
                   startAt={session.startAt}
-                  defaultLoop={isShort}
+                  defaultLoop={isShort ? (!shortsAutoplay || !hasNextShort) : false}
                   docked={docked}
                   compact={compact}
+                  isShort={isShort}
+                  onStepShort={isShort && docked ? (delta: ShortsWheelStep) => stepShortRef.current(delta) : undefined}
+                  canDocumentPip={isShort && docked && canDocumentPip}
+                  inDocumentPip={isShort && inDocumentPip}
+                  onToggleDocumentPip={isShort && docked && canDocumentPip ? () => { void toggleDocumentPip() } : undefined}
                   theater={session.theater}
                   onTheater={() => setTheater(nextTheaterMode(session.theater))}
                   onMiniplayer={toggleMiniplayer}
@@ -1230,16 +1452,27 @@ const PersistentPlayer = () => {
                   segments={segments}
                   teasers={watch?.cardTeasers}
                   cardsAvatar={watch?.channelCard?.avatar}
-                  upNext={{
-                    autoplay,
-                    onAutoplay: (value: boolean) => updateSettings({ autoplay: value }),
-                    queued,
-                    pick,
-                    suggestions,
-                    onNext: next,
-                    onPrevious: previous,
-                    onOpen: open,
-                  }}
+                  upNext={isShort
+                    ? {
+                        autoplay: shortsAutoplay,
+                        onAutoplay: (value: boolean) => updateSettings({ shortsAutoplay: value }),
+                        queued: () => getSettings().shortsAutoplay && hasNextShortRef.current,
+                        pick: undefined,
+                        suggestions: [],
+                        onNext: hasNextShort ? () => stepShortRef.current(1) : undefined,
+                        onPrevious: hasPreviousShort ? () => stepShortRef.current(-1) : undefined,
+                        onOpen: open,
+                      }
+                    : {
+                        autoplay,
+                        onAutoplay: (value: boolean) => updateSettings({ autoplay: value }),
+                        queued,
+                        pick,
+                        suggestions,
+                        onNext: next,
+                        onPrevious: previous,
+                        onOpen: open,
+                      }}
                 />
               </PlayerFrame>
             </>

@@ -27,19 +27,11 @@ import { prefetchPlayback } from '../player/prefetch'
 import { type ShortsFocusedRegion, resolveShortsFocusMove } from '../player/shorts-focus'
 import { ShortsDescriptionPanel, type ShortsMediaState, type ShortsMenuActions, ShortsOptionsMenu } from '../player/shorts-menu'
 import ShortsPlayer, { type ShortsPlaybackSnapshot } from '../player/shorts-player'
+import { SHORTS_FEED_QUERY } from '../player/shorts-feed-query'
 import { playheadAt } from '../player/seek'
-import { closePlayer, getPlayerSession, openPlayer, playerHost } from '../player/session'
+import { closePlayer, type DockedShortsFeed, getPlayerSession, openPlayer, playerHost } from '../player/session'
 import { useSetting } from '../settings'
 import { showUndoableToast } from '../undo'
-
-const SHORTS_FEED_QUERY = gql(`
-  query ShortsFeed($seed: ID, $sequence: String, $cursor: String) {
-    shorts(seed: $seed, sequence: $sequence, cursor: $cursor) {
-      items { id poster title }
-      cursor
-    }
-  }
-`)
 
 const SHORT_META_QUERY = gql(`
   query ShortMeta($id: ID!) {
@@ -815,20 +807,40 @@ export const ShortsPage = () => {
   const [sequence] = useState(() => shortsSequenceIn(history.state))
   if (seed) prefetchPlayback(seed)
   const scrollerRef = useRef<HTMLDivElement>(null)
-  // Capture the docked Short's resume position before closing the persistent player below.
-  const [resumeTime] = useState<number | undefined>(() => {
+  // Capture the docked Short's resume position and feed order before closing the persistent player below.
+  const [restoredSession] = useState<{ resumeTime?: number, feed?: DockedShortsFeed }>(() => {
     const current = getPlayerSession()
-    if (current.kind !== 'short' || !current.videoId) return undefined
-    if (seed && current.videoId !== seed) return undefined
+    if (current.kind !== 'short' || !current.videoId) return {}
+    if (seed && current.videoId !== seed) return {}
     const playhead = playheadAt(current.videoId)
-    if (playhead !== undefined && playhead > 0) return playhead
     const dockedVideo = playerHost().querySelector('video')
-    if (dockedVideo && Number.isFinite(dockedVideo.currentTime) && dockedVideo.currentTime > 0) {
-      return dockedVideo.currentTime
-    }
-    return current.startAt
+    const resumeTime = playhead !== undefined && playhead > 0
+      ? playhead
+      : dockedVideo && Number.isFinite(dockedVideo.currentTime) && dockedVideo.currentTime > 0
+        ? dockedVideo.currentTime
+        : current.startAt
+    const feed = current.shortsFeed && current.shortsFeed.items.length > 0
+      && current.shortsFeed.items.some(item => item.id === current.videoId)
+      ? current.shortsFeed
+      : undefined
+    return { resumeTime, feed }
   })
-  const [loaded, setLoaded] = useState<ShortsPage[]>([])
+  const resumeTime = restoredSession.resumeTime
+  const [feedSeed] = useState(() => restoredSession.feed?.seed ?? seed)
+  const [feedSequence] = useState(() => restoredSession.feed?.sequence ?? sequence)
+  const [loaded, setLoaded] = useState<ShortsPage[]>(() => (
+    restoredSession.feed
+      ? [{
+          items: restoredSession.feed.items.map(item => ({
+            id: item.id,
+            poster: item.poster ?? null,
+            title: item.title ?? null,
+          })),
+          cursor: restoredSession.feed.cursor ?? null,
+        }]
+      : []
+  ))
+  const [needsFetch, setNeedsFetch] = useState(() => !restoredSession.feed || Boolean(restoredSession.feed.needsInitialFeed))
   const [activeId, setActiveId] = useState<string | undefined>(seed)
   const [readyIds, setReadyIds] = useState<ReadonlySet<string>>(() => new Set())
   const [showComments, setShowComments] = useState(false)
@@ -846,7 +858,7 @@ export const ShortsPage = () => {
   }, [])
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
   const [dismissedInSession, setDismissedInSession] = useState<ReadonlySet<string>>(() => new Set())
-  const restoredIdRef = useRef<string | undefined>(undefined)
+  const restoredIdRef = useRef<string | undefined>(restoredSession.feed && seed ? seed : undefined)
   const dismissed = useDismissed()
 
   const setSlideReady = useCallback((id: string, isReady: boolean) => {
@@ -861,7 +873,8 @@ export const ShortsPage = () => {
 
   const [{ data, error, fetching }, reexecute] = useQuery({
     query: SHORTS_FEED_QUERY,
-    variables: { seed, sequence, cursor: loaded[loaded.length - 1]?.cursor },
+    variables: { seed: feedSeed, sequence: feedSequence, cursor: loaded[loaded.length - 1]?.cursor },
+    pause: !needsFetch,
   })
   const page = data?.shorts
   const { items: feed } = useInfiniteFeed({
@@ -979,6 +992,19 @@ export const ShortsPage = () => {
     }
   }, [])
 
+  const feedSnapshotRef = useRef<DockedShortsFeed>({ items: [] })
+  feedSnapshotRef.current = {
+    items: items.map(short => ({
+      id: short.id,
+      title: short.title,
+      poster: short.poster,
+    })),
+    cursor: page?.cursor ?? loaded[loaded.length - 1]?.cursor ?? null,
+    seed: feedSeed,
+    sequence: feedSequence,
+    needsInitialFeed: fetching && loaded.length === 0 && !page,
+  }
+
   // the persistent player survives route changes, so leaving it alive would play two videos at once
   useEffect(() => closePlayer(), [])
 
@@ -993,6 +1019,17 @@ export const ShortsPage = () => {
     const liveTime = snap.video && Number.isFinite(snap.video.currentTime) && snap.video.currentTime > 0
       ? snap.video.currentTime
       : snap.currentTime
+    const snapFeed = feedSnapshotRef.current
+    const enrichedItems = snapFeed.items.some(item => item.id === snap.id)
+      ? snapFeed.items.map(item => (item.id === snap.id
+          ? {
+              ...item,
+              title: snap.title ?? item.title,
+              poster: snap.poster ?? item.poster,
+              channelName: snap.channelName ?? item.channelName,
+            }
+          : item))
+      : [{ id: snap.id, title: snap.title ?? null, poster: snap.poster ?? null, channelName: snap.channelName ?? null }, ...snapFeed.items]
     openPlayer({
       videoId: snap.id,
       startAt: liveTime > 0 ? liveTime : undefined,
@@ -1000,13 +1037,19 @@ export const ShortsPage = () => {
       channelName: snap.channelName,
       poster: snap.poster,
       kind: 'short',
+      shortsFeed: { ...snapFeed, items: enrichedItems },
     })
   }, [])
 
   const onMore = useCallback(() => {
-    if (!page?.cursor || fetching || error) return
+    if (fetching || error) return
+    if (!needsFetch) {
+      if (loaded[loaded.length - 1]?.cursor) setNeedsFetch(true)
+      return
+    }
+    if (!page?.cursor) return
     setLoaded(previous => previous[previous.length - 1] === page ? previous : [...previous, page])
-  }, [page, fetching, error])
+  }, [fetching, error, needsFetch, loaded, page])
 
   useEffect(() => {
     if ((!activeId || !items.some(short => short.id === activeId)) && items[0]) {

@@ -57,6 +57,7 @@ import { RefusalScreen } from './refusal-screen'
 import { stepRate } from './rates'
 import { PlayerMenu } from './player-menu'
 import { planPlayerSettingsSync } from './settings-sync'
+import { bindShortsMiniplayerWheel, type ShortsWheelStep } from './shorts-miniplayer-wheel'
 import { ShortcutsDialog } from './shortcuts'
 import { endSleepTimer, getSleepTimer, useSleepTimer } from './sleep-timer'
 import { CLOCK_SLACK, skipTarget } from './sponsorblock'
@@ -261,7 +262,9 @@ const captionBase = (video: HTMLVideoElement) => {
 
 const VideoPlayer = (
   {
-    videoId, playerParams, list, title, poster, channelName, startAt, defaultLoop = false, docked = false, compact = false, theater = 'default', onTheater, onMiniplayer, upNext,
+    videoId, playerParams, list, title, poster, channelName, startAt, defaultLoop = false, docked = false, compact = false,
+    isShort = false, onStepShort, canDocumentPip = false, inDocumentPip = false, onToggleDocumentPip,
+    theater = 'default', onTheater, onMiniplayer, upNext,
     chapters, heatmap, segments = [], teasers = [], cardsAvatar, ambientMode, onAmbientMode, annotations = true, onAnnotations, timedComments = false, onTimedComments, commentsHidden = false, onVideoElement, togglePlayRef,
   }: {
     videoId: string
@@ -274,6 +277,11 @@ const VideoPlayer = (
     defaultLoop?: boolean
     docked?: boolean
     compact?: boolean
+    isShort?: boolean
+    onStepShort?: (delta: ShortsWheelStep) => void
+    canDocumentPip?: boolean
+    inDocumentPip?: boolean
+    onToggleDocumentPip?: () => void
     theater?: TheaterMode
     onTheater?: () => void
     onMiniplayer?: () => void
@@ -395,9 +403,31 @@ const VideoPlayer = (
   const lastPointerTypeRef = useRef('')
   const activeAtPressRef = useRef(true)
   const lastTouchAtRef = useRef(0)
+  const touchGestureRef = useRef(false)
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const [touchMiniControls, setTouchMiniControls] = useState(false)
+  const touchMiniAtPressRef = useRef(false)
+  const touchMiniTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const flash = useCallback((icon: BezelCue['icon'], text?: string) => {
     setBezel(previous => ({ id: (previous?.id ?? 0) + 1, icon, text }))
   }, [])
+
+  const revealTouchMiniControls = useCallback(() => {
+    setTouchMiniControls(true)
+    clearTimeout(touchMiniTimerRef.current)
+    touchMiniTimerRef.current = setTimeout(() => setTouchMiniControls(false), IDLE_MS)
+  }, [])
+
+  const hideTouchMiniControls = useCallback(() => {
+    clearTimeout(touchMiniTimerRef.current)
+    touchMiniTimerRef.current = undefined
+    setTouchMiniControls(false)
+  }, [])
+
+  useEffect(() => {
+    if (!docked || compact) hideTouchMiniControls()
+    return () => clearTimeout(touchMiniTimerRef.current)
+  }, [docked, compact, hideTouchMiniControls])
 
   const state = usePlayerState(videoElement, player)
   const chapterList = chapters ?? []
@@ -419,7 +449,7 @@ const VideoPlayer = (
   }
   // youtube.com moves on from a finished video only once Time's up is closed
   const held = sleepTimerEnabled && (timesUp || sleepTimer === 'end')
-  const ending = state.ended && upNext
+  const ending = state.ended && !loop && upNext
     ? endAction({ queued: !held && upNext.queued(), autoplay: upNext.autoplay, pick: upNext.pick, cancelled: cancelled || held })
     : undefined
   const onNext = upNext?.onNext
@@ -428,6 +458,17 @@ const VideoPlayer = (
   useEffect(() => {
     if (ending === 'advance') onNext?.()
   }, [ending])
+
+  useEffect(() => {
+    if (!videoElement) return
+    const onEnded = () => {
+      if (!latest.current.loop) return
+      videoElement.currentTime = 0
+      void videoElement.play().catch(() => {})
+    }
+    videoElement.addEventListener('ended', onEnded)
+    return () => videoElement.removeEventListener('ended', onEnded)
+  }, [videoElement])
 
   useEffect(() => {
     if (state.ended && getSettings().sleepTimerEnabled && getSleepTimer() === 'end') endSleepTimer()
@@ -910,8 +951,24 @@ const VideoPlayer = (
   }
 
   // read at key time, so the listener is bound once rather than on every rendered frame
-  const latest = useRef({ docked, grid, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList })
-  latest.current = { docked, grid, isLive, onTheater, onNext, onPrevious, onMiniplayer, toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList }
+  const latest = useRef({
+    docked, grid, isLive, loop, onStepShort, onTheater, onNext, onPrevious, onMiniplayer,
+    toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList,
+  })
+  latest.current = {
+    docked, grid, isLive, loop, onStepShort, onTheater, onNext, onPrevious, onMiniplayer,
+    toggleCaption, resizeCaptions, player, shortcuts, timesUp, chapterList,
+  }
+
+  useEffect(() => {
+    const surface = surfaceRef.current
+    if (!surface || !docked || !isShort || compact || !onStepShort) return
+    return bindShortsMiniplayerWheel(surface, {
+      onStep: (delta) => latest.current.onStepShort?.(delta),
+      shouldIgnore: (event) =>
+        event.target instanceof Element && Boolean(event.target.closest('.mini-volume, .scrubber')),
+    })
+  }, [docked, isShort, compact, Boolean(onStepShort)])
 
   const handleWheelVolume = useCallback((next: { volume: number, muted: boolean }) => {
     wake()
@@ -1183,9 +1240,18 @@ const VideoPlayer = (
     }
   }, [togglePlayRef])
   const onSurfaceClick = (event: MouseEvent) => {
-    const pointerType = ('pointerType' in event && typeof event.pointerType === 'string' && event.pointerType)
-      || lastPointerTypeRef.current
+    const pointerType = touchGestureRef.current || Date.now() - lastTouchAtRef.current < 800
+      ? 'touch'
+      : ('pointerType' in event && typeof event.pointerType === 'string' && event.pointerType)
+        || lastPointerTypeRef.current
+    touchGestureRef.current = false
     lastPointerTypeRef.current = ''
+    if (docked && !compact && isTouchPointer(pointerType)) {
+      if (menuAtPress.current) return
+      if (!touchMiniAtPressRef.current) revealTouchMiniControls()
+      else hideTouchMiniControls()
+      return
+    }
     const action = decideSurfaceClick({
       pointerType,
       activeAtPress: activeAtPressRef.current,
@@ -1211,31 +1277,62 @@ const VideoPlayer = (
 
   return (
     <div
+      ref={surfaceRef}
       css={[playerStyle, captionStyle(cueStyle)]}
       data-player-surface
       className={playerClasses}
+      onTouchStart={(event: TouchEvent) => {
+        menuAtPress.current = menu !== undefined
+        touchGestureRef.current = true
+        lastPointerTypeRef.current = 'touch'
+        lastTouchAtRef.current = Date.now()
+        activeAtPressRef.current = active
+        touchMiniAtPressRef.current = touchMiniControls
+        if (docked && !compact && event.target instanceof Element && event.target.closest('[data-miniplayer-controls]')) {
+          revealTouchMiniControls()
+        }
+      }}
       onPointerMove={(event: PointerEvent) => {
-        if (!shouldIgnoreHoverPointer(event.pointerType)) wake()
+        if (shouldIgnoreHoverPointer(event.pointerType) || Date.now() - lastTouchAtRef.current < 800) return
+        touchGestureRef.current = false
+        hideTouchMiniControls()
+        wake()
       }}
       onPointerLeave={(event: PointerEvent) => {
-        if (!shouldIgnoreHoverPointer(event.pointerType)) setActive(false)
+        if (shouldIgnoreHoverPointer(event.pointerType) || Date.now() - lastTouchAtRef.current < 800) return
+        hideTouchMiniControls()
+        setActive(false)
       }}
       onPointerCancel={() => {
+        touchGestureRef.current = false
         lastPointerTypeRef.current = ''
       }}
       onPointerDown={(event: PointerEvent) => {
-        menuAtPress.current = menu !== undefined
-        lastPointerTypeRef.current = event.pointerType
-        activeAtPressRef.current = active
-        if (isTouchPointer(event.pointerType)) {
-          lastTouchAtRef.current = Date.now()
-          if (
-            active
-            && !(event.target instanceof HTMLVideoElement)
-            && !(event.target instanceof Element && event.target.closest('[data-caption-window]'))
-          ) {
-            wake()
-          }
+        const recentTouch = isTouchPointer(event.pointerType) || Date.now() - lastTouchAtRef.current < 800
+        if (!recentTouch) {
+          touchGestureRef.current = false
+          menuAtPress.current = menu !== undefined
+          lastPointerTypeRef.current = event.pointerType
+          activeAtPressRef.current = active
+          touchMiniAtPressRef.current = touchMiniControls
+          return
+        }
+        if (!touchGestureRef.current) {
+          menuAtPress.current = menu !== undefined
+          activeAtPressRef.current = active
+          touchMiniAtPressRef.current = touchMiniControls
+        }
+        touchGestureRef.current = true
+        lastPointerTypeRef.current = 'touch'
+        lastTouchAtRef.current = Date.now()
+        if (docked && !compact && event.target instanceof Element && event.target.closest('[data-miniplayer-controls]')) {
+          revealTouchMiniControls()
+        } else if (
+          active
+          && !(event.target instanceof HTMLVideoElement)
+          && !(event.target instanceof Element && event.target.closest('[data-caption-window]'))
+        ) {
+          wake()
         }
       }}
       onContextMenu={onContextMenu}
@@ -1366,6 +1463,17 @@ const VideoPlayer = (
             video={video && !status && !refusal ? video : undefined}
             state={state}
             isLive={isLive}
+            revealed={touchMiniControls}
+            isShort={isShort}
+            shortsAutoplay={isShort ? upNext?.autoplay : undefined}
+            onShortsAutoplay={isShort ? upNext?.onAutoplay : undefined}
+            hasPreviousShort={isShort ? Boolean(upNext?.onPrevious) : undefined}
+            hasNextShort={isShort ? Boolean(upNext?.onNext) : undefined}
+            onPreviousShort={isShort ? upNext?.onPrevious : undefined}
+            onNextShort={isShort ? upNext?.onNext : undefined}
+            canDocumentPip={isShort ? canDocumentPip : undefined}
+            inDocumentPip={isShort ? inDocumentPip : undefined}
+            onToggleDocumentPip={isShort ? onToggleDocumentPip : undefined}
             onExpand={onMiniplayer}
             onUserPause={markExplicitPause}
             onVolumeChange={handleWheelVolume}

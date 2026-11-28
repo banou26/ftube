@@ -1,7 +1,7 @@
 import type { PlayerState } from './use-player-state'
 
 import { css } from '@emotion/react'
-import { Pause, Play, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pause, PictureInPicture2, Play, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import { clock } from './controls'
@@ -24,7 +24,8 @@ const style = css`
      leaves even then */
   [data-player-root]:hover &,
   &:has(:focus-visible),
-  &.adjusting {
+  &.adjusting,
+  &.revealed {
     opacity: 1;
   }
 
@@ -34,18 +35,35 @@ const style = css`
 
   .expand,
   .close,
-  .play {
-    position: absolute;
+  .play,
+  .top-btn,
+  .short-nav {
     display: grid;
     place-items: center;
-    width: 4rem;
-    height: 4rem;
     padding: 0;
     border: none;
     background: transparent;
     color: inherit;
     cursor: pointer;
     pointer-events: auto;
+  }
+
+  .expand,
+  .close,
+  .play {
+    position: absolute;
+    width: 4rem;
+    height: 4rem;
+  }
+
+  .expand:focus-visible,
+  .close:focus-visible,
+  .play:focus-visible,
+  .top-btn:focus-visible,
+  .short-nav:focus-visible {
+    outline: 2px solid var(--accent-focus, #3ea6ff);
+    outline-offset: -2px;
+    border-radius: 50%;
   }
 
   .expand {
@@ -64,6 +82,100 @@ const style = css`
     width: 4.2rem;
     height: 4.2rem;
     transform: translate(-50%, -50%);
+  }
+
+  .top-actions {
+    position: absolute;
+    top: 0;
+    right: 4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    height: 4rem;
+    pointer-events: none;
+  }
+
+  .top-btn {
+    width: 3.6rem;
+    height: 3.6rem;
+    border-radius: 50%;
+    transition: background 0.15s ease;
+  }
+
+  .top-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .autoplay-switch {
+    width: 3.8rem;
+    border-radius: 1.8rem;
+  }
+
+  .autoplay-track {
+    position: relative;
+    width: 3rem;
+    height: 1.8rem;
+    border-radius: 0.9rem;
+    background: rgba(255, 255, 255, 0.2);
+    transition: background 0.15s ease;
+  }
+
+  .autoplay-knob {
+    position: absolute;
+    top: 0.2rem;
+    left: 0.2rem;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #000000;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+
+  .autoplay-switch[aria-checked='true'] .autoplay-track {
+    background: #ffffff;
+  }
+
+  .autoplay-switch[aria-checked='true'] .autoplay-knob {
+    background: #000000;
+    color: #ffffff;
+    transform: translateX(1.2rem);
+  }
+
+  .shorts-transport {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+    pointer-events: none;
+  }
+
+  .shorts-transport .play {
+    position: static;
+    transform: none;
+  }
+
+  .short-nav {
+    width: 3.6rem;
+    height: 3.6rem;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.42);
+    transition: background 0.15s ease, opacity 0.15s ease;
+  }
+
+  .short-nav:hover:enabled {
+    background: rgba(0, 0, 0, 0.68);
+  }
+
+  .short-nav:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 
   .time {
@@ -117,20 +229,50 @@ const style = css`
 
 /**
  * The docked player's own controls, drawn over the video in place of the player bar. `video` is left out while the
- * video cannot play, which leaves Expand and Close; at the end of the video the end screen has the middle of it.
+ * video cannot play, which leaves Expand and Close (and Shorts nav/autoplay/PiP when in Shorts mode); at the end of
+ * the video the end screen has the middle of it.
  */
-export const MiniplayerControls = (
-  { video, state, isLive, onExpand, onVolumeChange, onUserPause }: {
-    video?: HTMLVideoElement
-    state: PlayerState
-    isLive: boolean
-    onExpand?: () => void
-    onVolumeChange?: (next: { volume: number, muted: boolean }) => void
-    onUserPause?: () => void
-  },
-) => {
+export const MiniplayerControls = ({
+  video,
+  state,
+  isLive,
+  revealed = false,
+  isShort = false,
+  shortsAutoplay = true,
+  onShortsAutoplay,
+  hasPreviousShort = false,
+  hasNextShort = false,
+  onPreviousShort,
+  onNextShort,
+  canDocumentPip = false,
+  inDocumentPip = false,
+  onToggleDocumentPip,
+  onExpand,
+  onVolumeChange,
+  onUserPause,
+}: {
+  video?: HTMLVideoElement
+  state: PlayerState
+  isLive: boolean
+  revealed?: boolean
+  isShort?: boolean
+  shortsAutoplay?: boolean
+  onShortsAutoplay?: (next: boolean) => void
+  hasPreviousShort?: boolean
+  hasNextShort?: boolean
+  onPreviousShort?: () => void
+  onNextShort?: () => void
+  canDocumentPip?: boolean
+  inDocumentPip?: boolean
+  onToggleDocumentPip?: () => void
+  onExpand?: () => void
+  onVolumeChange?: (next: { volume: number, muted: boolean }) => void
+  onUserPause?: () => void
+}) => {
   const [adjusting, setAdjusting] = useState(false)
   const stopDragRef = useRef<(() => void) | undefined>(undefined)
+  const hostWindowRef = useRef<Window>(typeof window === 'undefined' ? (undefined as unknown as Window) : window)
+  if (video?.ownerDocument.defaultView) hostWindowRef.current = video.ownerDocument.defaultView
 
   const setAdjustingState = useCallback((next: boolean) => {
     if (!next) {
@@ -141,18 +283,19 @@ export const MiniplayerControls = (
     }
     setAdjusting(true)
     if (stopDragRef.current) return
+    const targetWin = video?.ownerDocument.defaultView ?? hostWindowRef.current
     const stop = () => {
       stopDragRef.current?.()
       stopDragRef.current = undefined
       setAdjusting(false)
     }
-    window.addEventListener('pointerup', stop)
-    window.addEventListener('pointercancel', stop)
+    targetWin.addEventListener('pointerup', stop)
+    targetWin.addEventListener('pointercancel', stop)
     stopDragRef.current = () => {
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', stop)
+      targetWin.removeEventListener('pointerup', stop)
+      targetWin.removeEventListener('pointercancel', stop)
     }
-  }, [])
+  }, [video])
 
   useEffect(() => () => {
     stopDragRef.current?.()
@@ -160,10 +303,35 @@ export const MiniplayerControls = (
   }, [])
 
   const playing = video !== undefined && !state.ended
-  const classes = [playing ? 'washed' : undefined, adjusting ? 'adjusting' : undefined].filter(Boolean).join(' ') || undefined
+  const classes = [
+    playing || isShort ? 'washed' : undefined,
+    adjusting ? 'adjusting' : undefined,
+    revealed ? 'revealed' : undefined,
+  ].filter(Boolean).join(' ') || undefined
+
+  const playButton = playing
+    ? (
+      <button
+        type='button'
+        className='play'
+        aria-label={state.paused ? 'Play' : 'Pause'}
+        aria-keyshortcuts='k'
+        onClick={() => {
+          if (state.paused) {
+            void video.play().catch(() => {})
+            return
+          }
+          onUserPause?.()
+          video.pause()
+        }}
+      >
+        {state.paused ? <Play size={42} fill='currentColor' strokeWidth={0} /> : <Pause size={42} fill='currentColor' strokeWidth={0} />}
+      </button>
+    )
+    : undefined
 
   return (
-    <div css={style} className={classes}>
+    <div css={style} className={classes} data-miniplayer-controls>
       <button type='button' className='expand' aria-label='Expand' aria-keyshortcuts='i' onClick={onExpand}>
         {/* youtube.com's mark: the small picture back in the corner of the large one */}
         <svg width='24' height='24' viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
@@ -172,28 +340,74 @@ export const MiniplayerControls = (
           <path d='M16 19v-5h5M16.5 14.5l5.5 5.5' />
         </svg>
       </button>
+      {isShort
+        ? (
+          <div className='top-actions'>
+            <button
+              type='button'
+              className='top-btn autoplay-switch'
+              role='switch'
+              aria-label='Autoplay'
+              aria-checked={shortsAutoplay}
+              title={shortsAutoplay ? 'Autoplay is on' : 'Autoplay is off'}
+              onClick={() => onShortsAutoplay?.(!shortsAutoplay)}
+            >
+              <span className='autoplay-track'>
+                <span className='autoplay-knob'>
+                  {shortsAutoplay ? <Play size={9} fill='currentColor' strokeWidth={0} /> : <Pause size={9} fill='currentColor' strokeWidth={0} />}
+                </span>
+              </span>
+            </button>
+            {canDocumentPip
+              ? (
+                <button
+                  type='button'
+                  className='top-btn pip-toggle'
+                  aria-label={inDocumentPip ? 'Exit picture in picture' : 'Picture in picture'}
+                  aria-pressed={inDocumentPip}
+                  title={inDocumentPip ? 'Exit picture in picture' : 'Picture in picture'}
+                  onClick={onToggleDocumentPip}
+                >
+                  <PictureInPicture2 size={20} strokeWidth={2} />
+                </button>
+              )
+              : undefined}
+          </div>
+        )
+        : undefined}
       <button type='button' className='close' aria-label='Close miniplayer' onClick={closePlayer}>
         <X size={24} strokeWidth={2} />
       </button>
+      {isShort
+        ? (
+          <div className='shorts-transport'>
+            <button
+              type='button'
+              className='short-nav short-prev'
+              aria-label='Previous short'
+              title='Previous short'
+              disabled={!hasPreviousShort}
+              onClick={onPreviousShort}
+            >
+              <ChevronUp size={22} strokeWidth={2} />
+            </button>
+            {playButton}
+            <button
+              type='button'
+              className='short-nav short-next'
+              aria-label='Next short'
+              title='Next short'
+              disabled={!hasNextShort}
+              onClick={onNextShort}
+            >
+              <ChevronDown size={22} strokeWidth={2} />
+            </button>
+          </div>
+        )
+        : playButton}
       {playing
         ? (
           <>
-            <button
-              type='button'
-              className='play'
-              aria-label={state.paused ? 'Play' : 'Pause'}
-              aria-keyshortcuts='k'
-              onClick={() => {
-                if (state.paused) {
-                  void video.play().catch(() => {})
-                  return
-                }
-                onUserPause?.()
-                video.pause()
-              }}
-            >
-              {state.paused ? <Play size={42} fill='currentColor' strokeWidth={0} /> : <Pause size={42} fill='currentColor' strokeWidth={0} />}
-            </button>
             {/* a live presentation timeline is the stream's own clock, with no duration to show */}
             {isLive ? undefined : <span className='time'>{clock(state.currentTime)} / {clock(state.duration)}</span>}
             <VolumeControl

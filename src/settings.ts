@@ -47,6 +47,7 @@ export type CaptionPosition = { x: number, y: number }
 export type Settings = {
   theme: ThemePreference
   autoplay: boolean
+  shortsAutoplay: boolean
   volume: number
   muted: boolean
   playbackRate: number
@@ -103,6 +104,7 @@ export type Settings = {
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'device',
   autoplay: true,
+  shortsAutoplay: true,
   volume: 1,
   muted: false,
   playbackRate: 1,
@@ -178,6 +180,7 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
   return {
     theme: theme === 'light' || (theme === 'dark' && stored.themeChosen === true) ? theme : DEFAULT_SETTINGS.theme,
     autoplay: typeof stored.autoplay === 'boolean' ? stored.autoplay : DEFAULT_SETTINGS.autoplay,
+    shortsAutoplay: typeof stored.shortsAutoplay === 'boolean' ? stored.shortsAutoplay : DEFAULT_SETTINGS.shortsAutoplay,
     volume: typeof volume === 'number' && Number.isFinite(volume) ? clamp(volume, 0, 1) : DEFAULT_SETTINGS.volume,
     muted: typeof stored.muted === 'boolean' ? stored.muted : DEFAULT_SETTINGS.muted,
     playbackRate: typeof playbackRate === 'number' && Number.isFinite(playbackRate) ? toRate(playbackRate) : DEFAULT_SETTINGS.playbackRate,

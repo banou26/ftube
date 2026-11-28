@@ -7,19 +7,21 @@ const SHAKA_SHORTS_MOCK_JS = `
 const installVideoController = (video, options) => {
   if (video.__mockTimer) clearInterval(video.__mockTimer)
   let paused = options.autoPlay === false
+  let ended = false
   let currentTime = options.startTime || 0
   const duration = 180
 
   Object.defineProperty(video, 'duration', { configurable: true, get: () => duration })
   Object.defineProperty(video, 'readyState', { configurable: true, get: () => 4 })
   Object.defineProperty(video, 'paused', { configurable: true, get: () => paused })
-  Object.defineProperty(video, 'ended', { configurable: true, get: () => false })
+  Object.defineProperty(video, 'ended', { configurable: true, get: () => ended })
   Object.defineProperty(video, 'currentTime', {
     configurable: true,
     get: () => currentTime,
     set: (value) => {
       const next = Number(value)
       currentTime = Number.isFinite(next) ? Math.max(0, Math.min(duration, next)) : 0
+      if (currentTime < duration) ended = false
       video.dispatchEvent(new Event('seeking'))
       video.dispatchEvent(new Event('seeked'))
       video.dispatchEvent(new Event('timeupdate'))
@@ -30,6 +32,10 @@ const installVideoController = (video, options) => {
     get: () => ({ length: 1, start: () => 0, end: () => duration }),
   })
   video.play = async () => {
+    if (ended) {
+      ended = false
+      currentTime = 0
+    }
     if (!paused) return
     paused = false
     video.dispatchEvent(new Event('play'))
@@ -42,8 +48,24 @@ const installVideoController = (video, options) => {
   }
 
   const timer = setInterval(() => {
-    if (!paused) {
-      currentTime = Math.min(duration, currentTime + 0.25)
+    if (!paused && !ended) {
+      if (currentTime + 0.25 >= duration) {
+        if (video.loop) {
+          currentTime = 0
+          video.dispatchEvent(new Event('seeking'))
+          video.dispatchEvent(new Event('seeked'))
+          video.dispatchEvent(new Event('timeupdate'))
+          return
+        }
+        currentTime = duration
+        ended = true
+        paused = true
+        video.dispatchEvent(new Event('timeupdate'))
+        video.dispatchEvent(new Event('pause'))
+        video.dispatchEvent(new Event('ended'))
+        return
+      }
+      currentTime = currentTime + 0.25
       video.dispatchEvent(new Event('timeupdate'))
     }
   }, 250)
@@ -107,6 +129,10 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
     ...rest: unknown[]
   ) => void
 
+  const w = window as unknown as { __shortsRpcCount?: number, __watchRpcIds?: string[] }
+  w.__shortsRpcCount = 0
+  w.__watchRpcIds = []
+
   const homeItems = [
     {
       kind: 'video',
@@ -136,6 +162,13 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
     },
   ]
 
+  const titles: Record<string, string> = {
+    shortvid001: 'Vertical Short One',
+    shortvid002: 'Vertical Short Two',
+    shortvid003: 'Vertical Short Three',
+    unrelated99: 'Unrelated Watch Video',
+  }
+
   MessagePort.prototype.postMessage = function (this: MessagePort, message: unknown, ...rest: unknown[]) {
     const req = message as { id?: number, method?: string, args?: unknown[] } | null
     if (!req?.method) return post.call(this, message, ...rest)
@@ -143,10 +176,12 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
       setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: req.id, result } })), 0)
     }
     if (req.method === 'shorts') {
+      w.__shortsRpcCount = (w.__shortsRpcCount ?? 0) + 1
       const seed = typeof req.args?.[0] === 'string' ? req.args[0] : undefined
       const all = [
         { id: 'shortvid001', poster: thumbUrl, title: 'Vertical Short One' },
         { id: 'shortvid002', poster: thumbUrl, title: 'Vertical Short Two' },
+        { id: 'shortvid003', poster: thumbUrl, title: 'Vertical Short Three' },
       ]
       const ordered = seed && all.some(item => item.id === seed)
         ? [all.find(item => item.id === seed)!, ...all.filter(item => item.id !== seed)]
@@ -160,9 +195,10 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
     }
     if (req.method === 'watch') {
       const id = typeof req.args?.[0] === 'string' ? req.args[0] : 'shortvid001'
+      w.__watchRpcIds!.push(id)
       reply({
         id,
-        title: id === 'shortvid001' ? 'Vertical Short One' : id === 'shortvid002' ? 'Vertical Short Two' : 'Home Feed Video',
+        title: titles[id] ?? 'Home Feed Video',
         viewCountText: '85K views',
         shortViewCountText: '85K',
         publishedDateText: 'Nov 28, 2026',
@@ -185,7 +221,17 @@ const installShortsAndHomeMock = (thumbUrl: string) => {
           isVerified: true,
           isVerifiedArtist: false,
         },
-        related: [],
+        autoplayId: 'unrelated99',
+        related: [
+          {
+            id: 'unrelated99',
+            title: 'Unrelated Watch Video',
+            thumbnail: thumbUrl,
+            durationSeconds: 180,
+            isShort: false,
+            channel: { id: 'UCunrelated', name: 'Other Channel', isVerified: true, isVerifiedArtist: false },
+          },
+        ],
         relatedChips: [],
         chapters: [],
         cardTeasers: [],
@@ -206,13 +252,11 @@ const box = (locator: Locator) => locator.evaluate((element) => {
   return { left, top, right, bottom, width, height }
 })
 
+const opacity = (locator: Locator) => locator.evaluate(element => getComputedStyle(element).opacity)
+
 const dock = (page: Page) => page.getByRole('complementary', { name: 'Miniplayer', exact: true })
 
-test('continues an active Short in a vertical 9:16 miniplayer on leave, supports controls and Expand, and stays closed when paused', async ({ page }) => {
-  test.setTimeout(120_000)
-  const pageErrors: string[] = []
-  page.on('pageerror', error => pageErrors.push(error.message))
-
+const setupShortsRoutes = async (page: Page) => {
   await hideFknNotice(page)
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await page.route('https://www.youtube.com/**', route => route.abort())
@@ -221,6 +265,34 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
     route.fulfill({ status: 200, contentType: 'application/javascript', body: SHAKA_SHORTS_MOCK_JS }),
   )
   await page.addInitScript(installShortsAndHomeMock, THUMB)
+}
+
+const dockActiveShort = async (page: Page, startId = 'shortvid001') => {
+  await page.goto(`/shorts/${startId}`)
+  const activeSlide = page.locator(`[data-short-id="${startId}"][data-active="true"]`)
+  const shortVideo = activeSlide.locator('video')
+  await expect(shortVideo).toBeVisible({ timeout: 30_000 })
+  await expect.poll(
+    () => shortVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
+    { timeout: 30_000 },
+  ).toBeGreaterThan(1.0)
+
+  await page.getByRole('link', { name: 'FTube home', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+
+  const mini = dock(page)
+  await expect(mini).toBeVisible({ timeout: 30_000 })
+  await expect(mini).toHaveAttribute('data-miniplayer-aspect', 'vertical')
+  await expect(mini.locator('video')).toBeVisible()
+  return mini
+}
+
+test('continues an active Short in a vertical 9:16 miniplayer on leave, supports controls and Expand, and stays closed when paused', async ({ page }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+
+  await setupShortsRoutes(page)
   await page.setViewportSize({ width: 1280, height: 800 })
 
   // Pre-seed a landscape miniplayer width to verify resizing a vertical Short leaves it untouched.
@@ -231,51 +303,40 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
     }
   })
 
-  await page.goto('/shorts/shortvid001')
-  const activeSlide = page.locator('[data-short-id="shortvid001"][data-active="true"]')
-  const shortVideo = activeSlide.locator('video')
-  await expect(shortVideo).toBeVisible({ timeout: 30_000 })
-
-  await expect.poll(
-    () => shortVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
-    { timeout: 30_000 },
-  ).toBeGreaterThan(1.2)
-
-  // Navigate away from /shorts to Home while the Short is actively playing.
-  await page.getByRole('link', { name: 'FTube home', exact: true }).click()
-  await expect(page).toHaveURL(/\/$/)
-
-  const mini = dock(page)
-  await expect(mini).toBeVisible({ timeout: 30_000 })
-  await expect(mini).toHaveAttribute('data-miniplayer-aspect', 'vertical')
-
+  const mini = await dockActiveShort(page)
   const miniVideo = mini.locator('video')
-  await expect(miniVideo).toBeVisible()
   const videoBox = await box(miniVideo)
   expect(videoBox.width).toBeCloseTo(240, 1)
   expect(Math.round(videoBox.height)).toBe(427)
   expect(videoBox.height).toBeGreaterThan(videoBox.width)
-  expect(await miniVideo.evaluate(el => (el as HTMLVideoElement).loop)).toBe(true)
+  // Autoplay defaults ON and shortvid002 follows, so loop starts false to allow auto-advance.
+  expect(await miniVideo.evaluate(el => (el as HTMLVideoElement).loop)).toBe(false)
 
   // Plays onward from the Short's position rather than restarting at 0.
   await expect.poll(
     () => miniVideo.evaluate(el => ({ paused: (el as HTMLVideoElement).paused, time: (el as HTMLVideoElement).currentTime })),
     { timeout: 20_000 },
   ).toMatchObject({ paused: false })
-  expect(await miniVideo.evaluate(el => (el as HTMLVideoElement).currentTime)).toBeGreaterThanOrEqual(1.2)
+  expect(await miniVideo.evaluate(el => (el as HTMLVideoElement).currentTime)).toBeGreaterThanOrEqual(1.0)
 
   await expect(mini.locator('.dock-title')).toHaveText('Vertical Short One')
   await expect(mini.locator('.dock-title')).toHaveAttribute('href', '/shorts/shortvid001')
   await expect(mini.locator('.dock-name')).toHaveText('Short Creator')
 
-  // Verify existing miniplayer controls: Expand, Close, Play/Pause, Clock, Volume.
+  // Verify existing + new Shorts controls on hover.
   await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
   const expandBtn = mini.getByRole('button', { name: 'Expand', exact: true })
   const closeBtn = mini.getByRole('button', { name: 'Close miniplayer', exact: true })
   const pauseBtn = mini.getByRole('button', { name: 'Pause', exact: true })
+  const prevBtn = mini.getByRole('button', { name: 'Previous short', exact: true })
+  const nextBtn = mini.getByRole('button', { name: 'Next short', exact: true })
+  const autoplaySwitch = mini.getByRole('switch', { name: 'Autoplay', exact: true })
   await expect(expandBtn).toBeVisible()
   await expect(closeBtn).toBeVisible()
   await expect(pauseBtn).toBeVisible()
+  await expect(prevBtn).toBeDisabled()
+  await expect(nextBtn).toBeEnabled()
+  await expect(autoplaySwitch).toHaveAttribute('aria-checked', 'true')
 
   await pauseBtn.click()
   await expect.poll(() => miniVideo.evaluate(el => (el as HTMLVideoElement).paused)).toBe(true)
@@ -305,7 +366,7 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
   await expect.poll(
     () => resumedVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
     { timeout: 20_000 },
-  ).toBeGreaterThanOrEqual(Math.max(1.2, dockedTimeBeforeExpand - 0.5))
+  ).toBeGreaterThanOrEqual(Math.max(1.0, dockedTimeBeforeExpand - 0.5))
 
   // Leaving Shorts while paused does NOT spawn a miniplayer.
   await page.locator('[data-short-id="shortvid001"][data-active="true"] .top-bar').getByRole('button', { name: 'Pause', exact: true }).click()
@@ -330,5 +391,375 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
   await expect(mini).toHaveCount(0)
   await expect(page.locator('video')).toHaveCount(0)
 
+  expect(pageErrors).toEqual([])
+})
+
+test('auto-advances when autoplay is on, replays when autoplay is off, and stops at end of feed without switching videos', async ({ page }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+
+  await setupShortsRoutes(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  const mini = await dockActiveShort(page)
+  const videoBox = await box(mini.locator('video'))
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+
+  // Autoplay ON: reaching the end of shortvid001 automatically advances to shortvid002 inside the dock.
+  await mini.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 179.85
+  })
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two', { timeout: 10_000 })
+  await expect(mini.locator('.dock-title')).toHaveAttribute('href', '/shorts/shortvid002')
+  await expect(mini).toHaveAttribute('data-miniplayer-aspect', 'vertical')
+  await expect.poll(() => mini.locator('video').evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+
+  // Turn Autoplay OFF: reaching the end of shortvid002 replays the current Short instead of advancing.
+  const autoplaySwitch = mini.getByRole('switch', { name: 'Autoplay', exact: true })
+  await autoplaySwitch.click()
+  await expect(autoplaySwitch).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => mini.locator('video').evaluate(el => (el as HTMLVideoElement).loop)).toBe(true)
+
+  await mini.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 179.85
+  })
+  await expect.poll(
+    () => mini.locator('video').evaluate(el => (el as HTMLVideoElement).currentTime),
+    { timeout: 5_000 },
+  ).toBeLessThan(10)
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two')
+
+  // Turn Autoplay back ON, move to the final Short (shortvid003), and confirm it replays without jumping to Watch autoplayId.
+  await autoplaySwitch.click()
+  await expect(autoplaySwitch).toHaveAttribute('aria-checked', 'true')
+  const nextBtn = mini.getByRole('button', { name: 'Next short', exact: true })
+  await nextBtn.click()
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Three', { timeout: 10_000 })
+  await expect(nextBtn).toBeDisabled()
+  await expect.poll(() => mini.locator('video').evaluate(el => (el as HTMLVideoElement).loop)).toBe(true)
+
+  await mini.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 179.85
+  })
+  await expect.poll(
+    () => mini.locator('video').evaluate(el => (el as HTMLVideoElement).currentTime),
+    { timeout: 5_000 },
+  ).toBeLessThan(10)
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Three')
+  expect(pageErrors).toEqual([])
+})
+
+test('supports wheel navigation with momentum debouncing, volume/page scroll isolation, and keyboard nav focus', async ({ page, browserName }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+
+  await setupShortsRoutes(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  const mini = await dockActiveShort(page)
+  await page.evaluate(() => {
+    document.body.style.minHeight = '2400px'
+    window.scrollTo(0, 0)
+  })
+
+  // Scrolling outside the miniplayer scrolls the page normally without changing the Short.
+  await page.mouse.move(100, 200)
+  await page.mouse.wheel(0, 240)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short One')
+
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const videoBox = await box(mini.locator('video'))
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+
+  // A rapid trackpad momentum tail over the miniplayer moves at most one Short and does not scroll the page.
+  await mini.locator('[data-player-surface]').evaluate((surface) => {
+    for (const deltaY of [48, 36, 28, 22, 18, 14, 10, 8, 6, 4]) {
+      surface.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY }))
+    }
+  })
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two', { timeout: 10_000 })
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+
+  // Scrolling over the miniplayer volume control adjusts volume only.
+  const volumeBefore = await mini.locator('video').evaluate(el => Number((el as HTMLVideoElement).volume.toFixed(2)))
+  const miniVolBox = await box(mini.locator('.mini-volume'))
+  await page.mouse.move(miniVolBox.left + miniVolBox.width / 2, miniVolBox.top + miniVolBox.height / 2)
+  await page.mouse.wheel(0, 120)
+  await expect.poll(
+    () => mini.locator('video').evaluate(el => Number((el as HTMLVideoElement).volume.toFixed(2))),
+  ).toBeLessThan(volumeBefore)
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two')
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+
+  // After cooldown + quiet gap, wheel up over the video steps back to Short One.
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+  await page.waitForTimeout(550)
+  await page.mouse.wheel(0, -100)
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short One', { timeout: 10_000 })
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+
+  // Keyboard focus reveals controls and Previous/Next buttons navigate feed order cleanly.
+  await page.mouse.move(20, 200)
+  const controls = mini.locator('[data-miniplayer-controls]')
+  await expect.poll(() => opacity(controls)).toBe('0')
+
+  const nextBtn = mini.getByRole('button', { name: 'Next short', exact: true })
+  const shiftTabKey = process.platform === 'darwin' && browserName === 'webkit' ? 'Shift+Alt+Tab' : 'Shift+Tab'
+  await mini.locator('.dock-title').focus()
+  for (let step = 0; step < 15; step += 1) {
+    if (await nextBtn.evaluate(el => el === document.activeElement)) break
+    await page.keyboard.press(shiftTabKey)
+  }
+  await expect(nextBtn).toBeFocused()
+  await expect.poll(() => opacity(controls)).toBe('1')
+  await page.keyboard.press('Enter')
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two', { timeout: 10_000 })
+
+  const prevBtn = mini.getByRole('button', { name: 'Previous short', exact: true })
+  await prevBtn.click()
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short One', { timeout: 10_000 })
+  expect(pageErrors).toEqual([])
+})
+
+test('reveals Shorts miniplayer controls on touch tap without pausing and navigates between Shorts', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const context = await browser.newContext({
+    viewport: { width: 900, height: 900 },
+    hasTouch: true,
+  })
+  try {
+    const page = await context.newPage()
+    const pageErrors: string[] = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    await setupShortsRoutes(page)
+
+    const mini = await dockActiveShort(page)
+    const controls = mini.locator('[data-miniplayer-controls]')
+    const videoBox = await box(mini.locator('video'))
+    await expect.poll(() => opacity(controls)).toBe('0')
+
+    // First tap on the docked Short reveals controls without pausing playback.
+    await page.touchscreen.tap(videoBox.left + videoBox.width / 2, videoBox.top + 80)
+    await expect.poll(() => opacity(controls)).toBe('1')
+    expect(await mini.locator('video').evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+
+    // Next short button is revealed and usable by touch.
+    const nextBox = await box(mini.getByRole('button', { name: 'Next short', exact: true }))
+    await page.touchscreen.tap(nextBox.left + nextBox.width / 2, nextBox.top + nextBox.height / 2)
+    await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two', { timeout: 10_000 })
+    expect(pageErrors).toEqual([])
+  } finally {
+    await context.close()
+  }
+})
+
+test('Expand preserves active Short, playback position, and full feed order without refetching', async ({ page }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+
+  await setupShortsRoutes(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  const mini = await dockActiveShort(page)
+  const videoBox = await box(mini.locator('video'))
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+  await mini.getByRole('button', { name: 'Next short', exact: true }).click()
+  await expect(mini.locator('.dock-title')).toHaveText('Vertical Short Two', { timeout: 10_000 })
+
+  await mini.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 14.5
+  })
+  const shortsCountBeforeExpand = await page.evaluate(() => (window as unknown as { __shortsRpcCount: number }).__shortsRpcCount)
+
+  await mini.getByRole('button', { name: 'Expand', exact: true }).click()
+  await expect(page).toHaveURL(/\/shorts\/shortvid002$/)
+  await expect(mini).toHaveCount(0)
+
+  const activeSlide2 = page.locator('[data-short-id="shortvid002"][data-active="true"]')
+  await expect(activeSlide2).toBeVisible({ timeout: 20_000 })
+  await expect.poll(
+    () => activeSlide2.locator('video').evaluate(el => (el as HTMLVideoElement).currentTime),
+    { timeout: 15_000 },
+  ).toBeGreaterThanOrEqual(14.0)
+
+  // Expanding preserved [shortvid001, shortvid002, shortvid003] without refetching the feed.
+  expect(await page.evaluate(() => (window as unknown as { __shortsRpcCount: number }).__shortsRpcCount)).toBe(shortsCountBeforeExpand)
+  expect(await page.locator('[data-short-id]').evaluateAll(els => els.map(el => el.getAttribute('data-short-id')))).toEqual([
+    'shortvid001',
+    'shortvid002',
+    'shortvid003',
+  ])
+  await expect(page.getByRole('button', { name: 'Previous short', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Next short', exact: true })).toBeEnabled()
+
+  await page.keyboard.press('ArrowUp')
+  await expect(page.locator('[data-short-id="shortvid001"][data-active="true"]')).toBeVisible({ timeout: 10_000 })
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('[data-short-id="shortvid002"][data-active="true"]')).toBeVisible({ timeout: 10_000 })
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('[data-short-id="shortvid003"][data-active="true"]')).toBeVisible({ timeout: 10_000 })
+  expect(pageErrors).toEqual([])
+})
+
+test('hides the Picture in picture trigger when Document PiP is unsupported', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.addInitScript(() => {
+    if (window.top !== window) return
+    Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, get: () => undefined })
+  })
+  await setupShortsRoutes(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  const mini = await dockActiveShort(page)
+  const videoBox = await box(mini.locator('video'))
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+  await expect(mini.getByRole('button', { name: 'Next short', exact: true })).toBeVisible()
+  await expect(mini.getByRole('button', { name: 'Picture in picture', exact: true })).toHaveCount(0)
+})
+
+test('enters Document PiP with controls, wheel nav, auto-advance, clean Exit back to dock, and Expand preserving feed and playhead', async ({ page }) => {
+  test.setTimeout(120_000)
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+
+  // Stub Document Picture-in-Picture with a same-origin iframe contentWindow so both headless Chromium and WebKit exercise the real DOM transfer and style mirroring path.
+  await page.addInitScript(() => {
+    if (window.top !== window) return
+    let activeFrame: HTMLIFrameElement | null = null
+    Object.defineProperty(window, 'documentPictureInPicture', {
+      configurable: true,
+      value: {
+        requestWindow: async () => {
+          activeFrame?.remove()
+          const frame = document.createElement('iframe')
+          frame.setAttribute('data-mock-pip-window', 'true')
+          frame.style.cssText = 'position:fixed;right:24px;bottom:24px;width:320px;height:568px;z-index:3000;border:0;'
+          document.body.append(frame)
+          activeFrame = frame
+          const win = frame.contentWindow!
+          win.document.open()
+          win.document.write('<!doctype html><html><head></head><body></body></html>')
+          win.document.close()
+          let isClosed = false
+          Object.defineProperty(win, 'closed', { configurable: true, get: () => isClosed })
+          win.close = () => {
+            if (isClosed) return
+            isClosed = true
+            win.dispatchEvent(new Event('pagehide'))
+            frame.remove()
+            if (activeFrame === frame) activeFrame = null
+          }
+          ;(window as unknown as { __pipWindow?: Window }).__pipWindow = win
+          return win
+        },
+      },
+    })
+  })
+  await setupShortsRoutes(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  const mini = await dockActiveShort(page)
+  const miniAside = page.locator('aside[aria-label="Miniplayer"]')
+  const videoBox = await box(mini.locator('video'))
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+
+  // Tag the live <video> node to prove entering Document PiP moves without remounting.
+  await mini.locator('video').evaluate((el) => {
+    ;(el as { __pipToken?: string }).__pipToken = 'enter-pip-node'
+  })
+
+  const pipBtn = mini.getByRole('button', { name: 'Picture in picture', exact: true })
+  await expect(pipBtn).toBeVisible()
+  await pipBtn.click()
+
+  const pipFrame = page.frameLocator('iframe[data-mock-pip-window="true"]')
+  await expect(pipFrame.locator('.pip-stage')).toBeVisible({ timeout: 10_000 })
+  await expect(miniAside).toHaveAttribute('aria-hidden', 'true')
+  await expect(pipFrame.locator('video')).toBeVisible()
+  expect(await pipFrame.locator('video').evaluate(el => (el as { __pipToken?: string }).__pipToken)).toBe('enter-pip-node')
+  expect(await page.evaluate(() => {
+    const pipWin = (window as unknown as { __pipWindow: Window }).__pipWindow
+    return pipWin.document.head.querySelectorAll('style, link[rel="stylesheet"]').length > 1
+  })).toBe(true)
+
+  // Inside Document PiP: Next short button works.
+  await pipFrame.getByRole('button', { name: 'Next short', exact: true }).click()
+  await expect.poll(
+    () => page.locator('.dock-title').textContent(),
+    { timeout: 10_000 },
+  ).toBe('Vertical Short Two')
+
+  // Wheel scroll up inside Document PiP moves back to Short One.
+  await page.evaluate(() => {
+    const pipWin = (window as unknown as { __pipWindow: Window }).__pipWindow
+    const surface = pipWin.document.querySelector('[data-player-surface]')!
+    surface.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -80 }))
+  })
+  await expect.poll(
+    () => page.locator('.dock-title').textContent(),
+    { timeout: 10_000 },
+  ).toBe('Vertical Short One')
+
+  // Autoplay toggle + ended auto-advance inside Document PiP.
+  await expect(pipFrame.getByRole('switch', { name: 'Autoplay', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(
+    () => pipFrame.locator('video').evaluate(el => ({
+      readyState: (el as HTMLVideoElement).readyState,
+      paused: (el as HTMLVideoElement).paused,
+    })),
+    { timeout: 10_000 },
+  ).toEqual({ readyState: 4, paused: false })
+  await pipFrame.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 179.85
+  })
+  await expect.poll(
+    () => page.locator('.dock-title').textContent(),
+    { timeout: 10_000 },
+  ).toBe('Vertical Short Two')
+
+  // Tag Short Two's <video> node before exiting PiP to prove exiting PiP moves back to the dock without remounting.
+  await pipFrame.locator('video').evaluate((el) => {
+    ;(el as { __exitPipToken?: string }).__exitPipToken = 'exit-pip-node'
+  })
+
+  // Exit Document PiP returns the video cleanly to the in-page dock without remounting.
+  await pipFrame.getByRole('button', { name: 'Exit picture in picture', exact: true }).click()
+  await expect(page.locator('iframe[data-mock-pip-window="true"]')).toHaveCount(0)
+  await expect(mini).toBeVisible()
+  await expect(miniAside).toHaveAttribute('aria-hidden', 'false')
+  expect(await mini.locator('video').evaluate(el => (el as { __exitPipToken?: string }).__exitPipToken)).toBe('exit-pip-node')
+  expect(await mini.locator('video').evaluate(el => (el as HTMLVideoElement).paused)).toBe(false)
+
+  // Re-enter Document PiP, advance time, and click Expand -> closes PiP and restores /shorts/shortvid002 + playhead + feed.
+  await page.mouse.move(videoBox.left + videoBox.width / 2, videoBox.top + videoBox.height / 2)
+  await mini.getByRole('button', { name: 'Picture in picture', exact: true }).click()
+  await expect(pipFrame.locator('video')).toBeVisible({ timeout: 10_000 })
+  await expect.poll(
+    () => pipFrame.locator('video').evaluate(el => (el as HTMLVideoElement).readyState),
+    { timeout: 10_000 },
+  ).toBe(4)
+  await pipFrame.locator('video').evaluate((el) => {
+    ;(el as HTMLVideoElement).currentTime = 22.0
+  })
+  await pipFrame.getByRole('button', { name: 'Expand', exact: true }).click()
+
+  await expect(page.locator('iframe[data-mock-pip-window="true"]')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/shorts\/shortvid002$/)
+  await expect(mini).toHaveCount(0)
+  const expandedVideo = page.locator('[data-short-id="shortvid002"][data-active="true"] video')
+  await expect(expandedVideo).toBeVisible({ timeout: 20_000 })
+  await expect.poll(
+    () => expandedVideo.evaluate(el => (el as HTMLVideoElement).currentTime),
+    { timeout: 15_000 },
+  ).toBeGreaterThanOrEqual(21.5)
+  expect(await page.locator('[data-short-id]').evaluateAll(els => els.map(el => el.getAttribute('data-short-id')))).toEqual([
+    'shortvid001',
+    'shortvid002',
+    'shortvid003',
+  ])
   expect(pageErrors).toEqual([])
 })

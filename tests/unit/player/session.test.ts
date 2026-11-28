@@ -105,8 +105,44 @@ describe('player session theater persistence and sync', () => {
     expect(getPlayerSession()).toMatchObject({
       videoId: undefined,
       kind: 'video',
+      shortsFeed: undefined,
       channelName: undefined,
       poster: undefined,
     })
+  })
+
+  it('carries, updates, and clears docked Shorts feed state without dropping items on Short transitions', async () => {
+    const { getPlayerSession, openPlayer, updateShortsFeed, closePlayer } = await load()
+    const feed = {
+      items: [
+        { id: 's1', title: 'One', poster: 'p1' },
+        { id: 's2', title: 'Two', poster: 'p2' },
+      ],
+      cursor: 'cursor-1',
+      seed: 's1',
+      sequence: 'seq-a',
+    }
+    openPlayer({ videoId: 's1', title: 'One', kind: 'short', shortsFeed: feed })
+    expect(getPlayerSession().shortsFeed).toEqual(feed)
+
+    // Stepping to another Short without re-passing shortsFeed preserves the active feed order.
+    openPlayer({ videoId: 's2', startAt: 0, title: 'Two', kind: 'short' })
+    expect(getPlayerSession().shortsFeed).toEqual(feed)
+
+    const nextFeed = {
+      ...feed,
+      items: [...feed.items, { id: 's3', title: 'Three', poster: 'p3' }],
+      cursor: null,
+    }
+    updateShortsFeed(nextFeed)
+    expect(getPlayerSession().shortsFeed).toEqual(nextFeed)
+
+    // Opening a standard Watch video clears the Shorts feed.
+    openPlayer({ videoId: 's2', title: 'Two' })
+    expect(getPlayerSession().shortsFeed).toBeUndefined()
+
+    openPlayer({ videoId: 's1', title: 'One', kind: 'short', shortsFeed: feed })
+    closePlayer()
+    expect(getPlayerSession().shortsFeed).toBeUndefined()
   })
 })

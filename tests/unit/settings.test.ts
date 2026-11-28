@@ -534,3 +534,24 @@ describe('player bar layout and settings menu customization', () => {
     expect(afterReset.showMostReplayed).toBe(true)
   })
 })
+
+describe('the Shorts miniplayer autoplay setting', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to true, coerces invalid values, and stays independent from watch autoplay', async () => {
+    expect((await load()).getSettings().shortsAutoplay).toBe(true)
+    expect((await load({ shortsAutoplay: 'nope', autoplay: false })).getSettings().shortsAutoplay).toBe(true)
+
+    const { updateSettings, getSettings } = await load({ autoplay: true })
+    updateSettings({ shortsAutoplay: false })
+    expect(getSettings().shortsAutoplay).toBe(false)
+    expect(getSettings().autoplay).toBe(true)
+
+    expect((await load({ shortsAutoplay: false, autoplay: true })).getSettings()).toMatchObject({
+      shortsAutoplay: false,
+      autoplay: true,
+    })
+  })
+})

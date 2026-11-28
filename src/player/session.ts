@@ -8,6 +8,22 @@ import { getSettings, subscribeSettings, updateSettings } from '../settings'
 
 export type PlayerKind = 'video' | 'short'
 
+export type DockedShortItem = {
+  id: string
+  title?: string | null
+  poster?: string | null
+  channelName?: string | null
+}
+
+export type DockedShortsFeed = {
+  items: readonly DockedShortItem[]
+  cursor?: string | null
+  seed?: string
+  sequence?: string
+  /** True when the user docked before the initial ShortsFeed query answered. */
+  needsInitialFeed?: boolean
+}
+
 export type PlayerSession = {
   videoId?: string
   startAt?: number
@@ -15,6 +31,8 @@ export type PlayerSession = {
   poster?: string
   channelName?: string
   kind: PlayerKind
+  // Ordered Shorts feed carried across docked playback and Expand back to /shorts/<id>.
+  shortsFeed?: DockedShortsFeed
   // the playlist the video is playing from, with its 0-based position, so the end of the video can move along the queue
   list?: string
   index?: number
@@ -55,30 +73,36 @@ const update = (next: Partial<PlayerSession>) => {
  * whenever the page re-rendered for an unrelated reason.
  */
 export const openPlayer = (
-  { videoId, startAt, title, poster, channelName, kind, list, index, playerParams }: {
+  { videoId, startAt, title, poster, channelName, kind, shortsFeed, list, index, playerParams }: {
     videoId: string
     startAt?: number
     title?: string
     poster?: string
     channelName?: string
     kind?: PlayerKind
+    shortsFeed?: DockedShortsFeed
     list?: string
     index?: number
     playerParams?: string
   },
 ) => {
   const nextKind = kind ?? 'video'
+  const nextShortsFeed = nextKind === 'short'
+    ? (shortsFeed ?? (session.kind === 'short' ? session.shortsFeed : undefined))
+    : undefined
   if (session.videoId === videoId) {
     const retitled = title !== undefined && title !== session.title
     const retyped = nextKind !== session.kind
     const repostered = poster !== undefined && poster !== session.poster
     const rechanneled = channelName !== undefined && channelName !== session.channelName
-    if (retitled || retyped || repostered || rechanneled || list !== session.list || index !== session.index) {
+    const refeed = nextShortsFeed !== session.shortsFeed
+    if (retitled || retyped || repostered || rechanneled || refeed || list !== session.list || index !== session.index) {
       update({
         title: title ?? session.title,
         poster: poster ?? session.poster,
         channelName: channelName ?? session.channelName,
         kind: nextKind,
+        shortsFeed: nextShortsFeed,
         list,
         index,
       })
@@ -86,9 +110,13 @@ export const openPlayer = (
     return
   }
   update({
-    videoId, startAt, title, poster, channelName, kind: nextKind, list, index, playerParams,
+    videoId, startAt, title, poster, channelName, kind: nextKind, shortsFeed: nextShortsFeed, list, index, playerParams,
     theater: getSettings().theater, chapter: -1, panel: undefined, paused: false,
   })
+}
+
+export const updateShortsFeed = (shortsFeed: DockedShortsFeed) => {
+  if (session.kind === 'short') update({ shortsFeed })
 }
 
 // the ONLY thing that closes the frame's SABR session: route unmount deliberately does not
@@ -102,7 +130,7 @@ export const closePlayer = () => {
   clearQueue()
   update({
     videoId: undefined, startAt: undefined, title: undefined, poster: undefined, channelName: undefined, kind: 'video',
-    list: undefined, index: undefined, playerParams: undefined, theater: 'default',
+    shortsFeed: undefined, list: undefined, index: undefined, playerParams: undefined, theater: 'default',
     chapter: -1, panel: undefined, paused: false,
   })
 }
@@ -167,6 +195,12 @@ export const claimPlayer = (slot: HTMLElement | null) => {
   const target = slot ?? dock
   if (target && element.parentElement !== target) target.append(element)
   if (session.claimed !== Boolean(slot)) update({ claimed: Boolean(slot) })
+}
+
+/** Moves the unclaimed player host back to the dock container (e.g., when closing Document PiP). */
+export const returnPlayerToDock = () => {
+  const element = ensureHost()
+  if (dock && !session.claimed && element.parentElement !== dock) dock.append(element)
 }
 
 export const playerHost = ensureHost
