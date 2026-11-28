@@ -2,6 +2,7 @@ import type { AudioTrack, CaptionPick, CaptionTrack, TranslationLanguage } from 
 import type { ShortsMediaState } from '../../../src/player/shorts-menu'
 import type { SourceApi } from '../../../src/sources/types'
 
+import { css, Global } from '@emotion/react'
 import { createSchema, createYoga } from 'graphql-yoga'
 import { render } from 'preact'
 import { useState } from 'preact/hooks'
@@ -99,6 +100,59 @@ const TrackControlsWidget = ({
     </div>
   )
 }
+
+const harnessThemeStyles = css`
+  :root {
+    --bg-base: #0f0f0f;
+    --bg-subtle: #1f1f1f;
+    --bg-elevated: #212121;
+    --bg-menu: #282828;
+    --bg-chip: #272727;
+    --bg-chip-hover: #3f3f3f;
+    --bg-selected: #272727;
+    --bg-hover: rgba(255, 255, 255, 0.1);
+    --bg-hover-strong: rgba(255, 255, 255, 0.15);
+    --bg-inverse: #f1f1f1;
+    --bg-inverse-hover: #ffffff;
+    --border: #303030;
+    --border-strong: #3f3f3f;
+    --border-subtle: rgba(255, 255, 255, 0.2);
+    --text-primary: #f1f1f1;
+    --text-secondary: #aaaaaa;
+    --text-inverse: #0f0f0f;
+    --accent: #3ea6ff;
+    --accent-focus: #1c62b9;
+    --bg-scrim: rgba(0, 0, 0, 0.5);
+    --brand-red: #ff0033;
+  }
+
+  :root[data-theme='light'] {
+    --bg-base: #f9f9f9;
+    --bg-subtle: #ffffff;
+    --bg-elevated: #f2f2f2;
+    --bg-menu: #ffffff;
+    --bg-chip: #f2f2f2;
+    --bg-chip-hover: #e5e5e5;
+    --bg-selected: #e5e5e5;
+    --bg-hover: rgba(0, 0, 0, 0.05);
+    --bg-hover-strong: rgba(0, 0, 0, 0.1);
+    --bg-inverse: #0f0f0f;
+    --bg-inverse-hover: #000000;
+    --border: #d9d9d9;
+    --border-strong: #d9d9d9;
+    --border-subtle: rgba(0, 0, 0, 0.1);
+    --text-primary: #0f0f0f;
+    --text-secondary: #606060;
+    --text-inverse: #ffffff;
+    --accent: #065fd4;
+    --accent-focus: #065fd4;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+  }
+`
 
 export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
   localStorage.clear()
@@ -376,6 +430,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
 
   render(
     <Provider value={client}>
+      <Global styles={harnessThemeStyles} />
       {mode === 'full'
         ? <ShortsPage />
         : (

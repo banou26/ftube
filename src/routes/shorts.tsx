@@ -171,6 +171,12 @@ const style = css`
     color: var(--text-inverse);
   }
 
+  .rail-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 1.2rem;
+  }
+
   .rail-channel {
     display: block;
     width: 4rem;
@@ -506,6 +512,32 @@ const style = css`
       height: 3.6rem;
     }
   }
+
+  @media (min-width: 901px), (max-height: 560px) and (min-width: 500px) {
+    .rail[data-ambient='true'] .rail-button {
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+    }
+
+    .rail[data-ambient='true'] .rail-button:not(.on) .glyph {
+      background: transparent;
+    }
+
+    .rail[data-ambient='true'] .rail-button:not(.on):hover .glyph {
+      background: var(--bg-hover);
+    }
+
+    .rail[data-ambient='true'] .rail-button:not(.on) .glyph svg {
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+    }
+
+    :root[data-theme='light'] & .rail[data-ambient='true'] .rail-button {
+      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+    }
+
+    :root[data-theme='light'] & .rail[data-ambient='true'] .rail-button:not(.on) .glyph svg {
+      filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.65));
+    }
+  }
 `
 
 /**
@@ -692,7 +724,7 @@ const Slide = (
           {meta?.viewCountText ? <p className='views'>{meta.viewCountText}</p> : undefined}
         </div>
       </div>
-      <div className='rail'>
+      <div className='rail' data-ambient={ambientMode ? 'true' : undefined}>
         <button
           type='button'
           className={liked ? 'rail-button on' : 'rail-button'}

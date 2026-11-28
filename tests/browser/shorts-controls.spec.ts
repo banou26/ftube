@@ -364,3 +364,140 @@ test('keeps inactive Shorts controls out of keyboard tab order and accessibility
   })
 })
 
+const samplePoints = async (page: Page, points: readonly { x: number, y: number }[]) => {
+  const png = await page.screenshot()
+  const url = `data:image/png;base64,${png.toString('base64')}`
+  return page.evaluate(async ({ imageUrl, coords }) => {
+    const img = new Image()
+    img.src = imageUrl
+    await img.decode()
+    const dpr = window.devicePixelRatio || 1
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    return coords.map(({ x, y }) => {
+      const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x * dpr)))
+      const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y * dpr)))
+      const [r = 0, g = 0, b = 0] = ctx.getImageData(px, py, 1, 1).data
+      return { r, g, b }
+    })
+  }, { imageUrl: url, coords: points })
+}
+
+const SHORT_RAIL_ACTIONS = ['Like', 'Dislike', 'Comments', 'Share', 'More actions'] as const
+
+test('makes Shorts action button backgrounds transparent in ambient mode, keeps focus ring and clickability, and restores solid chip backgrounds when ambient mode is off (APP-1073)', async ({ page }) => {
+  for (const scenario of [
+    { name: 'desktop-dark', width: 1280, height: 900, theme: 'dark', expectedSolidBg: 'rgb(39, 39, 39)', minOpacity: 0.68, minGreenLead: 4 },
+    { name: 'desktop-light', width: 1280, height: 900, theme: 'light', expectedSolidBg: 'rgb(242, 242, 242)', minOpacity: 0.22, minGreenLead: 1 },
+    { name: 'landscape-dark', width: 915, height: 412, theme: 'dark', expectedSolidBg: 'rgb(39, 39, 39)', minOpacity: 0.68, minGreenLead: 4 },
+  ] as const) {
+    await page.emulateMedia({ colorScheme: scenario.theme })
+    const root = await openShortsControlsHarness(page, { width: scenario.width, height: scenario.height })
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+      document.documentElement.style.colorScheme = theme
+    }, scenario.theme)
+
+    const slide = root.locator('[data-short-id="short-1"]')
+    const rail = slide.locator('.rail')
+    await expect(rail).toHaveAttribute('data-ambient', 'true')
+    await expect(slide.locator('[data-ambient-glow]')).toHaveAttribute('data-active', 'true')
+
+    // Wait for the 0.4s ambient opacity fade-in and paint pure green onto the glow canvas
+    await slide.locator('[data-ambient-glow] canvas').evaluate((el) => {
+      const canvas = el as HTMLCanvasElement
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#00ff00'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    })
+    await expect.poll(
+      () => slide.locator('[data-ambient-glow]').evaluate(el => Number(getComputedStyle(el).opacity)),
+      { timeout: 5_000 },
+    ).toBeGreaterThanOrEqual(scenario.minOpacity)
+
+    const sampleCoords: { name: string, x: number, y: number }[] = []
+    for (const label of SHORT_RAIL_ACTIONS) {
+      const btn = slide.getByRole('button', { name: label, exact: true })
+      const glyph = btn.locator('.glyph')
+      await expect(glyph, `${scenario.name} ${label} transparent glyph`).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      const box = (await glyph.boundingBox())!
+      sampleCoords.push({
+        name: label,
+        x: Math.round(box.x + Math.min(8, box.width * 0.2)),
+        y: Math.round(box.y + box.height / 2),
+      })
+    }
+
+    const glowPixels = await samplePoints(page, sampleCoords)
+    for (let i = 0; i < sampleCoords.length; i++) {
+      const px = glowPixels[i]!
+      const lead = Math.min(px.g - px.r, px.g - px.b)
+      expect(lead, `${scenario.name} ${sampleCoords[i]!.name} did not let green ambient glow through: ${JSON.stringify(px)}`).toBeGreaterThanOrEqual(scenario.minGreenLead)
+    }
+
+    // Keyboard focus via Tab reaches each rail button with a visible focus ring
+    await slide.locator('.meta .subscribe').focus()
+    for (const label of SHORT_RAIL_ACTIONS) {
+      const btn = slide.getByRole('button', { name: label, exact: true })
+      for (let step = 0; step < 4; step++) {
+        if (await btn.evaluate(el => el === document.activeElement)) break
+        await page.keyboard.press('Tab')
+      }
+      expect(await btn.evaluate(el => el === document.activeElement), `${scenario.name} ${label} not keyboard-focused`).toBe(true)
+      const focusRing = await btn.evaluate((el) => {
+        const s = getComputedStyle(el)
+        return {
+          outlineStyle: s.outlineStyle,
+          outlineWidth: parseFloat(s.outlineWidth) || 0,
+        }
+      })
+      expect(focusRing.outlineStyle, `${scenario.name} ${label} missing focus outline`).not.toBe('none')
+      expect(focusRing.outlineWidth, `${scenario.name} ${label} focus outline too thin`).toBeGreaterThanOrEqual(2)
+    }
+
+    // Buttons stay clickable
+    await slide.getByRole('button', { name: 'Comments', exact: true }).click()
+    await expect(slide.getByRole('complementary', { name: 'Comments', exact: true })).toBeVisible()
+    await slide.getByRole('button', { name: 'Close comments', exact: true }).click()
+    await expect(slide.getByRole('complementary', { name: 'Comments', exact: true })).toHaveCount(0)
+
+    await slide.getByRole('button', { name: 'More actions', exact: true }).click()
+    await expect(page.getByRole('menu', { name: 'More actions', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    // Turn Ambient mode off via More options and verify solid chip backgrounds are restored
+    await slide.locator('.top-bar').getByRole('button', { name: 'More options', exact: true }).click()
+    const optionsMenu = page.getByRole('menu', { name: 'More options', exact: true })
+    await optionsMenu.getByRole('menuitemcheckbox', { name: /Ambient mode/ }).click()
+    await page.keyboard.press('Escape')
+
+    await expect(rail).not.toHaveAttribute('data-ambient', 'true')
+    await expect(slide.locator('[data-ambient-glow]')).toHaveAttribute('data-active', 'false')
+
+    for (const label of SHORT_RAIL_ACTIONS) {
+      await expect(
+        slide.getByRole('button', { name: label, exact: true }).locator('.glyph'),
+        `${scenario.name} ${label} restored solid bg`,
+      ).toHaveCSS('background-color', scenario.expectedSolidBg)
+    }
+
+    await expect.poll(
+      () => slide.locator('[data-ambient-glow]').evaluate(el => Number(getComputedStyle(el).opacity)),
+      { timeout: 5_000 },
+    ).toBeLessThanOrEqual(0.05)
+
+    const offPixels = await samplePoints(page, sampleCoords)
+    for (let i = 0; i < sampleCoords.length; i++) {
+      const px = offPixels[i]!
+      expect(
+        Math.max(Math.abs(px.g - px.r), Math.abs(px.g - px.b)),
+        `${scenario.name} ${sampleCoords[i]!.name} solid chip was not neutral grey: ${JSON.stringify(px)}`,
+      ).toBeLessThanOrEqual(1)
+    }
+  }
+})
+
+
