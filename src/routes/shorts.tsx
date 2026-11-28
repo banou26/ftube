@@ -80,6 +80,7 @@ const style = css`
   .slide {
     position: relative;
     isolation: isolate;
+    overflow: hidden;
     box-sizing: border-box;
     height: 100%;
     scroll-snap-align: center;
@@ -408,6 +409,95 @@ const style = css`
 
     .slide:not([data-active='true']) .comments-panel {
       display: none;
+    }
+  }
+
+  .slide:not([data-active='true']) .rail {
+    pointer-events: none;
+  }
+
+  /* Compact rail sizing when viewport height is tight so every action fits below the header without overflowing into adjacent slides. */
+  @media (max-height: 560px) {
+    --slide-pad: 0.6rem;
+
+    .rail {
+      gap: 0.4rem;
+      bottom: 0.8rem;
+      max-height: calc(100% - 1.2rem);
+    }
+
+    .rail-button {
+      font-size: 1rem;
+      line-height: 1.2rem;
+    }
+
+    .rail-button .glyph {
+      width: 3.4rem;
+      height: 3.4rem;
+    }
+
+    .rail-channel {
+      width: 2.8rem;
+      height: 2.8rem;
+    }
+  }
+
+  /* Landscape phone viewports have plenty of horizontal room beside the 9:16 stage: lay the rail out in two short columns beside it. */
+  @media (max-height: 560px) and (min-width: 500px) {
+    .reel {
+      gap: 1.2rem;
+    }
+
+    .stage {
+      width: min(calc(var(--stage-height) * 9 / 16), calc(100vw - 15rem));
+      max-width: calc(100vw - 15rem);
+    }
+
+    .meta {
+      padding: 4.8rem 1.2rem 1.6rem;
+    }
+
+    .rail {
+      position: relative;
+      right: auto;
+      bottom: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(5.2rem, auto));
+      align-content: end;
+      justify-items: center;
+      gap: 0.8rem 1rem;
+      padding-bottom: 0.4rem;
+      max-height: 100%;
+    }
+
+    .rail-button {
+      gap: 0.2rem;
+      color: var(--text-primary);
+      font-size: 1.1rem;
+      line-height: 1.4rem;
+      text-shadow: none;
+    }
+
+    .rail-button .glyph {
+      width: 4rem;
+      height: 4rem;
+      border: none;
+      background: var(--bg-chip);
+      color: inherit;
+    }
+
+    .rail-button:hover .glyph {
+      background: var(--bg-chip-hover);
+    }
+
+    .rail-button.on .glyph {
+      background: var(--bg-inverse);
+      color: var(--text-inverse);
+    }
+
+    .rail-channel {
+      width: 3.6rem;
+      height: 3.6rem;
     }
   }
 `
@@ -804,6 +894,27 @@ export const ShortsPage = () => {
   }, [activeId])
 
   const activeIndex = items.findIndex(short => short.id === activeId)
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+
+  useEffect(() => {
+    const root = scrollerRef.current
+    if (!root || typeof ResizeObserver === 'undefined') return
+    let lastHeight = root.clientHeight
+    const observer = new ResizeObserver(() => {
+      const nextHeight = root.clientHeight
+      if (nextHeight <= 0 || nextHeight === lastHeight) return
+      lastHeight = nextHeight
+      const id = activeIdRef.current
+      if (!id) return
+      const slide = root.querySelector<HTMLElement>(`[data-short-id="${CSS.escape(id)}"]`)
+      if (!slide) return
+      const delta = slide.getBoundingClientRect().top - root.getBoundingClientRect().top
+      if (Math.abs(delta) > 1) root.scrollTo({ top: root.scrollTop + delta, behavior: 'instant' })
+    })
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [items.length])
   const step = (by: 1 | -1) => {
     const target = items[activeIndex + by]
     if (!target) return
