@@ -15,28 +15,37 @@ const RATE_PATH = '/like-harness/'
 
 const WATCH = gql`
   query LikeHarness($id: ID!) {
-    watch(id: $id) { id likeStatus likeCountText }
+    watch(id: $id) { id likeStatus likeCount likeCountText }
   }
 `
 
 const Watched = () => {
   const [{ data }] = useQuery({ query: WATCH, variables: { id: 'video-0' } })
-  const watch = data?.watch as { likeStatus: LikeStatus, likeCountText: string } | undefined
-  return watch ? <LikePill videoId='video-0' likeStatus={watch.likeStatus} likeCountText={watch.likeCountText} /> : null
+  const watch = data?.watch as { likeStatus: LikeStatus, likeCount?: number | null, likeCountText?: string | null } | undefined
+  return watch
+    ? <LikePill videoId='video-0' likeStatus={watch.likeStatus} likeCount={watch.likeCount} likeCountText={watch.likeCountText} />
+    : null
+}
+
+export type LikeHarnessOptions = {
+  likeCount?: number | null
+  likeCountText?: string
 }
 
 /**
  * Renders the watch page's Like and Dislike for a signed-in viewer, on a video that opens rated `likeStatus`, through
  * the app's own schema, resolvers and cache. Served by the dev server and imported from a spec.
  */
-export const mountLikes = (likeStatus: LikeStatus) => {
+export const mountLikes = (likeStatus: LikeStatus, options: LikeHarnessOptions = {}) => {
   const host = document.createElement('div')
   host.setAttribute('data-like-harness', likeStatus)
   host.style.cssText = 'position: fixed; inset: 6rem auto auto 2rem; z-index: 10000; padding: 2.4rem; background: var(--bg-base)'
   document.body.append(host)
+  const likeCount = options.likeCount === undefined ? 12_000 : options.likeCount
+  const likeCountText = options.likeCountText ?? '12K'
   const source = {
     session: async () => ({ signedIn: true, name: 'Viewer', accounts: [] }),
-    watch: async (id: string) => ({ id, likeStatus, likeCountText: '12K' }),
+    watch: async (id: string) => ({ id, likeStatus, likeCount, likeCountText }),
     rateVideo: async (id: string, status: LikeStatus) => {
       const response = await fetch(`${RATE_PATH}${status}`)
       if (!response.ok) throw new Error(`Request to https://www.youtube.com/youtubei/v1/like/like?prettyPrint=false&alt=json failed with status code ${response.status}`)

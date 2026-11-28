@@ -987,7 +987,7 @@ const WatchPage = () => {
                   : undefined}
                 <div className='actions'>
                   <div className='action-slot' ref={likeWrapRef}>
-                    <LikePill videoId={videoId} likeStatus={watch?.likeStatus} likeCountText={watch?.likeCountText} />
+                    <LikePill videoId={videoId} likeStatus={watch?.likeStatus} likeCount={watch?.likeCount} likeCountText={watch?.likeCountText} />
                   </div>
                   {actionsLayout.inline.map((id) => {
                     if (id === 'share') {

@@ -2,7 +2,7 @@ import type { LikeStatus } from '../generated/graphql'
 
 import { css } from '@emotion/react'
 
-import { useDislikes } from '../dislikes'
+import { computeLikeDislikeRatio, useVotes } from '../dislikes'
 import { formatCompact } from './format'
 import { RateGlyph, useRateVideo } from './rate-video'
 
@@ -36,6 +36,7 @@ export const actionTooltipStyle = css`
 `
 
 const style = css`
+  position: relative;
   display: flex;
   align-items: stretch;
   height: var(--action-height, 3.6rem);
@@ -90,6 +91,70 @@ const style = css`
     background: var(--bg-chip-hover);
   }
 
+  .ratio-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    padding: 0.5rem 0 0.3rem;
+    cursor: default;
+  }
+
+  .ratio-track {
+    width: 100%;
+    height: 0.25rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--text-primary) 28%, transparent);
+  }
+
+  .ratio-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--text-primary);
+    transition: width 0.2s ease;
+  }
+
+  .ratio-tooltip {
+    position: absolute;
+    bottom: calc(100% + 0.6rem);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-popup);
+    padding: 0.5rem 0.9rem;
+    border-radius: 0.6rem;
+    background: rgba(33, 33, 33, 0.88);
+    color: #ffffff;
+    font-size: 1.3rem;
+    font-weight: 500;
+    line-height: 1.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease;
+  }
+
+  .ratio-bar:hover .ratio-tooltip,
+  .ratio-bar:focus-visible .ratio-tooltip {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .ratio-bar:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: 2px;
+    border-radius: 0.2rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ratio-fill,
+    .ratio-tooltip {
+      transition: none;
+    }
+  }
+
   ${actionTooltipStyle}
 
   .like:not(:disabled):hover + .action-tooltip,
@@ -101,14 +166,17 @@ const style = css`
   }
 `
 
-/** The watch page's Like and Dislike, with the video's like count and Return YouTube Dislike's dislike count. */
-export const LikePill = ({ videoId, likeStatus, likeCountText }: {
+/** The watch page's Like and Dislike, with the video's like count, Return YouTube Dislike's dislike count, and ratio bar. */
+export const LikePill = ({ videoId, likeStatus, likeCount, likeCountText }: {
   videoId: string
   likeStatus?: LikeStatus | null
+  likeCount?: number | null
   likeCountText?: string | null
 }) => {
   const { rate, rating, presses, burst } = useRateVideo(videoId, likeStatus)
-  const dislikes = useDislikes(videoId)
+  const votes = useVotes(videoId)
+  const dislikes = votes?.dislikes
+  const ratio = computeLikeDislikeRatio({ likeCount, rydLikes: votes?.likes, dislikes })
   const liked = likeStatus === 'LIKE'
   const disliked = likeStatus === 'DISLIKE'
 
@@ -142,6 +210,27 @@ export const LikePill = ({ videoId, likeStatus, likeCountText }: {
         </button>
         <span className='action-tooltip' role='tooltip'>{disliked ? 'Remove dislike' : 'I dislike this'}</span>
       </div>
+      {ratio
+        ? (
+          <div
+            className='ratio-bar'
+            role='meter'
+            tabIndex={0}
+            aria-label={`Like ratio: ${ratio.tooltip}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(ratio.likePercent)}
+            aria-valuetext={`${ratio.likePercent.toFixed(1)}% likes (${ratio.tooltip})`}
+            data-ratio-bar='true'
+            data-like-percent={ratio.likePercent.toFixed(2)}
+          >
+            <div className='ratio-track' aria-hidden='true'>
+              <div className='ratio-fill' style={{ width: `${ratio.likePercent.toFixed(2)}%` }} />
+            </div>
+            <span className='ratio-tooltip' role='tooltip'>{ratio.tooltip}</span>
+          </div>
+        )
+        : undefined}
     </div>
   )
 }
