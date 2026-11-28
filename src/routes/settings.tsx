@@ -205,6 +205,16 @@ const page = css`
     color: var(--text-primary);
   }
 
+  .headline:focus {
+    outline: none;
+  }
+
+  .headline:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: 4px;
+    border-radius: 0.4rem;
+  }
+
   .setting-row {
     display: grid;
     grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
@@ -567,6 +577,8 @@ export const SettingsPage = () => {
   )
   const navRefs = useRef<Partial<Record<SettingsSectionId, HTMLAnchorElement | null>>>({})
   const tabRefs = useRef<Partial<Record<CustomizationTabId, HTMLAnchorElement | null>>>({})
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const [historyFocusTick, setHistoryFocusTick] = useState(0)
   const [settings, setSettings] = useState<Settings>(getSettings)
   const [sleepTimer, setSleepTimerState] = useState<SleepTimer | undefined>(getSleepTimer)
   const [, setClockTick] = useState(0)
@@ -591,25 +603,46 @@ export const SettingsPage = () => {
   }, [sleepTimer])
 
   useEffect(() => {
-    const sync = () => {
+    const hash = window.location.hash
+    setActiveSection(readSettingsSection(window.location.search, hash))
+    setCustomizationTab(readCustomizationTab(window.location.search, hash))
+  }, [search])
+
+  useEffect(() => {
+    const syncFromLocation = () => {
       const hash = window.location.hash
       setActiveSection(readSettingsSection(window.location.search, hash))
       setCustomizationTab(readCustomizationTab(window.location.search, hash))
     }
-    sync()
-    window.addEventListener('hashchange', sync)
-    window.addEventListener('popstate', sync)
-    return () => {
-      window.removeEventListener('hashchange', sync)
-      window.removeEventListener('popstate', sync)
+    const onPopState = () => {
+      if (window.location.pathname !== '/settings') return
+      syncFromLocation()
+      setHistoryFocusTick(tick => tick + 1)
     }
-  }, [search])
+    window.addEventListener('hashchange', syncFromLocation)
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      window.removeEventListener('hashchange', syncFromLocation)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (historyFocusTick === 0) return
+    headingRef.current?.focus()
+  }, [historyFocusTick])
 
   useEffect(() => {
     if (activeSection !== 'customization' || customizationTab !== 'appearance') return
     if (typeof window === 'undefined' || window.location.hash !== '#custom-appearance') return
     document.getElementById('custom-appearance')?.scrollIntoView({ block: 'start' })
   }, [activeSection, customizationTab])
+
+  const isModifiedClick = (event: MouseEvent) =>
+    event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0
+
+  const isSameSectionTarget = (next: SettingsSectionId) =>
+    next === activeSection && (next !== 'customization' || customizationTab === 'appearance')
 
   const applySection = (next: SettingsSectionId) => {
     if (next !== activeSection && typeof window !== 'undefined') window.scrollTo(0, 0)
@@ -618,8 +651,9 @@ export const SettingsPage = () => {
   }
 
   const selectSection = (next: SettingsSectionId) => {
+    const replace = isSameSectionTarget(next)
     applySection(next)
-    navigate(next === 'general' ? '/settings' : `/settings?section=${next}`, { replace: true })
+    navigate(next === 'general' ? '/settings' : `/settings?section=${next}`, { replace })
   }
 
   const applyCustomizationTab = (next: CustomizationTabId) => {
@@ -629,10 +663,11 @@ export const SettingsPage = () => {
   }
 
   const selectCustomizationTab = (next: CustomizationTabId) => {
+    const replace = activeSection === 'customization' && next === customizationTab
     applyCustomizationTab(next)
     navigate(
       next === 'appearance' ? '/settings?section=customization' : `/settings?section=customization&tab=${next}`,
-      { replace: true },
+      { replace },
     )
   }
 
@@ -706,12 +741,14 @@ export const SettingsPage = () => {
               <Link
                 key={section.id}
                 href={section.id === 'general' ? '/settings' : `/settings?section=${section.id}`}
-                replace
+                replace={isSameSectionTarget(section.id)}
                 ref={(el: HTMLAnchorElement | null) => { navRefs.current[section.id] = el }}
                 id={`settings-nav-${section.id}`}
                 aria-current={active ? 'page' : undefined}
                 className={active ? 'nav-item active' : 'nav-item'}
-                onClick={() => applySection(section.id)}
+                onClick={(event: MouseEvent) => {
+                  if (!isModifiedClick(event)) applySection(section.id)
+                }}
                 onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onNavKeyDown(index, event)}
               >
                 {section.label}
@@ -724,7 +761,7 @@ export const SettingsPage = () => {
       <section className='panel' aria-labelledby='settings-section-heading'>
         <header className='panel-header'>
           <p className='eyebrow'>{currentMeta.label}</p>
-          <h2 id='settings-section-heading' className='headline'>{currentMeta.title}</h2>
+          <h2 id='settings-section-heading' className='headline' tabIndex={-1} ref={headingRef}>{currentMeta.title}</h2>
         </header>
 
         <ErrorBoundary key={activeSection}>
@@ -857,7 +894,7 @@ export const SettingsPage = () => {
                         <Link
                           key={tab.id}
                           href={tab.id === 'appearance' ? '/settings?section=customization' : `/settings?section=customization&tab=${tab.id}`}
-                          replace
+                          replace={activeSection === 'customization' && active}
                           ref={(el: HTMLAnchorElement | null) => { tabRefs.current[tab.id] = el }}
                           id={`customization-tab-${tab.id}`}
                           role='tab'
@@ -865,7 +902,9 @@ export const SettingsPage = () => {
                           aria-controls={`customization-panel-${tab.id}`}
                           tabIndex={active ? 0 : -1}
                           className={active ? 'sub-tab active' : 'sub-tab'}
-                          onClick={() => applyCustomizationTab(tab.id)}
+                          onClick={(event: MouseEvent) => {
+                            if (!isModifiedClick(event)) applyCustomizationTab(tab.id)
+                          }}
                           onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onCustomizationTabKeyDown(index, event)}
                         >
                           {tab.label}

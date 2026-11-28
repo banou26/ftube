@@ -179,3 +179,94 @@ test('configures preferred subtitle language and video-language skip list with a
   expect(stored.captionsLanguage).toBe('pt-BR')
   expect(stored.captionsSkipLanguages).toEqual(['fr-FR'])
 })
+
+const holdPlayback = () => {
+  if (window.top !== window) return
+  const post = Object.getOwnPropertyDescriptor(MessagePort.prototype, 'postMessage')!.value as (
+    this: MessagePort,
+    message: unknown,
+    ...rest: unknown[]
+  ) => void
+  MessagePort.prototype.postMessage = function (this: MessagePort, message: unknown, ...rest: unknown[]) {
+    if ((message as { method?: string } | null)?.method === 'openPlayback') return
+    return post.call(this, message, ...rest)
+  } as typeof MessagePort.prototype.postMessage
+}
+
+test('pushes history entries for deliberate Settings section changes and focuses heading on Back and Forward (APP-1064)', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', route => route.abort())
+  await page.route('https://www.youtube.com/**', route => route.abort())
+  await page.addInitScript(holdPlayback)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await hideFknNotice(page)
+
+  // Start from Watch, open Settings via More menu -> Settings.
+  await page.goto('/watch?v=dQw4w9WgXcQ')
+  const moreBtn = page.getByRole('button', { name: 'More', exact: true })
+  await expect(moreBtn).toBeVisible({ timeout: 30_000 })
+  await moreBtn.click()
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings$/)
+
+  const nav = page.getByRole('main').getByRole('navigation', { name: 'Settings' })
+  const heading = page.locator('#settings-section-heading')
+  await expect(nav).toBeVisible()
+  await expect(heading).toHaveText('Choose your preferences')
+
+  // Clicking the already-active section does not push a duplicate history entry.
+  const depthBeforeSameClick = await page.evaluate(() => history.length)
+  await nav.getByRole('link', { name: 'General', exact: true }).click()
+  expect(await page.evaluate(() => history.length)).toBe(depthBeforeSameClick)
+
+  // Select Privacy, then Time management.
+  await nav.getByRole('link', { name: 'Privacy', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\?section=privacy$/)
+  await expect(heading).toHaveText('Manage what FTube stores and shares')
+
+  await nav.getByRole('link', { name: 'Time management', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\?section=time-management$/)
+  await expect(heading).toHaveText('Manage your viewing time')
+
+  // Back restores Privacy and focuses its heading.
+  await page.goBack()
+  await expect(page).toHaveURL(/\/settings\?section=privacy$/)
+  await expect(nav.getByRole('link', { name: 'Privacy', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(heading).toHaveText('Manage what FTube stores and shares')
+  await expect(heading).toBeFocused()
+
+  // Forward restores Time management and focuses its heading.
+  await page.goForward()
+  await expect(page).toHaveURL(/\/settings\?section=time-management$/)
+  await expect(nav.getByRole('link', { name: 'Time management', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(heading).toHaveText('Manage your viewing time')
+  await expect(heading).toBeFocused()
+
+  // Repeated Back steps through Privacy -> General -> original Watch video.
+  await page.goBack()
+  await expect(page).toHaveURL(/\/settings\?section=privacy$/)
+  await expect(heading).toHaveText('Manage what FTube stores and shares')
+  await expect(heading).toBeFocused()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(nav.getByRole('link', { name: 'General', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(heading).toHaveText('Choose your preferences')
+  await expect(heading).toBeFocused()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/watch\?v=dQw4w9WgXcQ$/)
+
+  // Customization sub-tabs push history too and Back restores Appearance + heading focus.
+  await page.goForward()
+  await expect(page).toHaveURL(/\/settings$/)
+  await nav.getByRole('link', { name: 'Customization', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\?section=customization$/)
+  await page.getByRole('tab', { name: 'Player', exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\?section=customization&tab=player$/)
+  await expect(page.getByRole('tab', { name: 'Player', exact: true })).toHaveAttribute('aria-selected', 'true')
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/settings\?section=customization$/)
+  await expect(page.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(heading).toBeFocused()
+})
