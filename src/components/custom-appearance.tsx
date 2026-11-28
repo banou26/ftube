@@ -15,6 +15,7 @@ import { SEEK_ICON_COMPONENTS } from '../theme/seek-icons'
 import { showUndoableToast } from '../undo'
 import { BrandMark } from './brand-mark'
 import { EmojiPickerPanel } from './emoji-picker'
+import { DEFAULT_EMOJI_PICKER_SETTINGS } from './emoji-picker-settings'
 
 const style = css`
   display: flex;
@@ -640,6 +641,8 @@ export const CustomAppearance = ({ settings, onUpdate }: Props) => {
             <div className='emoji-handle-picker' role='group' aria-label='Seek handle emojis'>
               <EmojiPickerPanel
                 variant='inline'
+                fluidGrid
+                pickerSettings={DEFAULT_EMOJI_PICKER_SETTINGS}
                 selected={settings.seekHandle.kind === 'emoji' ? settings.seekHandle.value : undefined}
                 onPick={(emoji: string) => pickHandle({ kind: 'emoji', value: emoji })}
               />

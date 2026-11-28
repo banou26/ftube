@@ -4,10 +4,10 @@ import type { EmojiCategory, EmojiPickerSettings } from './emoji-picker-settings
 import { css } from '@emotion/react'
 import { useState } from 'preact/hooks'
 
+import { resetEmojiPickerCustomization } from '../settings'
 import { showUndoableToast } from '../undo'
 import { EmojiPickerPanel } from './emoji-picker'
 import {
-  cloneDefaultEmojiPickerSettings,
   EMOJI_CATEGORIES,
   EMOJI_PICKER_COLUMNS,
   EMOJI_PICKER_HEIGHTS,
@@ -193,7 +193,7 @@ export const EmojiPickerCustomization = ({ settings, onUpdate }: Props) => {
 
   const handleReset = () => {
     const previous = settings.emojiPicker
-    onUpdate({ emojiPicker: cloneDefaultEmojiPickerSettings() })
+    resetEmojiPickerCustomization()
     showUndoableToast('Emoji picker settings reset to default', {
       label: 'Reset emoji picker settings',
       undo: () => {

@@ -79,6 +79,7 @@ test('updates the live Emoji picker preview immediately for skin tone, size, col
 
   await section.getByRole('group', { name: 'Default category', exact: true }).getByRole('button', { name: 'Hearts', exact: true }).click()
   await expect(panel.getByRole('tab', { name: 'Hearts', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => panel.locator('.emoji-grid').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
 
   // Visibility toggles show and hide parts of the preview picker live.
   await expect(panel.getByRole('searchbox', { name: 'Search emoji', exact: true })).toBeVisible()
@@ -112,27 +113,37 @@ test('propagates emoji picker customization settings into EmojiButton and suppor
   const section = await openEmojiPickerTab(page)
   await section.getByRole('group', { name: 'Default skin tone', exact: true }).getByRole('button', { name: 'Dark skin tone', exact: true }).click()
   await section.getByRole('group', { name: 'Emojis per row', exact: true }).getByRole('button', { name: '6', exact: true }).click()
+  await section.getByRole('group', { name: 'Default category', exact: true }).getByRole('button', { name: 'Hearts', exact: true }).click()
+  await section.getByRole('checkbox', { name: 'Show search bar', exact: true }).uncheck()
   await section.getByRole('checkbox', { name: 'Show section headings', exact: true }).uncheck()
   await section.getByRole('checkbox', { name: 'Close after picking an emoji', exact: true }).check()
 
-  // Verify settings apply to EmojiButton across navigation and reload.
+  // Verify settings apply to EmojiButton across navigation and reload without disturbing CustomAppearance's fluid picker.
   await page.goto('/privacy')
   await expect(async () => {
     if (await page.locator('[data-emoji-harness="true"]').count() === 0) {
       await page.evaluate(async (path) => {
-        const harness = await import(path) as { mountEmojiPickerHarness: () => { picked: () => string[] } }
-        const state = harness.mountEmojiPickerHarness()
+        const harness = await import(path) as { mountEmojiPickerHarness: (customEmojis?: unknown[]) => { picked: () => string[] } }
+        const state = harness.mountEmojiPickerHarness([])
         ;(window as unknown as { __emojiHarness?: typeof state }).__emojiHarness = state
       }, EMOJI_HARNESS)
     }
     await expect(page.getByRole('button', { name: 'Insert emoji', exact: true })).toBeVisible({ timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
 
+  const customAppearance = page.locator('#custom-appearance')
+  await customAppearance.getByRole('tab', { name: 'Emoji', exact: true }).click()
+  const seekEmojiGroup = customAppearance.getByRole('group', { name: 'Seek handle emojis', exact: true })
+  await expect(seekEmojiGroup.getByRole('searchbox', { name: 'Search emoji', exact: true })).toBeVisible()
+  await expect(seekEmojiGroup.locator('[data-emoji-size]')).toHaveClass(/fluid-grid/)
+
   await page.getByRole('button', { name: 'Insert emoji', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Emoji picker', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('[data-emoji-columns="6"]')).toBeVisible()
   await expect(dialog.locator('.emoji-section-title')).toHaveCount(0)
+  await expect(dialog.getByRole('tab', { name: 'Hearts', exact: true })).toBeFocused()
+  await expect.poll(() => dialog.locator('.emoji-grid').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
 
   const darkThumbs = dialog.getByRole('button', { name: 'Thumbs up', exact: true })
   await expect(darkThumbs).toHaveText('👍🏿')
@@ -147,11 +158,13 @@ test('propagates emoji picker customization settings into EmojiButton and suppor
   await expect(reloadedSection.getByRole('checkbox', { name: 'Close after picking an emoji', exact: true })).toBeChecked()
 
   await reloadedSection.getByRole('button', { name: 'Reset to default', exact: true }).click()
+  await expect(reloadedSection.getByRole('checkbox', { name: 'Show search bar', exact: true })).toBeChecked()
   await expect(reloadedSection.getByRole('checkbox', { name: 'Show section headings', exact: true })).toBeChecked()
   await expect(reloadedSection.getByRole('checkbox', { name: 'Close after picking an emoji', exact: true })).not.toBeChecked()
   await expect(reloadedSection.locator('[data-emoji-columns="8"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(reloadedSection.getByRole('checkbox', { name: 'Show search bar', exact: true })).not.toBeChecked()
   await expect(reloadedSection.getByRole('checkbox', { name: 'Close after picking an emoji', exact: true })).toBeChecked()
   await expect(reloadedSection.locator('[data-emoji-columns="6"]')).toBeVisible()
 })

@@ -506,6 +506,10 @@ const panelStyle = css`
     gap: 0.2rem;
   }
 
+  &.fluid-grid .emoji-section-grid {
+    grid-template-columns: repeat(auto-fill, minmax(3.6rem, 1fr));
+  }
+
   .emoji-cell {
     position: relative;
     min-width: 0;
@@ -604,6 +608,7 @@ const placePanel = (panel: HTMLElement, trigger: HTMLElement) => {
 /** YouTube-style searchable emoji picker with skin-tone selector, category icon bar, and continuous scrolling sections. */
 export const EmojiPickerPanel = ({
   variant = 'popover',
+  fluidGrid = false,
   onPick,
   customEmojis = [],
   selected,
@@ -613,6 +618,7 @@ export const EmojiPickerPanel = ({
   pickerSettings,
 }: {
   variant?: 'popover' | 'inline'
+  fluidGrid?: boolean
   onPick: (emoji: string) => void
   customEmojis?: readonly CustomEmoji[]
   selected?: string
@@ -663,7 +669,14 @@ export const EmojiPickerPanel = ({
   }, [hasChannel, hasYoutube, activeTab])
 
   useEffect(() => {
-    if (autoFocus && activeSettings.showSearch) searchRef.current?.focus()
+    if (!autoFocus) return
+    if (activeSettings.showSearch && searchRef.current) {
+      searchRef.current.focus()
+      return
+    }
+    const fallback = tabsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?? gridRef.current?.querySelector<HTMLElement>('.emoji-cell')
+    fallback?.focus()
   }, [autoFocus, activeSettings.showSearch])
 
   const setSectionRef = (tab: PickerTab) => (el: HTMLElement | null) => {
@@ -763,10 +776,15 @@ export const EmojiPickerPanel = ({
     </div>
   )
 
+  const rootClassName = [
+    variant === 'inline' ? 'inline' : undefined,
+    fluidGrid ? 'fluid-grid' : undefined,
+  ].filter(Boolean).join(' ')
+
   return (
     <div
       css={panelStyle}
-      className={variant === 'inline' ? 'inline' : undefined}
+      className={rootClassName || undefined}
       data-emoji-size={activeSettings.emojiSize}
       data-emoji-columns={String(activeSettings.columns)}
       data-picker-height={activeSettings.pickerHeight}

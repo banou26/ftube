@@ -394,8 +394,9 @@ export const PreviewSelect = <T extends string,>({
     setOpen(false)
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
+  const dismiss = useCallback(() => setOpen(false), [])
 
-  useDismiss({ open, onClose: () => setOpen(false), rootRef, panelRef, triggerRef })
+  useDismiss({ open, onClose: dismiss, rootRef, panelRef, triggerRef })
 
   // Capture Escape ahead of parent dialogs (OverScreen settings, FeedSettingsPanel) so only this listbox closes.
   useLayoutEffect(() => {

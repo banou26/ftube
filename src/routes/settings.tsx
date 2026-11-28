@@ -14,6 +14,7 @@ import { EmojiPickerCustomization } from '../components/emoji-picker-customizati
 import { PlayerCustomization } from '../components/player-customization'
 import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
+import { ErrorBoundary } from '../components/ui/error-boundary'
 import { showToast } from '../components/ui/toast'
 import {
   resetFeedViewSettings,
@@ -607,12 +608,14 @@ export const SettingsPage = () => {
   }, [activeSection, customizationTab])
 
   const selectSection = (next: SettingsSectionId) => {
+    if (next !== activeSection && typeof window !== 'undefined') window.scrollTo(0, 0)
     setActiveSection(next)
     if (next === 'customization') setCustomizationTab('appearance')
     navigate(next === 'general' ? '/settings' : `/settings?section=${next}`, { replace: true })
   }
 
   const selectCustomizationTab = (next: CustomizationTabId) => {
+    if (next !== customizationTab && typeof window !== 'undefined') window.scrollTo(0, 0)
     setActiveSection('customization')
     setCustomizationTab(next)
     navigate(
@@ -705,6 +708,7 @@ export const SettingsPage = () => {
           <h2 id='settings-section-heading' className='headline'>{currentMeta.title}</h2>
         </header>
 
+        <ErrorBoundary key={activeSection}>
         {activeSection === 'general'
           ? (
             <>
@@ -850,6 +854,7 @@ export const SettingsPage = () => {
                     })}
                   </div>
 
+                  <ErrorBoundary key={customizationTab}>
                   {customizationTab === 'appearance'
                     ? (
                       <div
@@ -904,6 +909,7 @@ export const SettingsPage = () => {
                           </div>
                         </div>
                       )}
+                  </ErrorBoundary>
                 </>
               )
               : activeSection === 'time-management'
@@ -1418,6 +1424,7 @@ export const SettingsPage = () => {
                         </div>
                       </>
                     )}
+        </ErrorBoundary>
       </section>
     </main>
   )
