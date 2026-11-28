@@ -6,7 +6,7 @@ import type { RichTextRun } from './rich-text'
 
 import { css } from '@emotion/react'
 import { ArrowUpRight, Calendar, Music2, SquarePlay, SquareUser, ThumbsUp } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
 import { registerCards } from '../player/cards'
@@ -63,6 +63,12 @@ const style = css`
 
   .counts {
     white-space: pre-wrap;
+  }
+
+  .counts:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: 2px;
+    border-radius: 0.2rem;
   }
 
   .counts-tooltip {
@@ -498,6 +504,7 @@ export const DescriptionBox = (
   // the panel's text fits its 20 lines, so it offers no ...more
   const [fits, setFits] = useState(false)
   const [tintRequested, setTintRequested] = useState(false)
+  const countsTooltipId = useId()
   const full = expanded || open
   const clamped = !expanded && !(open && fits)
   const snippetRef = useRef<HTMLDivElement>(null)
@@ -554,8 +561,8 @@ export const DescriptionBox = (
               ? hoverDetails
                 ? (
                   <span className='counts-wrap'>
-                    <span className='counts'>{counts}</span>
-                    <span className='counts-tooltip' role='tooltip'>{hoverDetails}</span>
+                    <span className='counts' tabIndex={0} aria-describedby={countsTooltipId}>{counts}</span>
+                    <span id={countsTooltipId} className='counts-tooltip' role='tooltip'>{hoverDetails}</span>
                   </span>
                 )
                 : <span className='counts'>{counts}</span>

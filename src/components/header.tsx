@@ -304,8 +304,14 @@ const style = css`
     transition: background 0.15s ease;
   }
 
-  .search-button:hover {
+  .search-button:hover,
+  .search-button:focus-visible {
     background: var(--bg-hover);
+  }
+
+  .search-button:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: -2px;
   }
 
   .end {

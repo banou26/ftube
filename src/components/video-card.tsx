@@ -981,6 +981,7 @@ const skeletonStyle = css`
   &.list .thumb {
     flex: none;
     width: var(--feed-list-thumb-width, 24rem);
+    max-width: 45%;
   }
 
   &.list .bars {

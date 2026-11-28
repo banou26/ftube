@@ -241,7 +241,6 @@ const style = css`
     flex-wrap: nowrap;
     gap: 0.6rem;
     min-width: 0;
-    overflow: hidden;
   }
 
   .author {
@@ -1497,7 +1496,7 @@ const RydReplies = ({ rootId, count }: { rootId: string, count: number }) => {
                       <span className='avatar fallback' aria-hidden='true'>{reply.authorName.slice(0, 1).toUpperCase()}</span>
                       <div className='body'>
                         <div className='byline'>
-                          <span className='name'>{reply.authorName}</span>
+                          <span className='name'><span className='name-text'>{reply.authorName}</span></span>
                           {reply.createdAt ? <span className='age'>{formatAgo(reply.createdAt)}{reply.edited ? ' (edited)' : ''}</span> : undefined}
                         </div>
                         <div className='comment-text'>
@@ -1798,7 +1797,7 @@ export const Comments = ({ videoId, post, commentCountText, extraCustomEmojis, v
             : isDisabled
               ? (videoId && !post ? <RydComments videoId={videoId} compact /> : <p className='disabled-notice'>Comments are turned off.</p>)
               : fetching && items.length === 0
-                ? <p className='age'>Loading comments…</p>
+                ? <p className='empty-notice'>Loading comments…</p>
                 : isEmpty
                   ? <p className='empty-notice'>No comments yet.</p>
                   : (

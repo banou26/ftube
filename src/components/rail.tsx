@@ -163,7 +163,7 @@ export const Rail = (
     if (!track) return
     if (prevResetKeyRef.current !== resetKey) {
       prevResetKeyRef.current = resetKey
-      track.scrollLeft = 0
+      track.scrollTo({ left: 0, behavior: 'instant' })
     }
     let alive = true
     const measure = () => {
@@ -176,14 +176,14 @@ export const Rail = (
     track.addEventListener('scroll', measure, { passive: true })
     const resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(track)
-    const mutationObserver = new MutationObserver(measure)
-    mutationObserver.observe(track, { childList: true, characterData: true, subtree: true })
+    const mutationObserver = variant === 'edge' ? new MutationObserver(measure) : undefined
+    mutationObserver?.observe(track, { childList: true, characterData: true, subtree: true })
     void document.fonts?.ready.then(measure)
     return () => {
       alive = false
       track.removeEventListener('scroll', measure)
       resizeObserver.disconnect()
-      mutationObserver.disconnect()
+      mutationObserver?.disconnect()
     }
   }, [count, resetKey, variant])
 
