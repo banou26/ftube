@@ -1,7 +1,7 @@
 import type { ComponentChildren, TargetedKeyboardEvent } from 'preact'
 import type { SleepTimer } from '../player/sleep-timer'
 import type { QualityPreference, Settings, ThemePreference } from '../settings'
-import type { SettingsSectionId } from './settings-sections'
+import type { CustomizationTabId, SettingsSectionId } from './settings-sections'
 
 import { css } from '@emotion/react'
 import { useEffect, useRef, useState } from 'preact/hooks'
@@ -10,6 +10,7 @@ import { Link, useLocation, useSearch } from 'wouter'
 import { useDocumentTitle } from '../app'
 import { AmbientPreview } from '../components/ambient-preview'
 import { CustomAppearance } from '../components/custom-appearance'
+import { PlayerCustomization } from '../components/player-customization'
 import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
 import { showToast } from '../components/ui/toast'
@@ -34,10 +35,10 @@ import { THEATER_MODES } from '../player/theater'
 import { atHandle, useSession } from '../session'
 import { getSettings, subscribeSettings, updateSettings } from '../settings'
 import { showUndoableToast } from '../undo'
-import { readSettingsSection, SETTINGS_SECTIONS } from './settings-sections'
+import { CUSTOMIZATION_TABS, readCustomizationTab, readSettingsSection, SETTINGS_SECTIONS } from './settings-sections'
 
-export { readSettingsSection, SETTINGS_SECTIONS }
-export type { SettingsSectionId }
+export { CUSTOMIZATION_TABS, readCustomizationTab, readSettingsSection, SETTINGS_SECTIONS }
+export type { CustomizationTabId, SettingsSectionId }
 
 const THEMES: { value: ThemePreference, label: string }[] = [
   { value: 'device', label: 'Device theme' },
@@ -129,6 +130,58 @@ const page = css`
   .panel-header {
     padding-bottom: 2.4rem;
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .sub-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2.4rem;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 1.6rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .sub-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sub-tab {
+    position: relative;
+    padding: 1.2rem 0.2rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 1.45rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .sub-tab:hover {
+    color: var(--text-primary);
+  }
+
+  .sub-tab.active {
+    color: var(--text-primary);
+  }
+
+  .sub-tab.active::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-primary);
+  }
+
+  .sub-tab:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: -2px;
   }
 
   .eyebrow {
@@ -503,7 +556,11 @@ export const SettingsPage = () => {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
     readSettingsSection(search, typeof window !== 'undefined' ? window.location.hash : ''),
   )
+  const [customizationTab, setCustomizationTab] = useState<CustomizationTabId>(() =>
+    readCustomizationTab(search, typeof window !== 'undefined' ? window.location.hash : ''),
+  )
   const navRefs = useRef<Partial<Record<SettingsSectionId, HTMLButtonElement | null>>>({})
+  const tabRefs = useRef<Partial<Record<CustomizationTabId, HTMLButtonElement | null>>>({})
   const [settings, setSettings] = useState<Settings>(getSettings)
   const [sleepTimer, setSleepTimerState] = useState<SleepTimer | undefined>(getSleepTimer)
   const [, setClockTick] = useState(0)
@@ -528,7 +585,11 @@ export const SettingsPage = () => {
   }, [sleepTimer])
 
   useEffect(() => {
-    const sync = () => setActiveSection(readSettingsSection(window.location.search, window.location.hash))
+    const sync = () => {
+      const hash = window.location.hash
+      setActiveSection(readSettingsSection(window.location.search, hash))
+      setCustomizationTab(readCustomizationTab(window.location.search, hash))
+    }
     sync()
     window.addEventListener('hashchange', sync)
     window.addEventListener('popstate', sync)
@@ -539,14 +600,40 @@ export const SettingsPage = () => {
   }, [search])
 
   useEffect(() => {
-    if (activeSection !== 'customization') return
+    if (activeSection !== 'customization' || customizationTab !== 'appearance') return
     if (typeof window === 'undefined' || window.location.hash !== '#custom-appearance') return
     document.getElementById('custom-appearance')?.scrollIntoView({ block: 'start' })
-  }, [activeSection])
+  }, [activeSection, customizationTab])
 
   const selectSection = (next: SettingsSectionId) => {
     setActiveSection(next)
+    if (next === 'customization') setCustomizationTab('appearance')
     navigate(next === 'general' ? '/settings' : `/settings?section=${next}`, { replace: true })
+  }
+
+  const selectCustomizationTab = (next: CustomizationTabId) => {
+    setActiveSection('customization')
+    setCustomizationTab(next)
+    navigate(next === 'appearance' ? '/settings?section=customization' : '/settings?section=customization&tab=player', { replace: true })
+  }
+
+  const onCustomizationTabKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLButtonElement>) => {
+    let targetIndex: number | undefined
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      targetIndex = (index + 1) % CUSTOMIZATION_TABS.length
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      targetIndex = (index - 1 + CUSTOMIZATION_TABS.length) % CUSTOMIZATION_TABS.length
+    } else if (event.key === 'Home') {
+      targetIndex = 0
+    } else if (event.key === 'End') {
+      targetIndex = CUSTOMIZATION_TABS.length - 1
+    }
+    if (targetIndex === undefined) return
+    event.preventDefault()
+    const next = CUSTOMIZATION_TABS[targetIndex]
+    if (!next) return
+    selectCustomizationTab(next.id)
+    tabRefs.current[next.id]?.focus()
   }
 
   const onNavKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLButtonElement>) => {
@@ -736,28 +823,71 @@ export const SettingsPage = () => {
             : activeSection === 'customization'
               ? (
                 <>
-                  <div className='setting-row'>
-                    <h3 className='group-label'>Theme</h3>
-                    <div className='group-controls'>
-                      <div className='choices'>
-                        {THEMES.map(theme => (
-                          <button
-                            type='button'
-                            key={theme.value}
-                            className={settings.theme === theme.value ? 'choice active' : 'choice'}
-                            aria-pressed={settings.theme === theme.value}
-                            onClick={() => set({ theme: theme.value })}
-                          >
-                            {theme.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  <div className='sub-tabs' role='tablist' aria-label='Customization sections'>
+                    {CUSTOMIZATION_TABS.map((tab, index) => {
+                      const active = customizationTab === tab.id
+                      return (
+                        <button
+                          type='button'
+                          key={tab.id}
+                          ref={(el: HTMLButtonElement | null) => { tabRefs.current[tab.id] = el }}
+                          id={`customization-tab-${tab.id}`}
+                          role='tab'
+                          aria-selected={active}
+                          aria-controls={`customization-panel-${tab.id}`}
+                          tabIndex={active ? 0 : -1}
+                          className={active ? 'sub-tab active' : 'sub-tab'}
+                          onClick={() => selectCustomizationTab(tab.id)}
+                          onKeyDown={(event: TargetedKeyboardEvent<HTMLButtonElement>) => onCustomizationTabKeyDown(index, event)}
+                        >
+                          {tab.label}
+                        </button>
+                      )
+                    })}
                   </div>
 
-                  <div className='setting-row appearance-group'>
-                    <CustomAppearance settings={settings} onUpdate={set} />
-                  </div>
+                  {customizationTab === 'appearance'
+                    ? (
+                      <div
+                        id='customization-panel-appearance'
+                        role='tabpanel'
+                        aria-labelledby='customization-tab-appearance'
+                      >
+                        <div className='setting-row'>
+                          <h3 className='group-label'>Theme</h3>
+                          <div className='group-controls'>
+                            <div className='choices'>
+                              {THEMES.map(theme => (
+                                <button
+                                  type='button'
+                                  key={theme.value}
+                                  className={settings.theme === theme.value ? 'choice active' : 'choice'}
+                                  aria-pressed={settings.theme === theme.value}
+                                  onClick={() => set({ theme: theme.value })}
+                                >
+                                  {theme.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className='setting-row appearance-group'>
+                          <CustomAppearance settings={settings} onUpdate={set} />
+                        </div>
+                      </div>
+                    )
+                    : (
+                      <div
+                        id='customization-panel-player'
+                        role='tabpanel'
+                        aria-labelledby='customization-tab-player'
+                      >
+                        <div className='setting-row appearance-group'>
+                          <PlayerCustomization settings={settings} onUpdate={set} />
+                        </div>
+                      </div>
+                    )}
                 </>
               )
               : activeSection === 'time-management'

@@ -476,3 +476,50 @@ describe('the sleepTimerEnabled setting', () => {
     expect((await load(JSON.parse(written.at(-1)!))).getSettings().sleepTimerEnabled).toBe(false)
   })
 })
+
+describe('player bar layout and settings menu customization', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults to standard bar layout and full menu, coerces corrupt values, persists, and resets', async () => {
+    const initial = (await load()).getSettings()
+    expect(initial.playerBarLayout).toEqual({
+      left: ['play', 'next', 'volume', 'time', 'chapter'],
+      right: ['autoplay', 'captions', 'settings', 'pip', 'theater', 'fullscreen'],
+      hidden: [],
+    })
+    expect(initial.playerMenuHidden).toEqual([])
+
+    const coerced = (await load({
+      playerBarLayout: {
+        left: ['settings', 'play', 'bad-id'],
+        right: ['settings', 'fullscreen'],
+        hidden: ['theater', 'theater', 'unknown'],
+      },
+      playerMenuHidden: ['ambientMode', 'bad', 'ambientMode'],
+    })).getSettings()
+    expect(coerced.playerBarLayout).toEqual({
+      left: ['settings', 'play', 'next', 'volume', 'time', 'chapter'],
+      right: ['fullscreen', 'autoplay', 'captions', 'pip', 'theater'],
+      hidden: ['theater'],
+    })
+    expect(coerced.playerMenuHidden).toEqual(['ambientMode'])
+
+    const written: string[] = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_key: string, value: string) => written.push(value) })
+    const { updateSettings, resetPlayerCustomization } = await import('../../src/settings')
+    updateSettings({
+      playerBarLayout: coerced.playerBarLayout,
+      playerMenuHidden: ['ambientMode', 'annotations'],
+    })
+    const saved = JSON.parse(written.at(-1)!)
+    expect((await load(saved)).getSettings().playerMenuHidden).toEqual(['ambientMode', 'annotations'])
+
+    const afterReset = resetPlayerCustomization()
+    expect(afterReset.playerBarLayout.hidden).toEqual([])
+    expect(afterReset.playerBarLayout.right).toContain('settings')
+    expect(afterReset.playerMenuHidden).toEqual([])
+  })
+})

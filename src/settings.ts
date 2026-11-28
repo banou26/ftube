@@ -1,5 +1,6 @@
 import type { AmbientArea, AmbientFillMode } from './player/ambient-options'
 import type { CaptionLook } from './player/caption-style'
+import type { PlayerBarLayout, PlayerSettingsMenuItemId } from './player/control-layout'
 import type { MiniplayerPosition } from './player/miniplayer-size'
 import type { TheaterMode } from './player/theater'
 import type { AppIconId } from './theme/app-icon'
@@ -17,6 +18,12 @@ import {
   coerceAmbientSpread,
 } from './player/ambient-options'
 import { CAPTION_OPTIONS } from './player/caption-style'
+import {
+  cloneDefaultPlayerBarLayout,
+  coercePlayerBarLayout,
+  coercePlayerMenuHidden,
+  DEFAULT_PLAYER_BAR_LAYOUT,
+} from './player/control-layout'
 import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
 import { coerceTheaterMode } from './player/theater'
@@ -79,6 +86,8 @@ export type Settings = {
   seekHandle: SeekHandle
   appIcon: AppIconId
   appIconChosen?: boolean
+  playerBarLayout: PlayerBarLayout
+  playerMenuHidden: PlayerSettingsMenuItemId[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -116,6 +125,8 @@ export const DEFAULT_SETTINGS: Settings = {
   customThemeColor: undefined,
   seekHandle: { kind: 'default' },
   appIcon: 'default',
+  playerBarLayout: DEFAULT_PLAYER_BAR_LAYOUT,
+  playerMenuHidden: [],
 }
 
 const STORAGE_KEY = 'yt-client:settings'
@@ -192,18 +203,22 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     seekHandle: coerceSeekHandle(stored.seekHandle),
     appIcon: coerceAppIcon(stored.appIcon),
     appIconChosen: stored.appIconChosen === true ? true : undefined,
+    playerBarLayout: coercePlayerBarLayout(stored.playerBarLayout),
+    playerMenuHidden: coercePlayerMenuHidden(stored.playerMenuHidden),
   }
 }
 
 const read = (): Settings => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
+    if (!raw) return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
     const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_SETTINGS }
+    if (!parsed || typeof parsed !== 'object') {
+      return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
+    }
     return coerce(parsed as Partial<Record<keyof Settings, unknown>>)
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
   }
 }
 
@@ -244,6 +259,8 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...('miniplayerPosition' in patch ? { miniplayerPosition: coerceMiniplayerPosition(patch.miniplayerPosition) } : {}),
     ...('seekHandle' in patch ? { seekHandle: coerceSeekHandle(patch.seekHandle) } : {}),
     ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
+    ...('playerBarLayout' in patch ? { playerBarLayout: coercePlayerBarLayout(patch.playerBarLayout) } : {}),
+    ...('playerMenuHidden' in patch ? { playerMenuHidden: coercePlayerMenuHidden(patch.playerMenuHidden) } : {}),
   }
   const hasCustomColor = 'customThemeColor' in patch
   const autoAppIcon = hasCustomColor && !('appIcon' in patch)
@@ -279,6 +296,13 @@ export const resetCustomAppearance = () =>
     seekHandle: { ...DEFAULT_SETTINGS.seekHandle },
     appIcon: DEFAULT_SETTINGS.appIcon,
     appIconChosen: undefined,
+  })
+
+/** Restores default player control bar layout and settings menu visibility. */
+export const resetPlayerCustomization = () =>
+  updateSettings({
+    playerBarLayout: cloneDefaultPlayerBarLayout(),
+    playerMenuHidden: [],
   })
 
 const prefersLight = () => {

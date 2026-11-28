@@ -32,6 +32,25 @@ const SECTION_ALIASES: Record<string, SettingsSectionId> = {
   'advanced-settings': 'advanced',
 }
 
+/** Identifier for a sub-tab within the `/settings` Customization section. */
+export type CustomizationTabId = 'appearance' | 'player'
+
+/** Ordered tabs displayed under `/settings?section=customization`. */
+export const CUSTOMIZATION_TABS: readonly { id: CustomizationTabId, label: string }[] = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'player', label: 'Player' },
+]
+
+/**
+ * Resolves the active sub-tab within `/settings?section=customization`, keeping
+ * `#custom-appearance` and default `/settings?section=customization` on the first tab.
+ */
+export const readCustomizationTab = (search: string, hash: string): CustomizationTabId => {
+  if (hash.replace(/^#/, '') === 'custom-appearance') return 'appearance'
+  const query = new URLSearchParams(search)
+  return query.get('tab') === 'player' ? 'player' : 'appearance'
+}
+
 /**
  * Resolves the active `/settings` section from query and hash parameters,
  * keeping legacy `?tab=appearance` and `#custom-appearance` deep links working.

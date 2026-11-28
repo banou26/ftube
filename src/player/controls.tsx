@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact'
 import type shaka from 'shaka-player'
 
 import { css } from '@emotion/react'
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preac
 import type { AudioTrack, CaptionPick, CaptionTrack, Storyboard, TranslationLanguage } from '../frame/protocol'
 import type { CaptionOption } from './caption-style'
 import type { PlayerChapter } from './chapters'
+import type { PlayerBarControlId, PlayerBarSide, PlayerSettingsMenuItemId } from './control-layout'
 import type { SleepTimer } from './sleep-timer'
 import type { SkipSegment } from './sponsorblock'
 import type { TheaterMode } from './theater'
@@ -20,6 +22,7 @@ import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
 import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from '../settings'
 import { CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
+import { PLAYER_SETTINGS_MENU_ITEMS } from './control-layout'
 import { buildFilmstripWindow, FILMSTRIP_PULL_DOWN_PX, FILMSTRIP_PULL_UP_PX, FILMSTRIP_TILE_HEIGHT, filmstripTimeDelta } from './filmstrip'
 import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from './fullscreen'
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
@@ -292,6 +295,7 @@ const style = css`
   .left {
     display: flex;
     align-items: center;
+    gap: 0.8rem;
     min-width: 0;
   }
 
@@ -372,11 +376,9 @@ const style = css`
     border-radius: 50%;
   }
 
-  .next {
-    margin-left: 0.8rem;
-  }
-
-  .next::after {
+  .next::after,
+  .left > .control.group:not(.play)::after,
+  .left > .menu-anchor > .control.group::after {
     inset: 0;
     border-radius: inherit;
   }
@@ -389,7 +391,6 @@ const style = css`
   .volume {
     display: flex;
     align-items: center;
-    margin-left: 1.2rem;
   }
 
   .volume .control {
@@ -424,7 +425,6 @@ const style = css`
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
-    margin-left: 0.8rem;
     padding: 0 1.6rem;
     font-size: 1.4rem;
     line-height: 4rem;
@@ -498,8 +498,14 @@ const style = css`
 
   .right {
     display: flex;
+    align-items: center;
     margin-left: 0.8rem;
     padding: 0 0.4rem;
+    min-width: 0;
+  }
+
+  .right > .group {
+    background: transparent;
   }
 
   .menu-anchor {
@@ -627,19 +633,25 @@ const style = css`
       border-radius: 1.8rem;
     }
 
+    .left {
+      gap: 0.6rem;
+    }
+
+    .left > .volume {
+      margin-left: 0;
+    }
+
     .play,
     .next,
     .volume,
-    .volume .control {
+    .volume .control,
+    .left > .control.group,
+    .left > .menu-anchor > .control.group {
       width: 3.6rem;
       height: 3.6rem;
       border-radius: 50%;
     }
 
-    .next,
-    .volume,
-    .time,
-    .live-badge,
     .right {
       margin-left: 0.6rem;
     }
@@ -682,10 +694,10 @@ const style = css`
 
   /* below 400 px, tighten gaps so an hour-long clock and PiP fit on iPhone widths; below 375 px, hide PiP */
   @container player (max-width: 400px) {
-    .next,
-    .volume,
-    .time,
-    .live-badge,
+    .left {
+      gap: 0.4rem;
+    }
+
     .right {
       margin-left: 0.4rem;
     }
@@ -1109,6 +1121,543 @@ export const PlayerControls = (
     setMenu('root')
   }
 
+  const barLayout = settings.playerBarLayout
+  const hiddenControls = new Set<PlayerBarControlId>(barLayout.hidden)
+  const hiddenMenuItems = new Set<PlayerSettingsMenuItemId>(settings.playerMenuHidden)
+
+  const isMenuEntryVisible = (id: PlayerSettingsMenuItemId): boolean => {
+    if (hiddenMenuItems.has(id)) return false
+    switch (id) {
+      case 'stableVolume':
+        return Boolean(hasDrc && onStableVolume)
+      case 'ambientMode':
+        return Boolean(onAmbientMode)
+      case 'annotations':
+        return Boolean(onAnnotations)
+      case 'pip':
+        return pipSupported
+      case 'audioTrack':
+        return Boolean(audioTracks.length > 1 && onAudioTrack)
+      case 'sleepTimer':
+        return settings.sleepTimerEnabled
+      case 'subtitles':
+      case 'playbackSpeed':
+      case 'quality':
+        return true
+    }
+  }
+
+  const hasAnyRootMenuItem = PLAYER_SETTINGS_MENU_ITEMS.some(item => isMenuEntryVisible(item.id))
+
+  useEffect(() => {
+    if (!menu) return
+    if (hiddenControls.has('settings') || !hasAnyRootMenuItem) {
+      setMenu(undefined)
+      return
+    }
+    if (menu === 'audio' && !isMenuEntryVisible('audioTrack')) setMenu(undefined)
+    else if (menu === 'speed' && !isMenuEntryVisible('playbackSpeed')) setMenu(undefined)
+    else if (menu === 'quality' && !isMenuEntryVisible('quality')) setMenu(undefined)
+    else if ((menu === 'captions' || menu === 'caption-translate' || menu === 'caption-options' || typeof menu === 'object') && !isMenuEntryVisible('subtitles')) {
+      setMenu(undefined)
+    }
+  }, [menu, settings.playerBarLayout, settings.playerMenuHidden, hasDrc, onStableVolume, onAmbientMode, onAnnotations, pipSupported, audioTracks.length, onAudioTrack, settings.sleepTimerEnabled])
+
+  const renderSettingsPopup = (popupAlign: 'start' | 'end') => {
+    if (menu === 'root') {
+      return (
+        <Popup label='Player settings' align={popupAlign} class='settings-menu'>
+          {isMenuEntryVisible('stableVolume') && onStableVolume
+            ? (
+              <MenuItem
+                icon={AudioLines}
+                role='menuitemcheckbox'
+                selected={stableVolume}
+                detail={stableVolume ? 'On' : 'Off'}
+                toggle
+                onSelect={() => onStableVolume(!stableVolume)}
+              >
+                Stable Volume
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('ambientMode') && onAmbientMode
+            ? (
+              <MenuItem
+                icon={Tv}
+                role='menuitemcheckbox'
+                selected={ambientMode}
+                detail={ambientMode ? 'On' : 'Off'}
+                toggle
+                onSelect={onAmbientMode}
+              >
+                Ambient mode
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('annotations') && onAnnotations
+            ? (
+              <MenuItem
+                icon={MessageSquareQuote}
+                role='menuitemcheckbox'
+                selected={annotations}
+                detail={annotations ? 'On' : 'Off'}
+                toggle
+                onSelect={onAnnotations}
+              >
+                Annotations
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('pip')
+            ? (
+              <MenuItem
+                icon={PictureInPicture2}
+                role='menuitemcheckbox'
+                selected={pip}
+                detail={pip ? 'On' : 'Off'}
+                toggle
+                onSelect={() => {
+                  togglePip()
+                  setMenu(undefined)
+                }}
+              >
+                Picture in picture
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('subtitles')
+            ? (
+              <MenuItem
+                icon={Captions}
+                detail={activeCaptionLabel ?? 'Off'}
+                disabled={captionTracks.length === 0}
+                submenu
+                onSelect={() => setMenu('captions')}
+              >
+                Subtitles
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('audioTrack') && onAudioTrack
+            ? (
+              <MenuItem
+                icon={Languages}
+                detail={activeAudioTrack?.label}
+                submenu
+                onSelect={() => setMenu('audio')}
+              >
+                Audio track
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('sleepTimer')
+            ? (
+              <MenuItem icon={Moon} detail={sleepDetail(sleepTimer, videoLeft)} submenu onSelect={() => setMenu('sleep')}>
+                Sleep timer
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('playbackSpeed')
+            ? (
+              <MenuItem icon={Gauge} detail={rateDetail(rate)} submenu onSelect={() => setMenu('speed')}>
+                Playback speed
+              </MenuItem>
+            )
+            : undefined}
+          {isMenuEntryVisible('quality')
+            ? (
+              <MenuItem
+                icon={SlidersHorizontal}
+                detail={resolvedQuality.detail}
+                disabled={heights.length === 0}
+                submenu
+                onSelect={() => setMenu('quality')}
+              >
+                Quality
+              </MenuItem>
+            )
+            : undefined}
+        </Popup>
+      )
+    }
+    if (menu === 'audio' && audioTracks.length > 1 && onAudioTrack) {
+      return (
+        <Popup label='Audio track' align={popupAlign} class='settings-menu'>
+          <MenuItem icon={ChevronLeft} onSelect={() => setMenu('root')}>Audio track</MenuItem>
+          {audioTracks.map(track => (
+            <MenuItem
+              key={track.id}
+              icon={audioTrackId === track.id ? Check : undefined}
+              detail={track.autoDubbed && !/auto/i.test(track.label) ? 'auto-dubbed' : undefined}
+              onSelect={() => {
+                onAudioTrack(track.id)
+                setMenu(undefined)
+              }}
+            >
+              {track.label}
+            </MenuItem>
+          ))}
+        </Popup>
+      )
+    }
+    if (menu === 'speed') {
+      return (
+        <Popup label='Playback speed' align={popupAlign} class='settings-menu speed-menu' onKeyDown={onSpeedKey}>
+          <div className='panel-header'>
+            <button type='button' className='panel-back' aria-label='Back to previous menu' onClick={() => setMenu('root')}>
+              <ChevronLeft size={24} strokeWidth={2} />
+            </button>
+            <span role='heading' aria-level={2}>Playback speed</span>
+          </div>
+          <div className='speed-picker'>
+            <SpeedPicker rate={rate} onRate={onRate} />
+          </div>
+        </Popup>
+      )
+    }
+    if (menu === 'captions') {
+      return (
+        <Popup label='Subtitles' align={popupAlign} class='settings-menu'>
+          <MenuItem
+            icon={caption === undefined ? Check : undefined}
+            onSelect={() => {
+              onCaption(undefined)
+              setMenu(undefined)
+            }}
+          >
+            Off
+          </MenuItem>
+          {captionTracks.map(track => (
+            <MenuItem
+              key={track.id}
+              icon={caption?.trackId === track.id && !caption.translateTo ? Check : undefined}
+              detail={track.auto ? 'auto' : undefined}
+              onSelect={() => {
+                onCaption({ trackId: track.id })
+                setMenu(undefined)
+              }}
+            >
+              {track.label}
+            </MenuItem>
+          ))}
+          {canTranslate
+            ? <MenuItem onSelect={() => setMenu('caption-translate')}>Auto-translate</MenuItem>
+            : undefined}
+          {caption?.translateTo && activeCaptionLabel
+            ? <MenuItem icon={Check} onSelect={() => setMenu(undefined)}>{activeCaptionLabel}</MenuItem>
+            : undefined}
+          <MenuItem onSelect={() => setMenu('caption-options')}>Options</MenuItem>
+        </Popup>
+      )
+    }
+    if (menu === 'caption-translate' && caption) {
+      return (
+        <Popup label='Auto-translate' align={popupAlign} class='settings-menu'>
+          <MenuItem icon={ChevronLeft} onSelect={() => setMenu('captions')}>Auto-translate</MenuItem>
+          {translationLanguages.map(language => (
+            <MenuItem
+              key={language.languageCode}
+              icon={caption.translateTo === language.languageCode ? Check : undefined}
+              onSelect={() => {
+                onCaption({ trackId: caption.trackId, translateTo: language.languageCode })
+                setMenu(undefined)
+              }}
+            >
+              {language.label}
+            </MenuItem>
+          ))}
+        </Popup>
+      )
+    }
+    if (menu === 'quality') {
+      return (
+        <Popup label='Quality' align={popupAlign} class='settings-menu'>
+          <MenuItem
+            icon={resolvedQuality.selected === 'auto' ? Check : undefined}
+            detail={resolvedQuality.activeLabel}
+            onSelect={() => {
+              onQuality('auto')
+              setMenu(undefined)
+            }}
+          >
+            Auto
+          </MenuItem>
+          {heights.map(height => (
+            <MenuItem
+              key={height}
+              icon={resolvedQuality.selected === height ? Check : undefined}
+              onSelect={() => {
+                onQuality(height)
+                setMenu(undefined)
+              }}
+            >
+              {`${height}p`}
+            </MenuItem>
+          ))}
+        </Popup>
+      )
+    }
+    if (settings.sleepTimerEnabled && menu === 'sleep') {
+      return (
+        <Popup label='Sleep timer' align={popupAlign} class='settings-menu'>
+          <MenuItem icon={sleepTimer === undefined ? Check : undefined} onSelect={() => pickSleep(undefined)}>
+            Off
+          </MenuItem>
+          {SLEEP_MINUTES.map(minutes => (
+            <MenuItem
+              key={minutes}
+              icon={typeof sleepTimer === 'object' && sleepTimer.minutes === minutes ? Check : undefined}
+              onSelect={() => pickSleep(minutes)}
+            >
+              {`${minutes} minutes`}
+            </MenuItem>
+          ))}
+          {!isLive && duration > 0
+            ? (
+              <MenuItem icon={sleepTimer === 'end' ? Check : undefined} detail={sleepDuration(videoLeft)} onSelect={() => pickSleep('end')}>
+                End of video
+              </MenuItem>
+            )
+            : undefined}
+        </Popup>
+      )
+    }
+    if (menu === 'caption-options') {
+      return (
+        <Popup label='Options' align={popupAlign} class='settings-menu'>
+          <MenuItem icon={ChevronLeft} onSelect={() => setMenu('captions')}>Options</MenuItem>
+          {CAPTION_OPTIONS.map(option => (
+            <MenuItem
+              key={option.key}
+              detail={option.choices.find(choice => choice.value === settings[option.key])?.label}
+              onSelect={() => setMenu(option)}
+            >
+              {option.label}
+            </MenuItem>
+          ))}
+          <MenuItem onSelect={() => updateSettings({
+            ...Object.fromEntries(CAPTION_OPTIONS.map(({ key }) => [key, DEFAULT_SETTINGS[key]])),
+            captionPosition: undefined,
+          })}>
+            Reset
+          </MenuItem>
+        </Popup>
+      )
+    }
+    if (typeof menu === 'object') {
+      return (
+        <Popup label={menu.label} align={popupAlign} class='settings-menu'>
+          <MenuItem icon={ChevronLeft} onSelect={() => setMenu('caption-options')}>{menu.label}</MenuItem>
+          {menu.choices.map(choice => (
+            <MenuItem
+              key={choice.value}
+              icon={settings[menu.key] === choice.value ? Check : undefined}
+              onSelect={() => updateSettings({ [menu.key]: choice.value })}
+            >
+              {choice.label}
+            </MenuItem>
+          ))}
+        </Popup>
+      )
+    }
+    return undefined
+  }
+
+  const renderBarControl = (id: PlayerBarControlId, side: PlayerBarSide): ComponentChildren => {
+    if (hiddenControls.has(id)) return undefined
+    const solo = side === 'left'
+    const popupAlign = side === 'left' ? 'start' : 'end'
+
+    switch (id) {
+      case 'play':
+        return (
+          <button
+            key={id}
+            type='button'
+            className='control group play'
+            data-control-id={id}
+            aria-label={state.ended ? 'Replay' : state.paused ? 'Play' : 'Pause'}
+            onClick={() => {
+              if (state.paused) {
+                void video.play().catch(() => {})
+                return
+              }
+              onUserPause?.()
+              video.pause()
+            }}
+          >
+            {state.ended
+              ? <RotateCcw size={22} strokeWidth={2} />
+              : state.paused ? <Play size={22} fill='currentColor' strokeWidth={0} /> : <Pause size={22} fill='currentColor' strokeWidth={0} />}
+          </button>
+        )
+      case 'next':
+        return onNext
+          ? (
+            <button key={id} type='button' className='control group next' data-control-id={id} aria-label='Next' onClick={onNext}>
+              <SkipForward size={22} fill='currentColor' strokeWidth={2} />
+            </button>
+          )
+          : undefined
+      case 'volume':
+        return <VolumeControl key={id} video={video} state={state} variant='bar' controlId={id} onWheelVolumeChange={onWheelVolumeChange} />
+      case 'time':
+        /* a live presentation timeline is the stream's own clock: the position reads like 3348:05:43 and the duration is 0 */
+        return isLive
+          ? (
+            <button
+              key={id}
+              type='button'
+              className='group live-badge'
+              data-control-id={id}
+              disabled={!behind}
+              aria-label={behind ? 'Skip ahead to live broadcast' : undefined}
+              onClick={() => {
+                if (!live) return
+                video.currentTime = live.end
+                if (video.paused) void video.play().catch(() => {})
+              }}
+            >
+              Live
+            </button>
+          )
+          : <span key={id} className='group time' data-control-id={id}><span className='current'>{clock(position)}</span> / {clock(duration)}</span>
+      case 'chapter':
+        return chapter && !isLive
+          ? (
+            <button key={id} type='button' className='group chapter' data-control-id={id} aria-label={chapter.title} onClick={onChapters}>
+              <span className='chapter-title'>{chapter.title}</span>
+              <ChevronRight size={20} strokeWidth={2} />
+            </button>
+          )
+          : undefined
+      case 'autoplay':
+        return onAutoplay && !isLive
+          ? (
+            <button
+              key={id}
+              type='button'
+              className={solo ? 'control group autoplay' : 'control autoplay'}
+              data-control-id={id}
+              role='switch'
+              aria-label='Autoplay'
+              aria-checked={autoplay === true}
+              onClick={() => onAutoplay(!autoplay)}
+            >
+              <span className='autoplay-track'>
+                <span className='autoplay-knob'>
+                  {autoplay ? <Play size={9} fill='currentColor' strokeWidth={0} /> : <Pause size={9} fill='currentColor' strokeWidth={0} />}
+                </span>
+              </span>
+            </button>
+          )
+          : undefined
+      case 'captions':
+        return captionTracks.length > 0
+          ? (
+            <button
+              key={id}
+              type='button'
+              className={solo ? 'control group' : 'control'}
+              data-control-id={id}
+              aria-label={caption ? 'Turn off captions' : 'Turn on captions'}
+              aria-pressed={caption !== undefined}
+              onClick={onToggleCaption}
+            >
+              {caption ? <Captions size={24} strokeWidth={1.8} /> : <CaptionsOff size={24} strokeWidth={1.8} />}
+            </button>
+          )
+          : undefined
+      case 'settings':
+        if (!hasAnyRootMenuItem) return undefined
+        return (
+          <div key={id} className='menu-anchor' data-control-id={id} ref={menuRef}>
+            <button
+              ref={menuTriggerRef}
+              type='button'
+              className={solo ? 'control group' : 'control'}
+              aria-label='Settings'
+              aria-haspopup='menu'
+              aria-expanded={menu !== undefined}
+              onClick={() => setMenu(value => (value === undefined ? 'root' : undefined))}
+            >
+              <Settings size={24} strokeWidth={1.8} />
+              {qualityBadge
+                ? <span className='quality-badge' data-quality-badge={qualityBadge} aria-hidden='true'>{qualityBadge}</span>
+                : undefined}
+            </button>
+            {renderSettingsPopup(popupAlign)}
+          </div>
+        )
+      case 'pip':
+        return pipSupported
+          ? (
+            <button
+              key={id}
+              type='button'
+              className={solo ? 'control group pip' : 'control pip'}
+              data-control-id={id}
+              aria-label={pip ? 'Exit picture in picture' : 'Picture in picture'}
+              aria-pressed={pip}
+              onClick={togglePip}
+            >
+              <PictureInPicture2 size={24} strokeWidth={1.8} />
+            </button>
+          )
+          : undefined
+      case 'theater':
+        return (
+          <button
+            key={id}
+            type='button'
+            className={solo ? 'control group theater-toggle' : 'control theater-toggle'}
+            data-control-id={id}
+            aria-label='Theater mode'
+            aria-pressed={theater !== 'default'}
+            data-theater-mode={theater}
+            title={theater === 'default' ? 'Theater mode (t)' : theater === 'theater' ? 'Fullscreen theater (t)' : 'Default view (t)'}
+            onClick={onTheater}
+          >
+            {/* Three silhouettes track Default -> YouTube theater -> Fullscreen theater */}
+            <svg width='24' height='24' viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='1.8'>
+              {theater === 'fullscreen'
+                ? (
+                  <>
+                    <rect x='2' y='3' width='20' height='18' rx='1.5' />
+                    <rect x='5' y='6' width='14' height='12' rx='1' fill='currentColor' fillOpacity='0.28' />
+                  </>
+                )
+                : theater === 'theater'
+                  ? (
+                    <>
+                      <rect x='2' y='5' width='20' height='14' rx='1.5' />
+                      <rect x='6' y='8.5' width='12' height='7' rx='1' />
+                    </>
+                  )
+                  : <rect x='2' y='6' width='20' height='12' rx='1.5' />}
+            </svg>
+          </button>
+        )
+      case 'fullscreen':
+        return (
+          <button
+            key={id}
+            type='button'
+            className={solo ? 'control group' : 'control'}
+            data-control-id={id}
+            aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+            onClick={toggleFullscreen}
+          >
+            {fullscreen ? <Minimize size={24} strokeWidth={1.8} /> : <Maximize size={24} strokeWidth={1.8} />}
+          </button>
+        )
+    }
+  }
+
+  const leftItems = barLayout.left.map(id => renderBarControl(id, 'left')).filter((node): node is ComponentChildren => node !== undefined)
+  const rightItems = barLayout.right.map(id => renderBarControl(id, 'right')).filter((node): node is ComponentChildren => node !== undefined)
+
   return (
     <div
       ref={controlsRef}
@@ -1237,425 +1786,18 @@ export const PlayerControls = (
         )
         : (
           <div className='bar'>
-        <div className='left'>
-          <button
-            type='button'
-            className='control group play'
-            aria-label={state.ended ? 'Replay' : state.paused ? 'Play' : 'Pause'}
-            onClick={() => {
-              if (state.paused) {
-                void video.play().catch(() => {})
-                return
-              }
-              onUserPause?.()
-              video.pause()
-            }}
-          >
-            {state.ended
-              ? <RotateCcw size={22} strokeWidth={2} />
-              : state.paused ? <Play size={22} fill='currentColor' strokeWidth={0} /> : <Pause size={22} fill='currentColor' strokeWidth={0} />}
-          </button>
-          {onNext ? <button type='button' className='control group next' aria-label='Next' onClick={onNext}><SkipForward size={22} fill='currentColor' strokeWidth={2} /></button> : undefined}
-          <VolumeControl video={video} state={state} variant='bar' onWheelVolumeChange={onWheelVolumeChange} />
-          {/* a live presentation timeline is the stream's own clock: the position reads like 3348:05:43 and the duration is 0 */}
-          {isLive
-            ? (
-              <button
-                type='button'
-                className='group live-badge'
-                disabled={!behind}
-                aria-label={behind ? 'Skip ahead to live broadcast' : undefined}
-                onClick={() => {
-                  if (!live) return
-                  video.currentTime = live.end
-                  if (video.paused) void video.play().catch(() => {})
-                }}
-              >
-                Live
-              </button>
-            )
-            : <span className='group time'><span className='current'>{clock(position)}</span> / {clock(duration)}</span>}
-          {chapter && !isLive
-            ? (
-              <button type='button' className='group chapter' aria-label={chapter.title} onClick={onChapters}>
-                <span className='chapter-title'>{chapter.title}</span>
-                <ChevronRight size={20} strokeWidth={2} />
-              </button>
-            )
-            : undefined}
-        </div>
-        <span className='spacer' />
-        <div className='group right'>
-          {onAutoplay && !isLive
-            ? (
-              <button
-                type='button'
-                className='control autoplay'
-                role='switch'
-                aria-label='Autoplay'
-                aria-checked={autoplay === true}
-                onClick={() => onAutoplay(!autoplay)}
-              >
-                <span className='autoplay-track'>
-                  <span className='autoplay-knob'>
-                    {autoplay ? <Play size={9} fill='currentColor' strokeWidth={0} /> : <Pause size={9} fill='currentColor' strokeWidth={0} />}
-                  </span>
-                </span>
-              </button>
-            )
-            : undefined}
-          {captionTracks.length > 0
-            ? (
-              <button
-                type='button'
-                className='control'
-                aria-label={caption ? 'Turn off captions' : 'Turn on captions'}
-                aria-pressed={caption !== undefined}
-                onClick={onToggleCaption}
-              >
-                {caption ? <Captions size={24} strokeWidth={1.8} /> : <CaptionsOff size={24} strokeWidth={1.8} />}
-              </button>
-            )
-            : undefined}
-          <div className='menu-anchor' ref={menuRef}>
-            <button
-              ref={menuTriggerRef}
-              type='button'
-              className='control'
-              aria-label='Settings'
-              aria-haspopup='menu'
-              aria-expanded={menu !== undefined}
-              onClick={() => setMenu(value => (value === undefined ? 'root' : undefined))}
-            >
-              <Settings size={24} strokeWidth={1.8} />
-              {qualityBadge
-                ? <span className='quality-badge' data-quality-badge={qualityBadge} aria-hidden='true'>{qualityBadge}</span>
-                : undefined}
-            </button>
-            {menu === 'root'
+            <div className='left'>
+              {leftItems}
+            </div>
+            <span className='spacer' />
+            {rightItems.length > 0
               ? (
-                <Popup label='Player settings' class='settings-menu'>
-                  {hasDrc && onStableVolume
-                    ? (
-                      <MenuItem
-                        icon={AudioLines}
-                        role='menuitemcheckbox'
-                        selected={stableVolume}
-                        detail={stableVolume ? 'On' : 'Off'}
-                        toggle
-                        onSelect={() => onStableVolume(!stableVolume)}
-                      >
-                        Stable Volume
-                      </MenuItem>
-                    )
-                    : undefined}
-                  {onAmbientMode
-                    ? (
-                      <MenuItem
-                        icon={Tv}
-                        role='menuitemcheckbox'
-                        selected={ambientMode}
-                        detail={ambientMode ? 'On' : 'Off'}
-                        toggle
-                        onSelect={onAmbientMode}
-                      >
-                        Ambient mode
-                      </MenuItem>
-                    )
-                    : undefined}
-                  {onAnnotations
-                    ? (
-                      <MenuItem
-                        icon={MessageSquareQuote}
-                        role='menuitemcheckbox'
-                        selected={annotations}
-                        detail={annotations ? 'On' : 'Off'}
-                        toggle
-                        onSelect={onAnnotations}
-                      >
-                        Annotations
-                      </MenuItem>
-                    )
-                    : undefined}
-                  {pipSupported
-                    ? (
-                      <MenuItem
-                        icon={PictureInPicture2}
-                        role='menuitemcheckbox'
-                        selected={pip}
-                        detail={pip ? 'On' : 'Off'}
-                        toggle
-                        onSelect={() => {
-                          togglePip()
-                          setMenu(undefined)
-                        }}
-                      >
-                        Picture in picture
-                      </MenuItem>
-                    )
-                    : undefined}
-                  <MenuItem
-                    icon={Captions}
-                    detail={activeCaptionLabel ?? 'Off'}
-                    disabled={captionTracks.length === 0}
-                    submenu
-                    onSelect={() => setMenu('captions')}
-                  >
-                    Subtitles
-                  </MenuItem>
-                  {audioTracks.length > 1 && onAudioTrack
-                    ? (
-                      <MenuItem
-                        icon={Languages}
-                        detail={activeAudioTrack?.label}
-                        submenu
-                        onSelect={() => setMenu('audio')}
-                      >
-                        Audio track
-                      </MenuItem>
-                    )
-                    : undefined}
-                  {settings.sleepTimerEnabled
-                    ? (
-                      <MenuItem icon={Moon} detail={sleepDetail(sleepTimer, videoLeft)} submenu onSelect={() => setMenu('sleep')}>
-                        Sleep timer
-                      </MenuItem>
-                    )
-                    : undefined}
-                  <MenuItem icon={Gauge} detail={rateDetail(rate)} submenu onSelect={() => setMenu('speed')}>
-                    Playback speed
-                  </MenuItem>
-                  <MenuItem
-                    icon={SlidersHorizontal}
-                    detail={resolvedQuality.detail}
-                    disabled={heights.length === 0}
-                    submenu
-                    onSelect={() => setMenu('quality')}
-                  >
-                    Quality
-                  </MenuItem>
-                </Popup>
+                <div className='group right'>
+                  {rightItems}
+                </div>
               )
-              : menu === 'audio' && audioTracks.length > 1 && onAudioTrack
-                ? (
-                  <Popup label='Audio track' class='settings-menu'>
-                    <MenuItem icon={ChevronLeft} onSelect={() => setMenu('root')}>Audio track</MenuItem>
-                    {audioTracks.map(track => (
-                      <MenuItem
-                        key={track.id}
-                        icon={audioTrackId === track.id ? Check : undefined}
-                        detail={track.autoDubbed && !/auto/i.test(track.label) ? 'auto-dubbed' : undefined}
-                        onSelect={() => {
-                          onAudioTrack(track.id)
-                          setMenu(undefined)
-                        }}
-                      >
-                        {track.label}
-                      </MenuItem>
-                    ))}
-                  </Popup>
-                )
-              : menu === 'speed'
-                ? (
-                  <Popup label='Playback speed' class='settings-menu speed-menu' onKeyDown={onSpeedKey}>
-                    <div className='panel-header'>
-                      <button type='button' className='panel-back' aria-label='Back to previous menu' onClick={() => setMenu('root')}>
-                        <ChevronLeft size={24} strokeWidth={2} />
-                      </button>
-                      <span role='heading' aria-level={2}>Playback speed</span>
-                    </div>
-                    <div className='speed-picker'>
-                      <SpeedPicker rate={rate} onRate={onRate} />
-                    </div>
-                  </Popup>
-                )
-                : menu === 'captions'
-                  ? (
-                    <Popup label='Subtitles' class='settings-menu'>
-                      <MenuItem
-                        icon={caption === undefined ? Check : undefined}
-                        onSelect={() => {
-                          onCaption(undefined)
-                          setMenu(undefined)
-                        }}
-                      >
-                        Off
-                      </MenuItem>
-                      {captionTracks.map(track => (
-                        <MenuItem
-                          key={track.id}
-                          icon={caption?.trackId === track.id && !caption.translateTo ? Check : undefined}
-                          detail={track.auto ? 'auto' : undefined}
-                          onSelect={() => {
-                            onCaption({ trackId: track.id })
-                            setMenu(undefined)
-                          }}
-                        >
-                          {track.label}
-                        </MenuItem>
-                      ))}
-                      {canTranslate
-                        ? <MenuItem onSelect={() => setMenu('caption-translate')}>Auto-translate</MenuItem>
-                        : undefined}
-                      {caption?.translateTo && activeCaptionLabel
-                        ? <MenuItem icon={Check} onSelect={() => setMenu(undefined)}>{activeCaptionLabel}</MenuItem>
-                        : undefined}
-                      <MenuItem onSelect={() => setMenu('caption-options')}>Options</MenuItem>
-                    </Popup>
-                  )
-                  : menu === 'caption-translate' && caption
-                    ? (
-                      <Popup label='Auto-translate' class='settings-menu'>
-                        <MenuItem icon={ChevronLeft} onSelect={() => setMenu('captions')}>Auto-translate</MenuItem>
-                        {translationLanguages.map(language => (
-                          <MenuItem
-                            key={language.languageCode}
-                            icon={caption.translateTo === language.languageCode ? Check : undefined}
-                            onSelect={() => {
-                              onCaption({ trackId: caption.trackId, translateTo: language.languageCode })
-                              setMenu(undefined)
-                            }}
-                          >
-                            {language.label}
-                          </MenuItem>
-                        ))}
-                      </Popup>
-                    )
-                  : menu === 'quality'
-                    ? (
-                      <Popup label='Quality' class='settings-menu'>
-                        <MenuItem
-                          icon={resolvedQuality.selected === 'auto' ? Check : undefined}
-                          detail={resolvedQuality.activeLabel}
-                          onSelect={() => {
-                            onQuality('auto')
-                            setMenu(undefined)
-                          }}
-                        >
-                          Auto
-                        </MenuItem>
-                        {heights.map(height => (
-                          <MenuItem
-                            key={height}
-                            icon={resolvedQuality.selected === height ? Check : undefined}
-                            onSelect={() => {
-                              onQuality(height)
-                              setMenu(undefined)
-                            }}
-                          >
-                            {`${height}p`}
-                          </MenuItem>
-                        ))}
-                      </Popup>
-                    )
-                    : settings.sleepTimerEnabled && menu === 'sleep'
-                      ? (
-                        <Popup label='Sleep timer' class='settings-menu'>
-                          <MenuItem icon={sleepTimer === undefined ? Check : undefined} onSelect={() => pickSleep(undefined)}>
-                            Off
-                          </MenuItem>
-                          {SLEEP_MINUTES.map(minutes => (
-                            <MenuItem
-                              key={minutes}
-                              icon={typeof sleepTimer === 'object' && sleepTimer.minutes === minutes ? Check : undefined}
-                              onSelect={() => pickSleep(minutes)}
-                            >
-                              {`${minutes} minutes`}
-                            </MenuItem>
-                          ))}
-                          {!isLive && duration > 0
-                            ? (
-                              <MenuItem icon={sleepTimer === 'end' ? Check : undefined} detail={sleepDuration(videoLeft)} onSelect={() => pickSleep('end')}>
-                                End of video
-                              </MenuItem>
-                            )
-                            : undefined}
-                        </Popup>
-                      )
-                      : menu === 'caption-options'
-                        ? (
-                          <Popup label='Options' class='settings-menu'>
-                            <MenuItem icon={ChevronLeft} onSelect={() => setMenu('captions')}>Options</MenuItem>
-                            {CAPTION_OPTIONS.map(option => (
-                              <MenuItem
-                                key={option.key}
-                                detail={option.choices.find(choice => choice.value === settings[option.key])?.label}
-                                onSelect={() => setMenu(option)}
-                              >
-                                {option.label}
-                              </MenuItem>
-                            ))}
-                            <MenuItem onSelect={() => updateSettings({
-                              ...Object.fromEntries(CAPTION_OPTIONS.map(({ key }) => [key, DEFAULT_SETTINGS[key]])),
-                              captionPosition: undefined,
-                            })}>
-                              Reset
-                            </MenuItem>
-                          </Popup>
-                        )
-                        : typeof menu === 'object'
-                          ? (
-                            <Popup label={menu.label} class='settings-menu'>
-                              <MenuItem icon={ChevronLeft} onSelect={() => setMenu('caption-options')}>{menu.label}</MenuItem>
-                              {menu.choices.map(choice => (
-                                <MenuItem
-                                  key={choice.value}
-                                  icon={settings[menu.key] === choice.value ? Check : undefined}
-                                  onSelect={() => updateSettings({ [menu.key]: choice.value })}
-                                >
-                                  {choice.label}
-                                </MenuItem>
-                              ))}
-                            </Popup>
-                          )
-                          : undefined}
+              : undefined}
           </div>
-          {pipSupported
-            ? (
-              <button
-                type='button'
-                className='control pip'
-                aria-label={pip ? 'Exit picture in picture' : 'Picture in picture'}
-                aria-pressed={pip}
-                onClick={togglePip}
-              >
-                <PictureInPicture2 size={24} strokeWidth={1.8} />
-              </button>
-            )
-            : undefined}
-          <button
-            type='button'
-            className='control theater-toggle'
-            aria-label='Theater mode'
-            aria-pressed={theater !== 'default'}
-            data-theater-mode={theater}
-            title={theater === 'default' ? 'Theater mode (t)' : theater === 'theater' ? 'Fullscreen theater (t)' : 'Default view (t)'}
-            onClick={onTheater}
-          >
-            {/* Three silhouettes track Default -> YouTube theater -> Fullscreen theater */}
-            <svg width='24' height='24' viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='1.8'>
-              {theater === 'fullscreen'
-                ? (
-                  <>
-                    <rect x='2' y='3' width='20' height='18' rx='1.5' />
-                    <rect x='5' y='6' width='14' height='12' rx='1' fill='currentColor' fillOpacity='0.28' />
-                  </>
-                )
-                : theater === 'theater'
-                  ? (
-                    <>
-                      <rect x='2' y='5' width='20' height='14' rx='1.5' />
-                      <rect x='6' y='8.5' width='12' height='7' rx='1' />
-                    </>
-                  )
-                  : <rect x='2' y='6' width='20' height='12' rx='1.5' />}
-            </svg>
-          </button>
-          <button type='button' className='control' aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} onClick={toggleFullscreen}>
-            {fullscreen ? <Minimize size={24} strokeWidth={1.8} /> : <Maximize size={24} strokeWidth={1.8} />}
-          </button>
-        </div>
-      </div>
         )}
     </div>
   )

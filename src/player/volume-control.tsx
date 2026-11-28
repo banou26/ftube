@@ -94,12 +94,13 @@ export type VolumeControlProps = {
   video: HTMLVideoElement
   state: { volume: number, muted: boolean }
   variant: 'bar' | 'mini'
+  controlId?: string
   onAdjustingChange?: (adjusting: boolean) => void
   onWheelVolumeChange?: (next: { volume: number, muted: boolean }) => void
 }
 
 /** Shared mute toggle and volume slider for both the full player bar and docked miniplayer. */
-export const VolumeControl = ({ video, state, variant, onAdjustingChange, onWheelVolumeChange }: VolumeControlProps) => {
+export const VolumeControl = ({ video, state, variant, controlId, onAdjustingChange, onWheelVolumeChange }: VolumeControlProps) => {
   const rootRef = useRef<HTMLDivElement>(null)
   const onWheelRef = useRef(onWheelVolumeChange)
   onWheelRef.current = onWheelVolumeChange
@@ -169,7 +170,7 @@ export const VolumeControl = ({ video, state, variant, onAdjustingChange, onWhee
   }
 
   return (
-    <div ref={rootRef} className='group volume'>
+    <div ref={rootRef} className='group volume' data-control-id={controlId}>
       {button}
       <div className='volume-slider'>
         {slider}
