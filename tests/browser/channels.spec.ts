@@ -142,7 +142,7 @@ test('own channel page hides Subscribe and shows Customize channel and Manage vi
       `https://studio.youtube.com/channel/${id}/videos`,
     )
     await expect(harness.getByRole('button', { name: /^Subscribe/ })).toHaveCount(0)
-    await expect(harness.getByRole('button', { name: 'Groups' })).toHaveCount(0)
+    await expect(harness.getByRole('button', { name: /^(Add to group|Edit groups|Groups)$/ })).toHaveCount(0)
   }
 
   await page.goto('/privacy')
@@ -152,7 +152,7 @@ test('own channel page hides Subscribe and shows Customize channel and Manage vi
   }, '/tests/browser/fixtures/menu-data-harness.tsx')
   const other = page.locator('[data-channel-header-harness="other"]')
   await expect(other.getByRole('button', { name: 'Subscribe', exact: true })).toBeVisible()
-  await expect(other.getByRole('button', { name: 'Groups', exact: true })).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Add to group', exact: true })).toBeVisible()
   await expect(other.getByRole('link', { name: 'Customize channel' })).toHaveCount(0)
 })
 

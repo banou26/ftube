@@ -37,7 +37,7 @@ test('undoes adding a channel to a group via toast Undo button and Ctrl+Z, while
 
   // 1. Add Beta Music to Tech via Groups menu -> disappears from ungrouped -> click toast Undo
   const betaRow = rows.filter({ hasText: 'Beta Music' })
-  await betaRow.getByRole('button', { name: 'Groups', exact: true }).click()
+  await betaRow.getByRole('button', { name: 'Add to group', exact: true }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Tech' }).click()
   await page.keyboard.press('Escape')
   await expect(rows).toHaveCount(1)
@@ -49,7 +49,7 @@ test('undoes adding a channel to a group via toast Undo button and Ctrl+Z, while
   await expect(rows.filter({ hasText: 'Beta Music' })).toBeVisible()
 
   // 2. Add Beta Music again -> focus search input and press Ctrl/Meta+Z (must NOT undo group edit)
-  await rows.filter({ hasText: 'Beta Music' }).getByRole('button', { name: 'Groups', exact: true }).click()
+  await rows.filter({ hasText: 'Beta Music' }).getByRole('button', { name: 'Add to group', exact: true }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Tech' }).click()
   await page.keyboard.press('Escape')
   await expect(rows).toHaveCount(1)

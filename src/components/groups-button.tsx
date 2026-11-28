@@ -3,12 +3,14 @@ import type { Group, GroupChannel } from '../groups/store'
 
 import { css } from '@emotion/react'
 import { FolderCheck, FolderPlus, Plus, Sparkles, Square, SquareCheck } from 'lucide-react'
-import { useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 
 import { gql } from '../generated'
-import { groupStore, groupTreeOrder, useGroups } from '../groups/store'
+import { buildGroupPickerEntries, groupButtonLabel } from '../groups/picker'
+import { groupStore, useGroups } from '../groups/store'
 import { suggestGroups } from '../groups/suggest'
+import { useSession } from '../session'
 import { showUndoableToast } from '../undo'
 import GroupDialog from './group-dialog'
 import Dialog from './ui/dialog'
@@ -32,6 +34,7 @@ const triggerStyle = css`
   color: var(--text-primary);
   font-size: 1.4rem;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s ease;
 
@@ -41,10 +44,65 @@ const triggerStyle = css`
 `
 
 const panelStyle = css`
-  min-width: 24rem;
+  min-width: 26rem;
+  max-width: min(36rem, calc(100vw - 1.6rem));
 
   .emoji {
     margin-right: 0.8rem;
+  }
+
+  .search-wrap {
+    padding: 0.4rem 1.2rem 0.8rem;
+  }
+
+  .search {
+    width: 100%;
+    height: 3.4rem;
+    padding: 0 1rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.8rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 1.3rem;
+  }
+
+  .search:focus {
+    outline: none;
+    border-color: var(--accent-focus);
+  }
+
+  .group-list {
+    max-height: 24rem;
+    overflow-y: auto;
+  }
+
+  .group-row {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0.4rem 0;
+  }
+
+  .group-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .group-path {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .picker-note {
+    margin: 0;
+    padding: 0.6rem 1.6rem;
+    font-size: 1.3rem;
+    line-height: 1.8rem;
+    color: var(--text-secondary);
   }
 `
 
@@ -52,6 +110,23 @@ const dialogStyle = css`
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+
+  .search {
+    width: 100%;
+    height: 3.6rem;
+    margin-bottom: 0.4rem;
+    padding: 0 1rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.8rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 1.4rem;
+  }
+
+  .search:focus {
+    outline: none;
+    border-color: var(--accent-focus);
+  }
 
   .section-title {
     padding: 0.4rem 0.8rem;
@@ -72,7 +147,7 @@ const dialogStyle = css`
     align-items: center;
     gap: 1.2rem;
     min-height: 4rem;
-    padding: 0 0.8rem;
+    padding: 0.4rem 0.8rem;
     border: none;
     border-radius: 0.8rem;
     background: transparent;
@@ -96,6 +171,35 @@ const dialogStyle = css`
     min-width: 0;
   }
 
+  .group-row {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0.2rem 0;
+  }
+
+  .group-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .group-path {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .picker-note {
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    font-size: 1.3rem;
+    line-height: 1.8rem;
+    color: var(--text-secondary);
+  }
+
   .detail {
     font-size: 1.2rem;
     color: var(--text-secondary);
@@ -110,6 +214,19 @@ const dialogStyle = css`
 
 const includes = (group: Group, channelId: string) => group.channels.some(kept => kept.id === channelId)
 
+const emptyPickerMessage = (ready: boolean, signedIn: boolean) =>
+  ready && !signedIn
+    ? 'No sign-in needed. Create a group below to add this channel.'
+    : 'No groups yet. Create a group below to add this channel.'
+
+const onSearchKeyDown = (event: KeyboardEvent) => {
+  if (event.key !== 'ArrowDown') return
+  event.preventDefault()
+  const menu = (event.currentTarget as HTMLElement).closest('[role="menu"]')
+  const firstItem = menu?.querySelector<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')
+  firstItem?.focus()
+}
+
 const useChannelGroups = (
   { channel, hints, active }: {
     channel: GroupChannel
@@ -117,9 +234,16 @@ const useChannelGroups = (
     active: boolean
   },
 ) => {
+  const { signedIn, ready } = useSession()
   const groups = useGroups()
+  const [filter, setFilter] = useState('')
   const [tagsRequested, setTagsRequested] = useState(false)
   const [draft, setDraft] = useState<{ name?: string, emoji?: string } | undefined>(undefined)
+
+  useEffect(() => {
+    if (!active) setFilter('')
+  }, [active])
+
   const [{ data: tagsData, fetching: tagsFetching }] = useQuery({
     query: CHANNEL_TAGS_QUERY,
     variables: { id: channel.id },
@@ -143,6 +267,8 @@ const useChannelGroups = (
     },
     [channel.id, channel.name, hints?.handle, hints?.description, hints?.isVerifiedArtist, hints?.tags, tagsData?.channelTags, tagsFetching, groups],
   )
+  const entries = useMemo(() => buildGroupPickerEntries(groups, channel.id, filter), [groups, channel.id, filter])
+  const buttonLabel = groupButtonLabel(groups, channel.id)
 
   const onToggle = (group: Group) => {
     const wasIncluded = includes(group, channel.id)
@@ -168,7 +294,13 @@ const useChannelGroups = (
   }
 
   return {
+    signedIn,
+    ready,
     groups,
+    entries,
+    filter,
+    setFilter,
+    buttonLabel,
     suggestions,
     draft,
     setDraft,
@@ -190,11 +322,24 @@ export const GroupsDialog = (
     hints?: Omit<ChannelGroupHints, 'id' | 'name'>
   },
 ) => {
-  const { groups, suggestions, draft, setDraft, onToggle, onAddSuggested } = useChannelGroups({
+  const {
+    signedIn,
+    ready,
+    groups,
+    entries,
+    filter,
+    setFilter,
+    suggestions,
+    draft,
+    setDraft,
+    onToggle,
+    onAddSuggested,
+  } = useChannelGroups({
     channel,
     hints,
     active: open,
   })
+  const isFiltering = filter.trim().length > 0
 
   if (!open) return null
 
@@ -217,7 +362,19 @@ export const GroupsDialog = (
   return (
     <Dialog title='Groups' onClose={onClose}>
       <div css={dialogStyle}>
-        {suggestions.length > 0
+        {groups.length > 0
+          ? (
+            <input
+              className='search'
+              type='search'
+              value={filter}
+              placeholder='Search groups'
+              aria-label='Filter groups'
+              onInput={(event: Event) => setFilter((event.currentTarget as HTMLInputElement).value)}
+            />
+          )
+          : undefined}
+        {!isFiltering && suggestions.length > 0
           ? (
             <>
               <div className='section-title'>Suggested</div>
@@ -259,29 +416,41 @@ export const GroupsDialog = (
             </>
           )
           : undefined}
-        <div className='list'>
-          {groupTreeOrder(groups).map(({ group, depth }) => {
-            const checked = includes(group, channel.id)
-            return (
-              <button
-                type='button'
-                key={group.id}
-                className='item'
-                role='checkbox'
-                aria-checked={checked}
-                onClick={() => onToggle(group)}
-              >
-                {checked
-                  ? <SquareCheck size={20} strokeWidth={1.5} />
-                  : <Square size={20} strokeWidth={1.5} />}
-                <span className='title' style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.4}rem` } : undefined}>
-                  <span className='emoji' aria-hidden='true'>{group.emoji}</span>
-                  {group.name}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        {groups.length === 0
+          ? <p className='picker-note' role='status'>{emptyPickerMessage(ready, signedIn)}</p>
+          : (
+            <div className='list'>
+              {entries.length === 0
+                ? <p className='picker-note' role='status'>No matching groups</p>
+                : entries.map((entry) => (
+                  <button
+                    type='button'
+                    key={entry.group.id}
+                    className='item'
+                    role='checkbox'
+                    aria-checked={entry.checked}
+                    aria-label={entry.path}
+                    onClick={() => onToggle(entry.group)}
+                  >
+                    {entry.checked
+                      ? <SquareCheck size={20} strokeWidth={1.5} />
+                      : <Square size={20} strokeWidth={1.5} />}
+                    <span className='title'>
+                      <span
+                        className='group-row'
+                        style={!isFiltering && entry.depth > 0 ? { paddingLeft: `${Math.min(entry.depth, 4) * 1.4}rem` } : undefined}
+                      >
+                        <span className='group-name'>
+                          <span className='emoji' aria-hidden='true'>{entry.group.emoji}</span>
+                          {entry.group.name}
+                        </span>
+                        {entry.parentPath ? <span className='group-path'>{entry.parentPath}</span> : undefined}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+            </div>
+          )}
         {groups.length > 0 ? <div className='divider' /> : undefined}
         <button type='button' className='item' onClick={() => setDraft({})}>
           <Plus size={20} strokeWidth={1.5} />
@@ -300,18 +469,33 @@ export const GroupsButton = (
   },
 ) => {
   const [menuOpen, setMenuOpen] = useState(false)
-  const { groups, suggestions, draft, setDraft, setTagsRequested, onToggle, onAddSuggested } = useChannelGroups({
+  const {
+    signedIn,
+    ready,
+    groups,
+    entries,
+    filter,
+    setFilter,
+    buttonLabel,
+    suggestions,
+    draft,
+    setDraft,
+    setTagsRequested,
+    onToggle,
+    onAddSuggested,
+  } = useChannelGroups({
     channel,
     hints,
     active: menuOpen,
   })
-  const inAny = groups.some(group => includes(group, channel.id))
+  const isFiltering = filter.trim().length > 0
+  const inAny = buttonLabel === 'Edit groups'
   const Icon = inAny ? FolderCheck : FolderPlus
 
   return (
     <>
       <Menu
-        label='Groups'
+        label={buttonLabel}
         align='start'
         onOpenChange={setMenuOpen}
         trigger={(
@@ -322,12 +506,27 @@ export const GroupsButton = (
             onFocus={() => setTagsRequested(true)}
           >
             <Icon size={18} strokeWidth={1.5} />
-            Groups
+            {buttonLabel}
           </button>
         )}
       >
         <div css={panelStyle} role='presentation'>
-          {suggestions.length > 0
+          {groups.length > 0
+            ? (
+              <div className='search-wrap'>
+                <input
+                  className='search'
+                  type='search'
+                  value={filter}
+                  placeholder='Search groups'
+                  aria-label='Filter groups'
+                  onInput={(event: Event) => setFilter((event.currentTarget as HTMLInputElement).value)}
+                  onKeyDown={onSearchKeyDown}
+                />
+              </div>
+            )
+            : undefined}
+          {!isFiltering && suggestions.length > 0
             ? (
               <>
                 <MenuSection title='Suggested'>
@@ -368,20 +567,34 @@ export const GroupsButton = (
               </>
             )
             : undefined}
-          {groupTreeOrder(groups).map(({ group, depth }) => (
-            <MenuItem
-              key={group.id}
-              label={(
-                <span style={depth > 0 ? { paddingLeft: `${Math.min(depth, 4) * 1.4}rem` } : undefined}>
-                  <span className='emoji' aria-hidden='true'>{group.emoji}</span>
-                  {group.name}
-                </span>
-              )}
-              ariaLabel={group.name}
-              checked={includes(group, channel.id)}
-              onSelect={() => onToggle(group)}
-            />
-          ))}
+          {groups.length === 0
+            ? <p className='picker-note' role='status'>{emptyPickerMessage(ready, signedIn)}</p>
+            : (
+              <div className='group-list'>
+                {entries.length === 0
+                  ? <p className='picker-note' role='status'>No matching groups</p>
+                  : entries.map(entry => (
+                    <MenuItem
+                      key={entry.group.id}
+                      label={(
+                        <span
+                          className='group-row'
+                          style={!isFiltering && entry.depth > 0 ? { paddingLeft: `${Math.min(entry.depth, 4) * 1.4}rem` } : undefined}
+                        >
+                          <span className='group-name'>
+                            <span className='emoji' aria-hidden='true'>{entry.group.emoji}</span>
+                            {entry.group.name}
+                          </span>
+                          {entry.parentPath ? <span className='group-path'>{entry.parentPath}</span> : undefined}
+                        </span>
+                      )}
+                      ariaLabel={entry.path}
+                      checked={entry.checked}
+                      onSelect={() => onToggle(entry.group)}
+                    />
+                  ))}
+              </div>
+            )}
           {groups.length > 0 ? <MenuSeparator /> : undefined}
           <MenuItem icon={Plus} label='New group' onSelect={() => setDraft({})} />
         </div>

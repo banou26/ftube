@@ -12,7 +12,7 @@ test('suggests creating a matching new group and adding to an existing matching 
   await page.goto(`/channel/${BLENDER}`)
   await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
 
-  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.getByRole('button', { name: 'Add to group', exact: true }).click()
   const suggestedGroup = page.getByRole('group', { name: 'Suggested' })
   await expect(suggestedGroup).toBeVisible()
   const suggestedItem = suggestedGroup.getByRole('menuitem', { name: 'Create 3D' })
@@ -25,7 +25,7 @@ test('suggests creating a matching new group and adding to an existing matching 
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByText('Added to 3D')).toBeVisible()
 
-  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Edit groups', exact: true }).click()
   await expect(page.getByRole('menuitemcheckbox', { name: '3D' })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByRole('group', { name: 'Suggested' })).toHaveCount(0)
   await page.keyboard.press('Escape')
@@ -53,7 +53,7 @@ test('suggests creating a matching new group and adding to an existing matching 
   }).toPass({ timeout: 60_000 })
   const harness = page.locator('[data-channels-harness]')
   const betaRow = harness.locator('.list .row', { hasText: 'Beta Music' })
-  await betaRow.getByRole('button', { name: 'Groups', exact: true }).click()
+  await betaRow.getByRole('button', { name: 'Add to group', exact: true }).click()
   const existingSuggested = page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Add to Music' })
   await expect(existingSuggested).toBeVisible()
   await existingSuggested.click()
@@ -65,7 +65,7 @@ test('makes a group from a channel page and shows its uploads', async ({ page })
   await page.goto(`/channel/${BLENDER}`)
   await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
 
-  await page.getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.getByRole('button', { name: 'Add to group', exact: true }).click()
   await page.getByRole('menuitem', { name: 'New group' }).click()
   const dialog = page.getByRole('dialog', { name: 'New group' })
   await expect(dialog.getByText('Blender', { exact: true })).toBeVisible()
@@ -74,7 +74,7 @@ test('makes a group from a channel page and shows its uploads', async ({ page })
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByText('Added to 3D')).toBeVisible()
 
-  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Edit groups', exact: true }).click()
   await expect(page.getByRole('menuitemcheckbox', { name: '3D' })).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('Escape')
 
@@ -222,7 +222,7 @@ test('nests subfolders, collapses in the guide, rolls up child uploads on the pa
   // add Blender channel to the subfolder from the channel page
   await page.goto(`/channel/${BLENDER}`)
   await expect(page.locator('h1')).toHaveText('Blender', { timeout: 90_000 })
-  await page.locator('main').getByRole('button', { name: 'Groups', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Add to group', exact: true }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Blender3D' }).click()
   await expect(page.getByText('Added to Blender3D')).toBeVisible()
   await page.keyboard.press('Escape')
@@ -266,7 +266,7 @@ test('shows group suggestions on channel pages with null tags, on watch pages, a
 
   const channelHost = page.locator('[data-channel-header-harness="tags-fallback"]')
   await expect(channelHost.locator('h1')).toHaveText('Quiet Creator')
-  await channelHost.getByRole('button', { name: 'Groups', exact: true }).click()
+  await channelHost.getByRole('button', { name: 'Add to group', exact: true }).click()
   await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create ASMR' })).toBeVisible()
   await page.keyboard.press('Escape')
 
@@ -281,7 +281,7 @@ test('shows group suggestions on channel pages with null tags, on watch pages, a
   await page.keyboard.press('Escape')
 
   await page.goto('/results?search_query=Blender')
-  const searchGroups = page.locator('main').getByRole('button', { name: 'Groups', exact: true }).first()
+  const searchGroups = page.locator('main').getByRole('button', { name: 'Add to group', exact: true }).first()
   await expect(searchGroups).toBeVisible({ timeout: 90_000 })
   await searchGroups.click()
   await expect(page.getByRole('group', { name: 'Suggested' }).getByRole('menuitem', { name: 'Create 3D' })).toBeVisible()
@@ -312,7 +312,7 @@ test('shows multiple suggestions including top 3 relevant tags in Groups menu an
 
   const harness = page.locator('[data-channels-harness]')
   const linuxRow = harness.locator('.list .row', { hasText: 'The Linux Experiment' })
-  await linuxRow.getByRole('button', { name: 'Groups', exact: true }).click()
+  await linuxRow.getByRole('button', { name: 'Add to group', exact: true }).click()
 
   const suggested = page.getByRole('group', { name: 'Suggested' })
   await expect(suggested).toBeVisible()
