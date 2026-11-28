@@ -24,6 +24,7 @@ import { AmbientGlow } from '../player/ambient-glow'
 import { isTypingTarget } from '../player/controls'
 import { shortsHrefFor } from '../player/links'
 import { prefetchPlayback } from '../player/prefetch'
+import { type ShortsFocusedRegion, resolveShortsFocusMove } from '../player/shorts-focus'
 import { ShortsDescriptionPanel, type ShortsMediaState, type ShortsMenuActions, ShortsOptionsMenu } from '../player/shorts-menu'
 import ShortsPlayer, { type ShortsPlaybackSnapshot } from '../player/shorts-player'
 import { playheadAt } from '../player/seek'
@@ -91,6 +92,10 @@ const style = css`
     justify-content: center;
     gap: 1.6rem;
     padding: var(--slide-pad) 0;
+  }
+
+  .slide:focus {
+    outline: none;
   }
 
   /* A Short's video and its buttons, positioned so that below the breakpoint
@@ -590,6 +595,7 @@ const Slide = (
   const handle = rawHandle
     ? rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`
     : undefined
+  const inactiveTabIndex = active ? undefined : -1
 
   useLayoutEffect(() => {
     if (commentsPanelRef.current) commentsPanelRef.current.inert = !active
@@ -659,14 +665,14 @@ const Slide = (
           <div className='byline'>
             {meta?.channel?.avatar
               ? (
-                <Link className='avatar-link' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name}>
+                <Link className='avatar-link' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name} tabIndex={inactiveTabIndex}>
                   <img src={meta.channel.avatar} alt='' loading='lazy' />
                 </Link>
               )
               : undefined}
             {meta?.channel
               ? (
-                <Link className='name' href={`/channel/${meta.channel.id}`}>
+                <Link className='name' href={`/channel/${meta.channel.id}`} tabIndex={inactiveTabIndex}>
                   {meta.channel.name.trim() || handle}
                   <VerifiedBadge channel={meta.channel} size={14} />
                 </Link>
@@ -677,6 +683,7 @@ const Slide = (
               subscribed={meta?.channel?.isSubscribed}
               notificationLevel={meta?.channel?.notificationLevel}
               compact
+              tabIndex={inactiveTabIndex}
               active={active}
               onOpenChange={onMenuOpenChange}
             />
@@ -691,6 +698,7 @@ const Slide = (
           className={liked ? 'rail-button on' : 'rail-button'}
           aria-pressed={liked}
           aria-label='Like'
+          tabIndex={inactiveTabIndex}
           disabled={rating}
           onClick={() => rate('LIKE')}
         >
@@ -704,6 +712,7 @@ const Slide = (
           className={disliked ? 'rail-button on' : 'rail-button'}
           aria-pressed={disliked}
           aria-label='Dislike'
+          tabIndex={inactiveTabIndex}
           disabled={rating}
           onClick={() => rate('DISLIKE')}
         >
@@ -712,11 +721,11 @@ const Slide = (
           </span>
           {dislikes !== undefined ? formatCompact(dislikes) : 'Dislike'}
         </button>
-        <button type='button' className='rail-button' aria-label='Comments' onClick={onComments}>
+        <button type='button' className='rail-button' aria-label='Comments' tabIndex={inactiveTabIndex} onClick={onComments}>
           <span className='glyph'><MessageCircle size={24} strokeWidth={1.5} /></span>
           {meta?.commentCountText ?? 'Comments'}
         </button>
-        <button type='button' className='rail-button' aria-label='Share' onClick={onShare}>
+        <button type='button' className='rail-button' aria-label='Share' tabIndex={inactiveTabIndex} onClick={onShare}>
           <span className='glyph'><Share2 size={24} strokeWidth={1.5} /></span>
           Share
         </button>
@@ -730,14 +739,14 @@ const Slide = (
           actions={menuActions}
           onOpenChange={onMenuOpenChange}
           trigger={
-            <button type='button' className='rail-button' aria-label='More actions'>
+            <button type='button' className='rail-button' aria-label='More actions' tabIndex={inactiveTabIndex}>
               <span className='glyph'><MoreVertical size={24} strokeWidth={1.5} /></span>
             </button>
           }
         />
         {meta?.channel?.avatar
           ? (
-            <Link className='rail-channel' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name}>
+            <Link className='rail-channel' href={`/channel/${meta.channel.id}`} aria-label={meta.channel.name} tabIndex={inactiveTabIndex}>
               <img src={meta.channel.avatar} alt='' loading='lazy' />
             </Link>
           )
@@ -804,6 +813,7 @@ export const ShortsPage = () => {
   }, [])
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
   const [dismissedInSession, setDismissedInSession] = useState<ReadonlySet<string>>(() => new Set())
+  const restoredIdRef = useRef<string | undefined>(undefined)
   const dismissed = useDismissed()
 
   const setSlideReady = useCallback((id: string, isReady: boolean) => {
@@ -845,6 +855,7 @@ export const ShortsPage = () => {
   }, [])
 
   const restoreSlide = useCallback((id: string) => {
+    restoredIdRef.current = id
     setDismissedInSession(previous => {
       if (!previous.has(id)) return previous
       const next = new Set(previous)
@@ -1006,6 +1017,90 @@ export const ShortsPage = () => {
   const activeIndex = items.findIndex(short => short.id === activeId)
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
+  const prevBtnRef = useRef<HTMLButtonElement>(null)
+  const nextBtnRef = useRef<HTMLButtonElement>(null)
+  const focusedRegionRef = useRef<ShortsFocusedRegion | null>(null)
+  const prevActiveIdRef = useRef<string | undefined>(activeId)
+
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null
+      const root = scrollerRef.current
+      if (!target || !root || !root.contains(target) || target.closest('[role="dialog"]')) {
+        focusedRegionRef.current = null
+        return
+      }
+      if (target === prevBtnRef.current) {
+        focusedRegionRef.current = 'prev-button'
+        return
+      }
+      if (target === nextBtnRef.current) {
+        focusedRegionRef.current = 'next-button'
+        return
+      }
+      const slide = target.closest<HTMLElement>('[data-short-id]')
+      focusedRegionRef.current = slide?.dataset.shortId === activeIdRef.current ? 'slide' : null
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      const root = scrollerRef.current
+      if (!target || !root || !root.contains(target)) focusedRegionRef.current = null
+    }
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const root = scrollerRef.current
+    const restoredId = restoredIdRef.current
+    if (!root || !restoredId) return
+    const slide = root.querySelector<HTMLElement>(`[data-short-id="${CSS.escape(restoredId)}"]`)
+    if (!slide) return
+    restoredIdRef.current = undefined
+    const delta = slide.getBoundingClientRect().top - root.getBoundingClientRect().top
+    if (Math.abs(delta) > 1) root.scrollTo({ top: root.scrollTop + delta, behavior: 'instant' })
+  }, [items.length])
+
+  useLayoutEffect(() => {
+    const root = scrollerRef.current
+    if (!root) return
+    for (const slide of root.querySelectorAll<HTMLElement>('[data-short-id]')) {
+      slide.inert = slide.dataset.shortId !== activeId
+    }
+    const slideChanged = prevActiveIdRef.current !== undefined && prevActiveIdRef.current !== activeId
+    prevActiveIdRef.current = activeId
+
+    const activeEl = document.activeElement as HTMLElement | null
+    const focusLostToDocument = !activeEl || activeEl === document.body || activeEl === document.documentElement
+    const activeSlide = activeId
+      ? root.querySelector<HTMLElement>(`[data-short-id="${CSS.escape(activeId)}"]`)
+      : null
+    const focusInsideActiveSlide = Boolean(activeSlide && activeEl && activeSlide.contains(activeEl))
+
+    const decision = resolveShortsFocusMove({
+      trackedRegion: focusedRegionRef.current,
+      slideChanged,
+      focusLostToDocument,
+      focusInsideActiveSlide,
+      activeIndex,
+      itemCount: items.length,
+    })
+
+    if (decision === 'prev-button') {
+      focusedRegionRef.current = 'prev-button'
+      prevBtnRef.current?.focus({ preventScroll: true })
+    } else if (decision === 'next-button') {
+      focusedRegionRef.current = 'next-button'
+      nextBtnRef.current?.focus({ preventScroll: true })
+    } else if (decision === 'active-slide' && activeSlide) {
+      focusedRegionRef.current = 'slide'
+      activeSlide.focus({ preventScroll: true })
+    }
+  }, [activeId, activeIndex, items.length])
 
   useEffect(() => {
     const root = scrollerRef.current
@@ -1079,7 +1174,14 @@ export const ShortsPage = () => {
         const shouldPreload = isNext && (activeReady || readyIds.has(short.id))
         const commentsOpen = showComments && (isActive || (!narrowViewport && isAdjacent))
         return (
-          <section className='slide' key={short.id} data-short-id={short.id} data-active={isActive ? 'true' : undefined}>
+          <section
+            className='slide'
+            key={short.id}
+            data-short-id={short.id}
+            data-active={isActive ? 'true' : undefined}
+            aria-hidden={isActive ? undefined : true}
+            tabIndex={isActive ? -1 : undefined}
+          >
             <Slide
               id={short.id}
               poster={short.poster}
@@ -1113,10 +1215,10 @@ export const ShortsPage = () => {
       {saving ? <SaveDialog videoId={saving} onClose={() => setSaving(undefined)} /> : undefined}
       {active === undefined && fetching ? <p className='notice'>Loading more…</p> : undefined}
       <div className='pager'>
-        <button type='button' aria-label='Previous short' disabled={activeIndex <= 0} onClick={() => step(-1)}>
+        <button ref={prevBtnRef} type='button' aria-label='Previous short' disabled={activeIndex <= 0} onClick={() => step(-1)}>
           <ChevronUp size={24} strokeWidth={1.5} />
         </button>
-        <button type='button' aria-label='Next short' disabled={activeIndex >= items.length - 1} onClick={() => step(1)}>
+        <button ref={nextBtnRef} type='button' aria-label='Next short' disabled={activeIndex >= items.length - 1} onClick={() => step(1)}>
           <ChevronDown size={24} strokeWidth={1.5} />
         </button>
       </div>

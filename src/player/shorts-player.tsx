@@ -453,7 +453,7 @@ const ShortsPlayer = (
   const [pendingRefusal, setPendingRefusal] = useState<string | undefined>(undefined)
   const [autoMuted, setAutoMuted] = useState(false)
   const dismissAutoMuted = useCallback(() => setAutoMuted(false), [])
-  const [paused, setPaused] = useState(false)
+  const [paused, setPaused] = useState(!active)
   const seekHandle = useSetting('seekHandle')
   const ambientMode = useSetting('ambientMode')
   const [playbackRate, setPlaybackRate] = useState(() => getSettings().playbackRate)
@@ -669,6 +669,7 @@ const ShortsPlayer = (
     if (!video || !controller || !ready) return
     if (!active) {
       video.pause()
+      setPaused(true)
       if (video.currentTime > 0) video.currentTime = 0
       setProgress(0)
       setAutoMuted(false)
@@ -1057,7 +1058,7 @@ const ShortsPlayer = (
           </div>
         )
         : undefined}
-      {!visibleStatus
+      {active && !visibleStatus
         ? (
           <div className='top-bar'>
             <div className='top-group' onClick={(event: TargetedMouseEvent<HTMLDivElement>) => event.stopPropagation()}>
@@ -1113,6 +1114,7 @@ const ShortsPlayer = (
                 : undefined}
               <ShortsOptionsMenu
                 label='More options'
+                active={active}
                 align='end'
                 side='below'
                 media={mediaState}
@@ -1145,7 +1147,7 @@ const ShortsPlayer = (
       {active && autoMuted && !visibleStatus && videoRef.current
         ? <AudioPermissionPrompt video={videoRef.current} placement='shorts' onDismiss={dismissAutoMuted} />
         : undefined}
-      {ready
+      {active && ready
         ? (
           <div
             className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
