@@ -1,7 +1,7 @@
 import type { SubscriptionsFeedQuery } from '../generated/graphql'
 
 import { css } from '@emotion/react'
-import { ListVideo } from 'lucide-react'
+import { TvMinimalPlay } from 'lucide-react'
 import { useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link } from 'wouter'
@@ -252,7 +252,7 @@ const SubscriptionsFeedPage = () => {
     return (
       <main css={style}>
         <SignedOutPrompt
-          icon={ListVideo}
+          icon={TvMinimalPlay}
           title="Don't miss new videos"
           subtitle='Sign in to see updates from your favorite YouTube channels'
         />

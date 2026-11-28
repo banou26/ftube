@@ -1,7 +1,7 @@
 import type { FunctionComponent } from 'preact'
 
 import { css } from '@emotion/react'
-import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Layers, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Radio, Scissors, SquarePlay, SquareUser, ThumbsUp, Trophy } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, CircleUserRound, Clapperboard, Clock, Download, Gamepad2, History, House, Layers, ListVideo, LockKeyholeOpen, Menu, Music2, Newspaper, Radio, Scissors, SquarePlay, SquareUser, ThumbsUp, Trophy, TvMinimalPlay } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
 import { Link, useLocation, useSearch } from 'wouter'
@@ -47,7 +47,7 @@ type GuideEntry = {
 
 const HOME_ENTRY: GuideEntry = { label: 'Home', href: '/', Icon: House, match: '/', exact: true }
 const SHORTS_ENTRY: GuideEntry = { label: 'Shorts', href: '/shorts', Icon: Clapperboard, match: '/shorts' }
-const SUBSCRIPTIONS_ENTRY: GuideEntry = { label: 'Subscriptions', href: '/feed/subscriptions', Icon: ListVideo, match: '/feed/subscriptions' }
+const SUBSCRIPTIONS_ENTRY: GuideEntry = { label: 'Subscriptions', href: '/feed/subscriptions', Icon: TvMinimalPlay, match: '/feed/subscriptions' }
 
 const MAIN_ENTRIES: GuideEntry[] = [HOME_ENTRY, SHORTS_ENTRY, SUBSCRIPTIONS_ENTRY]
 

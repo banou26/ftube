@@ -1,4 +1,6 @@
-import { expect, test } from './test'
+import type { Locator, Page } from '@playwright/test'
+
+import { expect, hideFknNotice, test } from './test'
 
 const FEED_PROMPTS = [
   {
@@ -26,6 +28,46 @@ const FEED_PROMPTS = [
     h1: undefined,
   },
 ] as const
+
+const svgShape = (svg: Locator) => svg.evaluate((el) => {
+  const GEOM_ATTRS = ['d', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'x1', 'y1', 'x2', 'y2']
+  const children = [...el.children].map((child) => {
+    const attrs = GEOM_ATTRS
+      .map(name => [name, child.getAttribute(name)] as const)
+      .filter(([, value]) => value !== null)
+      .map(([name, value]) => `${name}=${value}`)
+      .join(' ')
+    return `${child.tagName.toLowerCase()}:${attrs}`
+  })
+  return {
+    viewBox: el.getAttribute('viewBox') ?? '',
+    strokeWidth: el.getAttribute('stroke-width') ?? '',
+    strokeLinecap: el.getAttribute('stroke-linecap') ?? '',
+    strokeLinejoin: el.getAttribute('stroke-linejoin') ?? '',
+    fill: el.getAttribute('fill') ?? '',
+    shapes: children,
+  }
+})
+
+const promptMetrics = (prompt: Locator) => prompt.evaluate((el) => {
+  const icon = el.querySelector('.prompt-icon')!
+  const heading = el.querySelector('h2')!
+  const iconBox = icon.getBoundingClientRect()
+  const headingBox = heading.getBoundingClientRect()
+  return {
+    iconWidth: iconBox.width,
+    iconHeight: iconBox.height,
+    gapToHeading: headingBox.top - iconBox.bottom,
+  }
+})
+
+const openGuideNav = async (page: Page, width: number) => {
+  if (width >= 1313) return page.getByRole('navigation', { name: 'Guide' })
+  await page.getByRole('button', { name: 'Guide', exact: true }).click()
+  const drawer = page.getByRole('dialog', { name: 'Guide' })
+  await expect(drawer).toBeVisible()
+  return drawer
+}
 
 test('shows centered signed-out prompts across all feed pages in dark and light mode, desktop and phone', async ({ page }) => {
   test.setTimeout(180_000)
@@ -153,5 +195,79 @@ test('keeps watch history import actions inside the signed-out prompt without ov
   expect(importBox!.x).toBeGreaterThanOrEqual(0)
   expect(importBox!.x + importBox!.width).toBeLessThanOrEqual(390.5)
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+  expect(errors).toEqual([])
+})
+
+test('uses distinct signed-out prompt icons for Subscriptions and Playlists matching navigation entries', async ({ page }) => {
+  test.setTimeout(180_000)
+  await hideFknNotice(page)
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+
+  const navigate = (path: string) => page.evaluate((target) => {
+    history.pushState(null, '', target)
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, path)
+
+  await page.goto('/feed/subscriptions')
+  await expect(page.locator('main .signed-out-prompt .prompt-icon svg')).toBeVisible({ timeout: 90_000 })
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport)
+
+    await navigate('/feed/subscriptions')
+    const subsPrompt = page.locator('main .signed-out-prompt')
+    const subsSvg = subsPrompt.locator('.prompt-icon svg')
+    await expect(subsSvg).toBeVisible({ timeout: 30_000 })
+    const subsShape = await svgShape(subsSvg)
+    const subsMetrics = await promptMetrics(subsPrompt)
+
+    const subsGuide = await openGuideNav(page, viewport.width)
+    const subsNavSvg = subsGuide.getByRole('link', { name: 'Subscriptions', exact: true }).locator('svg')
+    await expect(subsNavSvg).toBeVisible()
+    const subsNavShape = await svgShape(subsNavSvg)
+    if (viewport.width < 1313) {
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog', { name: 'Guide' })).toHaveCount(0)
+    }
+
+    await navigate('/feed/playlists')
+    const playlistsPrompt = page.locator('main .signed-out-prompt')
+    const playlistsSvg = playlistsPrompt.locator('.prompt-icon svg')
+    await expect(playlistsSvg).toBeVisible({ timeout: 30_000 })
+    const playlistsShape = await svgShape(playlistsSvg)
+    const playlistsMetrics = await promptMetrics(playlistsPrompt)
+
+    expect(subsShape.shapes, `Subscriptions and Playlists must use distinct icons at ${viewport.width}px`).not.toEqual(playlistsShape.shapes)
+    expect(subsShape.shapes).toEqual(subsNavShape.shapes)
+
+    expect(subsShape.viewBox).toBe(playlistsShape.viewBox)
+    expect(subsShape.strokeWidth).toBe('1.25')
+    expect(playlistsShape.strokeWidth).toBe('1.25')
+    expect(subsShape.strokeLinecap).toBe(playlistsShape.strokeLinecap)
+    expect(subsShape.strokeLinejoin).toBe(playlistsShape.strokeLinejoin)
+    expect(subsShape.fill).toBe(playlistsShape.fill)
+    expect(subsMetrics.iconWidth).toBe(72)
+    expect(subsMetrics.iconHeight).toBe(72)
+    expect(playlistsMetrics.iconWidth).toBe(72)
+    expect(playlistsMetrics.iconHeight).toBe(72)
+    expect(Math.abs(subsMetrics.gapToHeading - playlistsMetrics.gapToHeading)).toBeLessThanOrEqual(1)
+
+    await page.evaluate(async () => {
+      document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
+      const mod = await import('/tests/browser/fixtures/guide-harness.tsx') as typeof import('./fixtures/guide-harness')
+      mod.mountGuide(true)
+    })
+    const signedInGuide = page.locator('[data-guide-harness="signed-in"]')
+    await signedInGuide.getByRole('button', { name: 'Show more', exact: true }).click()
+    const playlistsNavSvg = signedInGuide.getByRole('link', { name: 'Playlists', exact: true }).locator('svg')
+    await expect(playlistsNavSvg).toBeVisible()
+    const playlistsNavShape = await svgShape(playlistsNavSvg)
+    expect(playlistsShape.shapes).toEqual(playlistsNavShape.shapes)
+    await page.evaluate(() => {
+      document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
+    })
+  }
+
   expect(errors).toEqual([])
 })
