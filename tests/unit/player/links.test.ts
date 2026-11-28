@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { embedCode, watchLink } from '../../../src/player/links'
+import { embedCode, watchLink, watchRedirectHref } from '../../../src/player/links'
 
 const ORIGIN = 'https://youtube.fkn.app'
 
@@ -29,5 +29,36 @@ describe("the player menu's embed code", () => {
 
   it('leaves the title out while it is not known', () => {
     expect(embedCode({ videoId: 'jNQXAC9IVRw', width: 880, height: 495 })).not.toContain('title=')
+  })
+})
+
+describe('watchRedirectHref', () => {
+  it('preserves list, positive 1-based index, and start time for embed, watch, and live redirects', () => {
+    expect(
+      watchRedirectHref('hMbNlxJhR7k', '?list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&start=30'),
+    ).toBe('/watch?v=hMbNlxJhR7k&list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30')
+
+    expect(
+      watchRedirectHref('hMbNlxJhR7k', '?list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30&si=shared'),
+    ).toBe('/watch?v=hMbNlxJhR7k&list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30')
+
+    expect(
+      watchRedirectHref('rFZHOHl-L8A', '?si=shared&list=PL123&index=2&t=45'),
+    ).toBe('/watch?v=rFZHOHl-L8A&list=PL123&index=2&t=45')
+  })
+
+  it('prefers explicit t over start and maps videoseries embeds to /playlist', () => {
+    expect(watchRedirectHref('dQw4w9WgXcQ', '?t=12&start=30')).toBe('/watch?v=dQw4w9WgXcQ&t=12')
+    expect(watchRedirectHref('videoseries', '?list=PLBsP89CPrMeNIuvr9j3_EQaMwaNJ6rhuQ&index=3&start=10'))
+      .toBe('/playlist?list=PLBsP89CPrMeNIuvr9j3_EQaMwaNJ6rhuQ')
+  })
+
+  it('drops index without list or when not a positive integer, and decodes video ids safely', () => {
+    expect(watchRedirectHref('dQw4w9WgXcQ', '?index=5&t=30')).toBe('/watch?v=dQw4w9WgXcQ&t=30')
+    for (const bad of ['0', '-1', 'abc', '2.5', '']) {
+      expect(watchRedirectHref('dQw4w9WgXcQ', `?list=PL1&index=${encodeURIComponent(bad)}`))
+        .toBe('/watch?v=dQw4w9WgXcQ&list=PL1')
+    }
+    expect(watchRedirectHref('a%25b', '?list=PL1&index=1')).toBe('/watch?v=a%25b&list=PL1&index=1')
   })
 })

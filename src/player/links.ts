@@ -1,3 +1,5 @@
+import { safeDecode } from '../components/format'
+
 /**
  * This app's link to a video, in youtube.com's /watch form: `list` keeps the playlist, and `t` is the start in whole
  * seconds, left out at 0 as youtube.com's "Copy video URL at current time" leaves it out.
@@ -28,3 +30,26 @@ export const embedCode = ({ videoId, title, width, height }: { videoId: string, 
   + (title ? ` title="${attribute(title)}"` : '')
   + ' frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"'
   + ' referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>'
+
+/**
+ * Canonical destination for `/embed/:id`, `/watch/:id`, and `/live/:id` redirects:
+ * maps `/embed/videoseries?list=` to `/playlist`, otherwise preserves `v`, `list`,
+ * positive 1-based `index` (when `list` is present), and `t` (falling back to `start`).
+ */
+export const watchRedirectHref = (videoId: string, search: string): string => {
+  const query = new URLSearchParams(search)
+  const list = query.get('list')
+  if (videoId === 'videoseries' && list) return `/playlist?${new URLSearchParams({ list })}`
+  const watch = new URLSearchParams({ v: safeDecode(videoId) })
+  if (list) {
+    watch.set('list', list)
+    const rawIndex = query.get('index')?.trim()
+    if (rawIndex && /^\d+$/.test(rawIndex)) {
+      const index = Number(rawIndex)
+      if (Number.isSafeInteger(index) && index > 0) watch.set('index', String(index))
+    }
+  }
+  const at = query.get('t') ?? query.get('start')
+  if (at) watch.set('t', at)
+  return `/watch?${watch}`
+}

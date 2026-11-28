@@ -23,6 +23,25 @@ test('opens a playlist\'s embed on the playlist, and an embed inside a playlist 
   await expect(page).toHaveURL('/watch?v=MhKiMPiZOdE&list=PLBsP89CPrMeNIuvr9j3_EQaMwaNJ6rhuQ&t=30')
 })
 
+test('preserves playlist index and start position across /embed, /watch/:id, and /live/:id redirects (APP-1106)', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', () => {})
+  await page.route('https://www.youtube.com/**', () => {})
+  await page.route('**/__yt_engine__/**', () => {})
+
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 412, height: 915 }]) {
+    await page.setViewportSize(viewport)
+    await page.goto('/embed/hMbNlxJhR7k?list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&start=30', { waitUntil: 'domcontentloaded' })
+    await expect(page).toHaveURL('/watch?v=hMbNlxJhR7k&list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30')
+  }
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/watch/hMbNlxJhR7k?list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL('/watch?v=hMbNlxJhR7k&list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30')
+
+  await page.goto('/live/hMbNlxJhR7k?list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30&si=shared', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL('/watch?v=hMbNlxJhR7k&list=PL2aBZuCeDwlQvNtHhNJtarm9OewQwVntv&index=5&t=30')
+})
+
 test('opens /c/<name> on the channel, and its tabs under the channel\'s handle', async ({ page }) => {
   test.setTimeout(180_000)
   await page.goto('/c/mkbhd')
