@@ -20,11 +20,11 @@ const mountLive = async (page: import('@playwright/test').Page, options: LivePro
 
 test('pins live edge at 100%, avoids -0:00 hover text, scopes active buffer, and resumes on Live click', async ({ page }) => {
   const root = await mountLive(page, {
-    start: 1000,
+    start: 1760,
     end: 2000,
     currentTime: 1995,
-    buffered: [[1000, 2000]],
-    chapters: [{ title: 'Should Hide On Live', startSeconds: 0 }, { title: 'Second', startSeconds: 1500 }],
+    buffered: [[1760, 2000]],
+    chapters: [{ title: 'Should Hide On Live', startSeconds: 0 }, { title: 'Second', startSeconds: 1880 }],
   })
 
   const scrubber = root.locator('.scrubber')
@@ -40,15 +40,15 @@ test('pins live edge at 100%, avoids -0:00 hover text, scopes active buffer, and
 
   const scrubberBox = (await scrubber.boundingBox())!
   await scrubber.hover({ position: { x: scrubberBox.width / 2, y: scrubberBox.height / 2 } })
-  await expect(root.locator('.preview-time')).toHaveText('-8:20')
-  await page.mouse.move(scrubberBox.x + scrubberBox.width - 0.4, scrubberBox.y + scrubberBox.height / 2, { steps: 3 })
+  await expect(root.locator('.preview-time')).toHaveText('-2:00')
+  await page.mouse.move(scrubberBox.x + Math.floor(scrubberBox.width) - 1, scrubberBox.y + scrubberBox.height / 2, { steps: 3 })
   await expect(root.locator('.preview-time')).toHaveText('Live')
 
   // Seeking back shows only the active buffer around currentTime, not stale live-edge buffer.
   await page.evaluate(() => {
     const h = (window as unknown as { __liveHarness: { setBuffered: (r: [number, number][]) => void, setTime: (t: number) => void, setPaused: (p: boolean) => void } }).__liveHarness
-    h.setBuffered([[1490, 1520], [1990, 2000]])
-    h.setTime(1500)
+    h.setBuffered([[1875, 1884.8], [1995, 2000]])
+    h.setTime(1880)
     h.setPaused(true)
   })
 
