@@ -18,13 +18,22 @@ type Options = Record<string, unknown>
 type DocListener = (event: { origin: string }) => void
 
 const createFakeFrame = () => {
-  const page = {
+  const page: {
+    avatar: boolean
+    mobileAvatar: boolean
+    link: boolean
+    mobileYouTab: boolean
+    rejectedMarker: boolean
+    rejectedRetry: boolean
+    clickError: Error | undefined
+  } = {
     avatar: false,
     mobileAvatar: false,
     link: true,
     mobileYouTab: false,
     rejectedMarker: false,
     rejectedRetry: false,
+    clickError: undefined,
   }
   const docListeners = new Set<DocListener>()
 
@@ -63,6 +72,7 @@ const createFakeFrame = () => {
         click: vi.fn(async (options?: { reason?: string }) => {
           clickReasons.push({ selector, reason: options?.reason })
           calls.push(`click ${selector}`)
+          if (page.clickError) throw page.clickError
         }),
         first: () => handle,
       }
@@ -97,7 +107,8 @@ const lib = vi.hoisted(() => ({
   attachFrame: vi.fn<(options: Record<string, unknown>) => Promise<unknown>>(),
   isLocatorInvalid: () => false,
   isLocatorUnsupported: () => false,
-  isPermissionDenied: () => false,
+  isPermissionDenied: vi.fn<(error: unknown) => boolean>(() => false),
+  isLocatorDenied: vi.fn<(error: unknown) => boolean>(() => false),
   isTerminalError: (error: unknown) => (error as Error).message.includes('attach a fresh window'),
   loaded: true,
 }))
@@ -172,6 +183,8 @@ describe('the sign-in window', () => {
     resetIdentity.mockClear()
     startPlatform.mockClear()
     lib.attachFrame.mockReset()
+    lib.isPermissionDenied.mockReset().mockReturnValue(false)
+    lib.isLocatorDenied.mockReset().mockReturnValue(false)
     lib.loaded = true
   })
 
@@ -375,6 +388,48 @@ describe('the sign-in window', () => {
     expect(lib.attachFrame).toHaveBeenCalledOnce()
   })
 
+  it('keeps the sign-in window open when assist click hits PermissionDeniedError and lets manual sign-in succeed', async () => {
+    const login = fakeLogin()
+    login.page.clickError = Object.assign(new Error('Permission denied'), { name: 'PermissionDeniedError' })
+    lib.isPermissionDenied.mockImplementation((err) => (err as { name?: string })?.name === 'PermissionDeniedError')
+    const { reload, stored } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await poll(4)
+    expect(calls.filter((call) => call === 'click a[href*="ServiceLogin"]')).toHaveLength(1)
+    expect(login.close).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+
+    login.page.link = false
+    login.page.avatar = true
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
+  it('keeps the sign-in window open when assist click hits LocatorDeniedError without retrying', async () => {
+    const login = fakeLogin()
+    login.page.clickError = Object.assign(new Error('Locator denied'), { name: 'LocatorDeniedError' })
+    lib.isLocatorDenied.mockImplementation((err) => (err as { name?: string })?.name === 'LocatorDeniedError')
+    const { reload, stored } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await poll(4)
+    expect(calls.filter((call) => call === 'click a[href*="ServiceLogin"]')).toHaveLength(1)
+    expect(login.close).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+
+    login.page.link = false
+    login.page.avatar = true
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
   it('reaches every open tab: another one closes its own window and loads again, signed in', async () => {
     const first = fakeLogin()
     const second = fakeLogin()
@@ -539,6 +594,8 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
     resetIdentity.mockClear()
     startPlatform.mockClear()
     lib.attachFrame.mockReset()
+    lib.isPermissionDenied.mockReset().mockReturnValue(false)
+    lib.isLocatorDenied.mockReset().mockReturnValue(false)
     lib.loaded = true
   })
 
@@ -623,6 +680,33 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
     expect(body.children).toHaveLength(0)
     expect(reload).not.toHaveBeenCalled()
     expect(stored[SIGNED_IN_KEY]).toBeUndefined()
+  })
+
+  it('waits INLINE_COOKIE_COMMIT_MS before removing the inline modal after signed-in detection', async () => {
+    const inline = createFakeFrame()
+    inline.page.avatar = true
+    const { reload, stored } = install(inline as unknown as Login)
+    const { body } = installDom()
+    vi.stubGlobal('navigator', { standalone: true })
+    const { signIn } = await import('../../src/sign-in')
+
+    signIn()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(body.children).toHaveLength(1)
+
+    // Poll interval (1,000 ms) detects the avatar and enters the 250 ms cookie commit grace period.
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(body.children).toHaveLength(1)
+    expect(reload).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(249)
+    expect(body.children).toHaveLength(1)
+    expect(reload).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(body.children).toHaveLength(0)
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
   })
 })
 

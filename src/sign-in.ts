@@ -131,7 +131,15 @@ const isLocatorVisible = async (frame: Pick<WindowFrame, 'locator'>, selector: s
   }
 }
 
-const createYouTubeSignInAdapter = (): AuthAdapter<void> => {
+const isAssistDenied = (clientSource: ClientSource, error: unknown): boolean => {
+  if (resolveClient(clientSource)?.isPermissionDenied?.(error)) return true
+  const fullLib = loadedLib()
+  if (fullLib?.isPermissionDenied?.(error) || fullLib?.isLocatorDenied?.(error)) return true
+  const name = (error as { name?: unknown } | null)?.name
+  return name === 'PermissionDeniedError' || name === 'LocatorDeniedError'
+}
+
+const createYouTubeSignInAdapter = (clientSource: ClientSource): AuthAdapter<void> => {
   const base = youtubeAuthAdapter({
     entryUrl: SIGN_IN_URL,
     domains: SIGN_IN_DOMAINS,
@@ -140,24 +148,34 @@ const createYouTubeSignInAdapter = (): AuthAdapter<void> => {
     interactionReason: SIGN_IN_INTERACTION_REASON,
   })
   const baseOnTick = base.onTick
+  let assistDisabled = false
 
   return {
     ...base,
     onTick: async (ctx: AuthStepContext) => {
-      await baseOnTick?.(ctx)
-      if (ctx.signal.aborted || !isYouTubeOrigin(ctx.origin)) return
-      if (await isLocatorVisible(ctx.frame, SIGN_IN_LINK)) {
-        if (originHost(ctx.origin) === MOBILE_YOUTUBE_HOST) {
-          await ctx.once('click-service-login', async () => {
-            await ctx.frame.locator(SIGN_IN_LINK).first().click({ reason: SIGN_IN_INTERACTION_REASON })
+      if (assistDisabled || ctx.signal.aborted) return
+      try {
+        await baseOnTick?.(ctx)
+        if (ctx.signal.aborted || !isYouTubeOrigin(ctx.origin)) return
+        if (await isLocatorVisible(ctx.frame, SIGN_IN_LINK)) {
+          if (originHost(ctx.origin) === MOBILE_YOUTUBE_HOST) {
+            await ctx.once('click-service-login', async () => {
+              await ctx.frame.locator(SIGN_IN_LINK).first().click({ reason: SIGN_IN_INTERACTION_REASON })
+            })
+          }
+          return
+        }
+        if (await isLocatorVisible(ctx.frame, MOBILE_YOU_TAB)) {
+          await ctx.once('open-mobile-you-tab', async () => {
+            await ctx.frame.locator(MOBILE_YOU_TAB).first().click({ reason: SIGN_IN_INTERACTION_REASON })
           })
         }
-        return
-      }
-      if (await isLocatorVisible(ctx.frame, MOBILE_YOU_TAB)) {
-        await ctx.once('open-mobile-you-tab', async () => {
-          await ctx.frame.locator(MOBILE_YOU_TAB).first().click({ reason: SIGN_IN_INTERACTION_REASON })
-        })
+      } catch (error) {
+        if (isAssistDenied(clientSource, error)) {
+          assistDisabled = true
+          return
+        }
+        throw error
       }
     },
   }
@@ -210,6 +228,7 @@ const openInlineSignIn = (lib: FknClient): Promise<SignInOutcome> => {
       void attaching.catch(() => {})
       return Promise.race([attaching, waitClosed]).then((value): WindowFrame => {
         if (value === 'closed') throw MODAL_ABORTED
+        // `@fkn/lib` builds Frame handles from closure-backed object literals with no private class fields.
         return Object.assign(Object.create(value) as Frame, {
           closed: modal.closed,
           close: closeModal,
@@ -218,7 +237,7 @@ const openInlineSignIn = (lib: FknClient): Promise<SignInOutcome> => {
     }) as FknClient['attachFrame'],
   }
 
-  const baseAdapter = createYouTubeSignInAdapter()
+  const baseAdapter = createYouTubeSignInAdapter(lib)
   const inlineAdapter: AuthAdapter<void> = {
     ...baseAdapter,
     isSignedIn: async (frame, ctx) => {
@@ -255,7 +274,7 @@ export const openSignInWindow = (clientSource: ClientSource = () => loadedLib())
     return lib ? openInlineSignIn(lib) : Promise.resolve('unsupported')
   }
   // first statement on purpose so popup activation stays intact
-  return openAuthWindow(createYouTubeSignInAdapter(), {
+  return openAuthWindow(createYouTubeSignInAdapter(clientSource), {
     client: clientSource,
     cookies: 'persistent',
     onOpen: (frame) => {
