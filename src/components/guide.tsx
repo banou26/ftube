@@ -45,8 +45,8 @@ type GuideEntry = {
   exact?: boolean
 }
 
-const HOME_ENTRY: GuideEntry = { label: 'Home', href: '/', Icon: House, match: '/' }
-const SHORTS_ENTRY: GuideEntry = { label: 'Shorts', href: '/shorts', Icon: Clapperboard }
+const HOME_ENTRY: GuideEntry = { label: 'Home', href: '/', Icon: House, match: '/', exact: true }
+const SHORTS_ENTRY: GuideEntry = { label: 'Shorts', href: '/shorts', Icon: Clapperboard, match: '/shorts' }
 const SUBSCRIPTIONS_ENTRY: GuideEntry = { label: 'Subscriptions', href: '/feed/subscriptions', Icon: ListVideo, match: '/feed/subscriptions' }
 
 const MAIN_ENTRIES: GuideEntry[] = [HOME_ENTRY, SHORTS_ENTRY, SUBSCRIPTIONS_ENTRY]
@@ -94,7 +94,7 @@ const GuideLink = ({ entry }: { entry: GuideEntry }) => {
       aria-current={active ? 'page' : undefined}
       onPointerDown={entry.href === '/shorts' ? () => { void warmShaka().catch(() => {}) } : undefined}
     >
-      <entry.Icon size={24} strokeWidth={1.5} />
+      <entry.Icon size={24} strokeWidth={active ? 2.25 : 1.5} />
       <span className='label'>{entry.label}</span>
     </Link>
   )
@@ -629,12 +629,22 @@ const miniStyle = css`
     background: var(--bg-hover);
   }
 
+  .item:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: -2px;
+  }
+
   .item .label {
     font-size: 1rem;
   }
 
+  .item.active,
+  .item.active:hover {
+    background: var(--bg-selected);
+  }
+
   .item.active .label {
-    font-weight: 500;
+    font-weight: 600;
   }
 `
 

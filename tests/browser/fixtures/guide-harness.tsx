@@ -1,5 +1,7 @@
 import { render } from 'preact'
 import { Client, fetchExchange, Provider } from 'urql'
+import { Router } from 'wouter'
+import { memoryLocation } from 'wouter/memory-location'
 
 import { Guide } from '../../../src/components/guide'
 import { ChannelLiveRedirect } from '../../../src/routes/channel-live'
@@ -92,4 +94,28 @@ export const mountChannelLiveRedirect = (id: string, base: string, liveVideoId: 
     new Response(JSON.stringify({ data: { channelLiveVideo: liveVideoId } }), { headers: { 'content-type': 'application/json' } })
   const client = new Client({ url: '/guide-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
   render(<Provider value={client}><ChannelLiveRedirect id={id} base={base} /></Provider>, host)
+}
+
+export const mountGuideRoute = (variant: 'expanded' | 'mini', path: string) => {
+  document.documentElement.dataset.engine = 'ready'
+  const app = document.getElementById('app')
+  if (app) app.hidden = true
+  document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
+  const { hook, searchHook } = memoryLocation({ path })
+  const host = document.createElement('div')
+  host.setAttribute('data-guide-harness', `route-${variant}`)
+  document.body.append(host)
+  const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const { operationName } = JSON.parse(init?.body as string) as { operationName: string }
+    return new Response(JSON.stringify({ data: answer(operationName, true) }), { headers: { 'content-type': 'application/json' } })
+  }
+  const client = new Client({ url: '/guide-harness', exchanges: [fetchExchange], fetch: fetchAnswer, preferGetMethod: false })
+  render(
+    <Router hook={hook} searchHook={searchHook}>
+      <Provider value={client}>
+        <Guide variant={variant} />
+      </Provider>
+    </Router>,
+    host,
+  )
 }
