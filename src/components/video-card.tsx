@@ -595,6 +595,7 @@ const style = css`
     font-weight: var(--feed-title-weight, 500);
     line-height: 2.2rem;
     color: var(--feed-title-color, var(--text-primary));
+    overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;

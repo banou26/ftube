@@ -314,13 +314,16 @@ const style = css`
   }
 
   .refinement {
-    height: 3.2rem;
-    padding: 0 1.2rem;
+    min-height: 3.2rem;
+    max-width: 100%;
+    padding: 0.4rem 1.2rem;
     border: 1px solid var(--border);
     border-radius: 1.6rem;
     background: transparent;
     color: var(--text-primary);
     font-size: 1.3rem;
+    text-align: left;
+    overflow-wrap: anywhere;
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -336,11 +339,20 @@ const style = css`
     padding-top: 1.6rem;
   }
 
+  .results > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   /* youtube.com's row: the thumbnail takes half the row, up to 500px. */
   .result {
     display: grid;
     grid-template-columns: minmax(24rem, min(50rem, 50%)) minmax(0, 1fr);
     gap: 1.6rem;
+  }
+
+  .result > * {
+    min-width: 0;
   }
 
   .result .thumb {
@@ -391,6 +403,7 @@ const style = css`
     font-weight: 400;
     line-height: 2.6rem;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
 
   .result .more {
@@ -419,12 +432,15 @@ const style = css`
     font-weight: 700;
     line-height: 2.8rem;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
 
   /* youtube.com's carousel of video cards inside the results, measured signed
      out at 1280 and 412px on 2026-11-10: 44px from the row above to its title,
      cards 360px wide on a 364px step, 40px from them to the row below. */
   .carousel-shelf {
+    min-width: 0;
+    max-width: 100%;
     padding: 2.8rem 0 2.4rem;
   }
 
@@ -437,16 +453,19 @@ const style = css`
     font-size: 1.4rem;
     line-height: 2rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .carousel-rail {
     --rail-gap: 0.4rem;
     --rail-arrow-top: 8.1rem;
+    min-width: 0;
+    max-width: 100%;
     margin-top: 2.4rem;
   }
 
   .carousel-card {
-    width: 36rem;
+    width: min(36rem, 100%);
   }
 
   @media (max-width: 599px) {
@@ -498,6 +517,7 @@ const style = css`
     font-size: 1.2rem;
     line-height: 1.8rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .chips {
@@ -508,6 +528,7 @@ const style = css`
   }
 
   .chip {
+    max-width: 100%;
     padding: 0.2rem 0.6rem;
     border-radius: 0.4rem;
     background: var(--bg-chip);
@@ -515,18 +536,29 @@ const style = css`
     font-weight: 500;
     line-height: 1.6rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .channel {
     display: inline-flex;
     align-items: center;
     gap: 0.8rem;
+    max-width: 100%;
+    min-width: 0;
     margin-top: 1.2rem;
     font-size: 1.2rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .channel > span:not(.avatar),
+  .channel .names {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .result .avatar {
+    flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -549,6 +581,7 @@ const style = css`
     font-size: 1.2rem;
     line-height: 1.8rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -592,6 +625,7 @@ const style = css`
     font-size: 1.8rem;
     font-weight: 400;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
 
   .channel-actions {
@@ -718,6 +752,16 @@ const style = css`
 
     .channel-actions {
       margin-top: 0.4rem;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .toolbar {
+      gap: 0.8rem;
+    }
+
+    .filter-toggle {
+      padding: 0 1rem;
     }
   }
 `

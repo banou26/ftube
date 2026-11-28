@@ -249,6 +249,8 @@ export const ChapterCards = (
 )
 
 const stripStyle = css`
+  min-width: 0;
+  max-width: 100%;
   margin-top: 1.2rem;
   border-radius: 0.8rem;
   background: var(--bg-chip);
@@ -323,6 +325,7 @@ const stripStyle = css`
   }
 
   &.open .cards {
+    min-width: 0;
     padding: 0 1.6rem;
   }
 `

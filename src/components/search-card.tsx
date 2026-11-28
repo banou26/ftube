@@ -32,6 +32,8 @@ const style = css`
 
   position: relative;
   isolation: isolate;
+  min-width: 0;
+  max-width: 100%;
   padding: 2.4rem;
   border-radius: 2.4rem;
   background: linear-gradient(to bottom, #3a3a3a, #0f0f0f 75%);
@@ -61,6 +63,11 @@ const style = css`
     align-items: center;
     gap: 1.6rem;
     min-width: 0;
+    max-width: 100%;
+  }
+
+  .card-identity > div {
+    min-width: 0;
   }
 
   .card-avatar {
@@ -85,17 +92,20 @@ const style = css`
 
   .card-name {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     margin: 0;
     font-size: 3.6rem;
     font-weight: 700;
     line-height: 4.4rem;
+    overflow-wrap: anywhere;
   }
 
   .card-meta {
     margin-top: 0.4rem;
     font-size: 1.4rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .card-about {
@@ -108,6 +118,7 @@ const style = css`
     font-size: 1.4rem;
     line-height: 2rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -138,12 +149,38 @@ const style = css`
   }
 
   .card-rail {
+    min-width: 0;
+    max-width: 100%;
     margin-top: 2.4rem;
   }
 
   /* Three tiles to a row, as on youtube.com, with the rest behind the arrow. */
   .card-tile {
-    width: max(24rem, calc((100% - 1.6rem) / 3));
+    width: min(100%, max(24rem, calc((100% - 1.6rem) / 3)));
+  }
+
+  @media (max-width: 600px) {
+    padding: 1.6rem;
+    border-radius: 1.6rem;
+
+    .card-head {
+      gap: 1.2rem 2rem;
+    }
+
+    .card-avatar {
+      width: 6.4rem;
+      height: 6.4rem;
+      font-size: 2.8rem;
+    }
+
+    .card-name {
+      font-size: 2.2rem;
+      line-height: 2.8rem;
+    }
+
+    .card-about {
+      flex-basis: 100%;
+    }
   }
 
   .card-mix-thumb {

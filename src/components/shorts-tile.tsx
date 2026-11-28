@@ -89,6 +89,7 @@ export const shortsTileStyle = css`
     font-weight: 500;
     line-height: 2.2rem;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
