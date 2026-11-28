@@ -32,6 +32,7 @@ import {
 } from './player/control-layout'
 import { coerceMiniplayerPosition, coerceMiniplayerWidth } from './player/miniplayer-size'
 import { toRate } from './player/rates'
+import { clearTabPlaybackFields } from './player/tab-playback'
 import { coerceTheaterMode } from './player/theater'
 import { applyAppIcon, coerceAppIcon } from './theme/app-icon'
 import { applyCustomPalette, normalizeHexColor } from './theme/palette'
@@ -316,6 +317,12 @@ export const updateSettings = (patch: Partial<Settings>) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
   } catch {
     // storage unavailable (private mode, quota): the in-memory value still stands
+  }
+  if ('quality' in patch || 'playbackRate' in patch) {
+    clearTabPlaybackFields({
+      quality: 'quality' in patch,
+      playbackRate: 'playbackRate' in patch,
+    })
   }
   for (const listener of listeners) listener(next)
   return next

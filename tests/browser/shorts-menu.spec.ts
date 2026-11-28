@@ -118,8 +118,12 @@ test('Shorts More options menu supports description, save to playlist, ambient m
   await expect(speedMenu).toBeVisible()
   await speedMenu.getByRole('button', { name: '1.5', exact: true }).click()
   await expect.poll(() => firstSlide.locator('video').evaluate(v => (v as HTMLVideoElement).playbackRate)).toBe(1.5)
-  const storedAfterSpeed = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}') as { playbackRate?: number })
-  expect(storedAfterSpeed.playbackRate).toBe(1.5)
+  const storedAfterSpeed = await page.evaluate(() => ({
+    tabPlayback: JSON.parse(sessionStorage.getItem('yt-client:tab-playback') ?? '{}') as { playbackRate?: number },
+    persistent: JSON.parse(localStorage.getItem('yt-client:settings') ?? '{}') as { playbackRate?: number },
+  }))
+  expect(storedAfterSpeed.tabPlayback.playbackRate).toBe(1.5)
+  expect(storedAfterSpeed.persistent.playbackRate).not.toBe(1.5)
   await speedMenu.getByRole('button', { name: 'Back to previous menu', exact: true }).click()
   await expect(menu.getByRole('menuitem', { name: /Playback speed/ })).toContainText('1.5')
 

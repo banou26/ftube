@@ -30,6 +30,7 @@ import { registerSeek, clearSeek } from './seek'
 import { clampToWindow, liveResumeTime, seekWindow, timeAtShare } from './seek-window'
 import { closePlayer, setPanel, setPlayerPaused, setPlayingChapter } from './session'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
+import { getEffectivePlaybackRate, getEffectiveQuality, subscribeTabPlayback, updateTabPlayback } from './tab-playback'
 import { Dialog } from '../components/ui/dialog'
 import { showToast } from '../components/ui/toast'
 import { PartyPlayback } from '../components/party-playback'
@@ -316,7 +317,7 @@ const VideoPlayer = (
   const [storyboards, setStoryboards] = useState<Storyboard[]>([])
   const [endScreen, setEndScreen] = useState<EndScreenElement[]>([])
   const [isLive, setIsLive] = useState(false)
-  const [quality, setQuality] = useState<'auto' | number>(() => getSettings().quality)
+  const [quality, setQuality] = useState<'auto' | number>(() => getEffectiveQuality())
   const qualityRef = useRef(quality)
   const selectQualityRef = useRef<((height: number | 'auto') => Promise<void>) | undefined>(undefined)
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
@@ -528,11 +529,12 @@ const VideoPlayer = (
     if (!video) return
     // applied BEFORE playback starts, or autoplay is attempted at volume 1 and the browser's block-then-mute fallback loses the stored volume
     const audio = getSettings()
+    const effectiveRate = getEffectivePlaybackRate(audio)
     video.volume = audio.volume
     video.muted = audio.muted
     // loading a source puts the rate back to defaultPlaybackRate, and so does Shaka as it starts
-    video.defaultPlaybackRate = audio.playbackRate
-    video.playbackRate = audio.playbackRate
+    video.defaultPlaybackRate = effectiveRate
+    video.playbackRate = effectiveRate
     const abort = new AbortController()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
@@ -595,7 +597,7 @@ const VideoPlayer = (
       if (abort.signal.aborted) return
       const settings = getSettings()
       const startTime = resumeAt.current
-      const storedQuality = settings.quality
+      const storedQuality = getEffectiveQuality(settings)
       qualityRef.current = storedQuality
       setQuality(storedQuality)
       const elementHeight = Math.max(360, Math.ceil(video.getBoundingClientRect().height * devicePixelRatio))
@@ -721,58 +723,79 @@ const VideoPlayer = (
   const applyQuality = useCallback((value: 'auto' | number) => {
     qualityRef.current = value
     setQuality(value)
-    updateSettings({ quality: value })
+    updateTabPlayback({ quality: value })
     void selectQualityRef.current?.(value).catch(() => {})
   }, [])
 
-  useEffect(() => subscribeSettings((next) => {
-    const prev = lastSettingsRef.current
-    lastSettingsRef.current = next
-    if (next.quality !== qualityRef.current) {
-      qualityRef.current = next.quality
-      setQuality(next.quality)
-      void selectQualityRef.current?.(next.quality).catch(() => {})
+  useEffect(() => {
+    const applyQualityValue = (effectiveQuality: 'auto' | number) => {
+      if (effectiveQuality === qualityRef.current) return
+      qualityRef.current = effectiveQuality
+      setQuality(effectiveQuality)
+      void selectQualityRef.current?.(effectiveQuality).catch(() => {})
     }
-    if (next.stableVolume !== stableVolumeRef.current) {
-      stableVolumeRef.current = next.stableVolume
-      setStableVolume(next.stableVolume)
-      void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
-    }
-    const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
-    const sync = planPlayerSettingsSync(prev, next, {
-      hasCaption: Boolean(captionRef.current),
-      selfWrite: selfCaptionWriteRef.current,
-      manualOverride: manualCaptionRef.current,
-      videoLanguage,
-    })
-    const el = videoRef.current
-    if (el) {
-      if (sync.playbackRate !== undefined && (el.playbackRate !== sync.playbackRate || el.defaultPlaybackRate !== sync.playbackRate)) {
-        el.defaultPlaybackRate = sync.playbackRate
-        el.playbackRate = sync.playbackRate
+    const unsubSettings = subscribeSettings((next) => {
+      const prev = lastSettingsRef.current
+      lastSettingsRef.current = next
+      applyQualityValue(getEffectiveQuality(next))
+      if (next.stableVolume !== stableVolumeRef.current) {
+        stableVolumeRef.current = next.stableVolume
+        setStableVolume(next.stableVolume)
+        void selectAudioRef.current?.(audioTrackIdRef.current, next.stableVolume).catch(() => {})
       }
-      if (sync.volume !== undefined && Math.abs(el.volume - sync.volume) > 0.001) el.volume = sync.volume
-      if (sync.muted !== undefined && el.muted !== sync.muted) el.muted = sync.muted
-      if (sync.clearAutoMuted) setAutoMuted(false)
-    }
-    if (sync.captionAction === 'disable') {
-      captionRef.current = undefined
-      setCaption(undefined)
-      void selectCaptionRef.current?.(undefined).catch(() => {})
-    } else if (sync.captionAction === 'enable-default' || sync.captionAction === 'refresh') {
       const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
-      const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language, videoLanguage)
-      if (wanted) {
-        captionRef.current = wanted
-        setCaption(wanted)
-        void selectCaptionRef.current?.(wanted.trackId, wanted.translateTo).catch(() => {})
-      } else if (sync.captionAction === 'refresh' && captionRef.current) {
+      const sync = planPlayerSettingsSync(prev, next, {
+        hasCaption: Boolean(captionRef.current),
+        selfWrite: selfCaptionWriteRef.current,
+        manualOverride: manualCaptionRef.current,
+        videoLanguage,
+      })
+      const el = videoRef.current
+      if (el) {
+        if (sync.playbackRate !== undefined) {
+          const effectiveRate = getEffectivePlaybackRate(next)
+          if (el.playbackRate !== effectiveRate || el.defaultPlaybackRate !== effectiveRate) {
+            el.defaultPlaybackRate = effectiveRate
+            el.playbackRate = effectiveRate
+          }
+        }
+        if (sync.volume !== undefined && Math.abs(el.volume - sync.volume) > 0.001) el.volume = sync.volume
+        if (sync.muted !== undefined && el.muted !== sync.muted) el.muted = sync.muted
+        if (sync.clearAutoMuted) setAutoMuted(false)
+      }
+      if (sync.captionAction === 'disable') {
         captionRef.current = undefined
         setCaption(undefined)
         void selectCaptionRef.current?.(undefined).catch(() => {})
+      } else if (sync.captionAction === 'enable-default' || sync.captionAction === 'refresh') {
+        const videoLanguage = detectVideoLanguage(audioTracksRef.current, captionTracksRef.current)
+        const wanted = startingCaption(captionTracksRef.current, translationLanguagesRef.current, next, navigator.language, videoLanguage)
+        if (wanted) {
+          captionRef.current = wanted
+          setCaption(wanted)
+          void selectCaptionRef.current?.(wanted.trackId, wanted.translateTo).catch(() => {})
+        } else if (sync.captionAction === 'refresh' && captionRef.current) {
+          captionRef.current = undefined
+          setCaption(undefined)
+          void selectCaptionRef.current?.(undefined).catch(() => {})
+        }
       }
+    })
+    const unsubTab = subscribeTabPlayback(() => {
+      const settings = getSettings()
+      applyQualityValue(getEffectiveQuality(settings))
+      const effectiveRate = getEffectivePlaybackRate(settings)
+      const el = videoRef.current
+      if (el && (el.playbackRate !== effectiveRate || el.defaultPlaybackRate !== effectiveRate)) {
+        el.defaultPlaybackRate = effectiveRate
+        el.playbackRate = effectiveRate
+      }
+    })
+    return () => {
+      unsubSettings()
+      unsubTab()
     }
-  }), [])
+  }, [])
 
   const applyAudioTrack = useCallback((trackId: string) => {
     setAudioTrackId(trackId)
@@ -1059,8 +1082,9 @@ const VideoPlayer = (
         case '>': {
           handled()
           const rate = stepRate(video.playbackRate, key === '>' ? 1 : -1)
+          video.defaultPlaybackRate = rate
           video.playbackRate = rate
-          updateSettings({ playbackRate: rate })
+          updateTabPlayback({ playbackRate: rate })
           flash('speed', `${rate}x`)
           return
         }

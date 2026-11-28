@@ -14,6 +14,7 @@ import { startEngine } from '../engine/client'
 import { defaultTrack, detectVideoLanguage, startingCaption } from '../frame/captions'
 import { LIVE_UNSUPPORTED, playbackRefusal } from '../frame/protocol'
 import { getSettings, subscribeSettings, updateSettings, useSetting } from '../settings'
+import { getEffectivePlaybackRate, subscribeTabPlayback, updateTabPlayback } from './tab-playback'
 import { AmbientBars } from './ambient-glow'
 import { AudioPermissionPrompt } from './audio-prompt'
 import { captionDeclarations } from './caption-style'
@@ -456,7 +457,7 @@ const ShortsPlayer = (
   const [paused, setPaused] = useState(false)
   const seekHandle = useSetting('seekHandle')
   const ambientMode = useSetting('ambientMode')
-  const [playbackRate, setPlaybackRate] = useState(() => getSettings().playbackRate)
+  const [playbackRate, setPlaybackRate] = useState(() => getEffectivePlaybackRate())
   const playbackRateRef = useRef(playbackRate)
   playbackRateRef.current = playbackRate
   const lastSettingsRef = useRef(getSettings())
@@ -522,12 +523,13 @@ const ShortsPlayer = (
       return
     }
     const settings = getSettings()
+    const effectiveRate = getEffectivePlaybackRate(settings)
     video.volume = settings.volume
     video.muted = settings.muted
-    video.playbackRate = settings.playbackRate
+    video.playbackRate = effectiveRate
     setVolume(settings.volume)
     setMuted(settings.muted)
-    setPlaybackRate(settings.playbackRate)
+    setPlaybackRate(effectiveRate)
     // the loop MUST be on the element: restarting through currentTime re-enters the SABR chain as a seek
     video.loop = true
     const abort = new AbortController()
@@ -680,12 +682,13 @@ const ShortsPlayer = (
     }
     let cancelled = false
     const settings = getSettings()
+    const effectiveRate = getEffectivePlaybackRate(settings)
     video.volume = settings.volume
     video.muted = settings.muted
-    video.playbackRate = settings.playbackRate
+    video.playbackRate = effectiveRate
     setVolume(settings.volume)
     setMuted(settings.muted)
-    setPlaybackRate(settings.playbackRate)
+    setPlaybackRate(effectiveRate)
     setAutoMuted(false)
     setPaused(false)
     controller.player.configure({ streaming: { bufferingGoal: ACTIVE_BUFFER_GOAL } })
@@ -786,8 +789,9 @@ const ShortsPlayer = (
       })
       const el = videoRef.current
       if (sync.playbackRate !== undefined) {
-        if (el) el.playbackRate = sync.playbackRate
-        setPlaybackRate(sync.playbackRate)
+        const effectiveRate = getEffectivePlaybackRate(next)
+        if (el) el.playbackRate = effectiveRate
+        setPlaybackRate(effectiveRate)
       }
       if (el) {
         if (sync.volume !== undefined && Math.abs(el.volume - sync.volume) > 0.001) {
@@ -818,6 +822,12 @@ const ShortsPlayer = (
         }
       }
     })
+    const unsubscribeTab = subscribeTabPlayback(() => {
+      const effectiveRate = getEffectivePlaybackRate()
+      const el = videoRef.current
+      if (el && el.playbackRate !== effectiveRate) el.playbackRate = effectiveRate
+      setPlaybackRate(effectiveRate)
+    })
     return () => {
       video.removeEventListener('play', sync)
       video.removeEventListener('playing', sync)
@@ -828,6 +838,7 @@ const ShortsPlayer = (
       video.removeEventListener('volumechange', sync)
       unbindProgress()
       unsubscribe()
+      unsubscribeTab()
     }
   }, [active, scrubbing, attempt, videoId])
 
@@ -978,7 +989,7 @@ const ShortsPlayer = (
     const video = videoRef.current
     if (video) video.playbackRate = rate
     setPlaybackRate(rate)
-    updateSettings({ playbackRate: rate })
+    updateTabPlayback({ playbackRate: rate })
   }, [])
 
   const toggleAmbientMode = useCallback(() => {

@@ -21,6 +21,7 @@ import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { MenuItem, Popup, useDismiss } from '../components/ui/popup'
 import { DEFAULT_SETTINGS, getSettings, subscribeSettings, updateSettings } from '../settings'
+import { getEffectivePlaybackRate, updateTabPlayback } from './tab-playback'
 import { CAPTION_FONT_STACKS, CAPTION_OPTIONS } from './caption-style'
 import { barFill, barOffset, barParts, barWidth, chapterIndexAt, timeAtOffset } from './chapters'
 import { PLAYER_SETTINGS_MENU_ITEMS } from './control-layout'
@@ -1243,10 +1244,10 @@ export const PlayerControls = (
   /* Shaka holds the video at rate 0 while it buffers, when the speed chosen is the stored one. Read off the video rather
      than the state, which learns of a new speed only at the next frame or ratechange: saving the speed renders before
      that, and a render with the old speed puts it back in the slider for the next key press to step from. */
-  const rate = video.playbackRate || getSettings().playbackRate
+  const rate = video.playbackRate || getEffectivePlaybackRate()
   const onRate = (value: number) => {
     video.playbackRate = value
-    updateSettings({ playbackRate: value })
+    updateTabPlayback({ playbackRate: value })
   }
 
   // as on youtube.com, the left arrow goes back to the settings rather than seeking, and the right one does nothing
