@@ -2018,7 +2018,4 @@ export const PlayerControls = (
 
 export default PlayerControls
 
-export const isTypingTarget = (target: EventTarget | null) => {
-  const element = target as HTMLElement | null
-  return Boolean(element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable))
-}
+export { isSpaceTarget, isTypingTarget } from './surface-interaction'

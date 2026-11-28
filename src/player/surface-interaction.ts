@@ -32,3 +32,17 @@ export const decideSurfaceClick = (
   }
   return 'toggle-play'
 }
+
+const SPACE_TARGET_SELECTOR = 'button, select, summary, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="switch"], [role="checkbox"], [role="radio"], [role="option"], [role="tab"], [role="combobox"]'
+
+/** Whether Space should activate the focused control instead of toggling player playback. */
+export const isSpaceTarget = (target: EventTarget | null) => {
+  const element = target as Element | null
+  return Boolean(element && typeof element.closest === 'function' && element.closest(SPACE_TARGET_SELECTOR))
+}
+
+/** Whether keystrokes belong to an editable field rather than player shortcuts. */
+export const isTypingTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null
+  return Boolean(element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable))
+}

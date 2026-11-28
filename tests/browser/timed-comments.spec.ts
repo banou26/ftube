@@ -318,3 +318,81 @@ test('wraps long Pop timed comments within narrow 390px and desktop player bound
   await player.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.paused())).toBe(true)
 })
+
+test('Space toggles Timed comments inside real /watch Player settings on desktop and 390px without playing or pausing playback (APP-1111)', async ({ page }) => {
+  await page.route('https://*.sdbx.app/**', () => {})
+  await page.route('https://www.youtube.com/**', () => {})
+  await page.route('**/__yt_engine__/**', () => {})
+
+  await page.addInitScript(() => {
+    const w = window as unknown as { __playCalls?: number, __pauseCalls?: number }
+    w.__playCalls = 0
+    w.__pauseCalls = 0
+    HTMLMediaElement.prototype.play = function () {
+      w.__playCalls = (w.__playCalls ?? 0) + 1
+      return Promise.resolve()
+    }
+    HTMLMediaElement.prototype.pause = function () {
+      w.__pauseCalls = (w.__pauseCalls ?? 0) + 1
+    }
+  })
+
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    await page.goto('/watch?v=dQw4w9WgXcQ', { waitUntil: 'domcontentloaded' })
+    await page.evaluate(() => {
+      const w = window as unknown as { __playCalls?: number, __pauseCalls?: number }
+      w.__playCalls = 0
+      w.__pauseCalls = 0
+    })
+
+    const settingsBtn = page.getByRole('button', { name: 'Settings', exact: true })
+    await expect(settingsBtn).toBeVisible({ timeout: 30_000 })
+    await settingsBtn.click()
+
+    const menu = page.getByRole('menu', { name: 'Player settings' })
+    await expect(menu).toBeVisible()
+    const toggle = menu.getByRole('menuitemcheckbox', { name: /Timed comments/ })
+    await toggle.focus()
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect(toggle.locator('.detail')).toHaveText('Off')
+    await expect(toggle.locator('.menu-switch')).not.toHaveClass(/\bon\b/)
+
+    // Space toggles Off -> On -> Off without playing/pausing video or triggering play/pause bezel
+    await page.keyboard.press(' ')
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await expect(toggle.locator('.detail')).toHaveText('On')
+    await expect(toggle.locator('.menu-switch')).toHaveClass(/\bon\b/)
+    expect(await page.evaluate(() => {
+      const w = window as unknown as { __playCalls?: number, __pauseCalls?: number }
+      return { play: w.__playCalls ?? 0, pause: w.__pauseCalls ?? 0 }
+    })).toEqual({ play: 0, pause: 0 })
+    await expect(page.locator('[data-bezel="play"], [data-bezel="pause"]')).toHaveCount(0)
+
+    await page.keyboard.press(' ')
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect(toggle.locator('.detail')).toHaveText('Off')
+    await expect(toggle.locator('.menu-switch')).not.toHaveClass(/\bon\b/)
+    expect(await page.evaluate(() => {
+      const w = window as unknown as { __playCalls?: number, __pauseCalls?: number }
+      return { play: w.__playCalls ?? 0, pause: w.__pauseCalls ?? 0 }
+    })).toEqual({ play: 0, pause: 0 })
+
+    // Enter still toggles and Escape closes menu + returns focus to Settings
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(settingsBtn).toBeFocused()
+
+    // Space on Seek slider still triggers playback
+    const seek = page.getByRole('slider', { name: 'Seek' })
+    await seek.focus()
+    await expect(seek).toBeFocused()
+    await page.keyboard.press(' ')
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __playCalls?: number }).__playCalls ?? 0)).toBe(1)
+  }
+})

@@ -39,7 +39,7 @@ import { Bezel } from './bezel'
 import { CaptionOverlay } from './caption-overlay'
 import { captionDeclarations, stepCaptionSize } from './caption-style'
 import { chapterIndexAt, chapterStep } from './chapters'
-import { isTypingTarget, PlayerControls } from './controls'
+import { isSpaceTarget, isTypingTarget, PlayerControls } from './controls'
 import { EndScreen, UpNextCountdown } from './end-screen'
 import { EndScreenElements } from './end-screen-elements'
 import { InfoCards } from './info-cards'
@@ -1016,6 +1016,8 @@ const VideoPlayer = (
       }
       switch (key) {
         case ' ':
+          if (isSpaceTarget(event.target)) return
+          // falls through
         case 'k':
           handled()
           if (video.paused) {
