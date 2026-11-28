@@ -490,11 +490,12 @@ describe('player bar layout and settings menu customization', () => {
       hidden: [],
     })
     expect(initial.playerMenuHidden).toEqual([])
-    expect(initial.showMostReplayed).toBe(false)
+    expect(initial.showMostReplayed).toBe(true)
     expect(initial.timedComments).toBe(false)
 
-    expect((await load({ showMostReplayed: 'yes', timedComments: 'yes' })).getSettings().showMostReplayed).toBe(false)
+    expect((await load({ showMostReplayed: 'yes', timedComments: 'yes' })).getSettings().showMostReplayed).toBe(true)
     expect((await load({ showMostReplayed: 'yes', timedComments: 'yes' })).getSettings().timedComments).toBe(false)
+    expect((await load({ showMostReplayed: false, timedComments: true })).getSettings().showMostReplayed).toBe(false)
     expect((await load({ showMostReplayed: true, timedComments: true })).getSettings().showMostReplayed).toBe(true)
     expect((await load({ showMostReplayed: true, timedComments: true })).getSettings().timedComments).toBe(true)
 
@@ -520,16 +521,16 @@ describe('player bar layout and settings menu customization', () => {
     updateSettings({
       playerBarLayout: coerced.playerBarLayout,
       playerMenuHidden: ['ambientMode', 'annotations'],
-      showMostReplayed: true,
+      showMostReplayed: false,
     })
     const saved = JSON.parse(written.at(-1)!)
     expect((await load(saved)).getSettings().playerMenuHidden).toEqual(['ambientMode', 'annotations'])
-    expect((await load(saved)).getSettings().showMostReplayed).toBe(true)
+    expect((await load(saved)).getSettings().showMostReplayed).toBe(false)
 
     const afterReset = resetPlayerCustomization()
     expect(afterReset.playerBarLayout.hidden).toEqual([])
     expect(afterReset.playerBarLayout.right).toContain('settings')
     expect(afterReset.playerMenuHidden).toEqual([])
-    expect(afterReset.showMostReplayed).toBe(false)
+    expect(afterReset.showMostReplayed).toBe(true)
   })
 })

@@ -44,6 +44,7 @@ import {
   toggleBarControlVisibility,
   toggleSettingsMenuItem,
 } from '../player/control-layout'
+import { DEFAULT_SETTINGS } from '../settings'
 import { showUndoableToast } from '../undo'
 
 type IconComp = FunctionComponent<{ size?: number, strokeWidth?: number, className?: string }>
@@ -464,7 +465,7 @@ export const PlayerCustomization = ({ settings, onUpdate }: Props) => {
     onUpdate({
       playerBarLayout: cloneDefaultPlayerBarLayout(),
       playerMenuHidden: [],
-      showMostReplayed: false,
+      showMostReplayed: DEFAULT_SETTINGS.showMostReplayed,
     })
     showUndoableToast('Player customization reset to default', {
       label: 'Reset player customization',

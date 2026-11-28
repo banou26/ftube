@@ -28,31 +28,42 @@ const mountHarness = async (page: Page, options: MostReplayedHarnessOptions = {}
 const readCurrentTime = (page: Page) =>
   page.evaluate(() => (window as unknown as { __mostReplayedHarness: { currentTime: () => number } }).__mostReplayedHarness.currentTime())
 
-test('defaults off in Settings -> Customization second tab, applies immediately, and persists across reload and videos', async ({ page }) => {
+test('defaults on in Settings -> Customization second tab, persists explicit false override, and resets to on', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   const section = await openPlayerTab(page)
   const toggle = section.getByRole('checkbox', { name: 'Show most replayed moments', exact: true })
-  await expect(toggle).not.toBeChecked()
+  await expect(toggle).toBeChecked()
 
-  // With toggle off, hovering the seek bar keeps heatmap absent
-  const playerOff = await mountHarness(page, { videoId: 'video-off', mode: 'valid' })
-  const offBox = (await playerOff.locator('.scrubber').boundingBox())!
-  await page.mouse.move(offBox.x + offBox.width * 0.5, offBox.y + offBox.height / 2)
-  await expect(playerOff.locator('[data-most-replayed]')).toHaveCount(0)
+  // With default toggle on, hovering the seek bar immediately shows the heatmap.
+  const playerDefault = await mountHarness(page, { videoId: 'video-default', mode: 'valid' })
+  const defaultBox = (await playerDefault.locator('.scrubber').boundingBox())!
+  await page.mouse.move(defaultBox.x + defaultBox.width * 0.5, defaultBox.y + defaultBox.height / 2)
+  await expect(playerDefault.locator('[data-most-replayed="true"]')).toHaveAttribute('data-heatmap-visible', 'true')
 
-  // Turn toggle on at mobile width and verify persistence across reload
+  // Unchecking at mobile width persists explicit false override across reload and hides heatmap.
   await page.setViewportSize({ width: 390, height: 844 })
   const mobileSection = await openPlayerTab(page)
   await expect.poll(
     () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     { message: 'no horizontal overflow at 390px on Player customization tab' },
   ).toBe(true)
-  await mobileSection.getByRole('checkbox', { name: 'Show most replayed moments', exact: true }).check()
+  await mobileSection.getByRole('checkbox', { name: 'Show most replayed moments', exact: true }).uncheck()
+  await page.reload()
+  await expect(page.getByRole('checkbox', { name: 'Show most replayed moments', exact: true })).not.toBeChecked()
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const playerOff = await mountHarness(page, { videoId: 'video-off', mode: 'valid' })
+  const offBox = (await playerOff.locator('.scrubber').boundingBox())!
+  await page.mouse.move(offBox.x + offBox.width * 0.5, offBox.y + offBox.height / 2)
+  await expect(playerOff.locator('[data-most-replayed]')).toHaveCount(0)
+
+  // Reset to default restores Show most replayed moments to enabled and persists across videos A and B.
+  const resetSection = await openPlayerTab(page)
+  await resetSection.getByRole('button', { name: 'Reset to default', exact: true }).click()
+  await expect(resetSection.getByRole('checkbox', { name: 'Show most replayed moments', exact: true })).toBeChecked()
   await page.reload()
   await expect(page.getByRole('checkbox', { name: 'Show most replayed moments', exact: true })).toBeChecked()
 
-  // Persists across videos A and B
-  await page.setViewportSize({ width: 1280, height: 800 })
   const vidA = await mountHarness(page, { videoId: 'video-a', mode: 'valid' })
   await expect(vidA.locator('[data-most-replayed="true"]')).toHaveCount(1)
 

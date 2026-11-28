@@ -137,7 +137,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appIcon: 'default',
   playerBarLayout: DEFAULT_PLAYER_BAR_LAYOUT,
   playerMenuHidden: [],
-  showMostReplayed: false,
+  showMostReplayed: true,
   timedComments: false,
   emojiPicker: DEFAULT_EMOJI_PICKER_SETTINGS,
 }
