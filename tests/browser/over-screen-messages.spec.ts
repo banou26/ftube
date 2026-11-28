@@ -3,7 +3,19 @@ import { expect, test } from './test'
 const HARNESS = '/tests/browser/fixtures/live-chat-harness.tsx'
 const OVERLAY_STORAGE_KEY = 'yt-client:over-screen-messages'
 
-const mountHarness = async (page: import('@playwright/test').Page) => {
+const mountHarness = async (
+  page: import('@playwright/test').Page,
+  storedSettings?: Record<string, unknown>,
+) => {
+  if (storedSettings) {
+    await page.addInitScript(
+      ({ key, value }) => {
+        if (window !== top) return
+        localStorage.setItem(key, JSON.stringify(value))
+      },
+      { key: OVERLAY_STORAGE_KEY, value: storedSettings },
+    )
+  }
   await page.goto('/privacy')
   const harness = page.locator('[data-live-chat-harness]')
   await expect(async () => {
@@ -43,10 +55,16 @@ test('projects incremental chat and emoji-only messages over the screen with cus
 
   await panel.getByLabel('Text animation', { exact: true }).selectOption('shake')
   await panel.getByLabel('Emoji-only animation', { exact: true }).selectOption('shatter')
+  await panel.getByLabel('ALL CAPS animation', { exact: true }).selectOption('pop')
+  await panel.getByLabel('Question animation', { exact: true }).selectOption('fade')
+  await panel.getByLabel('Exclamation animation', { exact: true }).selectOption('bounce')
   await panel.getByLabel('Overlay font', { exact: true }).selectOption('mono')
   await panel.getByRole('button', { name: 'Test preview', exact: true }).click()
 
-  await expect(overlay.locator('[data-overlay-kind="exclamation"][data-overlay-animation="shake"]')).toHaveCount(1)
+  await expect(overlay.locator('[data-overlay-kind="normal"][data-overlay-animation="shake"]')).toHaveCount(1)
+  await expect(overlay.locator('[data-overlay-kind="caps"][data-overlay-animation="pop"]')).toHaveCount(1)
+  await expect(overlay.locator('[data-overlay-kind="question"][data-overlay-animation="fade"]')).toHaveCount(1)
+  await expect(overlay.locator('[data-overlay-kind="exclamation"][data-overlay-animation="bounce"]')).toHaveCount(1)
   await expect(overlay.locator('[data-overlay-kind="emoji-only"][data-overlay-animation="shatter"]')).toHaveCount(1)
   await expect(overlay).toHaveAttribute('data-font-family', 'mono')
 
@@ -107,6 +125,9 @@ test('projects incremental chat and emoji-only messages over the screen with cus
   expect(stored.enabled).toBe(true)
   expect(stored.textAnimation).toBe('shake')
   expect(stored.emojiAnimation).toBe('shatter')
+  expect(stored.capsAnimation).toBe('pop')
+  expect(stored.questionAnimation).toBe('fade')
+  expect(stored.exclamationAnimation).toBe('bounce')
   expect(stored.fontFamily).toBe('mono')
 
   const reloadedHarness = await mountHarness(page)
@@ -206,4 +227,83 @@ test('keeps over-screen messages active after closing the live chat panel and st
   })
   await expect(reopenedChat.locator('.log')).toContainText('Panel only after disabling')
   await expect(overlay).toHaveCount(0)
+})
+
+test('independently toggles over-screen avatars and usernames, migrates legacy showAuthor, and toggles style-by-type', async ({ page }) => {
+  // Legacy persisted state without showAvatar migrates showAvatar from showAuthor.
+  const harness = await mountHarness(page, { enabled: true, showAuthor: false, speed: 0.5 })
+  const chat = harness.getByRole('region', { name: 'Live chat' })
+  await chat.getByRole('button', { name: 'Customize over-screen messages', exact: true }).click()
+  const panel = chat.getByRole('dialog', { name: 'Over-screen chat messages' })
+  const avatarsToggle = panel.getByLabel('Show avatars', { exact: true })
+  const usernamesToggle = panel.getByLabel('Show usernames', { exact: true })
+  await expect(avatarsToggle).not.toBeChecked()
+  await expect(usernamesToggle).not.toBeChecked()
+
+  const overlay = page.locator('[data-over-screen-overlay="true"]')
+  await expect(overlay).toBeVisible()
+
+  const avatarUri = 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#3ea6ff"/></svg>',
+  )
+  await page.evaluate((avatar) => {
+    window.__liveChatHarness?.pushPage({
+      items: [
+        {
+          id: 'perm-1',
+          kind: 'TEXT',
+          text: 'Avatar and name test?',
+          runs: [{ text: 'Avatar and name test?' }],
+          author: { id: 'UCimg', name: 'Mina', handle: '@mina', avatar },
+        },
+        {
+          id: 'perm-2',
+          kind: 'TEXT',
+          text: 'Fallback avatar check',
+          runs: [{ text: 'Fallback avatar check' }],
+          author: { id: 'UCnoimg', name: 'Bob', handle: '@bob' },
+        },
+      ],
+    })
+  }, avatarUri)
+
+  const itemWithImg = overlay.locator('[data-overlay-item="perm-1"]')
+  const itemFallback = overlay.locator('[data-overlay-item="perm-2"]')
+  await expect(itemWithImg).toBeVisible()
+  await expect(itemWithImg.locator('.overlay-avatar')).toHaveCount(0)
+  await expect(itemWithImg.locator('.overlay-author')).toHaveCount(0)
+  await expect(itemWithImg).toHaveAttribute('data-overlay-kind', 'question')
+  await expect(itemWithImg).toHaveAttribute('data-overlay-animation', 'bounce')
+
+  // Enable only Show avatars: renders avatar image and initial fallback without usernames.
+  await avatarsToggle.check()
+  await expect(avatarsToggle).toBeChecked()
+  await expect(usernamesToggle).not.toBeChecked()
+  await expect(itemWithImg.locator('img.overlay-avatar')).toHaveCount(1)
+  await expect(itemWithImg.locator('.overlay-author')).toHaveCount(0)
+  await expect(itemFallback.locator('.overlay-avatar.fallback')).toHaveText('B')
+  await expect(itemFallback.locator('.overlay-author')).toHaveCount(0)
+
+  // Turn avatars off and usernames on: renders usernames without avatars.
+  await avatarsToggle.uncheck()
+  await usernamesToggle.check()
+  await expect(itemWithImg.locator('.overlay-avatar')).toHaveCount(0)
+  await expect(itemWithImg.locator('.overlay-author')).toHaveText('Mina')
+  await expect(itemFallback.locator('.overlay-avatar')).toHaveCount(0)
+  await expect(itemFallback.locator('.overlay-author')).toHaveText('Bob')
+
+  // Enable both together: both avatar and username render.
+  await avatarsToggle.check()
+  await expect(itemWithImg.locator('img.overlay-avatar')).toHaveCount(1)
+  await expect(itemWithImg.locator('.overlay-author')).toHaveText('Mina')
+
+  // Disabling Style by message type hides per-type selects and uses Text animation for questions.
+  const styleByTypeToggle = panel.getByLabel('Style by message type', { exact: true })
+  await expect(panel.getByLabel('Question animation', { exact: true })).toBeVisible()
+  await styleByTypeToggle.uncheck()
+  await expect(panel.getByLabel('Question animation', { exact: true })).toHaveCount(0)
+
+  await panel.getByRole('button', { name: 'Test preview', exact: true }).click()
+  const previewQuestion = overlay.locator('[data-overlay-kind="question"]').last()
+  await expect(previewQuestion).toHaveAttribute('data-overlay-animation', 'scroll')
 })

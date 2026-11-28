@@ -7,6 +7,7 @@ import {
   DEFAULT_OVER_SCREEN_SETTINGS,
   getOverScreenSettings,
   OVERLAY_FONT_STACKS,
+  OVERLAY_TYPE_ANIMATION_FIELDS,
   resetOverScreenSettings,
   resolveOverlayAnimation,
   shouldAcceptOverlayMessage,
@@ -100,6 +101,24 @@ describe('over-screen live chat messages', () => {
     resetOverScreenSettings()
     expect(getOverScreenSettings().fontSizePx).toBe(DEFAULT_OVER_SCREEN_SETTINGS.fontSizePx)
     expect(getOverScreenSettings().enabled).toBe(true)
+
+    expect(coerceOverScreenSettings({ showAuthor: false })).toMatchObject({
+      showAuthor: false,
+      showAvatar: false,
+    })
+    expect(coerceOverScreenSettings({ showAuthor: true })).toMatchObject({
+      showAuthor: true,
+      showAvatar: true,
+    })
+    expect(coerceOverScreenSettings({ showAuthor: false, showAvatar: true })).toMatchObject({
+      showAuthor: false,
+      showAvatar: true,
+    })
+    expect(coerceOverScreenSettings({ showAuthor: true, showAvatar: false })).toMatchObject({
+      showAuthor: true,
+      showAvatar: false,
+    })
+    expect(OVERLAY_TYPE_ANIMATION_FIELDS.map((field) => field.kind)).toEqual(['caps', 'question', 'exclamation'])
   })
 
   it('enforces client slow-mode throttling and type-aware animation selection', () => {

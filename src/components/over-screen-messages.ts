@@ -16,6 +16,7 @@ export type OverScreenSettings = {
   fontSizePx: number
   speed: number
   opacity: number
+  showAvatar: boolean
   showAuthor: boolean
   emojiOnlyEnlarged: boolean
   styleByType: boolean
@@ -37,6 +38,16 @@ export const OVERLAY_EMOJI_ANIMATIONS: { value: OverlayEmojiAnimation, label: st
   { value: 'bounce', label: 'Bounce' },
   { value: 'scroll', label: 'Scroll across' },
   { value: 'fade', label: 'Fade' },
+]
+
+export const OVERLAY_TYPE_ANIMATION_FIELDS: readonly {
+  kind: Exclude<OverlayMessageKind, 'emoji-only' | 'normal'>
+  key: 'capsAnimation' | 'questionAnimation' | 'exclamationAnimation'
+  label: string
+}[] = [
+  { kind: 'caps', key: 'capsAnimation', label: 'ALL CAPS animation' },
+  { kind: 'question', key: 'questionAnimation', label: 'Question animation' },
+  { kind: 'exclamation', key: 'exclamationAnimation', label: 'Exclamation animation' },
 ]
 
 export const OVERLAY_FONT_FAMILIES: { value: OverlayFontFamily, label: string }[] = [
@@ -66,6 +77,7 @@ export const DEFAULT_OVER_SCREEN_SETTINGS: OverScreenSettings = {
   fontSizePx: 28,
   speed: 1,
   opacity: 0.92,
+  showAvatar: true,
   showAuthor: true,
   emojiOnlyEnlarged: true,
   styleByType: true,
@@ -101,6 +113,13 @@ export const coerceOverScreenSettings = (
   raw: Partial<Record<keyof OverScreenSettings, unknown>> | null | undefined,
 ): OverScreenSettings => {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_OVER_SCREEN_SETTINGS }
+  const showAuthor = typeof raw.showAuthor === 'boolean' ? raw.showAuthor : DEFAULT_OVER_SCREEN_SETTINGS.showAuthor
+  // Legacy persisted state only stored showAuthor; mirror it into showAvatar until explicitly customized.
+  const showAvatar = typeof raw.showAvatar === 'boolean'
+    ? raw.showAvatar
+    : typeof raw.showAuthor === 'boolean'
+      ? raw.showAuthor
+      : DEFAULT_OVER_SCREEN_SETTINGS.showAvatar
   return {
     enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_OVER_SCREEN_SETTINGS.enabled,
     textAnimation: coerceTextAnimation(raw.textAnimation, DEFAULT_OVER_SCREEN_SETTINGS.textAnimation),
@@ -119,7 +138,8 @@ export const coerceOverScreenSettings = (
     fontSizePx: clampNumber(raw.fontSizePx, DEFAULT_OVER_SCREEN_SETTINGS.fontSizePx, 16, 56),
     speed: clampNumber(raw.speed, DEFAULT_OVER_SCREEN_SETTINGS.speed, 0.5, 2.5, false),
     opacity: clampNumber(raw.opacity, DEFAULT_OVER_SCREEN_SETTINGS.opacity, 0.2, 1, false),
-    showAuthor: typeof raw.showAuthor === 'boolean' ? raw.showAuthor : DEFAULT_OVER_SCREEN_SETTINGS.showAuthor,
+    showAvatar,
+    showAuthor,
     emojiOnlyEnlarged: typeof raw.emojiOnlyEnlarged === 'boolean'
       ? raw.emojiOnlyEnlarged
       : DEFAULT_OVER_SCREEN_SETTINGS.emojiOnlyEnlarged,

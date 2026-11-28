@@ -177,6 +177,28 @@ const overlayCss = css`
     filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.55));
   }
 
+  .overlay-avatar {
+    width: 1.15em;
+    height: 1.15em;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .overlay-avatar.fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  .overlay-avatar.fallback > span {
+    font-size: 0.68em;
+    line-height: 1;
+  }
+
   .overlay-author {
     font-size: 0.72em;
     font-weight: 700;
@@ -271,6 +293,16 @@ const containedOverlayCss = css`
     padding: 0.3em 0.55em;
   }
 
+  .overlay-item.text-bubble .overlay-avatar {
+    display: inline-block;
+    vertical-align: -0.22em;
+    margin-right: 0.4em;
+  }
+
+  .overlay-item.text-bubble .overlay-avatar.fallback {
+    display: inline-flex;
+  }
+
   .overlay-item.text-bubble .overlay-author {
     margin-right: 0.45em;
   }
@@ -315,6 +347,7 @@ type ActiveOverlayItem = {
   messageId: string
   authorId: string | undefined
   authorName: string | undefined
+  authorAvatar: string | undefined
   text: string
   runs: ChatRow['runs']
   classified: ClassifiedChatMessage
@@ -324,49 +357,38 @@ type ActiveOverlayItem = {
   durationMs: number
 }
 
+const PREVIEW_AVATAR_SVG = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#3ea6ff"/></svg>',
+)
+
+const makePreviewRow = (id: string, text: string, authorId: string, authorName: string, handle: string): ChatRow => ({
+  __typename: 'LiveChatMessage',
+  id,
+  kind: 'TEXT',
+  text,
+  runs: [{ __typename: 'LiveChatRun', text, url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
+  timestampText: null,
+  isOwner: false,
+  isModerator: false,
+  isMember: false,
+  badges: null,
+  purchaseAmountText: null,
+  headerBackgroundColor: null,
+  bodyBackgroundColor: null,
+  headerPrimaryText: null,
+  headerSubtext: null,
+  stickerUrl: null,
+  stickerLabel: null,
+  iconType: null,
+  author: { __typename: 'Author', id: authorId, name: authorName, avatar: PREVIEW_AVATAR_SVG, handle },
+})
+
 const PREVIEW_SAMPLES: ChatRow[] = [
-  {
-    __typename: 'LiveChatMessage',
-    id: 'preview-text',
-    kind: 'TEXT',
-    text: 'Over-screen live chat preview!',
-    runs: [{ __typename: 'LiveChatRun', text: 'Over-screen live chat preview!', url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
-    timestampText: null,
-    isOwner: false,
-    isModerator: false,
-    isMember: false,
-    badges: null,
-    purchaseAmountText: null,
-    headerBackgroundColor: null,
-    bodyBackgroundColor: null,
-    headerPrimaryText: null,
-    headerSubtext: null,
-    stickerUrl: null,
-    stickerLabel: null,
-    iconType: null,
-    author: { __typename: 'Author', id: 'preview-1', name: 'Viewer', avatar: null, handle: '@viewer' },
-  },
-  {
-    __typename: 'LiveChatMessage',
-    id: 'preview-emoji',
-    kind: 'TEXT',
-    text: '🎉🔥🚀',
-    runs: [{ __typename: 'LiveChatRun', text: '🎉🔥🚀', url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
-    timestampText: null,
-    isOwner: false,
-    isModerator: false,
-    isMember: false,
-    badges: null,
-    purchaseAmountText: null,
-    headerBackgroundColor: null,
-    bodyBackgroundColor: null,
-    headerPrimaryText: null,
-    headerSubtext: null,
-    stickerUrl: null,
-    stickerLabel: null,
-    iconType: null,
-    author: { __typename: 'Author', id: 'preview-2', name: 'Chat', avatar: null, handle: '@chat' },
-  },
+  makePreviewRow('preview-normal', 'Over-screen live chat preview', 'preview-1', 'Viewer', '@viewer'),
+  makePreviewRow('preview-caps', 'HYPE IN CHAT', 'preview-2', 'Mod', '@mod'),
+  makePreviewRow('preview-question', 'Wait is this live?', 'preview-3', 'Guest', '@guest'),
+  makePreviewRow('preview-exclamation', 'What a stream!', 'preview-4', 'Fan', '@fan'),
+  makePreviewRow('preview-emoji', '🎉🔥🚀', 'preview-5', 'Chat', '@chat'),
 ]
 
 const getFullscreenTarget = (): Element | null => {
@@ -458,6 +480,7 @@ export const OverScreenOverlay = (
         messageId: row.id,
         authorId: row.author?.id,
         authorName: row.author?.name,
+        authorAvatar: row.author?.avatar ?? undefined,
         text: row.text,
         runs: row.runs,
         classified,
@@ -563,7 +586,7 @@ export const OverScreenOverlay = (
     const observer = new ResizeObserver(positionAll)
     observer.observe(overlay)
     return () => observer.disconnect()
-  }, [contained, settings.enabled, items, settings.fontSizePx, settings.fontFamily, settings.showAuthor])
+  }, [contained, settings.enabled, items, settings.fontSizePx, settings.fontFamily, settings.showAvatar, settings.showAuthor])
 
   if (!settings.enabled || (!contained && !portalTarget)) return null
 
@@ -632,6 +655,17 @@ export const OverScreenOverlay = (
               )
               : (
                 <>
+                  {settings.showAvatar
+                    ? item.authorAvatar
+                      ? <img className='overlay-avatar' src={item.authorAvatar} alt='' referrerpolicy='no-referrer' />
+                      : item.authorName?.trim()
+                        ? (
+                          <span className='overlay-avatar fallback' aria-hidden='true'>
+                            <span>{item.authorName.trim().charAt(0).toUpperCase()}</span>
+                          </span>
+                        )
+                        : undefined
+                    : undefined}
                   {settings.showAuthor && item.authorName
                     ? <span className='overlay-author'>{item.authorName}</span>
                     : undefined}

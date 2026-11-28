@@ -40,6 +40,8 @@ import {
   OVERLAY_EMOJI_ANIMATIONS,
   OVERLAY_FONT_FAMILIES,
   OVERLAY_TEXT_ANIMATIONS,
+  OVERLAY_TYPE_ANIMATION_FIELDS,
+  type OverlayTextAnimation,
   resetOverScreenSettings,
   updateOverScreenSettings,
   useOverScreenSettings,
@@ -979,6 +981,11 @@ export const chatStyles = css`
     justify-content: space-between;
     gap: 1.2rem;
     font-size: 1.3rem;
+  }
+
+  .over-screen-subrow {
+    padding-left: 1.2rem;
+    color: var(--text-secondary);
   }
 
   .over-screen-row select,
@@ -2255,10 +2262,20 @@ export const LiveChat = ({
                       </span>
                     </label>
                     <label className='over-screen-check'>
-                      <span>Show author names</span>
+                      <span>Show avatars</span>
                       <input
                         type='checkbox'
-                        aria-label='Show author names'
+                        aria-label='Show avatars'
+                        checked={overScreen.showAvatar}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          updateOverScreenSettings({ showAvatar: event.currentTarget.checked })}
+                      />
+                    </label>
+                    <label className='over-screen-check'>
+                      <span>Show usernames</span>
+                      <input
+                        type='checkbox'
+                        aria-label='Show usernames'
                         checked={overScreen.showAuthor}
                         onChange={(event: TargetedEvent<HTMLInputElement>) =>
                           updateOverScreenSettings({ showAuthor: event.currentTarget.checked })}
@@ -2274,6 +2291,23 @@ export const LiveChat = ({
                           updateOverScreenSettings({ styleByType: event.currentTarget.checked })}
                       />
                     </label>
+                    {overScreen.styleByType
+                      ? OVERLAY_TYPE_ANIMATION_FIELDS.map(({ key, label }) => (
+                        <label key={key} className='over-screen-row over-screen-subrow'>
+                          <span>{label}</span>
+                          <select
+                            aria-label={label}
+                            value={overScreen[key]}
+                            onChange={(event: TargetedEvent<HTMLSelectElement>) =>
+                              updateOverScreenSettings({ [key]: event.currentTarget.value as OverlayTextAnimation })}
+                          >
+                            {OVERLAY_TEXT_ANIMATIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ))
+                      : undefined}
                     <label className='over-screen-check'>
                       <span>Enlarge emoji-only messages</span>
                       <input
