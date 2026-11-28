@@ -1,5 +1,5 @@
 import type { TargetedEvent } from 'preact'
-import type { AudioTrack, DownloadFormatOption } from '../frame/protocol'
+import type { AudioTrack, DownloadFormatOption, DownloadFormatsResult } from '../frame/protocol'
 
 import { css } from '@emotion/react'
 import { Download, Pause, Play, RefreshCw, RotateCcw, Scissors } from 'lucide-react'
@@ -295,6 +295,28 @@ const style = css`
     gap: 0.6rem;
   }
 
+  .crop-preview-stage {
+    width: 100%;
+    height: clamp(11rem, 18vh, 17rem);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 0.8rem;
+    border: 1px solid var(--border-subtle);
+    background: #000;
+  }
+
+  .crop-preview-canvas,
+  .crop-preview-poster {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    object-fit: contain;
+  }
+
   .track-row {
     display: flex;
     align-items: center;
@@ -463,15 +485,18 @@ const style = css`
 
 /** Modal dialog for choosing Video (MP4) or Audio (M4A/WebM) download options, optional clip cropping, and starting a download. */
 export const DownloadDialog = (
-  { videoId, title, thumbnail, channelName, onClose }: {
+  { videoId, title, thumbnail, channelName, onClose, loadFormats }: {
     videoId: string
     title: string
     thumbnail?: string | null
     channelName?: string | null
     onClose: () => void
+    loadFormats?: (videoId: string) => Promise<DownloadFormatsResult>
   },
 ) => {
   const player = usePlayerSession()
+  const loadFormatsRef = useRef(loadFormats)
+  loadFormatsRef.current = loadFormats
   const [mode, setMode] = useState<DownloadMode>('video')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -493,6 +518,8 @@ export const DownloadDialog = (
   const tabsRef = useRef<HTMLDivElement>(null)
   const radioListRef = useRef<HTMLDivElement>(null)
   const rangeBarRef = useRef<HTMLDivElement>(null)
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null)
+  const [hasLiveFrame, setHasLiveFrame] = useState(false)
 
   const hasWatchPlayer = player.videoId === videoId
 
@@ -502,7 +529,8 @@ export const DownloadDialog = (
     setError(undefined)
     void (async () => {
       try {
-        const result = await (await startEngine()).downloadFormats(videoId)
+        const fetcher = loadFormatsRef.current
+        const result = await (fetcher ? fetcher(videoId) : (await startEngine()).downloadFormats(videoId))
         if (!active) return
         setIsLive(result.isLive)
         setDurationMs(result.durationMs)
@@ -562,6 +590,102 @@ export const DownloadDialog = (
       playerHost().querySelector('video')?.pause()
     }
   }, [previewing])
+
+  // Paint the live, paused, or scrubbed Watch player frame inside the crop editor so the clip remains visible over the backdrop.
+  useEffect(() => {
+    if (!cropEnabled || !hasWatchPlayer) {
+      setHasLiveFrame(false)
+      return
+    }
+    const videoEl = playerHost().querySelector('video')
+    const canvas = previewCanvasRef.current
+    if (!videoEl || !canvas) {
+      setHasLiveFrame(false)
+      return
+    }
+
+    let active = true
+    let rafId: number | undefined
+
+    const drawFrame = () => {
+      if (!active) return
+      const vw = videoEl.videoWidth
+      const vh = videoEl.videoHeight
+      if (vw <= 0 || vh <= 0 || videoEl.readyState < 2) return
+
+      const maxSide = 640
+      const scale = Math.min(1, maxSide / Math.max(vw, vh))
+      const targetWidth = Math.max(1, Math.round(vw * scale))
+      const targetHeight = Math.max(1, Math.round(vh * scale))
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth
+        canvas.height = targetHeight
+      }
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      try {
+        ctx.drawImage(videoEl, 0, 0, targetWidth, targetHeight)
+        setHasLiveFrame(true)
+      } catch {
+        setHasLiveFrame(false)
+      }
+    }
+
+    const stopRaf = () => {
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId)
+        rafId = undefined
+      }
+    }
+
+    const tick = () => {
+      if (!active || videoEl.paused || videoEl.ended) {
+        rafId = undefined
+        return
+      }
+      drawFrame()
+      rafId = requestAnimationFrame(tick)
+    }
+
+    const startRaf = () => {
+      if (rafId === undefined && !videoEl.paused && !videoEl.ended) {
+        rafId = requestAnimationFrame(tick)
+      }
+    }
+
+    const handlePauseOrEnd = () => {
+      stopRaf()
+      drawFrame()
+    }
+
+    drawFrame()
+    startRaf()
+
+    videoEl.addEventListener('play', startRaf)
+    videoEl.addEventListener('playing', startRaf)
+    videoEl.addEventListener('pause', handlePauseOrEnd)
+    videoEl.addEventListener('ended', handlePauseOrEnd)
+    videoEl.addEventListener('seeked', drawFrame)
+    videoEl.addEventListener('timeupdate', drawFrame)
+    videoEl.addEventListener('loadeddata', drawFrame)
+    videoEl.addEventListener('loadedmetadata', drawFrame)
+    videoEl.addEventListener('resize', drawFrame)
+
+    return () => {
+      active = false
+      stopRaf()
+      videoEl.removeEventListener('play', startRaf)
+      videoEl.removeEventListener('playing', startRaf)
+      videoEl.removeEventListener('pause', handlePauseOrEnd)
+      videoEl.removeEventListener('ended', handlePauseOrEnd)
+      videoEl.removeEventListener('seeked', drawFrame)
+      videoEl.removeEventListener('timeupdate', drawFrame)
+      videoEl.removeEventListener('loadeddata', drawFrame)
+      videoEl.removeEventListener('loadedmetadata', drawFrame)
+      videoEl.removeEventListener('resize', drawFrame)
+    }
+  }, [cropEnabled, hasWatchPlayer, videoId])
 
   const applyRange = (nextStart: number, nextEnd: number, scrubTargetMs?: number) => {
     if (durationMs <= 0) return
@@ -782,6 +906,9 @@ export const DownloadDialog = (
                     className='crop-mode-btn'
                     aria-pressed={!cropEnabled}
                     onClick={() => {
+                      if (previewing) {
+                        playerHost().querySelector('video')?.pause()
+                      }
                       setCropEnabled(false)
                       setPreviewing(false)
                     }}
@@ -810,6 +937,26 @@ export const DownloadDialog = (
               {cropEnabled
                 ? (
                   <>
+                    {(hasWatchPlayer || thumbnail)
+                      ? (
+                        <div className='crop-preview-stage' data-crop-preview='true' aria-hidden='true'>
+                          {hasWatchPlayer
+                            ? (
+                              <canvas
+                                ref={previewCanvasRef}
+                                className='crop-preview-canvas'
+                                data-crop-preview-canvas='true'
+                                data-has-frame={hasLiveFrame ? 'true' : 'false'}
+                                style={hasLiveFrame ? undefined : { display: 'none' }}
+                              />
+                            )
+                            : undefined}
+                          {!hasLiveFrame && thumbnail
+                            ? <img className='crop-preview-poster' src={thumbnail} alt='' />
+                            : undefined}
+                        </div>
+                      )
+                      : undefined}
                     <div ref={rangeBarRef} className='dual-range' onPointerDown={onTrackPointerDown}>
                       <div className='range-track'>
                         <div className='range-fill' style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }} />
