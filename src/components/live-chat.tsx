@@ -41,12 +41,14 @@ import {
   OVERLAY_FONT_FAMILIES,
   OVERLAY_TEXT_ANIMATIONS,
   OVERLAY_TYPE_ANIMATION_FIELDS,
+  type OverlayEmojiAnimation,
   type OverlayTextAnimation,
   resetOverScreenSettings,
   updateOverScreenSettings,
   useOverScreenSettings,
 } from './over-screen-messages'
 import { OverScreenOverlay } from './over-screen-overlay'
+import { PreviewSelect } from './preview-select'
 import { RichText } from './rich-text'
 import { Menu, MenuItem } from './ui/menu'
 import {
@@ -2160,32 +2162,30 @@ export const LiveChat = ({
                           updateOverScreenSettings({ enabled: event.currentTarget.checked })}
                       />
                     </label>
-                    <label className='over-screen-row'>
+                    <div className='over-screen-row'>
                       <span>Text animation</span>
-                      <select
-                        aria-label='Text animation'
+                      <PreviewSelect
+                        ariaLabel='Text animation'
                         value={overScreen.textAnimation}
-                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
-                          updateOverScreenSettings({ textAnimation: event.currentTarget.value as typeof overScreen.textAnimation })}
-                      >
-                        {OVERLAY_TEXT_ANIMATIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className='over-screen-row'>
+                        options={OVERLAY_TEXT_ANIMATIONS.map((option) => ({
+                          ...option,
+                          previewAnimation: option.value,
+                        }))}
+                        onChange={(textAnimation: OverlayTextAnimation) => updateOverScreenSettings({ textAnimation })}
+                      />
+                    </div>
+                    <div className='over-screen-row'>
                       <span>Emoji-only animation</span>
-                      <select
-                        aria-label='Emoji-only animation'
+                      <PreviewSelect
+                        ariaLabel='Emoji-only animation'
                         value={overScreen.emojiAnimation}
-                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
-                          updateOverScreenSettings({ emojiAnimation: event.currentTarget.value as typeof overScreen.emojiAnimation })}
-                      >
-                        {OVERLAY_EMOJI_ANIMATIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                        options={OVERLAY_EMOJI_ANIMATIONS.map((option) => ({
+                          ...option,
+                          previewAnimation: option.value,
+                        }))}
+                        onChange={(emojiAnimation: OverlayEmojiAnimation) => updateOverScreenSettings({ emojiAnimation })}
+                      />
+                    </div>
                     <label className='over-screen-row'>
                       <span>Font style</span>
                       <select
@@ -2295,19 +2295,18 @@ export const LiveChat = ({
                     </label>
                     {overScreen.styleByType
                       ? OVERLAY_TYPE_ANIMATION_FIELDS.map(({ key, label }) => (
-                        <label key={key} className='over-screen-row over-screen-subrow'>
+                        <div key={key} className='over-screen-row over-screen-subrow'>
                           <span>{label}</span>
-                          <select
-                            aria-label={label}
+                          <PreviewSelect
+                            ariaLabel={label}
                             value={overScreen[key]}
-                            onChange={(event: TargetedEvent<HTMLSelectElement>) =>
-                              updateOverScreenSettings({ [key]: event.currentTarget.value as OverlayTextAnimation })}
-                          >
-                            {OVERLAY_TEXT_ANIMATIONS.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        </label>
+                            options={OVERLAY_TEXT_ANIMATIONS.map((option) => ({
+                              ...option,
+                              previewAnimation: option.value,
+                            }))}
+                            onChange={(value: OverlayTextAnimation) => updateOverScreenSettings({ [key]: value })}
+                          />
+                        </div>
                       ))
                       : undefined}
                     <label className='over-screen-check'>

@@ -30,6 +30,19 @@ const mountHarness = async (
   return harness
 }
 
+const pickMenuOption = async (
+  page: import('@playwright/test').Page,
+  panel: import('@playwright/test').Locator,
+  label: string,
+  optionLabel: string,
+) => {
+  await panel.getByRole('combobox', { name: label, exact: true }).click()
+  const listbox = page.getByRole('listbox', { name: label, exact: true })
+  await expect(listbox).toBeVisible()
+  await listbox.getByRole('option', { name: optionLabel, exact: true }).click()
+  await expect(listbox).toHaveCount(0)
+}
+
 test('projects incremental chat and emoji-only messages over the screen with customizable settings and moderation cleanup', async ({ page }) => {
   const harness = await mountHarness(page)
   const chat = harness.getByRole('region', { name: 'Live chat' })
@@ -53,11 +66,11 @@ test('projects incremental chat and emoji-only messages over the screen with cus
   const panel = chat.getByRole('dialog', { name: 'Over-screen chat messages' })
   await expect(panel).toBeVisible()
 
-  await panel.getByLabel('Text animation', { exact: true }).selectOption('shake')
-  await panel.getByLabel('Emoji-only animation', { exact: true }).selectOption('shatter')
-  await panel.getByLabel('ALL CAPS animation', { exact: true }).selectOption('pop')
-  await panel.getByLabel('Question animation', { exact: true }).selectOption('fade')
-  await panel.getByLabel('Exclamation animation', { exact: true }).selectOption('bounce')
+  await pickMenuOption(page, panel, 'Text animation', 'Shake')
+  await pickMenuOption(page, panel, 'Emoji-only animation', 'Shatter')
+  await pickMenuOption(page, panel, 'ALL CAPS animation', 'Pop in')
+  await pickMenuOption(page, panel, 'Question animation', 'Fade')
+  await pickMenuOption(page, panel, 'Exclamation animation', 'Bounce')
   await panel.getByLabel('Overlay font', { exact: true }).selectOption('mono')
   await panel.getByRole('button', { name: 'Test preview', exact: true }).click()
 
@@ -306,4 +319,73 @@ test('independently toggles over-screen avatars and usernames, migrates legacy s
   await panel.getByRole('button', { name: 'Test preview', exact: true }).click()
   const previewQuestion = overlay.locator('[data-overlay-kind="question"]').last()
   await expect(previewQuestion).toHaveAttribute('data-overlay-animation', 'scroll')
+})
+
+test('animates over-screen animation menu items live, preserves Escape layering, and respects prefers-reduced-motion', async ({ page }) => {
+  const harness = await mountHarness(page)
+  const chat = harness.getByRole('region', { name: 'Live chat' })
+  await chat.getByRole('button', { name: 'Customize over-screen messages', exact: true }).click()
+  const panel = chat.getByRole('dialog', { name: 'Over-screen chat messages' })
+  await expect(panel).toBeVisible()
+
+  const textCombo = panel.getByRole('combobox', { name: 'Text animation', exact: true })
+  await textCombo.click()
+  const textList = page.getByRole('listbox', { name: 'Text animation', exact: true })
+  await expect(textList).toBeVisible()
+
+  const textAnimations = await textList.locator('[data-preview-animation]').evaluateAll((els) =>
+    els.map((el) => ({
+      kind: el.getAttribute('data-preview-animation'),
+      animationName: getComputedStyle(el).animationName,
+    })),
+  )
+  expect(textAnimations.map((entry) => entry.kind)).toEqual(['scroll', 'shake', 'pop', 'bounce', 'fade'])
+  expect(textAnimations.every((entry) => entry.animationName && entry.animationName !== 'none')).toBe(true)
+  expect(new Set(textAnimations.map((entry) => entry.animationName)).size).toBe(5)
+
+  // First Escape closes only the listbox and keeps the panel open with focus restored to the trigger.
+  await page.keyboard.press('Escape')
+  await expect(textList).toHaveCount(0)
+  await expect(panel).toBeVisible()
+  await expect(textCombo).toBeFocused()
+
+  // Emoji-only and per-type selectors also preview animations inside their options.
+  await panel.getByRole('combobox', { name: 'Emoji-only animation', exact: true }).click()
+  const emojiList = page.getByRole('listbox', { name: 'Emoji-only animation', exact: true })
+  await expect(emojiList).toBeVisible()
+  const emojiAnimations = await emojiList.locator('[data-preview-animation]').evaluateAll((els) =>
+    els.map((el) => ({
+      kind: el.getAttribute('data-preview-animation'),
+      animationName: getComputedStyle(el).animationName,
+    })),
+  )
+  const burstAnim = emojiAnimations.find((entry) => entry.kind === 'burst')?.animationName
+  const shatterAnim = emojiAnimations.find((entry) => entry.kind === 'shatter')?.animationName
+  expect(burstAnim && burstAnim !== 'none').toBe(true)
+  expect(shatterAnim && shatterAnim !== 'none').toBe(true)
+  expect(burstAnim).not.toBe(shatterAnim)
+
+  await page.keyboard.press('Escape')
+  await expect(emojiList).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(panel).toHaveCount(0)
+
+  await chat.getByRole('button', { name: 'Customize over-screen messages', exact: true }).click()
+  await expect(panel).toBeVisible()
+  await panel.getByRole('combobox', { name: 'Question animation', exact: true }).click()
+  const questionList = page.getByRole('listbox', { name: 'Question animation', exact: true })
+  await expect(questionList).toBeVisible()
+  const questionNames = await questionList.locator('[data-preview-animation]').evaluateAll((els) =>
+    els.map((el) => getComputedStyle(el).animationName),
+  )
+  expect(questionNames.every((name) => name && name !== 'none')).toBe(true)
+  await page.keyboard.press('Escape')
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await textCombo.click()
+  await expect(textList).toBeVisible()
+  const reducedNames = await textList.locator('[data-preview-animation]').evaluateAll((els) =>
+    els.map((el) => getComputedStyle(el).animationName),
+  )
+  expect(reducedNames).toEqual(['none', 'none', 'none', 'none', 'none'])
 })
