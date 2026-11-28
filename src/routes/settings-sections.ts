@@ -23,6 +23,7 @@ const SECTION_ALIASES: Record<string, SettingsSectionId> = {
   notifications: 'notifications',
   customization: 'customization',
   appearance: 'customization',
+  'emoji-picker': 'customization',
   'time-management': 'time-management',
   time: 'time-management',
   playback: 'playback',
@@ -33,12 +34,13 @@ const SECTION_ALIASES: Record<string, SettingsSectionId> = {
 }
 
 /** Identifier for a sub-tab within the `/settings` Customization section. */
-export type CustomizationTabId = 'appearance' | 'player'
+export type CustomizationTabId = 'appearance' | 'player' | 'emoji-picker'
 
 /** Ordered tabs displayed under `/settings?section=customization`. */
 export const CUSTOMIZATION_TABS: readonly { id: CustomizationTabId, label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'player', label: 'Player' },
+  { id: 'emoji-picker', label: 'Emoji picker' },
 ]
 
 /**
@@ -47,8 +49,10 @@ export const CUSTOMIZATION_TABS: readonly { id: CustomizationTabId, label: strin
  */
 export const readCustomizationTab = (search: string, hash: string): CustomizationTabId => {
   if (hash.replace(/^#/, '') === 'custom-appearance') return 'appearance'
-  const query = new URLSearchParams(search)
-  return query.get('tab') === 'player' ? 'player' : 'appearance'
+  const tab = new URLSearchParams(search).get('tab')
+  if (tab === 'player') return 'player'
+  if (tab === 'emoji-picker') return 'emoji-picker'
+  return 'appearance'
 }
 
 /**

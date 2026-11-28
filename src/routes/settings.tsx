@@ -10,6 +10,7 @@ import { Link, useLocation, useSearch } from 'wouter'
 import { useDocumentTitle } from '../app'
 import { AmbientPreview } from '../components/ambient-preview'
 import { CustomAppearance } from '../components/custom-appearance'
+import { EmojiPickerCustomization } from '../components/emoji-picker-customization'
 import { PlayerCustomization } from '../components/player-customization'
 import { clearDismissed, getDismissed, restoreDismissed, useDismissed } from '../components/dismissed-videos'
 import { EXTENSION_URL, useExtensionExposed } from '../components/extension-notice'
@@ -614,7 +615,10 @@ export const SettingsPage = () => {
   const selectCustomizationTab = (next: CustomizationTabId) => {
     setActiveSection('customization')
     setCustomizationTab(next)
-    navigate(next === 'appearance' ? '/settings?section=customization' : '/settings?section=customization&tab=player', { replace: true })
+    navigate(
+      next === 'appearance' ? '/settings?section=customization' : `/settings?section=customization&tab=${next}`,
+      { replace: true },
+    )
   }
 
   const onCustomizationTabKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLButtonElement>) => {
@@ -877,17 +881,29 @@ export const SettingsPage = () => {
                         </div>
                       </div>
                     )
-                    : (
-                      <div
-                        id='customization-panel-player'
-                        role='tabpanel'
-                        aria-labelledby='customization-tab-player'
-                      >
-                        <div className='setting-row appearance-group'>
-                          <PlayerCustomization settings={settings} onUpdate={set} />
+                    : customizationTab === 'player'
+                      ? (
+                        <div
+                          id='customization-panel-player'
+                          role='tabpanel'
+                          aria-labelledby='customization-tab-player'
+                        >
+                          <div className='setting-row appearance-group'>
+                            <PlayerCustomization settings={settings} onUpdate={set} />
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )
+                      : (
+                        <div
+                          id='customization-panel-emoji-picker'
+                          role='tabpanel'
+                          aria-labelledby='customization-tab-emoji-picker'
+                        >
+                          <div className='setting-row appearance-group'>
+                            <EmojiPickerCustomization settings={settings} onUpdate={set} />
+                          </div>
+                        </div>
+                      )}
                 </>
               )
               : activeSection === 'time-management'

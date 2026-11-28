@@ -1,3 +1,4 @@
+import type { EmojiPickerSettings } from './components/emoji-picker-settings'
 import type { AmbientArea, AmbientFillMode } from './player/ambient-options'
 import type { CaptionLook } from './player/caption-style'
 import type { PlayerBarLayout, PlayerSettingsMenuItemId } from './player/control-layout'
@@ -8,6 +9,11 @@ import type { SeekHandle } from './theme/seek-handle'
 
 import { useEffect, useState } from 'preact/hooks'
 
+import {
+  cloneDefaultEmojiPickerSettings,
+  coerceEmojiPickerSettings,
+  DEFAULT_EMOJI_PICKER_SETTINGS,
+} from './components/emoji-picker-settings'
 import { normalizeLanguageCode } from './frame/captions'
 import {
   AMBIENT_AREA_DEFAULT,
@@ -90,6 +96,7 @@ export type Settings = {
   playerMenuHidden: PlayerSettingsMenuItemId[]
   showMostReplayed: boolean
   timedComments: boolean
+  emojiPicker: EmojiPickerSettings
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -131,6 +138,7 @@ export const DEFAULT_SETTINGS: Settings = {
   playerMenuHidden: [],
   showMostReplayed: false,
   timedComments: false,
+  emojiPicker: DEFAULT_EMOJI_PICKER_SETTINGS,
 }
 
 const STORAGE_KEY = 'yt-client:settings'
@@ -211,20 +219,38 @@ const coerce = (stored: Partial<Record<keyof Settings, unknown>>): Settings => {
     playerMenuHidden: coercePlayerMenuHidden(stored.playerMenuHidden),
     showMostReplayed: typeof stored.showMostReplayed === 'boolean' ? stored.showMostReplayed : DEFAULT_SETTINGS.showMostReplayed,
     timedComments: typeof stored.timedComments === 'boolean' ? stored.timedComments : DEFAULT_SETTINGS.timedComments,
+    emojiPicker: coerceEmojiPickerSettings(stored.emojiPicker),
   }
 }
 
 const read = (): Settings => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
+    if (!raw) {
+      return {
+        ...DEFAULT_SETTINGS,
+        playerBarLayout: cloneDefaultPlayerBarLayout(),
+        playerMenuHidden: [],
+        emojiPicker: cloneDefaultEmojiPickerSettings(),
+      }
+    }
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') {
-      return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
+      return {
+        ...DEFAULT_SETTINGS,
+        playerBarLayout: cloneDefaultPlayerBarLayout(),
+        playerMenuHidden: [],
+        emojiPicker: cloneDefaultEmojiPickerSettings(),
+      }
     }
     return coerce(parsed as Partial<Record<keyof Settings, unknown>>)
   } catch {
-    return { ...DEFAULT_SETTINGS, playerBarLayout: cloneDefaultPlayerBarLayout(), playerMenuHidden: [] }
+    return {
+      ...DEFAULT_SETTINGS,
+      playerBarLayout: cloneDefaultPlayerBarLayout(),
+      playerMenuHidden: [],
+      emojiPicker: cloneDefaultEmojiPickerSettings(),
+    }
   }
 }
 
@@ -267,6 +293,7 @@ export const updateSettings = (patch: Partial<Settings>) => {
     ...('appIcon' in patch ? { appIcon: coerceAppIcon(patch.appIcon) } : {}),
     ...('playerBarLayout' in patch ? { playerBarLayout: coercePlayerBarLayout(patch.playerBarLayout) } : {}),
     ...('playerMenuHidden' in patch ? { playerMenuHidden: coercePlayerMenuHidden(patch.playerMenuHidden) } : {}),
+    ...('emojiPicker' in patch ? { emojiPicker: coerceEmojiPickerSettings(patch.emojiPicker) } : {}),
   }
   const hasCustomColor = 'customThemeColor' in patch
   const autoAppIcon = hasCustomColor && !('appIcon' in patch)
@@ -310,6 +337,12 @@ export const resetPlayerCustomization = () =>
     playerBarLayout: cloneDefaultPlayerBarLayout(),
     playerMenuHidden: [],
     showMostReplayed: DEFAULT_SETTINGS.showMostReplayed,
+  })
+
+/** Restores default emoji picker layout, skin tone default, and behavior options. */
+export const resetEmojiPickerCustomization = () =>
+  updateSettings({
+    emojiPicker: cloneDefaultEmojiPickerSettings(),
   })
 
 const prefersLight = () => {

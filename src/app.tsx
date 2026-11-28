@@ -97,10 +97,12 @@ const collapsePath = (pathname: string) =>
   pathname.startsWith('/shorts/') ? '/shorts' : pathname
 
 const routeKeyOf = (pathname: string, search: string) => {
+  const path = collapsePath(pathname)
+  // `/settings` manages section and tab query params internally so keyboard tab focus survives URL updates
+  if (path === '/settings') return path
   const params = new URLSearchParams(search)
   for (const param of POSITION_PARAMS) params.delete(param)
   const rest = params.toString()
-  const path = collapsePath(pathname)
   return rest ? `${path}?${rest}` : path
 }
 

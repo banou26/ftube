@@ -1,5 +1,6 @@
 import type { TargetedEvent } from 'preact'
 import type { LiveChatEmoji } from '../generated/graphql'
+import type { EmojiCategory, EmojiPickerSettings, SkinToneModifier, SkinToneOption } from './emoji-picker-settings'
 
 import { css } from '@emotion/react'
 import { Cake, Car, Flower2, Hand, Heart, Lightbulb, Lock, Search, Smile, Sparkles, Trophy, Tv } from 'lucide-react'
@@ -7,40 +8,12 @@ import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 import { getFullscreenElement } from '../player/fullscreen'
+import { useSetting } from '../settings'
+import { EMOJI_CATEGORIES, emojiPickerMetrics, SKIN_TONES } from './emoji-picker-settings'
 import { useDismiss } from './ui/popup'
 
-export type EmojiCategory =
-  | 'Smileys'
-  | 'Gestures'
-  | 'Hearts'
-  | 'Nature'
-  | 'Food'
-  | 'Travel'
-  | 'Activities'
-  | 'Objects'
-
-export type SkinToneModifier =
-  | ''
-  | '\u{1F3FB}'
-  | '\u{1F3FC}'
-  | '\u{1F3FD}'
-  | '\u{1F3FE}'
-  | '\u{1F3FF}'
-
-export type SkinToneOption = {
-  modifier: SkinToneModifier
-  label: string
-  color: string
-}
-
-export const SKIN_TONES: readonly SkinToneOption[] = [
-  { modifier: '', label: 'Default skin tone', color: '#ffc83d' },
-  { modifier: '\u{1F3FB}', label: 'Light skin tone', color: '#f7d7c4' },
-  { modifier: '\u{1F3FC}', label: 'Medium-light skin tone', color: '#d8b094' },
-  { modifier: '\u{1F3FD}', label: 'Medium skin tone', color: '#bb9167' },
-  { modifier: '\u{1F3FE}', label: 'Medium-dark skin tone', color: '#8e562e' },
-  { modifier: '\u{1F3FF}', label: 'Dark skin tone', color: '#613d30' },
-]
+export type { EmojiCategory, EmojiPickerSettings, SkinToneModifier, SkinToneOption }
+export { EMOJI_CATEGORIES, SKIN_TONES }
 
 export type EmojiEntry = {
   emoji: string
@@ -53,17 +26,7 @@ export type EmojiEntry = {
 export type CustomEmoji = LiveChatEmoji
 
 type PickerTab = 'Channel' | 'YouTube' | EmojiCategory
-
-export const EMOJI_CATEGORIES: readonly EmojiCategory[] = [
-  'Smileys',
-  'Gestures',
-  'Hearts',
-  'Nature',
-  'Food',
-  'Travel',
-  'Activities',
-  'Objects',
-]
+type CssCustomVars = Record<`--${string}`, string>
 
 const SECTION_LABELS: Record<PickerTab, string> = {
   Channel: 'Channel emojis',
@@ -354,6 +317,10 @@ const panelStyle = css`
     padding: 1rem 1.2rem 0.6rem;
   }
 
+  .emoji-top.no-search {
+    justify-content: flex-end;
+  }
+
   .emoji-search-wrap {
     flex: 1;
     min-width: 0;
@@ -501,13 +468,9 @@ const panelStyle = css`
 
   .emoji-grid {
     position: relative;
-    height: 24rem;
+    height: var(--emoji-grid-height, 24rem);
     overflow-y: auto;
     padding: 0 1.2rem 1rem;
-  }
-
-  &.inline .emoji-grid {
-    height: 22rem;
   }
 
   .emoji-section-title {
@@ -539,25 +502,23 @@ const panelStyle = css`
 
   .emoji-section-grid {
     display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--emoji-columns, 8), minmax(0, 1fr));
     gap: 0.2rem;
-  }
-
-  &.inline .emoji-section-grid {
-    grid-template-columns: repeat(auto-fill, minmax(3.6rem, 1fr));
   }
 
   .emoji-cell {
     position: relative;
+    min-width: 0;
+    overflow: hidden;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 3.4rem;
+    height: var(--emoji-cell-size, 3.4rem);
     padding: 0;
     border: 1px solid transparent;
     border-radius: 0.6rem;
     background: transparent;
-    font-size: 2rem;
+    font-size: var(--emoji-font-size, 2rem);
     line-height: 1;
     cursor: pointer;
   }
@@ -601,8 +562,8 @@ const panelStyle = css`
   }
 
   .emoji-cell img {
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--emoji-img-size, 2.2rem);
+    height: var(--emoji-img-size, 2.2rem);
     object-fit: contain;
   }
 
@@ -616,7 +577,7 @@ const panelStyle = css`
 
 const popoverStyle = css`
   position: fixed;
-  width: min(34rem, calc(100vw - 1.6rem));
+  width: min(var(--emoji-popover-width, 34rem), calc(100vw - 1.6rem));
   border: 1px solid var(--border);
   border-radius: 1.2rem;
   background: var(--bg-menu);
@@ -649,6 +610,7 @@ export const EmojiPickerPanel = ({
   autoFocus = false,
   searchPlaceholder = 'Search emoji',
   searchLabel = 'Search emoji',
+  pickerSettings,
 }: {
   variant?: 'popover' | 'inline'
   onPick: (emoji: string) => void
@@ -657,9 +619,12 @@ export const EmojiPickerPanel = ({
   autoFocus?: boolean
   searchPlaceholder?: string
   searchLabel?: string
+  pickerSettings?: EmojiPickerSettings
 }) => {
+  const storedSettings = useSetting('emojiPicker')
+  const activeSettings = pickerSettings ?? storedSettings
   const [query, setQuery] = useState('')
-  const [skinTone, setSkinTone] = useState<SkinToneModifier>('')
+  const [skinTone, setSkinTone] = useState<SkinToneModifier>(() => activeSettings.defaultSkinTone)
   const [toneOpen, setToneOpen] = useState(false)
   const { channel: channelEmojis, youtube: youtubeEmojis } = splitCustomEmojis(customEmojis)
   const hasChannel = channelEmojis.length > 0
@@ -669,12 +634,27 @@ export const EmojiPickerPanel = ({
     ...(hasYoutube ? ['YouTube' as const] : []),
     ...EMOJI_CATEGORIES,
   ]
-  const [activeTab, setActiveTab] = useState<PickerTab>(tabs[0] ?? 'Smileys')
+  const [activeTab, setActiveTab] = useState<PickerTab>(() =>
+    hasChannel ? 'Channel' : hasYoutube ? 'YouTube' : activeSettings.defaultCategory,
+  )
   const searchRef = useRef<HTMLInputElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const sectionRefs = useRef<Partial<Record<PickerTab, HTMLElement | null>>>({})
+  const prevDefaultCategoryRef = useRef(activeSettings.defaultCategory)
   const gridId = useId()
+
+  useEffect(() => {
+    setSkinTone(activeSettings.defaultSkinTone)
+  }, [activeSettings.defaultSkinTone])
+
+  useEffect(() => {
+    if (!activeSettings.showSearch && query) setQuery('')
+  }, [activeSettings.showSearch, query])
+
+  useEffect(() => {
+    if (!activeSettings.showSkinTone && toneOpen) setToneOpen(false)
+  }, [activeSettings.showSkinTone, toneOpen])
 
   useEffect(() => {
     if (!tabs.includes(activeTab)) {
@@ -683,8 +663,8 @@ export const EmojiPickerPanel = ({
   }, [hasChannel, hasYoutube, activeTab])
 
   useEffect(() => {
-    if (autoFocus) searchRef.current?.focus()
-  }, [autoFocus])
+    if (autoFocus && activeSettings.showSearch) searchRef.current?.focus()
+  }, [autoFocus, activeSettings.showSearch])
 
   const setSectionRef = (tab: PickerTab) => (el: HTMLElement | null) => {
     sectionRefs.current[tab] = el
@@ -699,6 +679,21 @@ export const EmojiPickerPanel = ({
     }
   }
 
+  useLayoutEffect(() => {
+    if (hasChannel || hasYoutube || activeSettings.defaultCategory === 'Smileys') return
+    const grid = gridRef.current
+    const section = sectionRefs.current[activeSettings.defaultCategory]
+    if (grid && section) grid.scrollTop = section.offsetTop
+  }, [])
+
+  useEffect(() => {
+    if (prevDefaultCategoryRef.current === activeSettings.defaultCategory) return
+    prevDefaultCategoryRef.current = activeSettings.defaultCategory
+    if (tabs.includes(activeSettings.defaultCategory)) {
+      jumpToTab(activeSettings.defaultCategory)
+    }
+  }, [activeSettings.defaultCategory, hasChannel, hasYoutube])
+
   const onTabKeyDown = (event: KeyboardEvent) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
@@ -712,8 +707,19 @@ export const EmojiPickerPanel = ({
     ;(tabsRef.current?.children[nextIndex] as HTMLElement | undefined)?.focus()
   }
 
+  const metrics = emojiPickerMetrics(activeSettings)
+  const gridHeightRem = variant === 'inline' ? metrics.inlineHeightRem : metrics.popoverHeightRem
+  const panelCssVars: CssCustomVars = {
+    '--emoji-columns': String(activeSettings.columns),
+    '--emoji-cell-size': `${metrics.cellHeightRem}rem`,
+    '--emoji-font-size': `${metrics.fontSizeRem}rem`,
+    '--emoji-img-size': `${metrics.customImgRem}rem`,
+    '--emoji-grid-height': `${gridHeightRem}rem`,
+  }
+  const showTop = activeSettings.showSearch || activeSettings.showSkinTone
+
   const currentTone = SKIN_TONES.find(tone => tone.modifier === skinTone) ?? SKIN_TONES[0]!
-  const searching = query.trim().length > 0
+  const searching = activeSettings.showSearch && query.trim().length > 0
   const matchingChannel = hasChannel ? filterCustomEmojis(channelEmojis, query) : []
   const matchingYoutube = hasYoutube ? filterCustomEmojis(youtubeEmojis, query) : []
   const matchingStandard = searching ? filterEmojis(query) : []
@@ -741,12 +747,16 @@ export const EmojiPickerPanel = ({
 
   const renderCustomSection = (tab: 'Channel' | 'YouTube', entries: readonly CustomEmoji[], withRef: boolean) => (
     <div ref={withRef ? setSectionRef(tab) : undefined}>
-      <div className='emoji-section-title'>
-        <span>{SECTION_LABELS[tab]}</span>
-        {tab === 'Channel' && entries.some(entry => entry.locked === true)
-          ? <span className='emoji-section-lock'><Lock size={11} strokeWidth={2.2} aria-hidden='true' />Members only</span>
-          : undefined}
-      </div>
+      {activeSettings.showSectionHeaders
+        ? (
+          <div className='emoji-section-title'>
+            <span>{SECTION_LABELS[tab]}</span>
+            {tab === 'Channel' && entries.some(entry => entry.locked === true)
+              ? <span className='emoji-section-lock'><Lock size={11} strokeWidth={2.2} aria-hidden='true' />Members only</span>
+              : undefined}
+          </div>
+        )
+        : undefined}
       <div className='emoji-section-grid'>
         {entries.map(renderCustomEmoji)}
       </div>
@@ -754,57 +764,78 @@ export const EmojiPickerPanel = ({
   )
 
   return (
-    <div css={panelStyle} className={variant === 'inline' ? 'inline' : undefined}>
-      <div className='emoji-top'>
-        <label className='emoji-search-wrap'>
-          <Search size={16} strokeWidth={1.75} className='emoji-search-icon' aria-hidden='true' />
-          <input
-            ref={searchRef}
-            type='search'
-            className='emoji-search'
-            value={query}
-            placeholder={searchPlaceholder}
-            aria-label={searchLabel}
-            onInput={(event: TargetedEvent<HTMLInputElement>) => setQuery(event.currentTarget.value)}
-          />
-        </label>
-        <button
-          type='button'
-          className='skin-tone-trigger'
-          aria-label='Choose skin tone'
-          aria-haspopup='listbox'
-          aria-expanded={toneOpen}
-          title={currentTone.label}
-          onClick={() => setToneOpen(open => !open)}
-        >
-          <span className='skin-tone-swatch' style={{ backgroundColor: currentTone.color }} aria-hidden='true' />
-        </button>
-        {toneOpen
-          ? (
-            <div className='skin-tone-tray' role='listbox' aria-label='Skin tone'>
-              {SKIN_TONES.map(tone => (
-                <button
-                  key={tone.label}
-                  type='button'
-                  role='option'
-                  className='skin-tone-option'
-                  aria-label={tone.label}
-                  aria-selected={tone.modifier === skinTone}
-                  title={tone.label}
-                  onClick={() => {
-                    setSkinTone(tone.modifier)
-                    setToneOpen(false)
-                  }}
-                >
-                  <span className='skin-tone-swatch' style={{ backgroundColor: tone.color }} aria-hidden='true' />
-                </button>
-              ))}
-            </div>
-          )
-          : undefined}
-      </div>
+    <div
+      css={panelStyle}
+      className={variant === 'inline' ? 'inline' : undefined}
+      data-emoji-size={activeSettings.emojiSize}
+      data-emoji-columns={String(activeSettings.columns)}
+      data-picker-height={activeSettings.pickerHeight}
+      style={panelCssVars}
+    >
+      {showTop
+        ? (
+          <div className={activeSettings.showSearch ? 'emoji-top' : 'emoji-top no-search'}>
+            {activeSettings.showSearch
+              ? (
+                <label className='emoji-search-wrap'>
+                  <Search size={16} strokeWidth={1.75} className='emoji-search-icon' aria-hidden='true' />
+                  <input
+                    ref={searchRef}
+                    type='search'
+                    className='emoji-search'
+                    value={query}
+                    placeholder={searchPlaceholder}
+                    aria-label={searchLabel}
+                    onInput={(event: TargetedEvent<HTMLInputElement>) => setQuery(event.currentTarget.value)}
+                  />
+                </label>
+              )
+              : undefined}
+            {activeSettings.showSkinTone
+              ? (
+                <>
+                  <button
+                    type='button'
+                    className='skin-tone-trigger'
+                    aria-label='Choose skin tone'
+                    aria-haspopup='listbox'
+                    aria-expanded={toneOpen}
+                    title={currentTone.label}
+                    onClick={() => setToneOpen(open => !open)}
+                  >
+                    <span className='skin-tone-swatch' style={{ backgroundColor: currentTone.color }} aria-hidden='true' />
+                  </button>
+                  {toneOpen
+                    ? (
+                      <div className='skin-tone-tray' role='listbox' aria-label='Skin tone'>
+                        {SKIN_TONES.map(tone => (
+                          <button
+                            key={tone.label}
+                            type='button'
+                            role='option'
+                            className='skin-tone-option'
+                            aria-label={tone.label}
+                            aria-selected={tone.modifier === skinTone}
+                            title={tone.label}
+                            onClick={() => {
+                              setSkinTone(tone.modifier)
+                              setToneOpen(false)
+                            }}
+                          >
+                            <span className='skin-tone-swatch' style={{ backgroundColor: tone.color }} aria-hidden='true' />
+                          </button>
+                        ))}
+                      </div>
+                    )
+                    : undefined}
+                </>
+              )
+              : undefined}
+          </div>
+        )
+        : undefined}
 
-      {!searching
+      {!searching && activeSettings.showCategories
         ? (
           <div ref={tabsRef} className='emoji-tabs' role='tablist' aria-label='Emoji categories' onKeyDown={onTabKeyDown}>
             {tabs.map((tab) => {
@@ -871,7 +902,9 @@ export const EmojiPickerPanel = ({
                 const items = filterEmojis('', category)
                 return (
                   <div key={category} ref={setSectionRef(category)}>
-                    <div className='emoji-section-title'>{SECTION_LABELS[category]}</div>
+                    {activeSettings.showSectionHeaders
+                      ? <div className='emoji-section-title'>{SECTION_LABELS[category]}</div>
+                      : undefined}
                     <div className='emoji-section-grid'>
                       {items.map((entry) => {
                         const resolved = applySkinTone(entry, skinTone)
@@ -907,7 +940,7 @@ export const EmojiButton = ({
   disabled = false,
   customEmojis = [],
   label = 'Insert emoji',
-  closeOnPick = false,
+  closeOnPick,
 }: {
   onPick: (emoji: string) => void
   disabled?: boolean
@@ -915,6 +948,9 @@ export const EmojiButton = ({
   label?: string
   closeOnPick?: boolean
 }) => {
+  const pickerSettings = useSetting('emojiPicker')
+  const metrics = emojiPickerMetrics(pickerSettings)
+  const shouldCloseOnPick = closeOnPick ?? pickerSettings.closeOnPick
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -961,11 +997,11 @@ export const EmojiButton = ({
       window.removeEventListener('resize', schedule)
       observer.disconnect()
     }
-  }, [open, customEmojis.length])
+  }, [open, customEmojis.length, metrics.popoverWidthRem, metrics.popoverHeightRem])
 
   const handlePick = (emoji: string) => {
     onPick(emoji)
-    if (closeOnPick) setOpen(false)
+    if (shouldCloseOnPick) setOpen(false)
   }
 
   return (
@@ -984,11 +1020,18 @@ export const EmojiButton = ({
       </button>
       {open
         ? createPortal(
-          <div ref={panelRef} css={popoverStyle} role='dialog' aria-label='Emoji picker'>
+          <div
+            ref={panelRef}
+            css={popoverStyle}
+            style={{ '--emoji-popover-width': `${metrics.popoverWidthRem}rem` } as CssCustomVars}
+            role='dialog'
+            aria-label='Emoji picker'
+          >
             <EmojiPickerPanel
               variant='popover'
               autoFocus
               customEmojis={customEmojis}
+              pickerSettings={pickerSettings}
               onPick={handlePick}
             />
           </div>,
