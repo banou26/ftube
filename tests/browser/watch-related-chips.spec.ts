@@ -152,27 +152,40 @@ test('uses edge fade arrows without snap and resets scroll position across video
   expect(bounds[1]!.x + bounds[1]!.width).toBeLessThanOrEqual(bounds[0]!.x + bounds[0]!.width + 1)
   expect(bounds[1]!.height).toBeGreaterThanOrEqual(bounds[0]!.height - 2)
 
-  for (let i = 0; i < 8; i += 1) {
-    if (await more.count() === 0) break
-    await more.click()
-    await page.waitForTimeout(180)
+  const waitScrollSettled = async () => {
+    let last = -1
+    let steady = 0
+    await expect.poll(async () => {
+      const cur = await track.evaluate(el => el.scrollLeft)
+      steady = Math.abs(cur - last) < 0.5 ? steady + 1 : 0
+      last = cur
+      return steady
+    }, { intervals: [80, 80, 80] }).toBeGreaterThanOrEqual(2)
   }
+
+  const clickUntilGone = async (arrow: typeof more) => {
+    for (let i = 0; i < 8; i += 1) {
+      await waitScrollSettled()
+      if (await arrow.count() === 0) break
+      await arrow.click()
+    }
+    await waitScrollSettled()
+  }
+
+  await clickUntilGone(more)
   await expect(more).toHaveCount(0)
   const atEnd = await track.evaluate(el => el.scrollWidth - el.clientWidth - el.scrollLeft)
   expect(atEnd).toBeLessThanOrEqual(2)
 
   const prev = rail.getByRole('button', { name: 'Previous filters', exact: true })
   await expect(prev).toBeVisible()
-  for (let i = 0; i < 8; i += 1) {
-    if (await prev.count() === 0) break
-    await prev.click()
-    await page.waitForTimeout(180)
-  }
+  await clickUntilGone(prev)
   await expect(prev).toHaveCount(0)
   expect(await track.evaluate(el => el.scrollLeft)).toBeLessThanOrEqual(1)
 
   await more.click()
   await expect.poll(() => track.evaluate(el => el.scrollLeft)).toBeGreaterThan(20)
+  await waitScrollSettled()
 
   await host.locator('aside.secondary a[href^="/watch?v=rel-all-1"]').first().click()
   await expect(host.locator('h1')).toContainText('Harness Video rel-all-1')
