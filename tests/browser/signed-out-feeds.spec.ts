@@ -163,8 +163,10 @@ test('shows centered signed-out prompts across all feed pages in dark and light 
   expect(errors).toEqual([])
 })
 
-test('keeps watch history import actions inside the signed-out prompt without overflow at phone width', async ({ page }) => {
+test('keeps watch history import actions inside the signed-out prompt without overflow and reachable by keyboard', async ({ browserName, page }) => {
+  test.skip(browserName !== 'chromium', 'browser history import is Chromium-only')
   test.setTimeout(180_000)
+  await hideFknNotice(page)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
 
@@ -186,15 +188,24 @@ test('keeps watch history import actions inside the signed-out prompt without ov
   const main = page.locator('main')
   await expect(main.getByRole('heading', { name: 'Watch history', level: 1, exact: true })).toBeVisible({ timeout: 90_000 })
   await expect(main.getByRole('heading', { name: 'Keep track of what you watch', level: 2, exact: true })).toBeVisible()
-  await expect(main.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  const signInButton = main.getByRole('button', { name: 'Sign in', exact: true })
   const importButton = main.getByRole('button', { name: 'Import from YouTube on this browser', exact: true })
+  await expect(signInButton).toBeVisible()
   await expect(importButton).toBeVisible()
 
-  const importBox = await importButton.boundingBox()
-  expect(importBox).not.toBeNull()
-  expect(importBox!.x).toBeGreaterThanOrEqual(0)
-  expect(importBox!.x + importBox!.width).toBeLessThanOrEqual(390.5)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport)
+    const importBox = await importButton.boundingBox()
+    expect(importBox).not.toBeNull()
+    expect(importBox!.x).toBeGreaterThanOrEqual(0)
+    expect(importBox!.x + importBox!.width).toBeLessThanOrEqual(viewport.width + 0.5)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0)
+
+    await signInButton.focus()
+    await expect(signInButton).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(importButton).toBeFocused()
+  }
   expect(errors).toEqual([])
 })
 
@@ -253,11 +264,12 @@ test('uses distinct signed-out prompt icons for Subscriptions and Playlists matc
     expect(playlistsMetrics.iconHeight).toBe(72)
     expect(Math.abs(subsMetrics.gapToHeading - playlistsMetrics.gapToHeading)).toBeLessThanOrEqual(1)
 
-    await page.evaluate(async () => {
+    const guideHarness = '/tests/browser/fixtures/guide-harness.tsx'
+    await page.evaluate(async (harnessPath) => {
       document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
-      const mod = await import('/tests/browser/fixtures/guide-harness.tsx') as typeof import('./fixtures/guide-harness')
+      const mod = await import(harnessPath) as typeof import('./fixtures/guide-harness')
       mod.mountGuide(true)
-    })
+    }, guideHarness)
     const signedInGuide = page.locator('[data-guide-harness="signed-in"]')
     await signedInGuide.getByRole('button', { name: 'Show more', exact: true }).click()
     const playlistsNavSvg = signedInGuide.getByRole('link', { name: 'Playlists', exact: true }).locator('svg')
@@ -267,6 +279,51 @@ test('uses distinct signed-out prompt icons for Subscriptions and Playlists matc
     await page.evaluate(() => {
       document.querySelectorAll('[data-guide-harness]').forEach(node => node.remove())
     })
+  }
+
+  expect(errors).toEqual([])
+})
+
+test('aligns signed-out History prompt vertically with Clips and Playlists while keeping Watch history accessible', async ({ page }) => {
+  test.setTimeout(180_000)
+  await hideFknNotice(page)
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+
+  const navigate = (path: string) => page.evaluate((target) => {
+    history.pushState(null, '', target)
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, path)
+
+  await page.goto('/feed/history')
+  await expect(page.locator('main .signed-out-prompt h2')).toBeVisible({ timeout: 90_000 })
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport)
+
+    await navigate('/feed/history')
+    const historyPromptHeading = page.locator('main .signed-out-prompt h2')
+    await expect(historyPromptHeading).toHaveText('Keep track of what you watch', { timeout: 30_000 })
+    const namedMain = page.getByRole('main', { name: 'Watch history', exact: true })
+    await expect(namedMain).toBeVisible()
+    const historyH1 = namedMain.getByRole('heading', { name: 'Watch history', level: 1, exact: true })
+    await expect(historyH1).toBeVisible()
+    const h1Box = (await historyH1.boundingBox())!
+    expect(h1Box.height).toBeLessThanOrEqual(1)
+    const historyTop = (await historyPromptHeading.boundingBox())!.y
+
+    await navigate('/feed/clips')
+    const clipsPromptHeading = page.locator('main .signed-out-prompt h2')
+    await expect(clipsPromptHeading).toHaveText('Enjoy your clips', { timeout: 30_000 })
+    const clipsTop = (await clipsPromptHeading.boundingBox())!.y
+
+    await navigate('/feed/playlists')
+    const playlistsPromptHeading = page.locator('main .signed-out-prompt h2')
+    await expect(playlistsPromptHeading).toHaveText('Enjoy your playlists', { timeout: 30_000 })
+    const playlistsTop = (await playlistsPromptHeading.boundingBox())!.y
+
+    expect(Math.abs(historyTop - clipsTop), `History vs Clips h2 vertical mismatch at ${viewport.width}px (${historyTop} vs ${clipsTop})`).toBeLessThanOrEqual(1)
+    expect(Math.abs(historyTop - playlistsTop), `History vs Playlists h2 vertical mismatch at ${viewport.width}px (${historyTop} vs ${playlistsTop})`).toBeLessThanOrEqual(1)
   }
 
   expect(errors).toEqual([])

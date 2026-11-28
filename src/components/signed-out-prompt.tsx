@@ -77,6 +77,11 @@ const style = css`
     border-color: transparent;
   }
 
+  > .prompt-actions .sign-in:focus-visible {
+    outline: 2px solid var(--accent-focus, var(--accent));
+    outline-offset: 2px;
+  }
+
   > .prompt-actions .sign-in:disabled {
     cursor: default;
     opacity: 0.6;

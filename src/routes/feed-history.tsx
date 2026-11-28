@@ -80,6 +80,19 @@ const style = css`
     max-width: none;
   }
 
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;
@@ -791,8 +804,8 @@ const SignedOutHistory = ({ onSignIn }: { onSignIn: () => void }) => {
 
   if (!imported) {
     return (
-      <main css={style} className='signed-out'>
-        <h1 className='heading'>Watch history</h1>
+      <main css={style} className='signed-out' aria-labelledby='history-heading'>
+        <h1 id='history-heading' className='sr-only'>Watch history</h1>
         <SignedOutPrompt
           icon={History}
           title='Keep track of what you watch'
