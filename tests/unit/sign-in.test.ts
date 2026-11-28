@@ -5,6 +5,8 @@ import scramjetSignInStub from '../../public/__yt_scramjet__/signin.html?raw'
 import { BRAND_PAGE_ID } from './fixtures/accounts-list'
 
 const calls: string[] = []
+const clickReasons: { selector: string, reason?: string }[] = []
+const styleTags: string[] = []
 const showToast = vi.fn()
 // it records itself only after a real wait, or a reload announced before the reset would still read as after it
 const resetIdentity = vi.fn(async () => {
@@ -13,24 +15,69 @@ const resetIdentity = vi.fn(async () => {
 })
 
 type Options = Record<string, unknown>
+type DocListener = (event: { origin: string }) => void
+
+const createFakeFrame = () => {
+  const page = {
+    avatar: false,
+    mobileAvatar: false,
+    link: true,
+    mobileYouTab: false,
+    rejectedMarker: false,
+    rejectedRetry: false,
+  }
+  const docListeners = new Set<DocListener>()
+
+  const countFor = (selector: string) => {
+    if (selector.includes('#avatar-btn')) {
+      return page.avatar || (selector.includes('topbar-menu-button-avatar-button') && page.mobileAvatar) ? 1 : 0
+    }
+    if (selector.includes('pivot-you')) return page.mobileYouTab ? 1 : 0
+    if (selector.includes('ServiceLogin')) return page.link ? 1 : 0
+    if (selector.includes('accounts/answer/7675428')) return page.rejectedMarker ? 1 : 0
+    if (selector.includes('/restart')) return page.rejectedRetry ? 1 : 0
+    return 0
+  }
+
+  const base = {
+    page,
+    backend: () => 'cloud' as const,
+    goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
+    on: (event: string, listener: DocListener, options?: { signal?: AbortSignal }) => {
+      if (event !== 'document') return
+      docListeners.add(listener)
+      options?.signal?.addEventListener('abort', () => { docListeners.delete(listener) }, { once: true })
+    },
+    emitDocument: (origin: string) => {
+      for (const listener of docListeners) listener({ origin })
+    },
+    addStyleTag: vi.fn(async ({ content }: { content: string }) => {
+      styleTags.push(content)
+      calls.push('style')
+    }),
+    locator: (selector: string) => {
+      const count = async () => countFor(selector)
+      const handle = {
+        count,
+        isVisible: async () => countFor(selector) > 0,
+        click: vi.fn(async (options?: { reason?: string }) => {
+          clickReasons.push({ selector, reason: options?.reason })
+          calls.push(`click ${selector}`)
+        }),
+        first: () => handle,
+      }
+      return handle
+    },
+  }
+  return base
+}
 
 // youtube.com in FKN's window: its header shows the Sign in link until the person signed in, then the avatar
 const fakeLogin = () => {
   let end = () => {}
-  const page = { avatar: false, mobileAvatar: false, link: true, mobileYouTab: false }
-  const login = {
-    page,
-    goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
-    locator: (selector: string) => ({
-      count: async () => {
-        if (selector.includes('#avatar-btn')) {
-          return page.avatar || (selector.includes('topbar-menu-button-avatar-button') && page.mobileAvatar) ? 1 : 0
-        }
-        if (selector.includes('pivot-you')) return page.mobileYouTab ? 1 : 0
-        return page.link ? 1 : 0
-      },
-    }),
-    evaluate: vi.fn(async (_run: unknown, selector: string) => { calls.push(`click ${selector}`) }),
+  const base = createFakeFrame()
+  return {
+    ...base,
     close: vi.fn(async () => {
       calls.push('close')
       end()
@@ -38,7 +85,6 @@ const fakeLogin = () => {
     closed: new Promise<void>((resolve) => { end = resolve }),
     end: () => end(),
   }
-  return login
 }
 
 type Login = ReturnType<typeof fakeLogin>
@@ -49,6 +95,9 @@ const terminal = new Error('cloud.attachFrame: the attached window closed; attac
 
 const lib = vi.hoisted(() => ({
   attachFrame: vi.fn<(options: Record<string, unknown>) => Promise<unknown>>(),
+  isLocatorInvalid: () => false,
+  isLocatorUnsupported: () => false,
+  isPermissionDenied: () => false,
   isTerminalError: (error: unknown) => (error as Error).message.includes('attach a fresh window'),
   loaded: true,
 }))
@@ -70,6 +119,9 @@ class FakeBroadcastChannel {
   }
   addEventListener(_type: string, listener: Listener) {
     this.listeners.add(listener)
+  }
+  removeEventListener(_type: string, listener: Listener) {
+    this.listeners.delete(listener)
   }
   postMessage(data: unknown) {
     for (const channel of channels) {
@@ -113,6 +165,8 @@ describe('the sign-in window', () => {
     vi.resetModules()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     calls.length = 0
+    clickReasons.length = 0
+    styleTags.length = 0
     channels.clear()
     showToast.mockClear()
     resetIdentity.mockClear()
@@ -126,7 +180,7 @@ describe('the sign-in window', () => {
     vi.unstubAllGlobals()
   })
 
-  it("attaches FKN's window inside the click, before anything is awaited, on the shared jar with the Evaluation grant asked", async () => {
+  it("attaches FKN's window inside the click, before anything is awaited, on the shared jar with Interaction permission only", async () => {
     install(fakeLogin())
     const { signIn } = await import('../../src/sign-in')
     signIn()
@@ -134,9 +188,9 @@ describe('the sign-in window', () => {
     const [options] = lib.attachFrame.mock.calls[0]! as [Options]
     expect(options).toEqual({
       window: {},
-      domains: ['www.youtube.com', 'm.youtube.com'],
+      domains: ['www.youtube.com', 'm.youtube.com', 'accounts.google.com'],
       cookies: 'persistent',
-      permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
+      permissions: [{ category: 'interaction', reason: 'Use your YouTube account in FTube' }],
     })
   })
 
@@ -147,6 +201,7 @@ describe('the sign-in window', () => {
     signIn()
     await poll(3)
     expect(calls).toEqual(['goto https://www.youtube.com/?app=desktop commit', 'click a[href*="ServiceLogin"]'])
+    expect(clickReasons).toEqual([{ selector: 'a[href*="ServiceLogin"]', reason: 'Use your YouTube account in FTube' }])
     // Google's pages: nothing there reads as signed in, however long they take
     login.page.link = false
     await poll(5)
@@ -165,6 +220,8 @@ describe('the sign-in window', () => {
     const { reload, stored } = install(login)
     const { signIn } = await import('../../src/sign-in')
     signIn()
+    await Promise.resolve()
+    login.emitDocument('https://m.youtube.com')
     await poll(2)
     expect(calls).toEqual(['goto https://www.youtube.com/?app=desktop commit', 'click [role="tab"].pivot-you'])
     // You tab reveals the ServiceLogin link; does not re-click the pivot tab
@@ -175,8 +232,35 @@ describe('the sign-in window', () => {
       'click [role="tab"].pivot-you',
       'click a[href*="ServiceLogin"]',
     ])
+    expect(clickReasons).toEqual([
+      { selector: '[role="tab"].pivot-you', reason: 'Use your YouTube account in FTube' },
+      { selector: 'a[href*="ServiceLogin"]', reason: 'Use your YouTube account in FTube' },
+    ])
     login.page.link = false
     login.page.mobileAvatar = true
+    await poll(1)
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(stored[SIGNED_IN_KEY]).toBe('1')
+  })
+
+  it('hides rejected-browser notice on accounts.google.com and clicks Try again', async () => {
+    const login = fakeLogin()
+    const { reload, stored } = install(login)
+    const { signIn } = await import('../../src/sign-in')
+    signIn()
+    await poll(1)
+    login.page.link = false
+    login.page.rejectedMarker = true
+    login.page.rejectedRetry = true
+    login.emitDocument('https://accounts.google.com')
+    await poll(1)
+    expect(styleTags.length).toBeGreaterThanOrEqual(1)
+    expect(styleTags[0]).toContain('accounts/answer/7675428')
+    expect(calls).toContain('click a[href*="/restart"]')
+    login.page.rejectedMarker = false
+    login.page.rejectedRetry = false
+    login.page.avatar = true
+    login.emitDocument('https://www.youtube.com')
     await poll(1)
     await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(stored[SIGNED_IN_KEY]).toBe('1')
@@ -438,24 +522,6 @@ const installDom = () => {
   return { doc, body, previousFocus }
 }
 
-const fakeInlineFrame = () => {
-  const page = { avatar: false, mobileAvatar: false, link: true, mobileYouTab: false }
-  return {
-    page,
-    goto: vi.fn(async (url: string, options: { waitUntil: string }) => { calls.push(`goto ${url} ${options.waitUntil}`) }),
-    locator: (selector: string) => ({
-      count: async () => {
-        if (selector.includes('#avatar-btn')) {
-          return page.avatar || (selector.includes('topbar-menu-button-avatar-button') && page.mobileAvatar) ? 1 : 0
-        }
-        if (selector.includes('pivot-you')) return page.mobileYouTab ? 1 : 0
-        return page.link ? 1 : 0
-      },
-    }),
-    evaluate: vi.fn(async (_run: unknown, selector: string) => { calls.push(`click ${selector}`) }),
-  }
-}
-
 const jarUnreachable = () => Object.assign(
   new Error('The app\'s session could not be reached'),
   { name: 'FrameWindowRefusedError', reason: 'jar-unreachable' },
@@ -466,6 +532,8 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
     vi.resetModules()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     calls.length = 0
+    clickReasons.length = 0
+    styleTags.length = 0
     channels.clear()
     showToast.mockClear()
     resetIdentity.mockClear()
@@ -480,7 +548,7 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
   })
 
   it('opens an inline FKN frame modal instead of a popup in iOS standalone WebApp mode', async () => {
-    const inline = fakeInlineFrame()
+    const inline = createFakeFrame()
     const { reload, stored } = install(inline as unknown as Login)
     const { body } = installDom()
     vi.stubGlobal('navigator', { standalone: true })
@@ -491,9 +559,9 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
     const [options] = lib.attachFrame.mock.calls[0]! as [Options & { iframe?: { isConnected?: boolean } }]
     expect(options.window).toBeUndefined()
     expect(options.iframe?.isConnected).toBe(true)
-    expect(options.domains).toEqual(['www.youtube.com', 'm.youtube.com'])
+    expect(options.domains).toEqual(['www.youtube.com', 'm.youtube.com', 'accounts.google.com'])
     expect(options.cookies).toBe('persistent')
-    expect(options.permissions).toEqual([{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }])
+    expect(options.permissions).toEqual([{ category: 'interaction', reason: 'Use your YouTube account in FTube' }])
 
     await poll(2)
     inline.page.link = false
@@ -505,7 +573,7 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
   })
 
   it('detects standalone display-mode via matchMedia', async () => {
-    const inline = fakeInlineFrame()
+    const inline = createFakeFrame()
     inline.page.avatar = true
     const { reload } = install(inline as unknown as Login)
     installDom()
@@ -523,7 +591,7 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
   })
 
   it('falls back to the inline modal when attachWindow refuses with jar-unreachable', async () => {
-    const inline = fakeInlineFrame()
+    const inline = createFakeFrame()
     const { reload, stored } = install(jarUnreachable(), inline as unknown as Login)
     installDom()
     const { signIn } = await import('../../src/sign-in')
@@ -541,7 +609,7 @@ describe('inline standalone PWA and jar-unreachable sign-in', () => {
   })
 
   it('resolves closed without reloading when the user dismisses the inline modal', async () => {
-    const inline = fakeInlineFrame()
+    const inline = createFakeFrame()
     const { reload, stored } = install(inline as unknown as Login)
     const { body, doc } = installDom()
     vi.stubGlobal('navigator', { standalone: true })

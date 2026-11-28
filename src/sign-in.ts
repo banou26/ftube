@@ -1,12 +1,16 @@
-import type { Frame, WindowFrame } from '@fkn/lib'
+import type { AttachFrameOptions, Frame, WindowFrame } from '@fkn/lib'
+import type { AuthAdapter, AuthOutcome, AuthStepContext, ClientSource, FknClient } from '@banou/fkn-3p-auth'
+
+import { createSessionSync, openAuthWindow, signOutFromCloud } from '@banou/fkn-3p-auth'
+import { youtubeAuthAdapter } from '@banou/fkn-3p-auth/google'
 
 import { showToast } from './components/ui/toast'
 import { mountHiddenFrame, stopAgentHost } from './engine/agent-host'
 import { resetEngine, startEngine } from './engine/client'
 import { loadedLib, startPlatform } from './engine/platform'
 import { clearSignedIn, markSignedIn, readChannel, readSignedIn, storeChannel } from './engine/signed-in'
-import { mountSignInModal } from './sign-in-modal'
 import { clearDismissedNotifications } from './notifications/dismissed'
+import { mountSignInModal } from './sign-in-modal'
 import { clearSeenSubscriptions } from './subscriptions/seen'
 import { clearUndo, setUndoAccountScope } from './undo'
 
@@ -27,19 +31,19 @@ export type SignInOutcome = 'authed' | 'closed' | 'blocked' | 'unsupported'
 // does not get past the identifier (projects/mirage-google-login.md); ?app=desktop avoids m.youtube.com redirects
 // on mobile UAs without setting a persistent desktop preference cookie, while m.youtube.com stays allowed as fallback
 const SIGN_IN_URL = 'https://www.youtube.com/?app=desktop'
-const SIGN_IN_DOMAINS = ['www.youtube.com', 'm.youtube.com']
+const SIGN_IN_DOMAINS = ['www.youtube.com', 'm.youtube.com', 'accounts.google.com']
+const YOUTUBE_HOSTS = new Set(['www.youtube.com', 'm.youtube.com'])
+const MOBILE_YOUTUBE_HOST = 'm.youtube.com'
 const SIGN_IN_LINK = 'a[href*="ServiceLogin"]'
 const MOBILE_YOU_TAB = '[role="tab"].pivot-you'
 // youtube.com's signed-in header; a SAPISID left in the jar by an ended session would read as signed in
 const AVATAR = '#avatar-btn, button.topbar-menu-button-avatar-button'
-const POLL_MS = 1_000
-// a read across a redirect can wait on the lib's own retry for tens of seconds, so each one is bounded
-const READ_TIMEOUT_MS = 5_000
+const SIGN_IN_INTERACTION_REASON = 'Use your YouTube account in FTube'
+const IS_VISIBLE_TIMEOUT_MS = 250
 // Inline attachFrame shares the persistent jar without WindowFrame's close flush, so pause briefly after authed
 // navigation for Mirage's scheduled IndexedDB cookie commit before removing the iframe.
 const INLINE_COOKIE_COMMIT_MS = 250
 const MODAL_ABORTED = Symbol('modal-aborted')
-const REFUSALS = new Set(['ExtensionOperationUnsupportedError', 'FrameWindowRefusedError'])
 
 // every tab's engine reads the session and the channel once at boot, so a sign-in, a sign-out or a switch in any tab reloads them all
 const SIGNED_IN_CHANNEL = 'yt-client-signed-in'
@@ -48,12 +52,8 @@ const SIGNED_OUT = 'signed-out'
 const SWITCHED = 'switched'
 const SIGNING_OUT = 'signing-out'
 
-type AttachLib = Pick<typeof import('@fkn/lib'), 'attachFrame'>
-type SignInSession = Pick<WindowFrame, 'goto' | 'locator' | 'evaluate' | 'closed'> & {
-  close(commitCookies?: boolean): Promise<void>
-}
+type TabMessage = typeof SIGNED_IN | typeof SIGNED_OUT | typeof SWITCHED | typeof SIGNING_OUT
 
-let openWindow: Pick<SignInSession, 'close'> | undefined
 let opening = false
 let finishing = false
 
@@ -64,39 +64,36 @@ export const isStandalonePwa = (): boolean =>
 
 const hasDomHost = () => typeof document !== 'undefined' && Boolean(document.body)
 
-const isJarUnreachable = (error: unknown) => {
-  const err = error as { name?: unknown, reason?: unknown } | null
-  return err?.name === 'FrameWindowRefusedError' && err.reason === 'jar-unreachable'
-}
-
 // the /signin page has nothing left for a signed-in person
 const landSignedIn = () => {
   if (location.pathname === '/signin') location.assign('/')
   else location.reload()
 }
 
-const tabs = new BroadcastChannel(SIGNED_IN_CHANNEL)
-tabs.addEventListener('message', (event: MessageEvent) => {
-  if (event.data === SIGNING_OUT) {
-    clearSeenSubscriptions()
-    clearDismissedNotifications()
+const sessionSync = createSessionSync<TabMessage>({
+  channelName: SIGNED_IN_CHANNEL,
+  closeOnMessage: (message) => message === SIGNED_IN && !finishing,
+  onMessage: (message) => {
+    if (message === SIGNING_OUT) {
+      clearSeenSubscriptions()
+      clearDismissedNotifications()
+      clearUndo()
+      resetEngine()
+      stopAgentHost()
+      return
+    }
+    if (message === SIGNED_OUT || message === SWITCHED) {
+      clearSeenSubscriptions()
+      clearDismissedNotifications()
+      clearUndo()
+      location.reload()
+      return
+    }
+    if (message !== SIGNED_IN || finishing) return
+    finishing = true
     clearUndo()
-    resetEngine()
-    stopAgentHost()
-    return
-  }
-  if (event.data === SIGNED_OUT || event.data === SWITCHED) {
-    clearSeenSubscriptions()
-    clearDismissedNotifications()
-    clearUndo()
-    location.reload()
-    return
-  }
-  if (event.data !== SIGNED_IN || finishing) return
-  finishing = true
-  clearUndo()
-  void openWindow?.close()
-  landSignedIn()
+    landSignedIn()
+  },
 })
 
 const finishSignIn = async () => {
@@ -105,121 +102,144 @@ const finishSignIn = async () => {
   markSignedIn()
   clearUndo()
   await startEngine().then((engine) => engine.resetIdentity()).catch(() => {})
-  tabs.postMessage(SIGNED_IN)
+  sessionSync.post(SIGNED_IN)
   landSignedIn()
 }
 
-const bounded = <T>(read: () => Promise<T>) => {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([
-    read().catch(() => undefined),
-    new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), READ_TIMEOUT_MS) }),
-  ]).finally(() => clearTimeout(timer))
-}
-
-// every read is a severity-0 count, which asks no card; a host outside the attachment rejects it, which reads as not yet
-const present = async (login: Pick<SignInSession, 'locator'>, selector: string) => await login.locator(selector).count() > 0
-
-const signedInThere = (login: Pick<SignInSession, 'locator'>) => present(login, AVATAR)
-
-const showsSignInLink = (login: Pick<SignInSession, 'locator'>) => present(login, SIGN_IN_LINK)
-
-// a timer, so the call settles before the click takes the page away; the person can still click it themselves
-const clickInWindow = (login: Pick<SignInSession, 'evaluate'>, selector: string) => {
-  void login.evaluate((target) => { setTimeout(() => document.querySelector<HTMLElement>(target)?.click(), 0) }, selector).catch(() => {})
-}
-
-const isTerminal = (error: unknown) => loadedLib()?.isTerminalError(error) ?? false
-
-const outcomeOf = (error: unknown): SignInOutcome => {
-  if (error === MODAL_ABORTED) return 'closed'
-  const name = (error as Error | null)?.name
-  if (name === 'FrameWindowBlockedError') return 'blocked'
-  if (name && REFUSALS.has(name)) return 'unsupported'
-  // the lib's terminal detach error: the window closed or went away before it connected
-  if (isTerminal(error)) return 'closed'
-  throw error
-}
-
-const waitInSession = async (
-  attaching: Promise<SignInSession>,
-  onJarUnreachable?: () => Promise<SignInOutcome>,
-): Promise<SignInOutcome> => {
-  let login: SignInSession
+const originHost = (origin: string): string | undefined => {
+  if (!origin) return ''
   try {
-    login = await attaching
-  } catch (error) {
-    if (onJarUnreachable && isJarUnreachable(error)) return onJarUnreachable()
-    return outcomeOf(error)
-  }
-  openWindow = login
-  try {
-    // at 'commit': youtube.com's home page holds its load past the 30 s deadline (stub, measured 2026-09-27)
-    await login.goto(SIGN_IN_URL, { waitUntil: 'commit' })
-  } catch (error) {
-    if (!isTerminal(error)) {
-      await login.close()
-      throw error
-    }
-  }
-  const closed = login.closed.then(() => 'closed' as const)
-  let clicked = false
-  let openedYouTab = false
-  for (;;) {
-    const tick = await Promise.race([
-      closed,
-      new Promise((resolve) => setTimeout(resolve, POLL_MS)).then(() => bounded(() => signedInThere(login))),
-    ])
-    if (tick === 'closed') return 'closed'
-    if (tick === true) {
-      await login.close(true)
-      return 'authed'
-    }
-    if (!clicked && await bounded(() => showsSignInLink(login))) {
-      clicked = true
-      clickInWindow(login, SIGN_IN_LINK)
-    } else if (!clicked && !openedYouTab && await bounded(() => present(login, MOBILE_YOU_TAB))) {
-      openedYouTab = true
-      clickInWindow(login, MOBILE_YOU_TAB)
-    }
+    return new URL(origin).hostname
+  } catch {
+    return undefined
   }
 }
 
-const openInlineSignIn = (lib: AttachLib): Promise<SignInOutcome> => {
+const isYouTubeOrigin = (origin: string): boolean => {
+  const host = originHost(origin)
+  return host === '' || (host !== undefined && YOUTUBE_HOSTS.has(host))
+}
+
+const isLocatorVisible = async (frame: Pick<WindowFrame, 'locator'>, selector: string): Promise<boolean> => {
+  const locator = frame.locator(selector)
+  if (await locator.count() === 0) return false
+  try {
+    return await locator.first().isVisible({ timeout: IS_VISIBLE_TIMEOUT_MS })
+  } catch (error) {
+    if ((error as { name?: unknown } | null)?.name === 'TimeoutError') return false
+    throw error
+  }
+}
+
+const createYouTubeSignInAdapter = (): AuthAdapter<void> => {
+  const base = youtubeAuthAdapter({
+    entryUrl: SIGN_IN_URL,
+    domains: SIGN_IN_DOMAINS,
+    signedInSelector: AVATAR,
+    cookies: 'persistent',
+    interactionReason: SIGN_IN_INTERACTION_REASON,
+  })
+  const baseOnTick = base.onTick
+
+  return {
+    ...base,
+    onTick: async (ctx: AuthStepContext) => {
+      await baseOnTick?.(ctx)
+      if (ctx.signal.aborted || !isYouTubeOrigin(ctx.origin)) return
+      if (await isLocatorVisible(ctx.frame, SIGN_IN_LINK)) {
+        if (originHost(ctx.origin) === MOBILE_YOUTUBE_HOST) {
+          await ctx.once('click-service-login', async () => {
+            await ctx.frame.locator(SIGN_IN_LINK).first().click({ reason: SIGN_IN_INTERACTION_REASON })
+          })
+        }
+        return
+      }
+      if (await isLocatorVisible(ctx.frame, MOBILE_YOU_TAB)) {
+        await ctx.once('open-mobile-you-tab', async () => {
+          await ctx.frame.locator(MOBILE_YOU_TAB).first().click({ reason: SIGN_IN_INTERACTION_REASON })
+        })
+      }
+    },
+  }
+}
+
+const isTerminal = (error: unknown) => loadedLib()?.isTerminalError?.(error) ?? false
+
+const resolveClient = (source: ClientSource): FknClient | undefined =>
+  typeof source === 'function' ? source() : source
+
+const mapOutcome = (outcome: AuthOutcome<void>): SignInOutcome => {
+  if (outcome.status === 'authed') return 'authed'
+  if (outcome.status === 'closed') return 'closed'
+  if (outcome.status === 'blocked') return 'blocked'
+  if (outcome.status === 'unsupported' || outcome.status === 'not-ready') return 'unsupported'
+  if (outcome.error === MODAL_ABORTED || isTerminal(outcome.error)) return 'closed'
+  throw outcome.error
+}
+
+const openInlineSignIn = (lib: FknClient): Promise<SignInOutcome> => {
   const modal = mountSignInModal()
   let settled = false
+  let shouldCommit = false
   let attached: Frame | undefined
   const waitClosed = modal.closed.then(() => 'closed' as const)
-  const attaching = lib.attachFrame({
-    iframe: modal.iframe,
-    domains: SIGN_IN_DOMAINS,
-    cookies: 'persistent',
-    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
-  }).then((frame) => {
-    attached = frame
-    return frame
-  })
-  void attaching.catch(() => {})
-  const session = Promise.race([attaching, waitClosed]).then((value): SignInSession => {
-    if (value === 'closed') throw MODAL_ABORTED
-    return {
-      goto: value.goto.bind(value),
-      locator: value.locator.bind(value),
-      evaluate: value.evaluate.bind(value),
-      closed: modal.closed,
-      close: async (commitCookies = false) => {
-        if (settled) return
-        settled = true
-        if (commitCookies && attached) await new Promise((resolve) => setTimeout(resolve, INLINE_COOKIE_COMMIT_MS))
-        modal.close()
-      },
-    }
-  })
-  return waitInSession(session).finally(() => {
+
+  const closeModal = async () => {
+    if (settled) return
     settled = true
-    openWindow = undefined
+    if (shouldCommit && attached) {
+      await new Promise((resolve) => setTimeout(resolve, INLINE_COOKIE_COMMIT_MS))
+    }
     modal.close()
+  }
+
+  const inlineClient: FknClient = {
+    isLocatorInvalid: (error) => lib.isLocatorInvalid(error),
+    isLocatorUnsupported: (error) => lib.isLocatorUnsupported(error),
+    isPermissionDenied: (error) => lib.isPermissionDenied(error),
+    attachFrame: ((options: AttachFrameOptions) => {
+      const attaching = lib.attachFrame({
+        iframe: modal.iframe,
+        domains: options.domains,
+        cookies: options.cookies,
+        ...(options.permissions ? { permissions: options.permissions } : {}),
+      }).then((frame) => {
+        attached = frame
+        return frame
+      })
+      void attaching.catch(() => {})
+      return Promise.race([attaching, waitClosed]).then((value): WindowFrame => {
+        if (value === 'closed') throw MODAL_ABORTED
+        return Object.assign(Object.create(value) as Frame, {
+          closed: modal.closed,
+          close: closeModal,
+        })
+      })
+    }) as FknClient['attachFrame'],
+  }
+
+  const baseAdapter = createYouTubeSignInAdapter()
+  const inlineAdapter: AuthAdapter<void> = {
+    ...baseAdapter,
+    isSignedIn: async (frame, ctx) => {
+      const signedIn = await baseAdapter.isSignedIn(frame, ctx)
+      if (signedIn) shouldCommit = true
+      return signedIn
+    },
+  }
+
+  return openAuthWindow(inlineAdapter, {
+    client: inlineClient,
+    cookies: 'persistent',
+    onOpen: (frame) => {
+      sessionSync.registerWindow(frame)
+    },
   })
+    .then(mapOutcome)
+    .finally(() => {
+      settled = true
+      modal.close()
+    })
 }
 
 /**
@@ -229,24 +249,36 @@ const openInlineSignIn = (lib: AttachLib): Promise<SignInOutcome> => {
  * apps keep the app's persistent cookie partition. Call directly in the click handler without an await first so
  * non-standalone browsers preserve popup activation.
  */
-export const openSignInWindow = (lib: AttachLib): Promise<SignInOutcome> => {
-  if (isStandalonePwa() && hasDomHost()) return openInlineSignIn(lib)
-  // first statement on purpose
-  const attaching = lib.attachFrame({
-    window: {},
-    domains: SIGN_IN_DOMAINS,
+export const openSignInWindow = (clientSource: ClientSource = () => loadedLib()): Promise<SignInOutcome> => {
+  if (isStandalonePwa() && hasDomHost()) {
+    const lib = resolveClient(clientSource)
+    return lib ? openInlineSignIn(lib) : Promise.resolve('unsupported')
+  }
+  // first statement on purpose so popup activation stays intact
+  return openAuthWindow(createYouTubeSignInAdapter(), {
+    client: clientSource,
     cookies: 'persistent',
-    permissions: [{ category: 'evaluation', reason: 'Use your YouTube account in FTube' }],
+    onOpen: (frame) => {
+      sessionSync.registerWindow(frame)
+    },
+  }).then((outcome) => {
+    if (
+      outcome.status === 'unsupported'
+      && outcome.reason === 'refused'
+      && outcome.refusalReason === 'jar-unreachable'
+      && hasDomHost()
+    ) {
+      const lib = resolveClient(clientSource)
+      if (lib) return openInlineSignIn(lib)
+    }
+    return mapOutcome(outcome)
   })
-  return waitInSession(attaching, hasDomHost() ? () => openInlineSignIn(lib) : undefined)
-    .finally(() => { openWindow = undefined })
 }
 
 /** What every Sign in control calls on its click. While a window is open, a click does nothing more. */
 export const signIn = () => {
   if (finishing || opening) return
-  const lib = loadedLib()
-  if (!lib) {
+  if (!loadedLib()) {
     void startPlatform().then(
       () => showToast('Sign-in is ready.', { label: 'Sign in', onAction: signIn }),
       () => showToast('Sign-in could not start.', { label: 'Try again', onAction: signIn }),
@@ -254,7 +286,7 @@ export const signIn = () => {
     return
   }
   opening = true
-  void openSignInWindow(lib).then(
+  void openSignInWindow(() => loadedLib()).then(
     (outcome) => {
       opening = false
       if (outcome === 'blocked') showToast('The browser blocked the sign-in window. Allow pop-ups for this site.', { label: 'Try again', onAction: signIn })
@@ -278,7 +310,7 @@ export const switchChannel = (brandPageId?: string) => {
   clearSeenSubscriptions()
   clearDismissedNotifications()
   clearUndo()
-  tabs.postMessage(SWITCHED)
+  sessionSync.post(SWITCHED)
   location.assign('/')
 }
 
@@ -306,11 +338,17 @@ export const signOut = async () => {
   clearUndo()
   resetEngine()
   stopAgentHost()
-  tabs.postMessage(SIGNING_OUT)
-  const iframe = mountHiddenFrame()
+  sessionSync.post(SIGNING_OUT)
   try {
-    const frame = await lib.attachFrame({ iframe, cookies: 'persistent', domains: SIGN_OUT_DOMAINS })
-    await frame.clearCookies()
+    await signOutFromCloud({
+      client: lib,
+      domains: SIGN_OUT_DOMAINS,
+      mountHiddenFrame: () => {
+        const iframe = mountHiddenFrame()
+        return { iframe, remove: () => iframe.remove() }
+      },
+      throwOnError: true,
+    })
   } catch (error) {
     markSignedIn()
     storeChannel(channel)
@@ -318,9 +356,7 @@ export const signOut = async () => {
     resetEngine()
     stopAgentHost()
     throw error
-  } finally {
-    iframe.remove()
   }
-  tabs.postMessage(SIGNED_OUT)
+  sessionSync.post(SIGNED_OUT)
   location.assign('/')
 }

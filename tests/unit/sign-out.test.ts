@@ -21,7 +21,15 @@ const attachFrame = vi.fn(async (options: { cookies: string }) => {
 vi.mock('../../src/components/ui/toast', () => ({ showToast: vi.fn(), dismissToast: vi.fn(), TOAST_DISMISS_MS: 5_000 }))
 vi.mock('../../src/engine/client', () => ({ startEngine: async () => ({ resetIdentity }), resetEngine }))
 vi.mock('../../src/engine/agent-host', () => ({ mountHiddenFrame: () => iframe, stopAgentHost }))
-vi.mock('../../src/engine/platform', () => ({ startPlatform: async () => ({}), loadedLib: () => ({ attachFrame }) }))
+vi.mock('../../src/engine/platform', () => ({
+  startPlatform: async () => ({}),
+  loadedLib: () => ({
+    attachFrame,
+    isLocatorInvalid: () => false,
+    isLocatorUnsupported: () => false,
+    isPermissionDenied: () => false,
+  }),
+}))
 
 type Listener = (event: { data: unknown }) => void
 
@@ -120,7 +128,7 @@ describe('signing out', () => {
     clearCookies.mockRejectedValueOnce(new Error('frame.clearCookies: the render proxy did not answer within 30000ms'))
     const { signOut } = await import('../../src/sign-in')
     await expect(signOut()).rejects.toThrow(/did not answer/)
-    expect(calls.slice(calls.indexOf('attach persistent') + 1)).toEqual(['reset engine', 'detach the page', 'remove the frame'])
+    expect(calls.slice(calls.indexOf('attach persistent') + 1)).toEqual(['remove the frame', 'reset engine', 'detach the page'])
     expect(flagAtReset).toEqual([null, '1'])
   })
 })

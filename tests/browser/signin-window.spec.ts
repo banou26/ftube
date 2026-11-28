@@ -21,7 +21,7 @@ test("Sign in opens FKN's window, which reaches Google's form from youtube.com's
   const opened = page.context().waitForEvent('page')
   await page.locator('header button.sign-in').click()
   const popup = await opened
-  // FKN's card, drawn in the window, asks for the Evaluation grant the sign-in and the session page need
+  // FKN's card, drawn in the window, asks for the Interaction grant the sign-in flow needs
   await popup.getByRole('button', { name: /^Allow/ }).first().click({ timeout: 60_000 })
   await expect.poll(() => showsGoogleForm(popup), { timeout: 120_000 }).toBe(true)
   expect(new URL(page.url()).pathname).toBe('/')

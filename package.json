@@ -58,6 +58,7 @@
     "type-check": "npm run generate && tsc --noEmit"
   },
   "dependencies": {
+    "@banou/fkn-3p-auth": "^0.1.0",
     "@banou/ponyfill": "^0.0.17",
     "@banou/social": "^0.0.6",
     "@bufbuild/protobuf": "2.12.1",
