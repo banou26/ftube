@@ -2,7 +2,8 @@ import type shaka from 'shaka-player'
 
 import { describe, expect, it } from 'vite-plus/test'
 
-import { atLiveEdge, clampToWindow, liveResumeTime, seekWindow, timeAtShare } from '../../../src/player/seek-window'
+import { atLiveEdge, clampToWindow, liveBarClock, liveBarState, liveResumeTime, seekWindow, timeAtShare } from '../../../src/player/seek-window'
+import { bufferedAhead } from '../../../src/player/use-player-state'
 
 // rFZHOHl-L8A's window as Shaka gave it on 2026-11-11: 12 h of the stream's own clock, ending at the edge it plays at
 const LIVE = { start: 7_160_913.1, end: 7_204_108.1 }
@@ -42,5 +43,82 @@ describe('the seek window', () => {
   it('reopens a live stream at the edge after a restart there, and where it played when behind', () => {
     expect(liveResumeTime(LIVE, LIVE.end - 1)).toBe(0)
     expect(liveResumeTime(LIVE, LIVE.end - 3_600)).toBe(LIVE.end - 3_600)
+  })
+
+  it('pins the live progress bar at the edge, clamps behind-edge positions, and avoids -0:00', () => {
+    const duration = LIVE.end - LIVE.start
+    expect(liveBarState({
+      isLive: true,
+      liveWindow: LIVE,
+      currentTime: LIVE.end - 3,
+      duration: Number.POSITIVE_INFINITY,
+      buffered: LIVE.end,
+    })).toEqual({
+      base: LIVE.start,
+      duration,
+      position: duration,
+      behind: false,
+      pinnedFull: true,
+      buffered: duration,
+    })
+
+    // Non-DVR live stream with zero/empty seek range still pins full at live edge.
+    expect(liveBarState({
+      isLive: true,
+      liveWindow: { start: 1000, end: 1000 },
+      currentTime: 1000,
+      duration: 0,
+      buffered: 1000,
+    })).toEqual({
+      base: 1000,
+      duration: 0,
+      position: 0,
+      behind: false,
+      pinnedFull: true,
+      buffered: 0,
+    })
+
+    // Paused behind live.start clamps position safely to 0.
+    expect(liveBarState({
+      isLive: true,
+      liveWindow: LIVE,
+      currentTime: LIVE.start - 30,
+      duration: Number.POSITIVE_INFINITY,
+      buffered: LIVE.start,
+    })).toMatchObject({
+      base: LIVE.start,
+      position: 0,
+      behind: true,
+      pinnedFull: false,
+    })
+
+    // Scrubbing preview unpins even when currently at live edge.
+    expect(liveBarState({
+      isLive: true,
+      liveWindow: LIVE,
+      currentTime: LIVE.end - 1,
+      duration: Number.POSITIVE_INFINITY,
+      buffered: LIVE.end,
+      preview: duration / 2,
+    })).toMatchObject({
+      position: duration / 2,
+      behind: false,
+      pinnedFull: false,
+    })
+
+    const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`
+    expect(liveBarClock(duration, duration, true, fmt)).toBe('Live')
+    expect(liveBarClock(duration - 0.4, duration, true, fmt)).toBe('Live')
+    expect(liveBarClock(0, 0, true, fmt)).toBe('Live')
+    expect(liveBarClock(duration - 300, duration, true, fmt)).toBe('-5:00')
+
+    const multiRange = {
+      length: 2,
+      start: (i: number) => (i === 0 ? 1490 : 1990),
+      end: (i: number) => (i === 0 ? 1520 : 2000),
+    }
+    expect(bufferedAhead(multiRange, 1500)).toBe(1520)
+    expect(bufferedAhead(multiRange, 1995)).toBe(2000)
+    expect(bufferedAhead(multiRange, 1200)).toBe(1200)
   })
 })

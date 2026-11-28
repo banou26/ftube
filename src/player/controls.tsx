@@ -25,7 +25,7 @@ import { isPlayerFullscreen, subscribeFullscreen, togglePlayerFullscreen } from 
 import { isPipSupported, isVideoInPip, subscribeVideoPip, toggleVideoPip } from './pip'
 import { qualityBadgeLabel, resolveQualityBadgeHeight, resolveQualityDisplay } from './quality'
 import { rateDetail } from './rates'
-import { atLiveEdge } from './seek-window'
+import { clampToWindow, liveBarClock, liveBarState } from './seek-window'
 import { SeekKnob } from './seek-knob'
 import { setSleepTimer, SLEEP_MINUTES, sleepDetail, sleepDuration } from './sleep-timer'
 import { SpeedPicker } from './speed-picker'
@@ -207,7 +207,8 @@ const style = css`
     transition: width 80ms linear;
   }
 
-  .scrubber.scrubbing .played {
+  .scrubber.scrubbing .played,
+  .scrubber.live .played {
     transition: none;
   }
 
@@ -232,7 +233,8 @@ const style = css`
     transform: translate(-50%, -50%) scale(1.3);
   }
 
-  .scrubber.scrubbing .knob {
+  .scrubber.scrubbing .knob,
+  .scrubber.live .knob {
     transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -862,14 +864,20 @@ export const PlayerControls = (
 
   // a live stream's bar is its DVR window, so its times are drawn from the window's start
   const live = isLive ? state.liveWindow : undefined
-  const base = live?.start ?? 0
-  const duration = live ? Math.max(0, live.end - live.start) : state.duration
-  const position = preview ?? state.currentTime - base
-  const behind = live !== undefined && !atLiveEdge(live, state.currentTime)
-  const chapter = chapters[chapterIndexAt(chapters, position)]
-  const parts = barParts(chapters, duration)
+  const bar = liveBarState({
+    isLive,
+    liveWindow: live,
+    currentTime: state.currentTime,
+    duration: state.duration,
+    buffered: state.buffered,
+    preview,
+  })
+  const { base, duration, position, behind, pinnedFull } = bar
+  const activeChapters = isLive ? [] : chapters
+  const chapter = activeChapters[chapterIndexAt(activeChapters, position)]
+  const parts = barParts(activeChapters, duration)
   const offset = (time: number) => barOffset(parts, duration, time)
-  const hoverChapter = hover ? chapters[chapterIndexAt(chapters, hover.time)] : undefined
+  const hoverChapter = hover ? activeChapters[chapterIndexAt(activeChapters, hover.time)] : undefined
   const hoverPart = hover && parts.length > 1 ? parts.findLastIndex(part => part.start <= hover.time) : -1
 
   const timeAt = (clientX: number) => {
@@ -988,7 +996,8 @@ export const PlayerControls = (
       return
     }
 
-    video.currentTime = base + timeAt(event.clientX)
+    const targetTime = base + clampPlayTime(timeAt(event.clientX))
+    video.currentTime = live ? clampToWindow(live, targetTime) : targetTime
     setScrubbing(false)
     setPreview(undefined)
   }
@@ -1092,7 +1101,7 @@ export const PlayerControls = (
   const qualityBadge = qualityBadgeLabel(badgeHeight)
   const videoLeft = Math.max(0, state.duration - state.currentTime)
   // youtube.com names a point of a live bar by how far behind the edge it is
-  const barClock = (time: number) => (live ? `-${clock(duration - time)}` : clock(time))
+  const barClock = (time: number) => liveBarClock(time, duration, isLive, clock)
 
   // youtube.com goes back to the settings rather than closing them
   const pickSleep = (choice: number | 'end' | undefined) => {
@@ -1127,13 +1136,13 @@ export const PlayerControls = (
         )
         : undefined}
       <div
-        className={scrubbing ? 'scrubber scrubbing' : 'scrubber'}
+        className={['scrubber', scrubbing ? 'scrubbing' : '', isLive ? 'live' : ''].filter(Boolean).join(' ')}
         role='slider'
         aria-label='Seek'
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(position)}
-        aria-valuetext={isLive && !behind ? 'Live' : barClock(position)}
+        aria-valuetext={isLive && !behind && preview === undefined ? 'Live' : barClock(position)}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1148,11 +1157,11 @@ export const PlayerControls = (
               className={index === hoverPart ? 'part hovered' : 'part'}
               style={{ left: offset(part.start), width: barWidth(parts, duration, part) }}
             >
-              <div className='buffered' style={{ width: barFill(part, state.buffered - base) }} />
-              <div className='played' style={{ width: barFill(part, position) }} />
+              <div className='buffered' style={{ width: pinnedFull ? '100%' : barFill(part, bar.buffered) }} />
+              <div className='played' style={{ width: pinnedFull ? '100%' : barFill(part, position) }} />
             </div>
           ))}
-          {duration > 0
+          {!isLive && duration > 0
             ? segments.map((part, index) => (
               <div
                 key={index}
@@ -1161,7 +1170,7 @@ export const PlayerControls = (
               />
             ))
             : undefined}
-          <SeekKnob handle={settings.seekHandle} style={{ left: offset(position) }} />
+          <SeekKnob handle={settings.seekHandle} style={{ left: pinnedFull ? '100%' : offset(position) }} />
         </div>
         {hover && !filmstrip
           ? (
@@ -1257,7 +1266,9 @@ export const PlayerControls = (
                 disabled={!behind}
                 aria-label={behind ? 'Skip ahead to live broadcast' : undefined}
                 onClick={() => {
-                  if (live) video.currentTime = live.end
+                  if (!live) return
+                  video.currentTime = live.end
+                  if (video.paused) void video.play().catch(() => {})
                 }}
               >
                 Live

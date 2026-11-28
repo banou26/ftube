@@ -36,6 +36,24 @@ const EMPTY: PlayerState = {
   videoHeight: 0,
 }
 
+const BUFFER_RANGE_SLACK = 0.5
+
+/**
+ * Returns the buffered end time covering `currentTime` so seeking back inside a
+ * live DVR window does not paint stale live-edge buffer across the seek bar.
+ */
+export const bufferedAhead = (
+  ranges: Pick<TimeRanges, 'length' | 'start' | 'end'>,
+  currentTime: number,
+): number => {
+  for (let index = 0; index < ranges.length; index += 1) {
+    if (ranges.start(index) <= currentTime + BUFFER_RANGE_SLACK && ranges.end(index) >= currentTime - BUFFER_RANGE_SLACK) {
+      return ranges.end(index)
+    }
+  }
+  return Math.max(0, currentTime)
+}
+
 const read = (
   video: HTMLVideoElement,
   player: shaka.Player | undefined,
@@ -47,7 +65,7 @@ const read = (
   ended: video.ended,
   currentTime: video.currentTime,
   duration: Number.isFinite(video.duration) ? video.duration : 0,
-  buffered: video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0,
+  buffered: bufferedAhead(video.buffered, video.currentTime),
   volume: video.volume,
   muted: video.muted,
   playbackRate: video.playbackRate,
