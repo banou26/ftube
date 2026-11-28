@@ -33,7 +33,7 @@ export const decideSurfaceClick = (
   return 'toggle-play'
 }
 
-const SPACE_TARGET_SELECTOR = 'button, select, summary, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="switch"], [role="checkbox"], [role="radio"], [role="option"], [role="tab"], [role="combobox"]'
+const SPACE_TARGET_SELECTOR = 'select, summary, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="option"], [role="combobox"]'
 
 /** Whether Space should activate the focused control instead of toggling player playback. */
 export const isSpaceTarget = (target: EventTarget | null) => {

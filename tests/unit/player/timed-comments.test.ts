@@ -282,6 +282,16 @@ describe('timed comments helpers and media clock', () => {
         runs: [{ text: '2:14', videoId: 'v1', startSeconds: 134 }, { text: ' 🔥' }],
         expected: '🔥',
       },
+      {
+        id: 'mid-at-here',
+        runs: [{ text: 'Great part at ' }, { text: '1:23', videoId: 'v1', startSeconds: 83 }, { text: ' here' }],
+        expected: 'Great part at here',
+      },
+      {
+        id: 'mid-at-comma',
+        runs: [{ text: 'at ' }, { text: '1:23', videoId: 'v1', startSeconds: 83 }, { text: ', the drop' }],
+        expected: 'at, the drop',
+      },
     ]
 
     for (const c of cases) {

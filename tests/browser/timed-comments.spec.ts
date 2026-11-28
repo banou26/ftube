@@ -399,6 +399,19 @@ test('Space toggles Timed comments inside real /watch Player settings on desktop
     await expect(seek).toBeFocused()
     await page.keyboard.press(' ')
     await expect.poll(() => page.evaluate(() => (window as unknown as { __playCalls?: number }).__playCalls ?? 0)).toBe(1)
+
+    // Space after clicking a plain player button (Mute -> Unmute) toggles playback instead of re-activating Unmute
+    await page.getByRole('button', { name: 'Mute', exact: true }).click()
+    const unmuteBtn = page.getByRole('button', { name: 'Unmute', exact: true })
+    await expect(unmuteBtn).toBeVisible()
+    await unmuteBtn.focus()
+    await expect(unmuteBtn).toBeFocused()
+    await page.keyboard.press(' ')
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __playCalls?: number }).__playCalls ?? 0)).toBe(2)
+    await expect(unmuteBtn).toBeVisible()
+    await expect.poll(() => page.evaluate(() => Boolean(document.querySelector('video')?.muted))).toBe(true)
+
+    await page.evaluate(() => localStorage.removeItem('yt-client:settings'))
   }
 })
 

@@ -59,6 +59,7 @@ describe('watchRedirectHref', () => {
       expect(watchRedirectHref('dQw4w9WgXcQ', `?list=PL1&index=${encodeURIComponent(bad)}`))
         .toBe('/watch?v=dQw4w9WgXcQ&list=PL1')
     }
+    expect(watchRedirectHref('dQw4w9WgXcQ', '?list=PL1&index=03')).toBe('/watch?v=dQw4w9WgXcQ&list=PL1&index=3')
     expect(watchRedirectHref('a%25b', '?list=PL1&index=1')).toBe('/watch?v=a%25b&list=PL1&index=1')
   })
 })
