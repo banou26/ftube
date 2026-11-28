@@ -23,6 +23,8 @@ import {
   MessageSquare,
   Pin,
   RefreshCw,
+  SlidersHorizontal,
+  Sparkles,
   Trophy,
   Wrench,
   X,
@@ -33,6 +35,15 @@ import { Link } from 'wouter'
 import { lineFor } from './data-failure'
 import { EmojiButton, type CustomEmoji } from './emoji-picker'
 import { isSelfMention, splitMentionRuns } from './live-chat-helpers'
+import {
+  OVERLAY_EMOJI_ANIMATIONS,
+  OVERLAY_FONT_FAMILIES,
+  OVERLAY_TEXT_ANIMATIONS,
+  resetOverScreenSettings,
+  updateOverScreenSettings,
+  useOverScreenSettings,
+} from './over-screen-messages'
+import { OverScreenOverlay } from './over-screen-overlay'
 import { RichText } from './rich-text'
 import { Menu, MenuItem } from './ui/menu'
 import {
@@ -93,7 +104,9 @@ export const chatStyles = css`
     margin-left: auto;
   }
 
-  .head .top-fans-btn {
+  .head .top-fans-btn,
+  .head .over-screen-btn,
+  .head .over-screen-customize-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -106,12 +119,28 @@ export const chatStyles = css`
     font-size: 1.2rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .head .over-screen-customize-btn {
+    padding: 0.45rem 0.65rem;
+  }
+
+  .head .over-screen-btn.active {
+    background: var(--accent-tint);
+    border-color: var(--accent);
   }
 
   .head .top-fans-btn:hover,
-  .head .top-fans-btn[aria-expanded='true'] {
+  .head .top-fans-btn[aria-expanded='true'],
+  .head .over-screen-btn:hover,
+  .head .over-screen-customize-btn:hover,
+  .head .over-screen-customize-btn[aria-expanded='true'] {
     background: var(--bg-hover);
+  }
+
+  .head .over-screen-btn.active:hover {
+    background: var(--accent-tint);
   }
 
   .head .close {
@@ -925,6 +954,112 @@ export const chatStyles = css`
     font-size: 1.2rem;
   }
 
+  .over-screen-panel {
+    position: absolute;
+    inset: 4.5rem 0 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-subtle);
+  }
+
+  .over-screen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.2rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+
+  .over-screen-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.2rem;
+    font-size: 1.3rem;
+  }
+
+  .over-screen-row select,
+  .over-screen-row input[type='range'] {
+    font: inherit;
+    font-size: 1.25rem;
+  }
+
+  .over-screen-row select {
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.7rem;
+    background: var(--bg-input);
+    color: var(--text-primary);
+  }
+
+  .over-screen-range {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .over-screen-range input[type='range'] {
+    width: 11rem;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .over-screen-range span {
+    min-width: 4.2rem;
+    text-align: right;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .over-screen-check {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 1.3rem;
+    cursor: pointer;
+  }
+
+  .over-screen-check input {
+    width: 1.6rem;
+    height: 1.6rem;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .over-screen-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .over-screen-action {
+    height: 3.2rem;
+    padding: 0 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 1.6rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 1.25rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .over-screen-action:hover {
+    background: var(--bg-chip-hover);
+  }
+
+  .over-screen-action.primary {
+    background: var(--accent-tint);
+    border-color: var(--accent);
+  }
+
   .slow-mode-bar {
     display: flex;
     align-items: center;
@@ -1443,6 +1578,8 @@ export const LiveChat = ({
     setReactionsOpen,
     reactions,
     triggerReaction,
+    overlayEvent,
+    overlayResetSeq,
     logRef,
     onScroll,
     pinned,
@@ -1452,10 +1589,31 @@ export const LiveChat = ({
     hideChat,
   } = useLiveChatSession({ videoId, subscribed, onHide })
   const [reactionsHovered, setReactionsHovered] = useState(false)
+  const overScreen = useOverScreenSettings()
+  const [overScreenOpen, setOverScreenOpen] = useState(false)
+  const [previewSeq, setPreviewSeq] = useState(0)
+  const overScreenTriggerRef = useRef<HTMLButtonElement>(null)
+  const overScreenPanelRef = useRef<HTMLDivElement>(null)
   const reactionControlRef = useRef<HTMLDivElement>(null)
   const reactionToggleRef = useRef<HTMLButtonElement>(null)
   const onCustomEmojisRef = useRef(onCustomEmojis)
   onCustomEmojisRef.current = onCustomEmojis
+
+  useLayoutEffect(() => {
+    if (!overScreenOpen) return
+    const previous = document.activeElement as HTMLElement | null
+    overScreenPanelRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopImmediatePropagation()
+      setOverScreenOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      previous?.focus()
+    }
+  }, [overScreenOpen])
 
   useEffect(() => {
     onCustomEmojisRef.current?.(customEmojis)
@@ -1563,13 +1721,54 @@ export const LiveChat = ({
         </Menu>
         {ended ? <span className='ended-badge'>Ended</span> : undefined}
         <div className='head-actions'>
+          {!page?.disabled
+            ? (
+              <>
+                <button
+                  type='button'
+                  className={overScreen.enabled ? 'over-screen-btn active' : 'over-screen-btn'}
+                  aria-label='Over-screen chat messages'
+                  aria-pressed={overScreen.enabled}
+                  title='Toggle over-screen live chat messages'
+                  onClick={() => updateOverScreenSettings({ enabled: !overScreen.enabled })}
+                >
+                  <Sparkles size={13} strokeWidth={1.9} aria-hidden='true' />
+                  <span>Over-screen</span>
+                </button>
+                <button
+                  ref={overScreenTriggerRef}
+                  type='button'
+                  className='over-screen-customize-btn'
+                  aria-label='Customize over-screen messages'
+                  aria-expanded={overScreenOpen}
+                  title='Customize over-screen messages'
+                  onClick={() => {
+                    setOverScreenOpen((open) => {
+                      const next = !open
+                      if (next) setLeaderboardOpen(false)
+                      return next
+                    })
+                  }}
+                >
+                  <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden='true' />
+                </button>
+              </>
+            )
+            : undefined}
           {leaderboardEntry && !page?.disabled
             ? (
               <button
                 type='button'
                 className='top-fans-btn'
                 aria-expanded={leaderboardOpen}
-                onClick={() => (leaderboardOpen ? setLeaderboardOpen(false) : openLeaderboard())}
+                onClick={() => {
+                  if (leaderboardOpen) {
+                    setLeaderboardOpen(false)
+                  } else {
+                    setOverScreenOpen(false)
+                    openLeaderboard()
+                  }
+                }}
               >
                 <Trophy size={13} strokeWidth={1.9} aria-hidden='true' />
                 <span>{leaderboardEntry.label}</span>
@@ -1890,8 +2089,209 @@ export const LiveChat = ({
                 </div>
               )
               : undefined}
+
+            {overScreenOpen
+              ? (
+                <div
+                  ref={overScreenPanelRef}
+                  tabIndex={-1}
+                  className='over-screen-panel'
+                  role='dialog'
+                  aria-label='Over-screen chat messages'
+                >
+                  <div className='leaderboard-head'>
+                    <Sparkles size={15} strokeWidth={1.9} aria-hidden='true' />
+                    <span>Over-screen messages</span>
+                    <div className='leaderboard-actions'>
+                      <button
+                        type='button'
+                        className='pin-icon-btn'
+                        aria-label='Close over-screen settings'
+                        onClick={() => setOverScreenOpen(false)}
+                      >
+                        <X size={15} strokeWidth={1.75} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className='over-screen-body'>
+                    <label className='over-screen-check'>
+                      <span>Enable over-screen messages</span>
+                      <input
+                        type='checkbox'
+                        aria-label='Enable over-screen messages'
+                        checked={overScreen.enabled}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          updateOverScreenSettings({ enabled: event.currentTarget.checked })}
+                      />
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Text animation</span>
+                      <select
+                        aria-label='Text animation'
+                        value={overScreen.textAnimation}
+                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
+                          updateOverScreenSettings({ textAnimation: event.currentTarget.value as typeof overScreen.textAnimation })}
+                      >
+                        {OVERLAY_TEXT_ANIMATIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Emoji-only animation</span>
+                      <select
+                        aria-label='Emoji-only animation'
+                        value={overScreen.emojiAnimation}
+                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
+                          updateOverScreenSettings({ emojiAnimation: event.currentTarget.value as typeof overScreen.emojiAnimation })}
+                      >
+                        {OVERLAY_EMOJI_ANIMATIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Font style</span>
+                      <select
+                        aria-label='Overlay font'
+                        value={overScreen.fontFamily}
+                        onChange={(event: TargetedEvent<HTMLSelectElement>) =>
+                          updateOverScreenSettings({ fontFamily: event.currentTarget.value as typeof overScreen.fontFamily })}
+                      >
+                        {OVERLAY_FONT_FAMILIES.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Font size</span>
+                      <span className='over-screen-range'>
+                        <input
+                          type='range'
+                          aria-label='Font size'
+                          min={16}
+                          max={56}
+                          step={2}
+                          value={overScreen.fontSizePx}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            updateOverScreenSettings({ fontSizePx: Number(event.currentTarget.value) })}
+                        />
+                        <span>{`${overScreen.fontSizePx}px`}</span>
+                      </span>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Speed</span>
+                      <span className='over-screen-range'>
+                        <input
+                          type='range'
+                          aria-label='Animation speed'
+                          min={0.5}
+                          max={2.5}
+                          step={0.1}
+                          value={overScreen.speed}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            updateOverScreenSettings({ speed: Number(event.currentTarget.value) })}
+                        />
+                        <span>{`${overScreen.speed.toFixed(1)}x`}</span>
+                      </span>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Opacity</span>
+                      <span className='over-screen-range'>
+                        <input
+                          type='range'
+                          aria-label='Overlay opacity'
+                          min={0.2}
+                          max={1}
+                          step={0.05}
+                          value={overScreen.opacity}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            updateOverScreenSettings({ opacity: Number(event.currentTarget.value) })}
+                        />
+                        <span>{`${Math.round(overScreen.opacity * 100)}%`}</span>
+                      </span>
+                    </label>
+                    <label className='over-screen-row'>
+                      <span>Client slow mode</span>
+                      <span className='over-screen-range'>
+                        <input
+                          type='range'
+                          aria-label='Client slow mode'
+                          min={0}
+                          max={5000}
+                          step={250}
+                          value={overScreen.slowModeMs}
+                          onInput={(event: TargetedEvent<HTMLInputElement>) =>
+                            updateOverScreenSettings({ slowModeMs: Number(event.currentTarget.value) })}
+                        />
+                        <span>{overScreen.slowModeMs === 0 ? 'Off' : `${(overScreen.slowModeMs / 1_000).toFixed(2)}s`}</span>
+                      </span>
+                    </label>
+                    <label className='over-screen-check'>
+                      <span>Show author names</span>
+                      <input
+                        type='checkbox'
+                        aria-label='Show author names'
+                        checked={overScreen.showAuthor}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          updateOverScreenSettings({ showAuthor: event.currentTarget.checked })}
+                      />
+                    </label>
+                    <label className='over-screen-check'>
+                      <span>Style by message type</span>
+                      <input
+                        type='checkbox'
+                        aria-label='Style by message type'
+                        checked={overScreen.styleByType}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          updateOverScreenSettings({ styleByType: event.currentTarget.checked })}
+                      />
+                    </label>
+                    <label className='over-screen-check'>
+                      <span>Enlarge emoji-only messages</span>
+                      <input
+                        type='checkbox'
+                        aria-label='Enlarge emoji-only messages'
+                        checked={overScreen.emojiOnlyEnlarged}
+                        onChange={(event: TargetedEvent<HTMLInputElement>) =>
+                          updateOverScreenSettings({ emojiOnlyEnlarged: event.currentTarget.checked })}
+                      />
+                    </label>
+                    <div className='over-screen-footer'>
+                      <button
+                        type='button'
+                        className='over-screen-action'
+                        onClick={() => resetOverScreenSettings()}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type='button'
+                        className='over-screen-action primary'
+                        onClick={() => {
+                          if (!overScreen.enabled) updateOverScreenSettings({ enabled: true })
+                          setPreviewSeq((seq) => seq + 1)
+                        }}
+                      >
+                        Test preview
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+              : undefined}
           </>
         )}
+      {!page?.disabled
+        ? (
+          <OverScreenOverlay
+            settings={overScreen}
+            event={overlayEvent}
+            resetSeq={overlayResetSeq}
+            previewSeq={previewSeq}
+          />
+        )
+        : undefined}
     </section>
   )
 }

@@ -227,6 +227,13 @@ export const usePinnedLog = (lines: unknown) => {
   return { logRef, onScroll, pinned, setPinned }
 }
 
+export type OverlayChatEvent = {
+  seq: number
+  items: ChatRow[]
+  removedIds: string[]
+  removedAuthorIds: string[]
+}
+
 /**
  * Manages client-side live chat polling, state transitions, mutations, and server session lifecycle
  * (`closeLiveChat` on hide or unmount) for a live stream `videoId`.
@@ -271,6 +278,8 @@ export const useLiveChatSession = ({
   const [mentionIndex, setMentionIndex] = useState(0)
   const [reactionsOpen, setReactionsOpen] = useState(false)
   const [reactions, setReactions] = useState<{ id: number, emoji: string, leftPx: number }[]>([])
+  const [overlayEvent, setOverlayEvent] = useState<OverlayChatEvent | undefined>(undefined)
+  const [overlayResetSeq, setOverlayResetSeq] = useState(0)
   const { logRef, onScroll, pinned, setPinned } = usePinnedLog(messages)
   const client = useClient()
   const [, send] = useMutation(SEND_LIVE_CHAT)
@@ -278,6 +287,9 @@ export const useLiveChatSession = ({
   const inputRef = useRef<HTMLInputElement>(null)
   const mentionListId = useId()
   const reactionSeq = useRef(0)
+  const overlaySeq = useRef(0)
+  const overlaySeededRef = useRef(false)
+  const seenOverlayIdsRef = useRef<Set<string>>(new Set())
   const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const caretFrame = useRef<number | undefined>(undefined)
   const pinnedIdRef = useRef<string | undefined>(undefined)
@@ -294,6 +306,10 @@ export const useLiveChatSession = ({
 
   useLayoutEffect(() => {
     closedByUserRef.current = false
+    overlaySeededRef.current = false
+    seenOverlayIdsRef.current.clear()
+    setOverlayEvent(undefined)
+    setOverlayResetSeq((seq) => seq + 1)
     activeLiveChatMounts.set(videoId, (activeLiveChatMounts.get(videoId) ?? 0) + 1)
     return () => {
       const remaining = Math.max(0, (activeLiveChatMounts.get(videoId) ?? 1) - 1)
@@ -415,8 +431,44 @@ export const useLiveChatSession = ({
   useEffect(() => {
     if (!page) return
     setRefreshing(false)
-    const removed = new Set(page.removedIds ?? [])
-    const removedAuthors = new Set(page.removedAuthorIds ?? [])
+    const removedIds = page.removedIds ?? []
+    const removedAuthorIds = page.removedAuthorIds ?? []
+    const removed = new Set(removedIds)
+    const removedAuthors = new Set(removedAuthorIds)
+
+    if (!overlaySeededRef.current) {
+      overlaySeededRef.current = true
+      for (const item of page.items) seenOverlayIdsRef.current.add(item.id)
+    } else if (page.items.length || removedIds.length || removedAuthorIds.length) {
+      const liveItems: ChatRow[] = []
+      for (const item of page.items) {
+        const alreadySeen = seenOverlayIdsRef.current.has(item.id)
+        seenOverlayIdsRef.current.add(item.id)
+        if (alreadySeen) continue
+        if (removed.has(item.id)) continue
+        if (item.author?.id && removedAuthors.has(item.author.id)) continue
+        if (item.kind === 'SYSTEM') continue
+        const matchesLocalEcho = pendingEchoes.current.length > 0
+          && sameAuthor(item.author, self)
+          && pendingEchoes.current.some((pending) => normEchoText(pending.text) === normEchoText(item.text))
+        if (matchesLocalEcho) continue
+        liveItems.push(item)
+      }
+      if (seenOverlayIdsRef.current.size > 600) {
+        const retained = new Set(messagesRef.current.map((entry) => entry.id))
+        for (const item of liveItems) retained.add(item.id)
+        seenOverlayIdsRef.current = retained
+      }
+      if (liveItems.length > 0 || removedIds.length > 0 || removedAuthorIds.length > 0) {
+        setOverlayEvent({
+          seq: ++overlaySeq.current,
+          items: liveItems,
+          removedIds,
+          removedAuthorIds,
+        })
+      }
+    }
+
     if (page.items.length || removed.size || removedAuthors.size) {
       const now = Date.now()
       pendingEchoes.current = pendingEchoes.current.filter((entry) => now - entry.at < 15_000)
@@ -492,6 +544,10 @@ export const useLiveChatSession = ({
   const refreshSession = () => {
     setRefreshing(true)
     setEnded(false)
+    overlaySeededRef.current = false
+    seenOverlayIdsRef.current.clear()
+    setOverlayEvent(undefined)
+    setOverlayResetSeq((seq) => seq + 1)
     if (cursorRef.current !== undefined) {
       setCursor(undefined)
     } else {
@@ -516,6 +572,10 @@ export const useLiveChatSession = ({
     if (nextView === view) return
     pinnedIdRef.current = undefined
     pendingEchoes.current = []
+    overlaySeededRef.current = false
+    seenOverlayIdsRef.current.clear()
+    setOverlayEvent(undefined)
+    setOverlayResetSeq((seq) => seq + 1)
     setView(nextView)
     setCursor(undefined)
     setMessages([])
@@ -640,9 +700,42 @@ export const useLiveChatSession = ({
       }
       if (self) {
         const localId = `local:${crypto.randomUUID()}`
+        const targetText = normEchoText(text)
+        const alreadyInMessages = messagesRef.current.some((item) =>
+          !seenBeforeSend.has(item.id)
+          && !item.id.startsWith('local:')
+          && normEchoText(item.text) === targetText
+          && sameAuthor(item.author, self),
+        )
+        const optimisticRow: ChatRow = {
+          __typename: 'LiveChatMessage',
+          id: localId,
+          kind: 'TEXT',
+          text,
+          runs: [{ __typename: 'LiveChatRun', text, url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
+          timestampText: null,
+          isOwner: false,
+          isModerator: false,
+          isMember: false,
+          badges: null,
+          purchaseAmountText: null,
+          headerBackgroundColor: null,
+          bodyBackgroundColor: null,
+          headerPrimaryText: null,
+          headerSubtext: null,
+          stickerUrl: null,
+          stickerLabel: null,
+          iconType: null,
+          author: {
+            __typename: 'Author',
+            id: 'self',
+            name: self.name || self.handle || 'You',
+            avatar: self.avatar ?? null,
+            handle: self.handle ?? null,
+          },
+        }
         pendingEchoes.current.push({ id: localId, text, at: Date.now() })
         setMessages((current) => {
-          const targetText = normEchoText(text)
           const alreadyArrived = current.some((item) =>
             !seenBeforeSend.has(item.id)
             && !item.id.startsWith('local:')
@@ -653,36 +746,18 @@ export const useLiveChatSession = ({
             pendingEchoes.current = pendingEchoes.current.filter((entry) => entry.id !== localId)
             return current
           }
-          const optimisticRow: ChatRow = {
-            __typename: 'LiveChatMessage',
-            id: localId,
-            kind: 'TEXT',
-            text,
-            runs: [{ __typename: 'LiveChatRun', text, url: null, videoId: null, startSeconds: null, browseId: null, emojiUrl: null, emojiLabel: null }],
-            timestampText: null,
-            isOwner: false,
-            isModerator: false,
-            isMember: false,
-            badges: null,
-            purchaseAmountText: null,
-            headerBackgroundColor: null,
-            bodyBackgroundColor: null,
-            headerPrimaryText: null,
-            headerSubtext: null,
-            stickerUrl: null,
-            stickerLabel: null,
-            iconType: null,
-            author: {
-              __typename: 'Author',
-              id: 'self',
-              name: self.name || self.handle || 'You',
-              avatar: self.avatar ?? null,
-              handle: self.handle ?? null,
-            },
-          }
           const grown = [...current, optimisticRow]
           return grown.length > TRANSCRIPT_LIMIT ? grown.slice(grown.length - TRANSCRIPT_LIMIT) : grown
         })
+        if (!alreadyInMessages) {
+          seenOverlayIdsRef.current.add(localId)
+          setOverlayEvent({
+            seq: ++overlaySeq.current,
+            items: [optimisticRow],
+            removedIds: [],
+            removedAuthorIds: [],
+          })
+        }
       }
       if ((inputState?.slowModeSeconds ?? 0) > 0) {
         setSlowModeUntil(Date.now() + inputState!.slowModeSeconds! * 1_000)
@@ -784,6 +859,8 @@ export const useLiveChatSession = ({
     setReactionsOpen,
     reactions,
     triggerReaction,
+    overlayEvent,
+    overlayResetSeq,
     logRef,
     onScroll,
     pinned,
