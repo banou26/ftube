@@ -193,17 +193,27 @@ const SearchLanding = () => {
   return <div data-home-search-result={query}>Search results: {query}</div>
 }
 
+let mountedHomeHost: HTMLElement | undefined
+
 /**
  * Mounts Header + HomePage inside a Client + Router shell for testing empty vs populated guest Home interactions
  * (search focus, mobile search open/back, search submit, and display control visibility).
  */
 export const mountHomeApp = (populated: boolean) => {
   document.documentElement.dataset.engine = 'ready'
-  document.getElementById('app')?.remove()
-  document.querySelector('[data-home-app-harness]')?.remove()
+  const app = document.getElementById('app')
+  if (app) {
+    render(null, app)
+    app.remove()
+  }
+  if (mountedHomeHost) {
+    render(null, mountedHomeHost)
+    mountedHomeHost.remove()
+  }
   const host = document.createElement('div')
   host.setAttribute('data-home-app-harness', populated ? 'populated' : 'empty')
   document.body.append(host)
+  mountedHomeHost = host
 
   const fetchAnswer = async (_url: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse((init?.body as string | undefined) ?? '{}') as { operationName?: string }

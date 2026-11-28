@@ -4,12 +4,16 @@ import { expect, hideFknNotice, test } from './test'
 
 const HARNESS = '/tests/browser/fixtures/home-harness.tsx'
 
-const openHomeHarness = async (page: Page, populated: boolean) => {
+const prepareHarnessPage = async (page: Page) => {
   await page.route('https://*.sdbx.app/**', route => route.abort())
   await page.route('https://www.youtube.com/**', route => route.abort())
   await page.route('**/__yt_engine__/**', route => route.abort())
   await hideFknNotice(page)
   await page.goto('/privacy')
+  await expect(page.getByRole('heading', { name: 'Privacy', level: 1 })).toBeVisible({ timeout: 30_000 })
+}
+
+const mountHarnessState = async (page: Page, populated: boolean) => {
   const root = page.locator(`[data-home-app-harness="${populated ? 'populated' : 'empty'}"]`)
   await expect(async () => {
     await page.evaluate(async ([harnessPath, isPopulated]) => {
@@ -26,11 +30,13 @@ test('empty guest Home hides display controls and Search videos focuses search f
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
 
+  await prepareHarnessPage(page)
+
   for (const scheme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport)
-      const root = await openHomeHarness(page, false)
+      const root = await mountHarnessState(page, false)
 
       await expect(root.getByRole('heading', { name: 'Try searching to get started', exact: true })).toBeVisible()
       await expect(root.getByRole('group', { name: 'Feed view controls' })).toHaveCount(0)
@@ -75,7 +81,8 @@ test('touch/click activation of Search videos focuses search cleanly on phone an
   try {
     const phonePage = await touchContext.newPage()
     phonePage.on('pageerror', error => errors.push(error.message))
-    const phoneRoot = await openHomeHarness(phonePage, false)
+    await prepareHarnessPage(phonePage)
+    const phoneRoot = await mountHarnessState(phonePage, false)
     const phoneAction = phoneRoot.getByRole('button', { name: 'Search videos', exact: true })
     await phoneAction.tap()
 
@@ -100,8 +107,9 @@ test('touch/click activation of Search videos focuses search cleanly on phone an
   try {
     const desktopPage = await desktopContext.newPage()
     desktopPage.on('pageerror', error => errors.push(error.message))
+    await prepareHarnessPage(desktopPage)
 
-    const emptyDesktop = await openHomeHarness(desktopPage, false)
+    const emptyDesktop = await mountHarnessState(desktopPage, false)
     await emptyDesktop.getByRole('button', { name: 'Search videos', exact: true }).click()
     const desktopInput = emptyDesktop.locator('header form[role="search"] input[name="search_query"]')
     await expect(desktopInput).toBeFocused()
@@ -109,7 +117,7 @@ test('touch/click activation of Search videos focuses search cleanly on phone an
     await desktopPage.keyboard.press('Enter')
     await expect(emptyDesktop.locator('[data-home-search-result="desktop query"]')).toBeVisible()
 
-    const populatedDesktop = await openHomeHarness(desktopPage, true)
+    const populatedDesktop = await mountHarnessState(desktopPage, true)
     await expect(populatedDesktop.getByRole('group', { name: 'Feed view controls' })).toBeVisible()
     await expect(populatedDesktop.getByRole('button', { name: 'Grid view', exact: true })).toBeVisible()
     await expect(populatedDesktop.getByRole('button', { name: 'List view', exact: true })).toBeVisible()
