@@ -19,8 +19,10 @@ import { matchesFeedViewFilter } from '../feeds/filter'
 import { useFeedViewSettings } from '../feeds/settings'
 import { gql } from '../generated'
 import { directSubgroups, groupAncestors, groupChannelsWithDescendants, groupHrefFor, useGroups } from '../groups/store'
+import { groupEmptyPageAction } from '../groups/picker'
 import { mergeUploads } from '../groups/uploads'
 import { useSession } from '../session'
+import { signIn } from '../sign-in'
 import { useSetting } from '../settings'
 
 // the feed has no live state or avatar, and Video is keyed by id: selecting those would write nulls over other views
@@ -221,6 +223,25 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.2rem;
+    margin: 0 0 2.4rem;
+  }
+
+  .empty-state .notice {
+    margin: 0;
+  }
+
+  .empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
   .not-found {
     color: var(--text-secondary);
   }
@@ -255,7 +276,7 @@ const failedLine = (names: string[]) => {
 }
 
 const GroupPage = ({ params }: { params: { id: string } }) => {
-  const { signedIn } = useSession()
+  const { signedIn, ready } = useSession()
   const groups = useGroups()
   const group = groups.find(candidate => candidate.id === safeDecode(params.id))
   useDocumentTitle(group?.name ?? 'Group')
@@ -371,7 +392,30 @@ const GroupPage = ({ params }: { params: { id: string } }) => {
       <GroupSyncBanner showWhenSynced={false} />
       {failed.length > 0 ? <p className='notice'>{failedLine(failed.map(channel => channel.name))}</p> : undefined}
       {channels.length === 0
-        ? <p className='notice'>{subgroups.length > 0 ? 'No channels in this group or its subfolders' : 'No channels in this group'}</p>
+        ? (() => {
+          const emptyState = groupEmptyPageAction({ signedIn, hasSubgroups: subgroups.length > 0 })
+          return (
+            <div className='empty-state'>
+              <p className='notice'>{emptyState.message}</p>
+              <div className='empty-actions'>
+                {emptyState.primaryAction === 'pick-subscriptions'
+                  ? (
+                    <button type='button' className='edit' onClick={() => setEditing(true)}>
+                      Pick from subscriptions
+                    </button>
+                  )
+                  : ready
+                    ? (
+                      <button type='button' className='edit' onClick={signIn}>
+                        Sign in
+                      </button>
+                    )
+                    : undefined}
+                <Link href='/' className='edit'>Browse channels</Link>
+              </div>
+            </div>
+          )
+        })()
         : undefined}
       <VideoGrid
         videos={videos.slice(0, shown)}

@@ -9,8 +9,10 @@ import { Link } from 'wouter'
 
 import { gql } from '../generated'
 import { addGroupIcon, removeGroupIcon, useGroupIcons } from '../groups/icons'
+import { groupDialogChannelPrompt } from '../groups/picker'
 import { DEFAULT_EMOJI, groupStore, groupTreeOrder, isDescendant, NAME_LIMIT, useGroups } from '../groups/store'
 import { useSession } from '../session'
+import { signIn } from '../sign-in'
 import { showUndoableToast } from '../undo'
 import { ChannelPreviewCard } from './channel-preview'
 import { DataFailure } from './data-failure'
@@ -264,6 +266,36 @@ const style = css`
     color: var(--text-secondary);
   }
 
+  .guest-subscriptions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+  }
+
+  .guest-subscriptions .status {
+    margin: 0;
+  }
+
+  .action-chip {
+    flex: none;
+    height: 3.4rem;
+    padding: 0 1.4rem;
+    border: none;
+    border-radius: 1.7rem;
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    font-size: 1.3rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .action-chip:hover {
+    background: var(--bg-chip-hover);
+  }
+
   [role='alert'] {
     margin: 0;
   }
@@ -350,8 +382,10 @@ const SubscriptionPicker = (
 ) => {
   const [filter, setFilter] = useState('')
   const [{ data, error, fetching }, reexecute] = useQuery({ query: GROUP_SUBSCRIPTIONS_QUERY })
+  const allChannels = data?.subscribedChannels ?? []
+  const allCount = allChannels.length
   const query = filter.trim().toLowerCase()
-  const channels = (data?.subscribedChannels ?? [])
+  const channels = allChannels
     .filter(channel => channel.name.toLowerCase().includes(query))
   const entries: GroupChannel[] = channels.map(channel => ({
     id: channel.id,
@@ -371,16 +405,26 @@ const SubscriptionPicker = (
   return (
     <div className='field'>
       <span className='field-label'>Your subscriptions</span>
-      <input
-        className='text'
-        type='search'
-        value={filter}
-        placeholder='Filter'
-        aria-label='Filter subscriptions'
-        onInput={(event: Event) => setFilter((event.currentTarget as HTMLInputElement).value)}
-      />
+      {fetching || error || allCount > 0
+        ? (
+          <input
+            className='text'
+            type='search'
+            value={filter}
+            placeholder='Filter'
+            aria-label='Filter subscriptions'
+            onInput={(event: Event) => setFilter((event.currentTarget as HTMLInputElement).value)}
+          />
+        )
+        : undefined}
       {fetching ? <p className='status'>Loading…</p> : undefined}
       {error && !fetching ? <DataFailure error={error} reexecute={reexecute} /> : undefined}
+      {!fetching && !error && allCount === 0
+        ? <p className='status'>No subscriptions yet. Use Add to group on any channel page.</p>
+        : undefined}
+      {!fetching && !error && allCount > 0 && entries.length === 0
+        ? <p className='status'>No matching subscriptions</p>
+        : undefined}
       {!fetching && entries.length > 0
         ? (
           <label className='select-all'>
@@ -438,7 +482,7 @@ export const GroupDialog = (
     onSaved?: (group: Group) => void
   },
 ) => {
-  const { signedIn } = useSession()
+  const { signedIn, ready } = useSession()
   const allGroups = useGroups()
   const iconLabel = useId()
   // Dialog re-runs its focus effect whenever onClose changes, which would pull focus out of the field being typed in
@@ -454,6 +498,7 @@ export const GroupDialog = (
   const [parentId, setParentId] = useState(group?.parentId ?? initialParentId ?? '')
   const [channels, setChannels] = useState(group?.channels ?? initialChannels)
   const [hovered, setHovered] = useState<{ channel: GroupChannel, anchor: HTMLElement } | undefined>(undefined)
+  const emptyPrompt = groupDialogChannelPrompt({ signedIn, selectedCount: channels.length })
 
   const choices = extraIcon && !storedIcons.includes(extraIcon) ? [extraIcon, ...storedIcons] : storedIcons
   const canRemoveIcon = (choice: string) => choice === extraIcon || storedIcons.length > 1
@@ -617,7 +662,7 @@ export const GroupDialog = (
           </div>
           <div className='field'>
             <span className='field-label'>Channels</span>
-            {channels.length === 0 ? <p className='status'>No channels</p> : undefined}
+            {emptyPrompt ? <p className='status'>{emptyPrompt}</p> : undefined}
             <div className='channels'>
               {channels.map(channel => (
                 <div key={channel.id} className='channel'>
@@ -634,7 +679,19 @@ export const GroupDialog = (
               ))}
             </div>
           </div>
-          {signedIn ? <SubscriptionPicker chosen={channels} onToggle={onToggle} onToggleMany={onToggleMany} preview={preview} /> : undefined}
+          {signedIn
+            ? <SubscriptionPicker chosen={channels} onToggle={onToggle} onToggleMany={onToggleMany} preview={preview} />
+            : ready
+              ? (
+                <div className='field'>
+                  <span className='field-label'>Your subscriptions</span>
+                  <div className='guest-subscriptions'>
+                    <p className='status'>Sign in to pick from subscriptions.</p>
+                    <button type='button' className='action-chip' onClick={signIn}>Sign in</button>
+                  </div>
+                </div>
+              )
+              : undefined}
           <div className='row'>
             <button type='button' className='cancel' onClick={close}>Cancel</button>
             <button type='submit' className='save' disabled={name.trim().length === 0}>
