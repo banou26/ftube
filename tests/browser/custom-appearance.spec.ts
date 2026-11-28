@@ -440,7 +440,7 @@ test('organizes Settings into side-menu sections and previews all accent-affecte
   await expect(customizationNav).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveURL(/\/settings\?section=customization$/)
   await expect(main.getByRole('button', { name: 'Device theme', exact: true })).toBeVisible()
-  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toBeVisible()
+  await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toHaveCount(0)
   await expect(main.getByRole('checkbox', { name: 'Hide Shorts', exact: true })).toBeHidden()
 
   const custom = main.locator('#custom-appearance')

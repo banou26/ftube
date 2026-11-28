@@ -125,7 +125,7 @@ test('ambient glow fills video bars in theater mode, glows outside the frame, av
   }, { timeout: 10_000, message: 'bars did not return to black after disabling ambient mode' }).toBeLessThanOrEqual(4)
 
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
   const settingsToggle = page.getByRole('checkbox', { name: 'Ambient mode', exact: true })
   await expect(settingsToggle).not.toBeChecked()
   await settingsToggle.check()
