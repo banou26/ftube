@@ -21,6 +21,7 @@ import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { resetEngine, startEngine } from '../engine/client'
+import { registerPrimaryPlayer, notifyPrimaryAudible, setPrimaryDocked } from './audio-coordinator'
 import { warmShaka } from './prefetch'
 import { createRestartBudget, isStreamRefusal, resetsEngine } from './restart'
 import { revealCards } from './cards'
@@ -879,6 +880,26 @@ const VideoPlayer = (
   useEffect(() => {
     updateMediaSessionMetadata({ videoId, title, artist: channelName })
   }, [videoElement, videoId, title, channelName])
+
+  useEffect(() => {
+    if (!videoElement) return
+    const unregister = registerPrimaryPlayer({ id: videoId, video: videoElement, docked: latest.current.docked })
+    const onAudioChange = () => notifyPrimaryAudible(videoElement)
+    videoElement.addEventListener('play', onAudioChange)
+    videoElement.addEventListener('playing', onAudioChange)
+    videoElement.addEventListener('volumechange', onAudioChange)
+    return () => {
+      videoElement.removeEventListener('play', onAudioChange)
+      videoElement.removeEventListener('playing', onAudioChange)
+      videoElement.removeEventListener('volumechange', onAudioChange)
+      unregister()
+    }
+  }, [videoElement, videoId])
+
+  useEffect(() => {
+    if (!videoElement) return
+    setPrimaryDocked(videoElement, docked)
+  }, [videoElement, docked])
 
   useEffect(() => {
     if (!videoElement) return

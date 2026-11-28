@@ -12,6 +12,7 @@ import { bestStoryboard, storyboardFrame } from '../frame/storyboard'
 
 import { startEngine } from '../engine/client'
 import { getSettings, useSetting } from '../settings'
+import { claimPreviewAudio, releasePreviewAudio } from './audio-coordinator'
 import { cardState } from './card-params'
 import { clock } from './controls'
 import { computeHoverDwellMs } from './hover-dwell'
@@ -30,6 +31,11 @@ const PREVIEW_BUFFER_GOAL = 10
 
 // carried between previews and deliberately NOT persisted: a feed may never start talking on its own
 let preferMuted = true
+
+/** Resets in-session preview mute preference (intended for tests). */
+export const resetHoverPreviewState = () => {
+  preferMuted = true
+}
 
 // Manual CC toggle chooses the preferred track (without video-language skip suppression).
 const previewCaption = (tracks: CaptionTrack[]) =>
@@ -457,23 +463,46 @@ export const HoverPreview = (
   const selectCaption = useRef<(trackId: string | undefined) => Promise<void>>(undefined)
   const [hover, setHover] = useState<{ x: number, width: number, time: number } | undefined>()
   const [scrub, setScrub] = useState<{ ratio: number, width: number, height: number } | undefined>()
+  const tokenRef = useRef(0)
+  const forceMuteRef = useRef<(() => void) | undefined>(undefined)
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     const token = ++activeToken
+    tokenRef.current = token
     const abort = new AbortController()
     let isPainted = false
     let failed = false
+    const forceMute = () => {
+      video.muted = true
+      preferMuted = true
+      setMuted(true)
+    }
+    forceMuteRef.current = forceMute
+    const syncPreviewAudio = () => {
+      if (abort.signal.aborted || token !== activeToken) return
+      setMuted(video.muted)
+      if (!video.paused && !video.ended && !video.muted && video.volume > 0) {
+        claimPreviewAudio(token, forceMute)
+      } else {
+        releasePreviewAudio(token)
+      }
+    }
     const notifyFailed = () => {
       if (failed || isPainted || abort.signal.aborted || token !== activeToken) return
       failed = true
+      releasePreviewAudio(token)
       onFailRef.current?.()
     }
     const dwellMs = computeHoverDwellMs()
     let controller: Awaited<ReturnType<typeof startShakaPlayback>> | undefined
     let ownedSession: { api: Awaited<ReturnType<typeof startEngine>>, promise: ReturnType<Awaited<ReturnType<typeof startEngine>>['openPlayback']> } | undefined
     video.muted = preferMuted
+    setMuted(preferMuted)
+
+    const audioEvents = ['play', 'playing', 'volumechange', 'pause', 'ended'] as const
+    for (const eventName of audioEvents) video.addEventListener(eventName, syncPreviewAudio)
 
     const timer = setTimeout(() => {
       void (async () => {
@@ -502,12 +531,13 @@ export const HoverPreview = (
           signal: abort.signal,
           onError: notifyFailed,
         })
-        if (abort.signal.aborted) return
+        if (abort.signal.aborted || token !== activeToken) return
         setStoryboards(controller.storyboards)
         setCaptionTracks(controller.captionTracks)
         selectCaption.current = controller.selectCaption
         setLive(controller.isLive)
         setReady(true)
+        syncPreviewAudio()
         const wanted = startingPreviewCaption(controller.captionTracks, controller.audioTracks)
         if (wanted) {
           setCaption(wanted.id)
@@ -544,8 +574,11 @@ export const HoverPreview = (
       clearTimeout(timer)
       abort.abort()
       unbindProgress()
+      for (const eventName of audioEvents) video.removeEventListener(eventName, syncPreviewAudio)
       video.removeEventListener('progress', onTime)
       video.removeEventListener('loadeddata', onPainted)
+      releasePreviewAudio(token)
+      if (forceMuteRef.current === forceMute) forceMuteRef.current = undefined
       if (ownedSession) {
         const { api, promise } = ownedSession
         void promise.then((session) => api.closePlayback(session.id)).catch(() => {})
@@ -644,9 +677,14 @@ export const HoverPreview = (
               onClick={() => {
                 const video = videoRef.current
                 if (!video) return
-                video.muted = !video.muted
-                preferMuted = video.muted
-                setMuted(video.muted)
+                const nextMuted = !video.muted
+                if (!nextMuted && forceMuteRef.current) {
+                  claimPreviewAudio(tokenRef.current, forceMuteRef.current)
+                }
+                video.muted = nextMuted
+                preferMuted = nextMuted
+                setMuted(nextMuted)
+                if (nextMuted) releasePreviewAudio(tokenRef.current)
               }}
             >
               {muted ? <VolumeX size={16} strokeWidth={2} /> : <Volume2 size={16} strokeWidth={2} />}
