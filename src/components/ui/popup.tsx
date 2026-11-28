@@ -5,6 +5,7 @@ import { css } from '@emotion/react'
 import { ChevronRight } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useLayoutEffect, useRef } from 'preact/hooks'
+import { Link } from 'wouter'
 
 import { getFullscreenElement } from '../../player/fullscreen'
 
@@ -216,6 +217,7 @@ const itemStyle = css`
   color: var(--text-primary);
   font-size: 1.4rem;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   transition: background 0.15s ease;
 
@@ -294,7 +296,7 @@ const itemStyle = css`
 `
 
 export const MenuItem = (
-  { icon: Icon, detail, disabled, selected, toggle, submenu, role = 'menuitem', onSelect, children }: {
+  { icon: Icon, detail, disabled, selected, toggle, submenu, role = 'menuitem', href, onSelect, children }: {
     icon?: FunctionComponent<{ size?: number, strokeWidth?: number }>
     detail?: string
     disabled?: boolean
@@ -302,31 +304,60 @@ export const MenuItem = (
     toggle?: boolean
     submenu?: boolean
     role?: 'menuitem' | 'menuitemcheckbox'
+    href?: string
     onSelect?: () => void
     children: ComponentChildren
   },
-) => (
-  <button
-    type='button'
-    css={itemStyle}
-    role={role}
-    aria-checked={selected}
-    disabled={disabled}
-    onClick={onSelect}
-  >
-    {Icon ? <Icon size={20} strokeWidth={1.5} /> : undefined}
-    <span className='label'>{children}</span>
-    {detail ? <span className={toggle ? 'detail sr-only' : 'detail'}>{detail}</span> : undefined}
-    {toggle
-      ? (
-        <span className={selected ? 'menu-switch on' : 'menu-switch'} aria-hidden='true'>
-          <span className='menu-switch-thumb' />
-        </span>
-      )
-      : undefined}
-    {submenu ? <ChevronRight size={16} strokeWidth={1.8} className='menu-chevron' aria-hidden='true' /> : undefined}
-  </button>
-)
+) => {
+  const content = (
+    <>
+      {Icon ? <Icon size={20} strokeWidth={1.5} /> : undefined}
+      <span className='label'>{children}</span>
+      {detail ? <span className={toggle ? 'detail sr-only' : 'detail'}>{detail}</span> : undefined}
+      {toggle
+        ? (
+          <span className={selected ? 'menu-switch on' : 'menu-switch'} aria-hidden='true'>
+            <span className='menu-switch-thumb' />
+          </span>
+        )
+        : undefined}
+      {submenu ? <ChevronRight size={16} strokeWidth={1.8} className='menu-chevron' aria-hidden='true' /> : undefined}
+    </>
+  )
+
+  if (href && !disabled) {
+    return (
+      <Link
+        href={href}
+        css={itemStyle}
+        role={role}
+        aria-checked={selected}
+        onKeyDown={(event: KeyboardEvent) => {
+          if (event.key === ' ') {
+            event.preventDefault()
+            ;(event.currentTarget as HTMLElement).click()
+          }
+        }}
+        onClick={onSelect}
+      >
+        {content}
+      </Link>
+    )
+  }
+
+  return (
+    <button
+      type='button'
+      css={itemStyle}
+      role={role}
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      {content}
+    </button>
+  )
+}
 
 const dividerStyle = css`
   height: 1px;

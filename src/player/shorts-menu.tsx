@@ -54,6 +54,7 @@ export type ShortsMenuActions = {
   onNotInterested?: () => void
   onDontRecommend?: () => void
   canDontRecommend?: boolean
+  fullPlayerHref?: string
   onOpenFullPlayer?: () => void
 }
 
@@ -332,15 +333,16 @@ export const ShortsOptionsMenu = ({
                   >
                     Don't recommend this channel
                   </MenuItem>
-                  {actions?.onOpenFullPlayer
+                  {actions?.fullPlayerHref || actions?.onOpenFullPlayer
                     ? (
                       <>
                         <MenuDivider />
                         <MenuItem
                           icon={MonitorPlay}
+                          href={actions.fullPlayerHref}
                           onSelect={() => {
                             close()
-                            actions.onOpenFullPlayer?.()
+                            if (!actions.fullPlayerHref) actions.onOpenFullPlayer?.()
                           }}
                         >
                           Open in the full player

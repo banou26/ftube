@@ -4,7 +4,7 @@ import type { PartyEndReason, PartyRosterMember } from '../party'
 import { css } from '@emotion/react'
 import { Check, Copy, LogOut, Play, Radio, Users } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
-import { useLocation } from 'wouter'
+import { Link } from 'wouter'
 
 import { party, PARTY_PATH, partyLink } from '../party'
 import { useParty, usePartyPresence } from '../party/use-party'
@@ -162,7 +162,8 @@ const panelStyle = css`
     margin-top: 1.2rem;
   }
 
-  button {
+  button,
+  .actions a {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
@@ -174,11 +175,13 @@ const panelStyle = css`
     color: var(--text-primary);
     font-size: 1.3rem;
     font-weight: 500;
+    text-decoration: none;
     cursor: pointer;
     transition: background 0.15s ease;
   }
 
-  button:hover {
+  button:hover,
+  .actions a:hover {
     background: var(--bg-chip-hover);
   }
 
@@ -212,7 +215,6 @@ export const failMessage = (code: string): string => {
 export const PartyWidget = () => {
   const state = useParty()
   const presence = usePartyPresence()
-  const [, navigate] = useLocation()
   const [open, setOpen] = useState(false)
   const [roster, setRoster] = useState<PartyRosterMember[]>([])
   const [copied, setCopied] = useState(false)
@@ -364,9 +366,9 @@ export const PartyWidget = () => {
                             </button>
                           )
                           : undefined}
-                        <button type='button' onClick={() => { close(); navigate(PARTY_PATH) }}>
+                        <Link href={PARTY_PATH} onClick={close}>
                           Manage
-                        </button>
+                        </Link>
                         <button type='button' className='danger' onClick={() => { void party.leave(); close() }}>
                           <LogOut size={14} strokeWidth={1.75} />
                           {state.role === 'host' ? 'End' : 'Leave'}

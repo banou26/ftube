@@ -1,12 +1,11 @@
 import type { SearchResultsQuery, SearchVideoFragment } from '../generated/graphql'
-
 import type { TargetedPointerEvent } from 'preact'
 
 import { css } from '@emotion/react'
 import { ChevronDown, ListVideo, SlidersHorizontal, X } from 'lucide-react'
 import { useCallback, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
-import { Link, useLocation, useSearch } from 'wouter'
+import { Link, useSearch } from 'wouter'
 
 import { useDocumentTitle } from '../app'
 import { AvatarStack, BylineNames, CollaboratorsButton } from '../components/byline'
@@ -215,6 +214,8 @@ const style = css`
 
   .filter-chip {
     flex: none;
+    display: inline-flex;
+    align-items: center;
     height: 3.2rem;
     padding: 0 1.2rem;
     border: none;
@@ -224,6 +225,7 @@ const style = css`
     font-size: 1.4rem;
     font-weight: 500;
     white-space: nowrap;
+    text-decoration: none;
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -290,6 +292,7 @@ const style = css`
     color: var(--text-secondary);
     font-size: 1.4rem;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
   }
 
@@ -315,6 +318,8 @@ const style = css`
   }
 
   .refinement {
+    display: inline-flex;
+    align-items: center;
     min-height: 3.2rem;
     max-width: 100%;
     padding: 0.4rem 1.2rem;
@@ -324,6 +329,7 @@ const style = css`
     color: var(--text-primary);
     font-size: 1.3rem;
     text-align: left;
+    text-decoration: none;
     overflow-wrap: anywhere;
     cursor: pointer;
     transition: background 0.15s ease;
@@ -954,7 +960,6 @@ const SearchPage = () => {
   const feedSettings = useFeedViewSettings()
   if (hideShorts && params.get('type') === 'SHORTS') params.delete('type')
   const query = params.get('search_query') ?? ''
-  const [, navigate] = useLocation()
   useDocumentTitle(query.length > 0 ? query : 'Search')
 
   const filters = searchFilters(params)
@@ -992,25 +997,20 @@ const SearchPage = () => {
     setLoaded({ key: feedKey, pages: pages[pages.length - 1] === page ? pages : [...pages, page] })
   }
 
-  const onRefine = (refinement: string) => {
-    navigate(`/results?${new URLSearchParams({ search_query: refinement })}`)
-  }
-
   return (
     <main css={style} className={topic ? 'with-topic' : undefined}>
       <h1 className='sr-only'>Results for {query}</h1>
       <div className='toolbar'>
         <div className='filter-chips'>
           {SEARCH_CHIPS.filter(entry => (entry.id !== 'unwatched' || unwatchedChip) && (!hideShorts || entry.id !== 'shorts')).map(entry => (
-            <button
-              type='button'
+            <Link
               key={entry.id}
+              href={`/results?${chipSearch(params, entry)}`}
               className={entry.id === chip ? 'filter-chip active' : 'filter-chip'}
-              aria-pressed={entry.id === chip}
-              onClick={() => navigate(`/results?${chipSearch(params, entry)}`)}
+              aria-current={entry.id === chip ? 'true' : undefined}
             >
               {entry.label}
-            </button>
+            </Link>
           ))}
         </div>
         <button type='button' className='filter-toggle' onClick={() => setFiltersOpen(true)}>
@@ -1030,21 +1030,22 @@ const SearchPage = () => {
                     .map(option => {
                     const active = chosen(params, group).includes(option.value)
                     return (
-                      <button
-                        type='button'
+                      <Link
                         key={option.value}
+                        href={`/results?${active && !removable(group) ? params.toString() : filterSearch(params, group, option.value)}`}
                         className={active ? 'option active' : 'option'}
-                        aria-pressed={active}
-                        onClick={active && !removable(group)
-                          ? undefined
-                          : () => {
-                            setFiltersOpen(false)
-                            navigate(`/results?${filterSearch(params, group, option.value)}`)
-                          }}
+                        aria-current={active ? 'true' : undefined}
+                        onClick={(event: MouseEvent) => {
+                          if (active && !removable(group)) {
+                            event.preventDefault()
+                            return
+                          }
+                          setFiltersOpen(false)
+                        }}
                       >
                         {option.label}
                         {active && removable(group) ? <X size={20} strokeWidth={1.5} /> : undefined}
-                      </button>
+                      </Link>
                     )
                   })}
                 </div>
@@ -1057,9 +1058,13 @@ const SearchPage = () => {
         ? (
           <div className='refinements'>
             {page.refinements.map(refinement => (
-              <button type='button' key={refinement} className='refinement' onClick={() => onRefine(refinement)}>
+              <Link
+                key={refinement}
+                href={`/results?${new URLSearchParams({ search_query: refinement })}`}
+                className='refinement'
+              >
                 {refinement}
-              </button>
+              </Link>
             ))}
           </div>
         )

@@ -4,7 +4,7 @@ import { css } from '@emotion/react'
 import { ChevronDown, ChevronUp, MessageCircle, MoreVertical, Share2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQuery } from 'urql'
-import { Link, useLocation, useRoute } from 'wouter'
+import { Link, useRoute } from 'wouter'
 
 import { useDocumentTitle, useMediaQuery } from '../app'
 import { Comments } from '../components/comments'
@@ -606,7 +606,6 @@ const Slide = (
     onRefused?: () => void
   },
 ) => {
-  const [, navigate] = useLocation()
   const ambientMode = useSetting('ambientMode')
   const [ambientVideo, setAmbientVideo] = useState<HTMLVideoElement | null>(null)
   const [mediaState, setMediaState] = useState<ShortsMediaState | undefined>(undefined)
@@ -645,8 +644,8 @@ const Slide = (
     onNotInterested,
     onDontRecommend: () => onDontRecommend(meta?.channel?.id, meta?.channel?.name),
     canDontRecommend: Boolean(meta?.channel?.id),
-    onOpenFullPlayer: () => navigate(`/watch?v=${encodeURIComponent(id)}`),
-  }), [id, meta?.channel?.id, meta?.channel?.name, navigate, onDescription, onDontRecommend, onNotInterested, onSave])
+    fullPlayerHref: `/watch?v=${encodeURIComponent(id)}`,
+  }), [id, meta?.channel?.id, meta?.channel?.name, onDescription, onDontRecommend, onNotInterested, onSave])
 
   return (
     <>

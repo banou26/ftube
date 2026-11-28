@@ -78,7 +78,7 @@ test('search has the chip row, a filters dialog, wide rows and a preview on hove
 
   const chips = page.locator('.filter-chip')
   await expect(chips).toHaveText(['All', 'Shorts', 'Unwatched', 'Videos', 'Recently uploaded', 'Live'])
-  await expect(page.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveAttribute('aria-current', 'true')
   await expect(page.getByText(/About [\d,]+ results/)).toHaveCount(0)
 
   const thumb = await rows.first().locator('a.thumb').boundingBox()
@@ -91,14 +91,14 @@ test('search has the chip row, a filters dialog, wide rows and a preview on hove
   await page.getByRole('button', { name: /^Filters/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Search filters' })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Over 20 minutes' }).click()
+  await dialog.getByRole('link', { name: 'Over 20 minutes' }).click()
   await expect(dialog).toBeHidden()
   await expect(page).toHaveURL(/duration=OVER_TWENTY_MINS/)
 
-  await page.getByRole('button', { name: 'Videos', exact: true }).click()
+  await page.getByRole('link', { name: 'Videos', exact: true }).click()
   await expect(page).toHaveURL(/type=VIDEO/)
   await expect(page).toHaveURL(/duration=OVER_TWENTY_MINS/)
-  await expect(page.getByRole('button', { name: 'Videos', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('link', { name: 'Videos', exact: true })).toHaveAttribute('aria-current', 'true')
 })
 
 test('an artist search opens on the artist card, and every row has a menu', async ({ page }) => {

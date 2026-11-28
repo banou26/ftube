@@ -7,7 +7,7 @@ test.use({ viewport: { width: 1440, height: 900 } })
 
 test('Settings links the privacy page, which lists every server the browser reaches itself', async ({ page }) => {
   await page.goto('/settings')
-  await page.locator('main').getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Privacy', exact: true }).click()
+  await page.locator('main').getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Privacy', exact: true }).click()
   await page.locator('main').getByRole('link', { name: 'What FTube keeps and where requests go' }).click()
   await expect(page).toHaveURL(/\/privacy$/)
   await expect(page.locator('main h1')).toHaveText('Privacy')

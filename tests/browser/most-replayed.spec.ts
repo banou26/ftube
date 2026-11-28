@@ -7,7 +7,7 @@ const HARNESS = '/tests/browser/fixtures/most-replayed-harness.tsx'
 
 const openPlayerTab = async (page: Page) => {
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Customization', exact: true }).click()
   await page.getByRole('tab', { name: 'Player', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=customization&tab=player$/)
   return page.getByRole('region', { name: 'Player customization' })

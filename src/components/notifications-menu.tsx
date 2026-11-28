@@ -4,7 +4,6 @@ import { css } from '@emotion/react'
 import { Bell } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery } from 'urql'
-import { useLocation } from 'wouter'
 
 import { gql } from '../generated'
 import {
@@ -232,7 +231,6 @@ const panelStyle = css`
 `
 
 export const NotificationsMenu = () => {
-  const [, navigate] = useLocation()
   const { ready, signedIn } = useSession()
   const [open, setOpen] = useState(false)
   const dismissAllRef = useRef<HTMLButtonElement>(null)
@@ -290,11 +288,10 @@ export const NotificationsMenu = () => {
 
   const unseen = countData?.unseenNotificationCount ?? 0
 
-  const onSelect = (id: string, videoId?: string | null) => {
+  const onSelect = (id: string) => {
     void markRead({ id }).then((result) => {
       if (result.error) showToast(lineFor(result.error))
     })
-    if (videoId) navigate(watchHrefFor(videoId))
   }
 
   const onDismissAll = () => {
@@ -353,7 +350,8 @@ export const NotificationsMenu = () => {
         {visibleItems.map(notification => (
           <MenuItem
             key={notification.id}
-            onSelect={() => onSelect(notification.id, notification.videoId)}
+            href={notification.videoId ? watchHrefFor(notification.videoId) : undefined}
+            onSelect={() => onSelect(notification.id)}
             ariaLabel={notification.message}
             label={
               <span className={notification.read ? 'row' : 'row unread'}>

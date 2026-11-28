@@ -91,7 +91,7 @@ test('the speed slider sets 1.1x, which the video and the Settings row follow', 
 test('the speed set on the Settings page is the one a video starts at', async ({ page }) => {
   test.setTimeout(300_000)
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback and performance', exact: true }).click()
   const slider = speedSlider(page)
   await expect(slider).toHaveValue('1')
   await slider.focus()

@@ -232,18 +232,26 @@ const style = css`
   }
 
   .suggestion {
-    display: flex;
-    align-items: center;
-    gap: 1.2rem;
-    padding: 0.6rem 1.6rem;
-    color: var(--text-primary);
-    font-size: 1.6rem;
-    cursor: pointer;
+    display: block;
+    padding: 0;
   }
 
   .suggestion:hover,
   .suggestion.active {
     background: var(--bg-hover);
+  }
+
+  .suggestion-link {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.6rem 1.6rem;
+    color: var(--text-primary);
+    font-size: 1.6rem;
+    text-decoration: none;
+    cursor: pointer;
   }
 
   .entity {
@@ -660,23 +668,31 @@ export const Header = ({ onMenu, onSkip }: { onMenu?: () => void, onSkip?: () =>
                       aria-label={suggestion.query}
                       aria-selected={index === activeSuggestion}
                       className={index === activeSuggestion ? 'suggestion active' : 'suggestion'}
-                      onPointerDown={(event: TargetedEvent<HTMLLIElement>) => {
-                        event.preventDefault()
-                        submitQuery(suggestion.query)
-                      }}
+                      onMouseDown={(event: MouseEvent) => event.preventDefault()}
                     >
-                      <Search size={16} strokeWidth={1.5} />
-                      {suggestion.name
-                        ? (
-                          <span className='entity'>
-                            <b>{suggestion.name}</b>
-                            {suggestion.description ? <span className='entity-description'>{suggestion.description}</span> : undefined}
-                          </span>
-                        )
-                        : <span>{parts.typed}<b>{parts.completion}</b></span>}
-                      {suggestion.photo
-                        ? <img className={suggestion.channelId ? 'entity-photo channel' : 'entity-photo'} src={suggestion.photo} alt='' referrerpolicy='no-referrer' />
-                        : undefined}
+                      <Link
+                        className='suggestion-link'
+                        href={`/results?search_query=${encodeURIComponent(suggestion.query)}`}
+                        tabIndex={-1}
+                        onClick={() => {
+                          setSuggestOpen(false)
+                          setActiveSuggestion(-1)
+                          setTyped(undefined)
+                        }}
+                      >
+                        <Search size={16} strokeWidth={1.5} />
+                        {suggestion.name
+                          ? (
+                            <span className='entity'>
+                              <b>{suggestion.name}</b>
+                              {suggestion.description ? <span className='entity-description'>{suggestion.description}</span> : undefined}
+                            </span>
+                          )
+                          : <span>{parts.typed}<b>{parts.completion}</b></span>}
+                        {suggestion.photo
+                          ? <img className={suggestion.channelId ? 'entity-photo channel' : 'entity-photo'} src={suggestion.photo} alt='' referrerpolicy='no-referrer' />
+                          : undefined}
+                      </Link>
                     </li>
                   )
                 })}

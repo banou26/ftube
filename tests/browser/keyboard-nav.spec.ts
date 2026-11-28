@@ -58,10 +58,10 @@ test('stays inactive by default and supports spatial grid/control navigation plu
 
   // Settings sidebar navigation keeps native arrow switching while keyboard navigation is enabled.
   const nav = page.getByRole('main').getByRole('navigation', { name: 'Settings' })
-  await nav.getByRole('button', { name: 'General', exact: true }).focus()
+  await nav.getByRole('link', { name: 'General', exact: true }).focus()
   await page.keyboard.press('ArrowDown')
   await expect(page).toHaveURL(/\/settings\?section=notifications$/)
-  await nav.getByRole('button', { name: 'Notifications', exact: true }).focus()
+  await nav.getByRole('link', { name: 'Notifications', exact: true }).focus()
   await page.keyboard.press('ArrowUp')
   await expect(page).toHaveURL(/\/settings$/)
 

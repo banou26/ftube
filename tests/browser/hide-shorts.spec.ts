@@ -120,14 +120,14 @@ test('Hide Shorts removes Shorts from Home, Search, Channel, Watch, Subscription
   await expect(home.getByText('Home Shelf Short')).toBeVisible()
 
   const search = await mountSurface(page, 'search', 'mountSearch', 'a[href="/watch?v=search-video"]')
-  await expect(search.getByRole('button', { name: 'Shorts', exact: true })).toBeVisible()
+  await expect(search.getByRole('link', { name: 'Shorts', exact: true })).toBeVisible()
   await expect(search.getByText('Search Feed Short')).toBeVisible()
   await expect(search.getByText('Search Shelf Short')).toBeVisible()
   await expect(search.getByText('Carousel Short')).toBeVisible()
   await expect(search.getByText('Card Short')).toBeVisible()
 
   await setHarnessHideShorts(page, true)
-  await expect(search.getByRole('button', { name: 'Shorts', exact: true })).toHaveCount(0)
+  await expect(search.getByRole('link', { name: 'Shorts', exact: true })).toHaveCount(0)
   await expect(search.getByText('Search Regular Video')).toBeVisible()
   await expect(search.getByText('Carousel Regular Video')).toBeVisible()
   await expect(search.getByText('Card Regular Video')).toBeVisible()
@@ -139,7 +139,7 @@ test('Hide Shorts removes Shorts from Home, Search, Channel, Watch, Subscription
 
   await search.getByRole('button', { name: 'Filters', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Search filters' })
-  await expect(dialog.locator('.filters > div').first().getByRole('button')).toHaveText(['Videos', 'Channels', 'Playlists', 'Movies'])
+  await expect(dialog.locator('.filters > div').first().getByRole('link')).toHaveText(['Videos', 'Channels', 'Playlists', 'Movies'])
   await page.keyboard.press('Escape')
 
   await page.evaluate(async (path) => {
@@ -147,11 +147,11 @@ test('Hide Shorts removes Shorts from Home, Search, Channel, Watch, Subscription
     harness.mountSearch('?search_query=test&type=SHORTS')
   }, HARNESS)
   await expect(search.getByText('Search Regular Video')).toBeVisible()
-  await expect(search.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(search.getByRole('link', { name: 'All', exact: true })).toHaveAttribute('aria-current', 'true')
   await expect(search.getByText('Search Feed Short')).toHaveCount(0)
 
   await setHarnessHideShorts(page, false)
-  await expect(search.getByRole('button', { name: 'Shorts', exact: true })).toBeVisible()
+  await expect(search.getByRole('link', { name: 'Shorts', exact: true })).toBeVisible()
   await expect(search.getByText('Search Shelf Short')).toBeVisible()
 
   const channel = await mountSurface(page, 'channel', 'mountChannel', 'section[aria-label="Shorts"]')

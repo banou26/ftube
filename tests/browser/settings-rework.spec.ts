@@ -19,8 +19,8 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
   await expect(main.getByRole('tablist')).toHaveCount(0)
 
   const nav = main.getByRole('navigation', { name: 'Settings' })
-  const buttons = nav.getByRole('button')
-  await expect(buttons).toHaveText([
+  const links = nav.getByRole('link')
+  await expect(links).toHaveText([
     'General',
     'Notifications',
     'Customization',
@@ -30,7 +30,7 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
     'Advanced settings',
   ])
 
-  const generalBtn = nav.getByRole('button', { name: 'General', exact: true })
+  const generalBtn = nav.getByRole('link', { name: 'General', exact: true })
   await expect(generalBtn).toHaveAttribute('aria-current', 'page')
   await expect(main.getByRole('checkbox', { name: 'Hide Shorts', exact: true })).toBeVisible()
 
@@ -50,19 +50,19 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
   expect(feedStored.layouts?.subscriptions).toBe('list')
 
   // Notifications section links to per-channel notifications without fake toggles.
-  await nav.getByRole('button', { name: 'Notifications', exact: true }).click()
+  await nav.getByRole('link', { name: 'Notifications', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=notifications$/)
   await expect(main.getByRole('link', { name: 'Manage channel notifications' })).toHaveAttribute('href', '/feed/channels')
 
   // Customization keeps Theme and expanded CustomAppearance preview (Ambient mode lives under Playback and performance).
-  await nav.getByRole('button', { name: 'Customization', exact: true }).click()
+  await nav.getByRole('link', { name: 'Customization', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=customization$/)
   await expect(main.getByRole('button', { name: 'Dark', exact: true })).toBeVisible()
   await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toHaveCount(0)
   await expect(main.locator('#custom-appearance')).toBeVisible()
 
   // Time management controls live sleep timer state.
-  await nav.getByRole('button', { name: 'Time management', exact: true }).click()
+  await nav.getByRole('link', { name: 'Time management', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=time-management$/)
   const enableSleepTimer = main.getByRole('checkbox', { name: 'Enable sleep timer', exact: true })
   await expect(enableSleepTimer).toBeChecked()
@@ -85,7 +85,7 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
   await expect(main.getByRole('group', { name: 'Sleep timer', exact: true })).toBeVisible()
 
   // Playback and performance holds quality, playback checkboxes, speed slider, and captions.
-  await nav.getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await nav.getByRole('link', { name: 'Playback and performance', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=playback$/)
   await expect(main.getByRole('button', { name: '1080p', exact: true })).toBeVisible()
   await expect(main.getByRole('checkbox', { name: 'Autoplay', exact: true })).toBeVisible()
@@ -95,16 +95,16 @@ test('renders all 7 side-menu sections in order and switches sections with URL p
 
   // Reloading keeps active section from URL query parameter.
   await page.reload()
-  await expect(nav.getByRole('button', { name: 'Playback and performance', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Playback and performance', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(main.getByRole('checkbox', { name: 'Autoplay', exact: true })).toBeVisible()
 
   // Privacy section holds privacy policy and history links.
-  await nav.getByRole('button', { name: 'Privacy', exact: true }).click()
+  await nav.getByRole('link', { name: 'Privacy', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=privacy$/)
   await expect(main.getByRole('link', { name: 'What FTube keeps and where requests go' })).toHaveAttribute('href', '/privacy')
 
   // Advanced settings holds connection status and feed display reset.
-  await nav.getByRole('button', { name: 'Advanced settings', exact: true }).click()
+  await nav.getByRole('link', { name: 'Advanced settings', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=advanced$/)
   await main.getByRole('button', { name: 'Reset feed display settings', exact: true }).click()
   const feedReset = await page.evaluate(() => JSON.parse(localStorage.getItem('yt-client:feed-view') ?? '{}') as { layouts?: { subscriptions?: string } })
@@ -115,14 +115,14 @@ test('supports legacy ?tab=appearance / #custom-appearance deep links and zero h
   await page.setViewportSize({ width: 390, height: 844 })
   const main = await openSettings(page, '/settings?tab=appearance')
   const nav = main.getByRole('navigation', { name: 'Settings' })
-  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(main.locator('#custom-appearance')).toBeVisible()
 
   await expect.poll(() =>
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true)
 
-  await main.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await main.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback and performance', exact: true }).click()
   await expect(main.getByRole('slider', { name: 'Playback speed' })).toBeVisible()
   await expect.poll(() =>
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

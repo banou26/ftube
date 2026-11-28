@@ -51,7 +51,7 @@ test('toggles Annotations in Player settings and /settings to show or hide cards
   await expect(showCards).toHaveCount(0)
 
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback and performance', exact: true }).click()
   const settingsToggle = page.getByRole('checkbox', { name: 'Annotations', exact: true })
   await expect(settingsToggle).not.toBeChecked()
   await settingsToggle.check()

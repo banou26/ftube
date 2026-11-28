@@ -21,7 +21,7 @@ const contrastFromRgb = (fg: string, bg: string) => {
 
 const openAppearanceTab = async (page: import('@playwright/test').Page) => {
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Customization', exact: true }).click()
   const custom = page.locator('#custom-appearance')
   await expect(custom).toBeVisible()
   return custom
@@ -426,8 +426,8 @@ test('organizes Settings into side-menu sections and previews all accent-affecte
 
   const main = page.getByRole('main')
   const nav = main.getByRole('navigation', { name: 'Settings' })
-  const generalNav = nav.getByRole('button', { name: 'General', exact: true })
-  const customizationNav = nav.getByRole('button', { name: 'Customization', exact: true })
+  const generalNav = nav.getByRole('link', { name: 'General', exact: true })
+  const customizationNav = nav.getByRole('link', { name: 'Customization', exact: true })
   await expect(generalNav).toHaveAttribute('aria-current', 'page')
   await expect(customizationNav).not.toHaveAttribute('aria-current', 'page')
 
@@ -448,7 +448,7 @@ test('organizes Settings into side-menu sections and previews all accent-affecte
 
   // Persistence across reload while on Customization section
   await page.reload()
-  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(main.locator('#custom-appearance')).toBeVisible()
 
   const brandMark = custom.locator('.preview-brand-mark path').first()
@@ -519,14 +519,14 @@ test('organizes Settings into side-menu sections and previews all accent-affecte
   // Deep link from /settings#custom-appearance and header menu opens Customization section directly
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/settings#custom-appearance')
-  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(custom).toBeVisible()
 
   await page.goto('/privacy')
   await page.getByRole('button', { name: 'More', exact: true }).click()
   await page.getByRole('menuitem', { name: /^Appearance/ }).click()
   await page.getByRole('menuitem', { name: 'Custom appearance' }).click()
-  await expect(nav.getByRole('button', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Customization', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(custom).toBeVisible()
 
   await custom.getByRole('button', { name: 'Reset to default', exact: true }).click()

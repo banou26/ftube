@@ -11,7 +11,7 @@ test('configures ambient area, spread, filling mode, and live preview in Playbac
   const main = page.getByRole('main')
   await expect(main.getByRole('checkbox', { name: 'Ambient mode', exact: true })).toHaveCount(0)
 
-  await main.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await main.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback and performance', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\?section=playback$/)
 
   const ambientCheckbox = main.getByRole('checkbox', { name: 'Ambient mode', exact: true })

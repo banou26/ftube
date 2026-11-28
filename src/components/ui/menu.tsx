@@ -7,8 +7,12 @@ import { css } from '@emotion/react'
 import { Check, Square, SquareCheck } from 'lucide-react'
 import { cloneElement, createContext } from 'preact'
 import { useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { Link } from 'wouter'
 
 import { Popup, useDismiss } from './popup'
+
+const isModifiedClick = (event: MouseEvent) =>
+  event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0
 
 type IconComponent = FunctionComponent<{ size?: number, strokeWidth?: number }>
 
@@ -68,7 +72,7 @@ const navigate = (panel: HTMLElement | null, event: KeyboardEvent, typeahead: { 
     step(panel, event.shiftKey ? -1 : 1)
     return
   }
-  /* Enter and Space are absent on purpose: every row is a real <button>, so handling them here would fire the row twice. */
+  /* Enter and Space are absent on purpose: every row is a real <button> or <Link>, and Space on a link is handled on MenuItem so neither fires twice. */
   if (event.key.length !== 1 || event.key === ' ' || event.ctrlKey || event.metaKey || event.altKey) return
   const now = Date.now()
   typeahead.buffer = now - typeahead.at > TYPEAHEAD_RESET_MS
@@ -274,6 +278,7 @@ const itemStyle = css`
   color: var(--text-primary);
   font-size: 1.4rem;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   transition: background 0.15s ease;
 
@@ -307,7 +312,7 @@ const itemStyle = css`
  * checked, as youtube.com's player menu draws Loop, and without one its box is the icon.
  */
 export const MenuItem = (
-  { icon: Icon, label, detail, checked, disabled, trailingIcon: TrailingIcon, closeOnSelect, onSelect, ariaLabel }: {
+  { icon: Icon, label, detail, checked, disabled, trailingIcon: TrailingIcon, closeOnSelect, onSelect, href, ariaLabel }: {
     icon?: IconComponent
     label: ComponentChildren
     detail?: string
@@ -316,11 +321,51 @@ export const MenuItem = (
     trailingIcon?: IconComponent
     closeOnSelect?: boolean
     onSelect?: () => void
+    href?: string
     ariaLabel?: string
   },
 ) => {
   const menu = useContext(MenuContext)
   const dismisses = closeOnSelect ?? checked === undefined
+  const body = (
+    <>
+      {Icon
+        ? <Icon size={20} strokeWidth={1.5} />
+        : checked === undefined ? undefined : checked ? <SquareCheck size={20} strokeWidth={1.5} /> : <Square size={20} strokeWidth={1.5} />}
+      <span className='label'>{label}</span>
+      {detail ? <span className='detail'>{detail}</span> : undefined}
+      {TrailingIcon ? <TrailingIcon size={16} strokeWidth={1.5} /> : undefined}
+      {Icon && checked ? <Check size={20} strokeWidth={1.5} /> : undefined}
+    </>
+  )
+  const accessibleLabel = typeof label === 'string' ? undefined : ariaLabel
+  const menuLabel = typeof label === 'string' ? label : ariaLabel
+
+  if (href && !disabled) {
+    return (
+      <Link
+        href={href}
+        css={itemStyle}
+        role='menuitem'
+        tabIndex={-1}
+        aria-label={accessibleLabel}
+        data-menu-label={menuLabel}
+        onKeyDown={(event: KeyboardEvent) => {
+          if (event.key === ' ') {
+            event.preventDefault()
+            ;(event.currentTarget as HTMLElement).click()
+          }
+        }}
+        onClick={(event: MouseEvent) => {
+          if (isModifiedClick(event)) return
+          onSelect?.()
+          if (dismisses) menu?.close()
+        }}
+      >
+        {body}
+      </Link>
+    )
+  }
 
   return (
     <button
@@ -331,21 +376,15 @@ export const MenuItem = (
       // aria-disabled rather than the disabled attribute: a disabled button cannot take focus, so the row would drop out of arrow-key navigation.
       aria-disabled={disabled ? 'true' : undefined}
       tabIndex={-1}
-      aria-label={typeof label === 'string' ? undefined : ariaLabel}
-      data-menu-label={typeof label === 'string' ? label : ariaLabel}
+      aria-label={accessibleLabel}
+      data-menu-label={menuLabel}
       onClick={() => {
         if (disabled) return
         onSelect?.()
         if (dismisses) menu?.close()
       }}
     >
-      {Icon
-        ? <Icon size={20} strokeWidth={1.5} />
-        : checked === undefined ? undefined : checked ? <SquareCheck size={20} strokeWidth={1.5} /> : <Square size={20} strokeWidth={1.5} />}
-      <span className='label'>{label}</span>
-      {detail ? <span className='detail'>{detail}</span> : undefined}
-      {TrailingIcon ? <TrailingIcon size={16} strokeWidth={1.5} /> : undefined}
-      {Icon && checked ? <Check size={20} strokeWidth={1.5} /> : undefined}
+      {body}
     </button>
   )
 }

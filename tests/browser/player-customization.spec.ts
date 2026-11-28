@@ -6,7 +6,7 @@ const HARNESS = '/tests/browser/fixtures/player-customization-harness.tsx'
 
 const openPlayerTab = async (page: import('@playwright/test').Page) => {
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Customization', exact: true }).click()
   const appearanceTab = page.getByRole('tab', { name: 'Appearance', exact: true })
   const playerTab = page.getByRole('tab', { name: 'Player', exact: true })
   await expect(appearanceTab).toHaveAttribute('aria-selected', 'true')

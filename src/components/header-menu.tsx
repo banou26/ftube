@@ -4,7 +4,6 @@ import { css } from '@emotion/react'
 import { Check, ChevronLeft, ChevronRight, EllipsisVertical, Keyboard, LockKeyholeOpen, LogIn, LogOut, Moon, Settings, Users } from 'lucide-react'
 import { createPortal } from 'preact/compat'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
-import { useLocation } from 'wouter'
 
 import { FKN_BOUND_MS, within } from '../groups/sync'
 import { checkGroups, fknLib, readFkn } from '../groups/sync-live'
@@ -65,7 +64,6 @@ const FknRows = ({ fkn: { lib, signedIn, locked } }: { fkn: FknState }) => {
 }
 
 const HeaderMenuPanel = ({ onShortcuts }: { onShortcuts: () => void }) => {
-  const [, navigate] = useLocation()
   const [view, setView] = useState<'root' | 'appearance'>('root')
   const [theme, setTheme] = useState(() => getSettings().theme)
   const fkn = useFkn()
@@ -100,7 +98,7 @@ const HeaderMenuPanel = ({ onShortcuts }: { onShortcuts: () => void }) => {
         <MenuItem
           icon={Settings}
           label='Custom appearance'
-          onSelect={() => navigate('/settings?section=customization#custom-appearance')}
+          href='/settings?section=customization#custom-appearance'
         />
       </div>
     )
@@ -116,9 +114,9 @@ const HeaderMenuPanel = ({ onShortcuts }: { onShortcuts: () => void }) => {
         onSelect={() => setView('appearance')}
       />
       <MenuItem icon={Keyboard} label='Keyboard shortcuts' onSelect={onShortcuts} />
-      <MenuItem icon={Users} label='Watch together' onSelect={() => navigate('/party')} />
+      <MenuItem icon={Users} label='Watch together' href='/party' />
       <MenuSeparator />
-      <MenuItem icon={Settings} label='Settings' onSelect={() => navigate('/settings')} />
+      <MenuItem icon={Settings} label='Settings' href='/settings' />
       {fkn
         ? (
           <>

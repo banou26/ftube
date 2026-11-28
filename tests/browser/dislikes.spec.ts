@@ -119,7 +119,7 @@ test('asks for nothing while the setting is off', async ({ page }) => {
 test('Settings turns the counts off, crediting Return YouTube Dislike', async ({ page }) => {
   await page.goto('/settings')
   const main = page.locator('main')
-  await main.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Playback and performance', exact: true }).click()
+  await main.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback and performance', exact: true }).click()
   await expect(main.getByRole('link', { name: 'Return YouTube Dislike' })).toHaveAttribute('href', 'https://returnyoutubedislike.com')
   const toggle = main.getByRole('checkbox', { name: 'Show dislike counts' })
   await expect(toggle).toBeChecked()

@@ -104,11 +104,11 @@ test('a search row prints the words its answer bolds in bold, and the music note
 
 // youtube.com shows no chip bar at all on some searches ("election results", measured 2026-11-10)
 test('the Unwatched chip shows only on a search whose answer offers it', async ({ page }) => {
-  const chips = (await mountMarks(page, { unwatchedChip: false })).locator('[data-marks="search"] .filter-chips button')
+  const chips = (await mountMarks(page, { unwatchedChip: false })).locator('[data-marks="search"] .filter-chips a.filter-chip')
   await expect(page.locator('[data-marks="search"] article.result')).toBeVisible()
   await expect(chips).toHaveText(['All', 'Shorts', 'Videos', 'Recently uploaded', 'Live'])
 
-  const offered = (await mountMarks(page)).locator('[data-marks="search"] .filter-chips button')
+  const offered = (await mountMarks(page)).locator('[data-marks="search"] .filter-chips a.filter-chip')
   await expect(page.locator('[data-marks="search"] article.result')).toBeVisible()
   await expect(offered).toHaveText(['All', 'Shorts', 'Unwatched', 'Videos', 'Recently uploaded', 'Live'])
 })

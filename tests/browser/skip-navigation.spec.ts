@@ -8,7 +8,7 @@ test('Skip navigation shows on keyboard focus and moves the focus to the page\'s
   await page.goto('/settings')
   const main = page.getByRole('main')
   const nav = main.getByRole('navigation', { name: 'Settings' })
-  const generalNav = nav.getByRole('button', { name: 'General', exact: true })
+  const generalNav = nav.getByRole('link', { name: 'General', exact: true })
   await expect(generalNav).toBeVisible({ timeout: 30_000 })
   const skip = page.getByRole('button', { name: 'Skip navigation', exact: true })
   await expect(skip).not.toBeInViewport()
@@ -30,7 +30,7 @@ test('Skip navigation shows on keyboard focus and moves the focus to the page\'s
   await expect(generalNav).toBeFocused()
   await expect(skip).not.toBeInViewport()
   await page.keyboard.press('Tab')
-  await expect(nav.getByRole('button', { name: 'Notifications', exact: true })).toBeFocused()
+  await expect(nav.getByRole('link', { name: 'Notifications', exact: true })).toBeFocused()
 })
 
 test('Skip navigation puts the focus on the page when the page has no control', async ({ page }) => {

@@ -6,7 +6,7 @@ const EMOJI_HARNESS = '/tests/browser/fixtures/emoji-picker-harness.tsx'
 
 const openEmojiPickerTab = async (page: import('@playwright/test').Page) => {
   await page.goto('/settings')
-  await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Customization', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Customization', exact: true }).click()
   const appearanceTab = page.getByRole('tab', { name: 'Appearance', exact: true })
   const emojiTab = page.getByRole('tab', { name: 'Emoji picker', exact: true })
   await expect(appearanceTab).toHaveAttribute('aria-selected', 'true')

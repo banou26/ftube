@@ -95,6 +95,7 @@ const page = css`
   }
 
   .nav-item {
+    display: block;
     width: 100%;
     padding: 1rem 1.4rem;
     border: none;
@@ -106,6 +107,7 @@ const page = css`
     font-weight: 400;
     line-height: 2rem;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -150,6 +152,7 @@ const page = css`
 
   .sub-tab {
     position: relative;
+    display: inline-block;
     padding: 1.2rem 0.2rem;
     border: none;
     background: transparent;
@@ -158,6 +161,7 @@ const page = css`
     font-size: 1.45rem;
     font-weight: 500;
     white-space: nowrap;
+    text-decoration: none;
     cursor: pointer;
     transition: color 0.15s ease;
   }
@@ -561,8 +565,8 @@ export const SettingsPage = () => {
   const [customizationTab, setCustomizationTab] = useState<CustomizationTabId>(() =>
     readCustomizationTab(search, typeof window !== 'undefined' ? window.location.hash : ''),
   )
-  const navRefs = useRef<Partial<Record<SettingsSectionId, HTMLButtonElement | null>>>({})
-  const tabRefs = useRef<Partial<Record<CustomizationTabId, HTMLButtonElement | null>>>({})
+  const navRefs = useRef<Partial<Record<SettingsSectionId, HTMLAnchorElement | null>>>({})
+  const tabRefs = useRef<Partial<Record<CustomizationTabId, HTMLAnchorElement | null>>>({})
   const [settings, setSettings] = useState<Settings>(getSettings)
   const [sleepTimer, setSleepTimerState] = useState<SleepTimer | undefined>(getSleepTimer)
   const [, setClockTick] = useState(0)
@@ -624,7 +628,13 @@ export const SettingsPage = () => {
     )
   }
 
-  const onCustomizationTabKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLButtonElement>) => {
+  const onCustomizationTabKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLAnchorElement>) => {
+    if (event.key === ' ') {
+      event.preventDefault()
+      const current = CUSTOMIZATION_TABS[index]
+      if (current) selectCustomizationTab(current.id)
+      return
+    }
     let targetIndex: number | undefined
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       targetIndex = (index + 1) % CUSTOMIZATION_TABS.length
@@ -643,7 +653,7 @@ export const SettingsPage = () => {
     tabRefs.current[next.id]?.focus()
   }
 
-  const onNavKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLButtonElement>) => {
+  const onNavKeyDown = (index: number, event: TargetedKeyboardEvent<HTMLAnchorElement>) => {
     let targetIndex: number | undefined
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
       targetIndex = (index + 1) % SETTINGS_SECTIONS.length
@@ -685,18 +695,23 @@ export const SettingsPage = () => {
           {SETTINGS_SECTIONS.map((section, index) => {
             const active = activeSection === section.id
             return (
-              <button
-                type='button'
+              <Link
                 key={section.id}
-                ref={(el: HTMLButtonElement | null) => { navRefs.current[section.id] = el }}
+                href={section.id === 'general' ? '/settings' : `/settings?section=${section.id}`}
+                replace
+                ref={(el: HTMLAnchorElement | null) => { navRefs.current[section.id] = el }}
                 id={`settings-nav-${section.id}`}
                 aria-current={active ? 'page' : undefined}
                 className={active ? 'nav-item active' : 'nav-item'}
-                onClick={() => selectSection(section.id)}
-                onKeyDown={(event: TargetedKeyboardEvent<HTMLButtonElement>) => onNavKeyDown(index, event)}
+                onClick={() => {
+                  if (section.id !== activeSection && typeof window !== 'undefined') window.scrollTo(0, 0)
+                  setActiveSection(section.id)
+                  if (section.id === 'customization') setCustomizationTab('appearance')
+                }}
+                onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onNavKeyDown(index, event)}
               >
                 {section.label}
-              </button>
+              </Link>
             )
           })}
         </nav>
@@ -835,21 +850,26 @@ export const SettingsPage = () => {
                     {CUSTOMIZATION_TABS.map((tab, index) => {
                       const active = customizationTab === tab.id
                       return (
-                        <button
-                          type='button'
+                        <Link
                           key={tab.id}
-                          ref={(el: HTMLButtonElement | null) => { tabRefs.current[tab.id] = el }}
+                          href={tab.id === 'appearance' ? '/settings?section=customization' : `/settings?section=customization&tab=${tab.id}`}
+                          replace
+                          ref={(el: HTMLAnchorElement | null) => { tabRefs.current[tab.id] = el }}
                           id={`customization-tab-${tab.id}`}
                           role='tab'
                           aria-selected={active}
                           aria-controls={`customization-panel-${tab.id}`}
                           tabIndex={active ? 0 : -1}
                           className={active ? 'sub-tab active' : 'sub-tab'}
-                          onClick={() => selectCustomizationTab(tab.id)}
-                          onKeyDown={(event: TargetedKeyboardEvent<HTMLButtonElement>) => onCustomizationTabKeyDown(index, event)}
+                          onClick={() => {
+                            if (tab.id !== customizationTab && typeof window !== 'undefined') window.scrollTo(0, 0)
+                            setActiveSection('customization')
+                            setCustomizationTab(tab.id)
+                          }}
+                          onKeyDown={(event: TargetedKeyboardEvent<HTMLAnchorElement>) => onCustomizationTabKeyDown(index, event)}
                         >
                           {tab.label}
-                        </button>
+                        </Link>
                       )
                     })}
                   </div>
