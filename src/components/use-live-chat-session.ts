@@ -208,15 +208,16 @@ const sameAuthor = (author: ChatRow['author'] | undefined, self: ViewerIdentity 
 }
 
 /** Keeps a chat log on its newest line until the reader scrolls up, which `pinned` false offers a way back from. */
-export const usePinnedLog = (lines: unknown) => {
+export const usePinnedLog = (lines: unknown, hidden = false, scrollKey?: unknown) => {
   const [pinned, setPinned] = useState(true)
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (hidden) return
     const log = logRef.current
     if (!log || !pinned) return
     log.scrollTop = log.scrollHeight
-  }, [lines, pinned])
+  }, [lines, pinned, hidden, scrollKey])
 
   const onScroll = () => {
     const log = logRef.current
@@ -236,16 +237,20 @@ export type OverlayChatEvent = {
 
 /**
  * Manages client-side live chat polling, state transitions, mutations, and server session lifecycle
- * (`closeLiveChat` on hide or unmount) for a live stream `videoId`.
+ * (`closeLiveChat` on unmount, or on hide when `keepAliveOnHide` is false) for a live stream `videoId`.
  */
 export const useLiveChatSession = ({
   videoId,
   subscribed,
+  hidden = false,
+  scrollKey,
   keepAliveOnHide = false,
   onHide,
 }: {
   videoId: string
   subscribed?: boolean
+  hidden?: boolean
+  scrollKey?: unknown
   keepAliveOnHide?: boolean
   onHide?: () => void
 }) => {
@@ -282,7 +287,7 @@ export const useLiveChatSession = ({
   const [reactions, setReactions] = useState<{ id: number, emoji: string, leftPx: number }[]>([])
   const [overlayEvent, setOverlayEvent] = useState<OverlayChatEvent | undefined>(undefined)
   const [overlayResetSeq, setOverlayResetSeq] = useState(0)
-  const { logRef, onScroll, pinned, setPinned } = usePinnedLog(messages)
+  const { logRef, onScroll, pinned, setPinned } = usePinnedLog(messages, hidden, scrollKey)
   const client = useClient()
   const [, send] = useMutation(SEND_LIVE_CHAT)
   const [, votePoll] = useMutation(VOTE_LIVE_CHAT_POLL)

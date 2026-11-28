@@ -209,7 +209,14 @@ const overlayCss = css`
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .overlay-item {
+    .overlay-item,
+    .overlay-item.anim-scroll,
+    .overlay-item.anim-shake,
+    .overlay-item.anim-pop,
+    .overlay-item.anim-bounce,
+    .overlay-item.anim-fade,
+    .overlay-item.anim-burst,
+    .overlay-item.anim-shatter {
       animation-name: ${softFade};
       animation-timing-function: ease-out;
     }
@@ -233,6 +240,15 @@ const containedOverlayCss = css`
 
   .overlay-item.anim-scroll {
     animation-name: ${scrollContained};
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay-item.anim-scroll {
+      animation-name: ${softFade};
+      animation-timing-function: ease-out;
+      left: auto;
+      right: 6%;
+    }
   }
 `
 

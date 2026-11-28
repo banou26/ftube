@@ -191,6 +191,20 @@ describe('timed comments helpers and media clock', () => {
     state = beginTimedCommentSeek(state, 42.4)
     state = finishTimedCommentSeek(state, 70.0)
     step = stepTimedCommentClock(state, 70.3, cues)
+    state = step.state
     expect(step.cue).toBeUndefined()
+
+    // Seeking directly onto a cue timestamp skips that cue until rewound before it
+    state = beginTimedCommentSeek(state, 70.3)
+    state = finishTimedCommentSeek(state, 60.0)
+    step = stepTimedCommentClock(state, 60.2, cues)
+    state = step.state
+    expect(step.cue).toBeUndefined()
+
+    step = stepTimedCommentClock(state, 59.0, cues)
+    state = step.state
+    expect(step.clear).toBe(true)
+    step = stepTimedCommentClock(state, 60.2, cues)
+    expect(step.cue?.id).toBe('c2')
   })
 })

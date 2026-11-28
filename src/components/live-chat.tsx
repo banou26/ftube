@@ -29,6 +29,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
+import { createPortal } from 'preact/compat'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { Link } from 'wouter'
 
@@ -1171,6 +1172,8 @@ const teaserStyle = css`
   }
 `
 
+const noop = () => {}
+
 /** Collapsed control rendered in place of live chat when the viewer hides the chat panel. */
 export const LiveChatTeaser = ({ onShow }: { onShow: () => void }) => (
   <div css={teaserStyle} className='live-chat-teaser'>
@@ -1514,6 +1517,7 @@ export const LiveChat = ({
   videoId,
   subscribed,
   hidden = false,
+  panelContainer,
   onHide,
   onShow,
   onCustomEmojis,
@@ -1521,11 +1525,13 @@ export const LiveChat = ({
   videoId: string
   subscribed?: boolean
   hidden?: boolean
+  panelContainer?: Element | null
   onHide?: () => void
   onShow?: () => void
   onCustomEmojis?: (emojis: readonly CustomEmoji[]) => void
 }) => {
   const overScreen = useOverScreenSettings()
+  const panelHidden = hidden || panelContainer === null
   const {
     ready,
     signedIn,
@@ -1592,7 +1598,14 @@ export const LiveChat = ({
     inputRef,
     switchView,
     hideChat,
-  } = useLiveChatSession({ videoId, subscribed, keepAliveOnHide: overScreen.enabled, onHide })
+  } = useLiveChatSession({
+    videoId,
+    subscribed,
+    hidden: panelHidden,
+    scrollKey: panelContainer,
+    keepAliveOnHide: overScreen.enabled,
+    onHide,
+  })
   const [reactionsHovered, setReactionsHovered] = useState(false)
   const [overScreenOpen, setOverScreenOpen] = useState(false)
   const [previewSeq, setPreviewSeq] = useState(0)
@@ -1622,13 +1635,6 @@ export const LiveChat = ({
   useEffect(() => {
     onCustomEmojisRef.current?.(customEmojis)
   }, [customEmojis])
-
-  useEffect(() => {
-    if (hidden) return
-    const log = logRef.current
-    if (!log || !pinned) return
-    log.scrollTop = log.scrollHeight
-  }, [hidden, pinned, logRef])
 
   const handleHide = () => {
     setOverScreenOpen(false)
@@ -1715,27 +1721,11 @@ export const LiveChat = ({
     )
     : undefined
 
-  if (hidden) {
-    return (
-      <>
-        <LiveChatTeaser onShow={onShow ?? (() => {})} />
-        {!page?.disabled
-          ? (
-            <OverScreenOverlay
-              settings={overScreen}
-              event={overlayEvent}
-              resetSeq={overlayResetSeq}
-              previewSeq={previewSeq}
-            />
-          )
-          : undefined}
-      </>
-    )
-  }
-
-  return (
-    <section css={[chatStyles, liveChatMobileStyle]} className='live-chat' aria-label='Live chat'>
-      <div className='head'>
+  const panelView = hidden
+    ? <LiveChatTeaser onShow={onShow ?? noop} />
+    : (
+      <section css={[chatStyles, liveChatMobileStyle]} className='live-chat' aria-label='Live chat'>
+        <div className='head'>
         <Menu
           label='Live chat view'
           align='start'
@@ -2319,6 +2309,14 @@ export const LiveChat = ({
               : undefined}
           </>
         )}
+    </section>
+    )
+
+  return (
+    <>
+      {panelContainer !== undefined
+        ? (panelContainer ? createPortal(panelView, panelContainer) : undefined)
+        : panelView}
       {!page?.disabled
         ? (
           <OverScreenOverlay
@@ -2329,7 +2327,7 @@ export const LiveChat = ({
           />
         )
         : undefined}
-    </section>
+    </>
   )
 }
 

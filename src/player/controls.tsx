@@ -1374,7 +1374,7 @@ export const PlayerControls = (
               </MenuItem>
             )
             : undefined}
-          {isMenuEntryVisible('timedComments') && !isLive && onTimedComments
+          {isMenuEntryVisible('timedComments') && onTimedComments
             ? (
               <MenuItem
                 icon={MessageSquareText}

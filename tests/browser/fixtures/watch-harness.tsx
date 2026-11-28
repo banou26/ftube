@@ -16,6 +16,26 @@ import { updateSettings } from '../../../src/settings'
 import { resolvers } from '../../../src/worker/resolvers'
 import typeDefs from '../../../src/worker/schema.gql?raw'
 
+type WatchHarnessLiveChatPage = {
+  items: Array<{
+    id: string
+    kind?: string
+    text: string
+    runs?: Array<{ text: string }>
+    author?: { id?: string, name: string, handle?: string }
+  }>
+}
+
+declare global {
+  interface Window {
+    __watchHarness?: {
+      liveChatInitialCalls: number
+      closeLiveChatCalls: number
+      pushLiveChatPage: (page: WatchHarnessLiveChatPage) => void
+    }
+  }
+}
+
 export type WatchHarnessOptions = {
   videoId?: string
   subscribed?: boolean
@@ -77,7 +97,24 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
   const codeRelated = [
     makeRelatedVideo('rel-code-1', 'Coding Filtered Video 1', 'Systems Weekly'),
   ]
-  let closePoll: (() => void) | undefined
+  let seq = 1
+  let pendingPoll: ((page: Record<string, unknown>) => void) | undefined
+  const queuedPages: Record<string, unknown>[] = []
+  const controller = {
+    liveChatInitialCalls: 0,
+    closeLiveChatCalls: 0,
+    pushLiveChatPage: (page: WatchHarnessLiveChatPage) => {
+      const next = { view: 'TOP', cursor: `theater-cur-${++seq}`, ...page }
+      if (pendingPoll) {
+        const resolve = pendingPoll
+        pendingPoll = undefined
+        resolve(next)
+      } else {
+        queuedPages.push(next)
+      }
+    },
+  }
+  window.__watchHarness = controller
 
   const source = {
     session: async () => ({ signedIn: true, name: 'Viewer', handle: '@viewer', accounts: [] }),
@@ -124,6 +161,9 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
     }),
     liveChat: async (_id: string, cursor?: string) => {
       if (!cursor) {
+        pendingPoll = undefined
+        queuedPages.length = 0
+        controller.liveChatInitialCalls += 1
         return {
           items: [{
             id: 'tc-1',
@@ -136,15 +176,18 @@ export const mountWatchHarness = (options: WatchHarnessOptions = {}) => {
           view: 'TOP',
         }
       }
+      if (queuedPages.length > 0) return queuedPages.shift()!
       return new Promise((resolve) => {
-        closePoll = () => {
-          closePoll = undefined
-          resolve({ items: [] })
+        pendingPoll = (page) => {
+          resolve(page)
         }
       })
     },
     closeLiveChat: async () => {
-      closePoll?.()
+      controller.closeLiveChatCalls += 1
+      const resolve = pendingPoll
+      pendingPoll = undefined
+      resolve?.({ items: [] })
       return true
     },
     liveChatReplay: async () => ({

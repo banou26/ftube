@@ -129,12 +129,33 @@ test('keeps over-screen messages active after closing the live chat panel and st
   const overlay = page.locator('[data-over-screen-overlay="true"]')
   await expect(overlay).toBeVisible()
 
-  // Closing the chat panel hides it without interrupting live over-screen messages
+  await page.evaluate(() => {
+    window.__liveChatHarness?.pushPage({
+      items: [
+        {
+          id: 'before-close-msg',
+          kind: 'TEXT',
+          text: 'Visible before hiding',
+          runs: [{ text: 'Visible before hiding' }],
+          author: { id: 'UCalice', name: 'Alice', handle: '@alice' },
+        },
+      ],
+    })
+  })
+  const beforeCloseItem = overlay.locator('[data-overlay-item="before-close-msg"]')
+  await expect(beforeCloseItem).toBeVisible()
+  await beforeCloseItem.evaluate((el) => {
+    el.setAttribute('data-persist-marker', 'same-node')
+  })
+
+  // Closing the chat panel hides it without remounting or replaying active overlay items
   await chat.getByRole('button', { name: 'Hide chat', exact: true }).click()
   await expect(chat).toBeHidden()
   const showBtn = harness.getByRole('button', { name: 'Show chat', exact: true })
   await expect(showBtn).toBeVisible()
   await expect(overlay).toBeVisible()
+  await expect(beforeCloseItem).toHaveCount(1)
+  await expect(beforeCloseItem).toHaveAttribute('data-persist-marker', 'same-node')
 
   await page.evaluate(() => {
     window.__liveChatHarness?.pushPage({
@@ -149,14 +170,20 @@ test('keeps over-screen messages active after closing the live chat panel and st
       ],
     })
   })
-  await expect(overlay.locator('[data-overlay-item="after-close-msg"]')).toContainText('Still streaming while closed')
+  const afterCloseItem = overlay.locator('[data-overlay-item="after-close-msg"]')
+  await expect(afterCloseItem).toContainText('Still streaming while closed')
+  await afterCloseItem.evaluate((el) => {
+    el.setAttribute('data-persist-marker', 'still-same')
+  })
   expect(await page.evaluate(() => window.__liveChatHarness?.closedVideoIds ?? [])).toEqual([])
 
-  // Reopening chat keeps Over-screen enabled, and turning it off stops subsequent overlay messages
+  // Reopening chat keeps Over-screen enabled without replaying active items, and turning it off stops subsequent overlay messages
   await showBtn.click()
   const reopenedChat = harness.getByRole('region', { name: 'Live chat' })
   const reopenedToggle = reopenedChat.getByRole('button', { name: 'Over-screen chat messages', exact: true })
   await expect(reopenedChat).toBeVisible()
+  await expect(afterCloseItem).toHaveCount(1)
+  await expect(afterCloseItem).toHaveAttribute('data-persist-marker', 'still-same')
   await expect(reopenedToggle).toHaveAttribute('aria-pressed', 'true')
   await expect(reopenedChat.locator('.log')).toContainText('Still streaming while closed')
 

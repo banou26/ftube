@@ -304,7 +304,20 @@ const style = css`
     border-left: 1px solid var(--border);
   }
 
+  .live-chat-slot {
+    min-width: 0;
+  }
+
+  .theater-chat-rail > .live-chat-slot {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
   .theater-chat-rail > .live-chat,
+  .theater-chat-rail > .live-chat-slot > .live-chat,
   .theater-chat-rail > .chat-replay {
     flex: 1 1 auto;
     min-height: 0;
@@ -316,7 +329,8 @@ const style = css`
 
   .primary > .chat-replay,
   .primary > .live-chat,
-  .primary > .live-chat-teaser {
+  .primary > .live-chat-teaser,
+  .primary > .live-chat-slot {
     margin-top: 1.2rem;
   }
 
@@ -865,19 +879,16 @@ const WatchPage = () => {
   const chatHidden = chatHiddenFor === videoId
   const keepChatMounted = !chatHidden || overScreen.enabled
   const theaterChatDocked = inTheater && !oneColumn && ((watch?.isLive === true && !chatHidden) || replayOpen)
-  const liveChat = watch?.isLive
+  const [chatSlot, setChatSlot] = useState<HTMLDivElement | null>(null)
+  const bindChatSlot = useCallback((el: HTMLDivElement | null) => {
+    setChatSlot((current) => {
+      if (el) return el
+      return current && !current.isConnected ? null : current
+    })
+  }, [])
+  const liveChatSlot = watch?.isLive
     ? keepChatMounted
-      ? (
-        <LiveChat
-          key={`chat:${videoId}`}
-          videoId={videoId}
-          subscribed={channel?.isSubscribed ?? undefined}
-          hidden={chatHidden}
-          onHide={() => setChatHiddenFor(videoId)}
-          onShow={() => setChatHiddenFor(undefined)}
-          onCustomEmojis={handleChatEmojis}
-        />
-      )
+      ? <div className='live-chat-slot' ref={bindChatSlot} />
       : <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
     : undefined
 
@@ -920,7 +931,7 @@ const WatchPage = () => {
       {oneColumn && videoPanel ? <div className='panel-slot'>{videoPanel}</div> : undefined}
       <div className='columns'>
         <div className='primary'>
-          {oneColumn ? (replay ?? liveChat) : undefined}
+          {oneColumn ? (replay ?? liveChatSlot) : undefined}
           {watch?.title ? <h1 className='title'>{watch.title}</h1> : undefined}
           {watch?.isMembersOnly ? <MembersOnly /> : undefined}
           {watchError && !watch && !watchFetching ? <DataFailure error={watchError} reexecute={reexecuteWatch} /> : undefined}
@@ -1093,7 +1104,7 @@ const WatchPage = () => {
           ? (
             <aside className='secondary'>
               {oneColumn || theaterChatDocked ? undefined : replay}
-              {oneColumn || theaterChatDocked ? undefined : liveChat}
+              {oneColumn || theaterChatDocked ? undefined : liveChatSlot}
               {oneColumn ? undefined : videoPanel}
               {playlist ? <PlaylistPanel playlist={playlist} /> : queue.items.length > 0 ? <QueuePanel /> : undefined}
               {relatedChips.length > 0
@@ -1194,7 +1205,21 @@ const WatchPage = () => {
         </div>
       </div>
       {theaterChatDocked
-        ? <aside className='theater-chat-rail' aria-label='Live chat rail'>{replay ?? liveChat}</aside>
+        ? <aside className='theater-chat-rail' aria-label='Live chat rail'>{replay ?? liveChatSlot}</aside>
+        : undefined}
+      {watch?.isLive && keepChatMounted
+        ? (
+          <LiveChat
+            key={`chat:${videoId}`}
+            videoId={videoId}
+            subscribed={channel?.isSubscribed ?? undefined}
+            hidden={chatHidden}
+            panelContainer={chatSlot}
+            onHide={() => setChatHiddenFor(videoId)}
+            onShow={() => setChatHiddenFor(undefined)}
+            onCustomEmojis={handleChatEmojis}
+          />
+        )
         : undefined}
       {sharing ? <ShareDialog videoId={videoId} title={watch?.title ?? undefined} list={listId} onClose={() => setSharing(false)} /> : undefined}
       {saving ? <SaveDialog videoId={videoId} onClose={() => setSaving(false)} /> : undefined}

@@ -119,3 +119,88 @@ test('docks live chat full-height on the right in normal YouTube theater mode to
   await expect(rail).toBeVisible()
   await expectRailClearOfPlayer(host)
 })
+
+test('keeps live chat session and over-screen messages alive across hide and show in theater mode', async ({ page }) => {
+  const host = await mountTheaterWatch(page, 'theater-overscreen-1280', { width: 1280, height: 800 }, {
+    isLive: true,
+  })
+
+  const rail = host.locator('aside.theater-chat-rail')
+  await expect(rail).toBeVisible()
+  const toggleBtn = rail.getByRole('button', { name: 'Over-screen chat messages', exact: true })
+  await toggleBtn.click()
+  await expect(toggleBtn).toHaveAttribute('aria-pressed', 'true')
+
+  const draftInput = rail.locator('form.compose input')
+  await draftInput.fill('Unsent theater draft')
+
+  const initialCounts = await page.evaluate(() => ({
+    initial: window.__watchHarness?.liveChatInitialCalls ?? 0,
+    closed: window.__watchHarness?.closeLiveChatCalls ?? 0,
+  }))
+  expect(initialCounts).toEqual({ initial: 1, closed: 0 })
+
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'theater-before-hide',
+        kind: 'TEXT',
+        text: 'Before hiding in theater',
+        runs: [{ text: 'Before hiding in theater' }],
+        author: { id: 'UC-a', name: 'Alice', handle: '@alice' },
+      }],
+    })
+  })
+  const overlay = page.locator('[data-over-screen-overlay="true"]')
+  const beforeItem = overlay.locator('[data-overlay-item="theater-before-hide"]')
+  await expect(beforeItem).toBeVisible()
+  await beforeItem.evaluate((el) => {
+    el.setAttribute('data-persist-marker', 'same-node')
+  })
+
+  // Hiding the chat rail moves the slot to secondary without remounting LiveChat or OverScreenOverlay
+  await rail.getByRole('button', { name: 'Hide chat', exact: true }).click()
+  await expect(host.locator('aside.theater-chat-rail')).toHaveCount(0)
+  const showBtn = host.locator('aside.secondary').getByRole('button', { name: 'Show chat', exact: true })
+  await expect(showBtn).toBeVisible()
+  await expect(overlay).toBeVisible()
+  await expect(beforeItem).toHaveCount(1)
+  await expect(beforeItem).toHaveAttribute('data-persist-marker', 'same-node')
+  expect(await page.evaluate(() => ({
+    initial: window.__watchHarness?.liveChatInitialCalls ?? 0,
+    closed: window.__watchHarness?.closeLiveChatCalls ?? 0,
+  }))).toEqual({ initial: 1, closed: 0 })
+
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'theater-while-hidden',
+        kind: 'TEXT',
+        text: 'Arrived while theater rail hidden',
+        runs: [{ text: 'Arrived while theater rail hidden' }],
+        author: { id: 'UC-b', name: 'Bob', handle: '@bob' },
+      }],
+    })
+  })
+  await expect(overlay.locator('[data-overlay-item="theater-while-hidden"]')).toContainText('Arrived while theater rail hidden')
+
+  // Showing chat again re-docks into theater rail with state and draft intact
+  await showBtn.click()
+  await expect(rail).toBeVisible()
+  await expectRailClearOfPlayer(host)
+  await expect(rail.getByRole('button', { name: 'Over-screen chat messages', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(rail.locator('form.compose input')).toHaveValue('Unsent theater draft')
+  await expect(rail.locator('.log')).toContainText('Hello theater chat!')
+  await expect(rail.locator('.log')).toContainText('Before hiding in theater')
+  await expect(rail.locator('.log')).toContainText('Arrived while theater rail hidden')
+  expect(await page.evaluate(() => ({
+    initial: window.__watchHarness?.liveChatInitialCalls ?? 0,
+    closed: window.__watchHarness?.closeLiveChatCalls ?? 0,
+  }))).toEqual({ initial: 1, closed: 0 })
+
+  // Turning Over-screen off and hiding closes the live chat session cleanly
+  await rail.getByRole('button', { name: 'Over-screen chat messages', exact: true }).click()
+  await expect(overlay).toHaveCount(0)
+  await rail.getByRole('button', { name: 'Hide chat', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__watchHarness?.closeLiveChatCalls ?? 0)).toBe(1)
+})
