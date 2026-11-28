@@ -125,6 +125,48 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
   const addedToPlaylist: { playlistId: string, videoIds: string[] }[] = []
   const pickedCaptions: (CaptionPick | undefined)[] = []
   const pickedAudio: string[] = []
+  const subscriptionMutations: { kind: 'subscribe' | 'level', channelId: string, value: boolean | string }[] = []
+  const channelState = new Map<string, {
+    id: string
+    name: string
+    avatar: string
+    handle: string
+    isSubscribed: boolean
+    notificationLevel: 'ALL' | 'PERSONALIZED' | 'NONE' | null
+    isVerified: boolean
+    isVerifiedArtist: boolean
+  }>([
+    ['UClewis', {
+      id: 'UClewis',
+      name: 'RTBF iXPé',
+      avatar: AVATAR_SVG,
+      handle: '@RTBFiXP%C3%A9',
+      isSubscribed: false,
+      notificationLevel: null,
+      isVerified: true,
+      isVerifiedArtist: false,
+    }],
+    ['UCtwo', {
+      id: 'UCtwo',
+      name: 'Second Channel',
+      avatar: AVATAR_SVG,
+      handle: '@second',
+      isSubscribed: true,
+      notificationLevel: 'PERSONALIZED',
+      isVerified: false,
+      isVerifiedArtist: false,
+    }],
+    ['UCthree', {
+      id: 'UCthree',
+      name: 'Third Channel',
+      avatar: AVATAR_SVG,
+      handle: '@third',
+      isSubscribed: false,
+      notificationLevel: null,
+      isVerified: false,
+      isVerifiedArtist: false,
+    }],
+  ])
 
   const source = {
     session: async () => ({
@@ -155,16 +197,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
           commentCountText: '41',
           description: 'Third short description.',
           descriptionRuns: [{ text: 'Third short description.' }],
-          channel: {
-            id: 'UCthree',
-            name: 'Third Channel',
-            avatar: AVATAR_SVG,
-            handle: '@third',
-            isSubscribed: false,
-            notificationLevel: null,
-            isVerified: false,
-            isVerifiedArtist: false,
-          },
+          channel: { ...channelState.get('UCthree')! },
           chapters: [],
           heatmap: [],
           cardTeasers: [],
@@ -183,16 +216,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
           commentCountText: '82',
           description: 'Second short description.',
           descriptionRuns: [{ text: 'Second short description.' }],
-          channel: {
-            id: 'UCtwo',
-            name: 'Second Channel',
-            avatar: AVATAR_SVG,
-            handle: '@second',
-            isSubscribed: true,
-            notificationLevel: 'PERSONALIZED',
-            isVerified: false,
-            isVerifiedArtist: false,
-          },
+          channel: { ...channelState.get('UCtwo')! },
           chapters: [],
           heatmap: [],
           cardTeasers: [],
@@ -210,16 +234,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
         commentCountText: '447',
         description: 'Deep dive into modern AI models.',
         descriptionRuns: [{ text: 'Deep dive into modern AI models.' }],
-        channel: {
-          id: 'UClewis',
-          name: 'RTBF iXPé',
-          avatar: AVATAR_SVG,
-          handle: '@RTBFiXP%C3%A9',
-          isSubscribed: false,
-          notificationLevel: null,
-          isVerified: true,
-          isVerifiedArtist: false,
-        },
+        channel: { ...channelState.get('UClewis')! },
         chapters: [],
         heatmap: [],
         cardTeasers: [],
@@ -231,6 +246,38 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
     addToPlaylist: async (playlistId: string, videoIds: string[]) => {
       addedToPlaylist.push({ playlistId, videoIds })
       return { id: playlistId, title: 'Favorites' }
+    },
+    setSubscribed: async (channelId: string, subscribed: boolean) => {
+      subscriptionMutations.push({ kind: 'subscribe', channelId, value: subscribed })
+      const entry = channelState.get(channelId)
+      if (entry) {
+        entry.isSubscribed = subscribed
+        if (!subscribed) entry.notificationLevel = null
+        else if (!entry.notificationLevel) entry.notificationLevel = 'PERSONALIZED'
+        return { ...entry }
+      }
+      return {
+        id: channelId,
+        name: channelId,
+        avatar: AVATAR_SVG,
+        isSubscribed: subscribed,
+        notificationLevel: subscribed ? 'PERSONALIZED' : null,
+      }
+    },
+    setNotificationLevel: async (channelId: string, level: 'ALL' | 'PERSONALIZED' | 'NONE') => {
+      subscriptionMutations.push({ kind: 'level', channelId, value: level })
+      const entry = channelState.get(channelId)
+      if (entry) {
+        entry.notificationLevel = level
+        return { ...entry }
+      }
+      return {
+        id: channelId,
+        name: channelId,
+        avatar: AVATAR_SVG,
+        isSubscribed: true,
+        notificationLevel: level,
+      }
     },
     subscribedChannels: async () => [],
     comments: async (videoId: string) => ({
@@ -322,7 +369,7 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
   })
   const client = new Client({
     url: 'http://shorts-menu-harness.local/graphql',
-    exchanges: [fetchExchange],
+    exchanges: [createCache(), fetchExchange],
     fetch: async (input, init) => yoga.handleRequest(new Request(input, init), { source }),
     preferGetMethod: false,
   })
@@ -348,5 +395,6 @@ export const mountShortsMenuHarness = (mode: 'full' | 'tracks' = 'full') => {
     addedToPlaylist: () => [...addedToPlaylist],
     pickedCaptions: () => [...pickedCaptions],
     pickedAudio: () => [...pickedAudio],
+    subscriptionMutations: () => [...subscriptionMutations],
   }
 }

@@ -677,6 +677,8 @@ const Slide = (
               subscribed={meta?.channel?.isSubscribed}
               notificationLevel={meta?.channel?.notificationLevel}
               compact
+              active={active}
+              onOpenChange={onMenuOpenChange}
             />
           </div>
           <p className='short-title'>{title ?? ''}</p>
@@ -723,6 +725,7 @@ const Slide = (
           align='start'
           // the rail ends at the bottom of the video, so its menu opens upwards
           side='above'
+          active={active}
           media={mediaState}
           actions={menuActions}
           onOpenChange={onMenuOpenChange}
@@ -795,7 +798,10 @@ export const ShortsPage = () => {
   const [sharing, setSharing] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState<string | undefined>(undefined)
   const [descriptionFor, setDescriptionFor] = useState<string | undefined>(undefined)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [openMenuCount, setOpenMenuCount] = useState(0)
+  const onMenuOpenChange = useCallback((open: boolean) => {
+    setOpenMenuCount(count => Math.max(0, count + (open ? 1 : -1)))
+  }, [])
   const [refused, setRefused] = useState<ReadonlySet<string>>(() => new Set())
   const [dismissedInSession, setDismissedInSession] = useState<ReadonlySet<string>>(() => new Set())
   const dismissed = useDismissed()
@@ -1026,7 +1032,7 @@ export const ShortsPage = () => {
   }
 
   const descriptionOpen = Boolean(activeId && descriptionFor === activeId)
-  const overlayOpen = Boolean(sharing || saving || descriptionOpen || menuOpen)
+  const overlayOpen = Boolean(sharing || saving || descriptionOpen || openMenuCount > 0)
   const latest = useRef({ step, overlayOpen })
   latest.current = { step, overlayOpen }
 
@@ -1094,7 +1100,7 @@ export const ShortsPage = () => {
               onNotInterested={() => handleNotInterested(short.id, short.title)}
               onDontRecommend={(channelId?: string, channelName?: string) =>
                 handleDontRecommend(short.id, channelId, channelName)}
-              onMenuOpenChange={setMenuOpen}
+              onMenuOpenChange={onMenuOpenChange}
               onTitle={setActiveTitle}
               onActiveMeta={onActiveMeta}
               onPlaybackChange={onPlaybackSnapshot}

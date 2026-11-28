@@ -1,6 +1,6 @@
 import { css } from '@emotion/react'
 import { Bell, BellOff, BellRing, ChevronDown, UserMinus } from 'lucide-react'
-import { useCallback, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useMutation } from 'urql'
 
 import type { NotificationLevel } from '../generated/graphql'
@@ -109,26 +109,82 @@ const LEVELS: { level: NotificationLevel, label: string, Icon: typeof Bell }[] =
   { level: 'NONE', label: 'None', Icon: BellOff },
 ]
 
+const menuItemsOf = (panel: HTMLElement | null) =>
+  [...(panel?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+
 export const SubscribeButton = (
-  { channelId, subscribed, notificationLevel, compact = false }: {
+  { channelId, subscribed, notificationLevel, compact = false, tabIndex, active = true, onOpenChange }: {
     channelId?: string
     subscribed?: boolean | null
     notificationLevel?: NotificationLevel | null
     /** Renders a single compact bell trigger pill when subscribed, putting notification levels and Unsubscribe inside its popup. */
     compact?: boolean
+    tabIndex?: number
+    active?: boolean
+    onOpenChange?: (open: boolean) => void
   },
 ) => {
   const { fetching: subscribing, toggle } = useToggleSubscription()
   const [levelState, setLevel] = useMutation(SET_NOTIFICATION_LEVEL)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const onClose = useCallback(() => setOpen(false), [])
-  useDismiss({ open, onClose, rootRef, triggerRef })
+  const openRef = useRef(false)
+  openRef.current = open
+  const notifyRef = useRef(onOpenChange)
+  notifyRef.current = onOpenChange
+
+  const changeOpen = useCallback((next: boolean) => {
+    if (openRef.current === next) return
+    openRef.current = next
+    setOpen(next)
+    notifyRef.current?.(next)
+  }, [])
+
+  const onClose = useCallback(() => changeOpen(false), [changeOpen])
+  useDismiss({ open, onClose, rootRef, panelRef, triggerRef })
 
   const pending = subscribing || levelState.fetching
   const isSubscribed = subscribed === true
   const level = LEVELS.find(entry => entry.level === notificationLevel) ?? LEVELS[1]!
+
+  useEffect(() => () => {
+    if (openRef.current) notifyRef.current?.(false)
+  }, [])
+
+  useEffect(() => {
+    if ((!active || !isSubscribed) && open) changeOpen(false)
+  }, [active, isSubscribed, open, changeOpen])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    menuItemsOf(panelRef.current)[0]?.focus({ preventScroll: true })
+  }, [open])
+
+  const onMenuKeyDown = (event: KeyboardEvent) => {
+    const items = menuItemsOf(panelRef.current)
+    if (items.length === 0) return
+    const from = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      event.stopPropagation()
+      const delta = event.key === 'ArrowDown' ? 1 : -1
+      const next = from === -1 ? (delta > 0 ? 0 : items.length - 1) : (from + delta + items.length) % items.length
+      items[next]?.focus({ preventScroll: true })
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      items[0]?.focus({ preventScroll: true })
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      items[items.length - 1]?.focus({ preventScroll: true })
+    } else if (event.key === 'Tab') {
+      event.preventDefault()
+      const delta = event.shiftKey ? -1 : 1
+      const next = from === -1 ? (delta > 0 ? 0 : items.length - 1) : (from + delta + items.length) % items.length
+      items[next]?.focus({ preventScroll: true })
+    }
+  }
 
   const onToggle = () => {
     if (!channelId) return
@@ -141,7 +197,8 @@ export const SubscribeButton = (
   }
 
   const onLevel = (next: NotificationLevel) => {
-    setOpen(false)
+    changeOpen(false)
+    triggerRef.current?.focus({ preventScroll: true })
     if (!channelId || next === notificationLevel) return
     void setLevel({ channelId, level: next }).then((result) => {
       if (result.error) showToast(lineFor(result.error))
@@ -149,7 +206,8 @@ export const SubscribeButton = (
   }
 
   const onUnsubscribe = () => {
-    setOpen(false)
+    changeOpen(false)
+    triggerRef.current?.focus({ preventScroll: true })
     if (!channelId) return
     void toggle(channelId, true)
   }
@@ -166,8 +224,9 @@ export const SubscribeButton = (
             title={compact ? undefined : `Notifications: ${level.label}`}
             aria-haspopup='menu'
             aria-expanded={open}
+            tabIndex={tabIndex}
             disabled={pending}
-            onClick={() => setOpen(value => !value)}
+            onClick={() => changeOpen(!open)}
           >
             <level.Icon size={18} strokeWidth={1.5} />
             {compact ? undefined : 'Subscribed'}
@@ -175,7 +234,7 @@ export const SubscribeButton = (
           </button>
           {open
             ? (
-              <Popup label='Notifications' align='start'>
+              <Popup label='Notifications' align='start' anchor={triggerRef} panelRef={panelRef} onKeyDown={onMenuKeyDown}>
                 {LEVELS.map(entry => (
                   <MenuItem
                     key={entry.level}
@@ -201,8 +260,10 @@ export const SubscribeButton = (
   return (
     <div css={subscribeStyle} ref={rootRef}>
       <button
+        ref={triggerRef}
         type='button'
         className='subscribe'
+        tabIndex={tabIndex}
         disabled={pending || !channelId}
         aria-pressed={false}
         onClick={onToggle}

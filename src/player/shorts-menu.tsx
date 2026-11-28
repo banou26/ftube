@@ -145,6 +145,7 @@ export const ShortsOptionsMenu = ({
   trigger,
   media,
   actions,
+  active = true,
   align = 'end',
   side = 'below',
   label = 'More options',
@@ -153,6 +154,7 @@ export const ShortsOptionsMenu = ({
   trigger: VNode
   media?: ShortsMediaState
   actions?: ShortsMenuActions
+  active?: boolean
   align?: 'start' | 'end'
   side?: 'below' | 'above'
   label?: string
@@ -169,11 +171,16 @@ export const ShortsOptionsMenu = ({
   notifyRef.current = onOpenChange
 
   const changeOpen = useCallback((next: boolean) => {
+    if (openRef.current === next) return
     openRef.current = next
     setOpen(next)
     if (!next) setPanel('root')
     notifyRef.current?.(next)
   }, [])
+
+  useEffect(() => {
+    if (!active && open) changeOpen(false)
+  }, [active, open, changeOpen])
 
   useEffect(() => () => {
     if (openRef.current) notifyRef.current?.(false)
