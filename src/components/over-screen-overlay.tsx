@@ -455,9 +455,9 @@ export const OverScreenOverlay = (
     }
   }, [settings.enabled, paused])
 
-  const spawnRows = (rows: readonly ChatRow[], ignoreSlowMode = false) => {
+  const spawnRows = (rows: readonly ChatRow[], ignoreSlowMode = false, preview = false) => {
     const activeSettings = settingsRef.current
-    if (!activeSettings.enabled || pausedRef.current || rows.length === 0) return
+    if (!activeSettings.enabled || (pausedRef.current && !preview) || rows.length === 0) return
 
     const spawned: ActiveOverlayItem[] = []
     for (const row of rows) {
@@ -549,15 +549,15 @@ export const OverScreenOverlay = (
   useEffect(() => {
     if (previewSeq === lastPreviewSeqRef.current) return
     lastPreviewSeqRef.current = previewSeq
-    if (!settingsRef.current.enabled || pausedRef.current) return
+    if (!settingsRef.current.enabled) return
     spawnRows(PREVIEW_SAMPLES.map((sample, index) => ({
       ...sample,
       id: `${sample.id}-${previewSeq}-${index}`,
-    })), true)
+    })), true, true)
   }, [previewSeq])
 
   useLayoutEffect(() => {
-    if (!contained || !settings.enabled || paused || items.length === 0) return
+    if (!contained || !settings.enabled || items.length === 0) return
     const overlay = overlayRef.current
     if (!overlay) return
 
@@ -589,9 +589,9 @@ export const OverScreenOverlay = (
     const observer = new ResizeObserver(positionAll)
     observer.observe(overlay)
     return () => observer.disconnect()
-  }, [contained, settings.enabled, paused, items, settings.fontSizePx, settings.fontFamily, settings.showAvatar, settings.showAuthor])
+  }, [contained, settings.enabled, items, settings.fontSizePx, settings.fontFamily, settings.showAvatar, settings.showAuthor])
 
-  if (!settings.enabled || paused || (!contained && !portalTarget)) return null
+  if (!settings.enabled || (paused && items.length === 0) || (!contained && !portalTarget)) return null
 
   const fontFamily = OVERLAY_FONT_STACKS[settings.fontFamily]
 
@@ -660,7 +660,19 @@ export const OverScreenOverlay = (
                 <>
                   {settings.showAvatar
                     ? item.authorAvatar
-                      ? <img className='overlay-avatar' src={item.authorAvatar} alt='' referrerpolicy='no-referrer' />
+                      ? (
+                        <img
+                          className='overlay-avatar'
+                          src={item.authorAvatar}
+                          alt=''
+                          referrerpolicy='no-referrer'
+                          onError={() => {
+                            setItems((current) =>
+                              current.map((entry) => entry.key === item.key ? { ...entry, authorAvatar: undefined } : entry),
+                            )
+                          }}
+                        />
+                      )
                       : item.authorName?.trim()
                         ? (
                           <span className='overlay-avatar fallback' aria-hidden='true'>

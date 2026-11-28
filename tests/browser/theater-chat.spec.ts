@@ -370,4 +370,29 @@ test('hides over-screen messages while live stream is paused and resumes on play
     })
   })
   await expect(overlay.locator('[data-overlay-item="after-resume"]')).toContainText('Resumed live message')
+
+  // Test preview still works while paused, while live incoming messages remain suppressed.
+  await showBtn.click()
+  await expect(rail).toBeVisible()
+  await page.evaluate(() => window.__watchHarness?.setPaused(true))
+  await expect(overlay).toHaveCount(0)
+
+  await rail.getByRole('button', { name: 'Customize over-screen messages', exact: true }).click()
+  const dialog = rail.getByRole('dialog', { name: 'Over-screen chat messages' })
+  await dialog.getByRole('button', { name: 'Test preview', exact: true }).click()
+  await expect(overlay.locator('[data-overlay-item^="preview-normal-"]')).toBeVisible()
+
+  await page.evaluate(() => {
+    window.__watchHarness?.pushLiveChatPage({
+      items: [{
+        id: 'during-paused-preview',
+        kind: 'TEXT',
+        text: 'Live msg skipped during paused preview',
+        runs: [{ text: 'Live msg skipped during paused preview' }],
+        author: { id: 'UC-5', name: 'Eve', handle: '@eve' },
+      }],
+    })
+  })
+  await expect(rail.locator('.log')).toContainText('Live msg skipped during paused preview')
+  await expect(overlay.locator('[data-overlay-item="during-paused-preview"]')).toHaveCount(0)
 })

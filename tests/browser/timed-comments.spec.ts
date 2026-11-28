@@ -281,6 +281,7 @@ test('wraps long Pop timed comments within narrow 390px and desktop player bound
   // 0:10 Metrik comment (long multi-word) wraps cleanly at 390px with 28px font
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(10.2))
   await expectContainedPopBubble(player, overlay, 'timed-comment:lp-10:10', 60)
+  await expect(overlay.locator('[data-overlay-item="timed-comment:lp-10:10"] img.overlay-avatar')).toHaveCount(1)
   await page.waitForTimeout(700)
   await expectContainedPopBubble(player, overlay, 'timed-comment:lp-10:10', 60)
 

@@ -400,6 +400,7 @@ const VideoPlayer = (
     if (!player || loading) return
     setPlayerPaused(state.paused || state.ended)
   }, [player, loading, state.paused, state.ended])
+  useEffect(() => () => setPlayerPaused(false), [])
   const frame = useFrame()
   const grid = frame?.grid ?? false
   const annotationsEnabled = annotations !== false
