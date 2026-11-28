@@ -18,6 +18,11 @@ type HarnessApi = {
   currentTime: () => number
   paused: () => boolean
   dimensions: () => { width: number, height: number }
+  play: () => Promise<void>
+  pause: () => void
+  seek: (seconds: number) => Promise<void>
+  reopenDialog: () => void
+  isDialogOpen: () => boolean
 }
 
 declare global {
@@ -122,26 +127,55 @@ export const mountDownloadCropHarness = async (options: HarnessOptions) => {
 
   openPlayer({ videoId: options.videoId, title: options.title })
 
-  render(
-    <DownloadDialog
-      videoId={options.videoId}
-      title={options.title}
-      thumbnail={options.thumbnail}
-      channelName='Test Channel'
-      onClose={() => {}}
-      loadFormats={async () => formats}
-    />,
-    dialogRoot,
-  )
+  let dialogOpen = false
+
+  const unmountDialog = () => {
+    if (!dialogOpen) return
+    dialogOpen = false
+    render(null, dialogRoot)
+  }
+
+  const mountDialog = () => {
+    dialogOpen = true
+    render(
+      <DownloadDialog
+        videoId={options.videoId}
+        title={options.title}
+        thumbnail={options.thumbnail}
+        channelName='Test Channel'
+        onClose={unmountDialog}
+        loadFormats={async () => formats}
+      />,
+      dialogRoot,
+    )
+  }
+
+  mountDialog()
 
   window.__downloadCropHarness = {
     currentTime: () => video.currentTime,
     paused: () => video.paused,
     dimensions: () => ({ width: video.videoWidth, height: video.videoHeight }),
+    play: async () => {
+      await video.play()
+    },
+    pause: () => {
+      video.pause()
+    },
+    seek: async (seconds: number) => {
+      if (Math.abs(video.currentTime - seconds) < 0.01) return
+      await new Promise<void>((resolve) => {
+        const done = () => resolve()
+        video.addEventListener('seeked', done, { once: true })
+        video.currentTime = seconds
+      })
+    },
+    reopenDialog: () => mountDialog(),
+    isDialogOpen: () => dialogOpen,
   }
 
   window.__downloadCropCleanup = () => {
-    render(null, dialogRoot)
+    unmountDialog()
     hostNode.replaceChildren()
     wrapper.remove()
     URL.revokeObjectURL(blobUrl)

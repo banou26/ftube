@@ -11,7 +11,7 @@ import { closeDownloadDialog, formatBytes, pickDefaultAudioForVideo, startVideoD
 import { clampTrimRange, estimateTrimmedBytes, formatClipLabel, formatTimestamp, isFullRange, MIN_CLIP_MS, parseTimestamp } from '../downloads/trim'
 import { startEngine } from '../engine/client'
 import { audioTracksOf } from '../frame/formats'
-import { playerHost, usePlayerSession } from '../player/session'
+import { getPlayerSession, playerHost, usePlayerSession } from '../player/session'
 import { Dialog } from './ui/dialog'
 
 type DownloadMode = 'video' | 'audio'
@@ -520,8 +520,47 @@ export const DownloadDialog = (
   const rangeBarRef = useRef<HTMLDivElement>(null)
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const [hasLiveFrame, setHasLiveFrame] = useState(false)
+  const savedWatchStateRef = useRef<{ currentTime: number, wasPlaying: boolean } | undefined>(undefined)
+  const previewingRef = useRef(false)
+  const previewSeqRef = useRef(0)
+  const restoreWatchStateRef = useRef<() => void>(() => {})
 
   const hasWatchPlayer = player.videoId === videoId
+
+  const captureWatchState = (videoEl: HTMLVideoElement) => {
+    if (savedWatchStateRef.current !== undefined) return
+    savedWatchStateRef.current = {
+      currentTime: Number.isFinite(videoEl.currentTime) ? videoEl.currentTime : 0,
+      wasPlaying: !videoEl.paused && !videoEl.ended,
+    }
+  }
+
+  const restoreWatchState = () => {
+    previewSeqRef.current += 1
+    previewingRef.current = false
+    setPreviewing(false)
+    const saved = savedWatchStateRef.current
+    savedWatchStateRef.current = undefined
+    if (!saved || getPlayerSession().videoId !== videoId) return
+    const videoEl = playerHost().querySelector('video')
+    if (!videoEl) return
+    const targetTime = Number.isFinite(videoEl.duration)
+      ? Math.max(0, Math.min(saved.currentTime, videoEl.duration))
+      : Math.max(0, saved.currentTime)
+    if (saved.wasPlaying) {
+      videoEl.currentTime = targetTime
+      void videoEl.play().catch(() => {})
+      return
+    }
+    videoEl.pause()
+    videoEl.currentTime = targetTime
+  }
+  restoreWatchStateRef.current = restoreWatchState
+
+  const handleClose = () => {
+    restoreWatchState()
+    onClose()
+  }
 
   useEffect(() => {
     let active = true
@@ -562,6 +601,9 @@ export const DownloadDialog = (
 
   useEffect(() => {
     if (!hasWatchPlayer) {
+      previewSeqRef.current += 1
+      savedWatchStateRef.current = undefined
+      previewingRef.current = false
       setPlayerTimeMs(undefined)
       setPreviewing(false)
       return
@@ -571,25 +613,27 @@ export const DownloadDialog = (
     const syncTime = () => {
       const currentMs = Math.round(videoEl.currentTime * 1000)
       setPlayerTimeMs(currentMs)
-      if (previewing && currentMs >= endMs) {
-        videoEl.pause()
-        setPreviewing(false)
+      if (previewingRef.current && currentMs >= endMs) {
+        restoreWatchStateRef.current()
       }
+    }
+    const onEnded = () => {
+      if (previewingRef.current) restoreWatchStateRef.current()
     }
     syncTime()
     videoEl.addEventListener('timeupdate', syncTime)
     videoEl.addEventListener('seeked', syncTime)
+    videoEl.addEventListener('ended', onEnded)
     return () => {
       videoEl.removeEventListener('timeupdate', syncTime)
       videoEl.removeEventListener('seeked', syncTime)
+      videoEl.removeEventListener('ended', onEnded)
     }
   }, [hasWatchPlayer, previewing, endMs])
 
   useEffect(() => () => {
-    if (previewing) {
-      playerHost().querySelector('video')?.pause()
-    }
-  }, [previewing])
+    restoreWatchStateRef.current()
+  }, [videoId])
 
   // Paint the live, paused, or scrubbed Watch player frame inside the crop editor so the clip remains visible over the backdrop.
   useEffect(() => {
@@ -697,6 +741,7 @@ export const DownloadDialog = (
     if (scrubTargetMs !== undefined && hasWatchPlayer) {
       const videoEl = playerHost().querySelector('video')
       if (videoEl && Number.isFinite(videoEl.duration)) {
+        captureWatchState(videoEl)
         videoEl.currentTime = scrubTargetMs / 1000
       }
     }
@@ -733,14 +778,18 @@ export const DownloadDialog = (
   const togglePreview = () => {
     const videoEl = playerHost().querySelector('video')
     if (!videoEl) return
-    if (previewing) {
-      videoEl.pause()
-      setPreviewing(false)
+    if (previewingRef.current) {
+      restoreWatchState()
       return
     }
+    captureWatchState(videoEl)
+    const seq = ++previewSeqRef.current
+    previewingRef.current = true
     videoEl.currentTime = startMs / 1000
     setPreviewing(true)
-    void videoEl.play().catch(() => setPreviewing(false))
+    void videoEl.play().catch(() => {
+      if (previewSeqRef.current === seq) restoreWatchState()
+    })
   }
 
   const tracks: AudioTrack[] = audioTracksOf(audioFormats)
@@ -817,10 +866,7 @@ export const DownloadDialog = (
   }
 
   const onStart = () => {
-    if (previewing) {
-      playerHost().querySelector('video')?.pause()
-      setPreviewing(false)
-    }
+    restoreWatchState()
     if (mode === 'video') {
       if (!activeVideo || !mp4AudioForTrack) return
       void startVideoDownload({
@@ -859,7 +905,7 @@ export const DownloadDialog = (
     : undefined
 
   return (
-    <Dialog title='Download' onClose={onClose}>
+    <Dialog title='Download' onClose={handleClose}>
       <div css={style}>
         <div className='video-summary'>
           {thumbnail ? <img className='thumb' src={thumbnail} alt='' /> : undefined}
@@ -906,11 +952,8 @@ export const DownloadDialog = (
                     className='crop-mode-btn'
                     aria-pressed={!cropEnabled}
                     onClick={() => {
-                      if (previewing) {
-                        playerHost().querySelector('video')?.pause()
-                      }
+                      restoreWatchState()
                       setCropEnabled(false)
-                      setPreviewing(false)
                     }}
                   >
                     Full
@@ -1232,7 +1275,7 @@ export const DownloadDialog = (
           : undefined}
 
         <div className='footer'>
-          <Link href='/downloads' className='manage-link' onClick={onClose}>
+          <Link href='/downloads' className='manage-link' onClick={handleClose}>
             Manage downloads
           </Link>
           <button type='button' className='start-btn' disabled={!canStart} onClick={onStart}>

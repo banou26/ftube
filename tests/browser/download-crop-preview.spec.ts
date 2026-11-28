@@ -185,3 +185,106 @@ for (const viewport of VIEWPORTS) {
     })
   }
 }
+
+test('restores playing and paused watch state across Stop preview, Close, and repeated cycles (APP-1079)', async ({ page }) => {
+  await hideFknNotice(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  await page.route('**/__crop_fixtures__/*', async (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    const body = fixtures.get(name)
+    if (!body) {
+      await route.fulfill({ status: 404 })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'video/mp4', body })
+  })
+
+  await page.goto('/privacy')
+  await page.evaluate(async ([path, options]) => {
+    const mod = await import(path) as { mountDownloadCropHarness: (opts: typeof options) => Promise<void> }
+    await mod.mountDownloadCropHarness(options)
+  }, [
+    HARNESS,
+    {
+      videoId: 'crop-restore-test',
+      title: 'Crop restore test',
+      videoUrl: '/__crop_fixtures__/crop-landscape.mp4',
+      width: 320,
+      height: 180,
+    },
+  ] as const)
+
+  const dialog = page.getByRole('dialog')
+
+  // Cycle 1: initially playing around 2.0s -> Crop -> Preview clip -> Stop preview -> resumes playing near >= 1.8s.
+  await page.evaluate(async () => {
+    await window.__downloadCropHarness!.seek(2.0)
+    await window.__downloadCropHarness!.play()
+  })
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.paused() ?? true)).toBe(false)
+
+  await dialog.getByRole('button', { name: 'Crop', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Preview clip', exact: true }).click()
+  const stopBtn = dialog.getByRole('button', { name: 'Stop preview', exact: true })
+  await expect(stopBtn).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const t = window.__downloadCropHarness?.currentTime() ?? -1
+    return t >= 0.25 && t < 1.5
+  })).toBe(true)
+
+  await stopBtn.click()
+  await expect(dialog.getByRole('button', { name: 'Preview clip', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.paused() ?? true)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.currentTime() ?? 0)).toBeGreaterThanOrEqual(1.8)
+
+  // Cycle 2: preview again while playing, then Close dialog directly without clicking Stop preview.
+  await dialog.getByRole('button', { name: 'Preview clip', exact: true }).click()
+  await expect(stopBtn).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const t = window.__downloadCropHarness?.currentTime() ?? -1
+    return t >= 0.25 && t < 1.5
+  })).toBe(true)
+
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.isDialogOpen() ?? true)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.paused() ?? true)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.currentTime() ?? 0)).toBeGreaterThanOrEqual(1.8)
+
+  // Cycle 3: reopen paused at 2.6s -> Crop -> Preview clip -> Stop preview -> paused near 2.6s -> preview -> Close -> paused near 2.6s.
+  await page.evaluate(async () => {
+    window.__downloadCropHarness!.pause()
+    await window.__downloadCropHarness!.seek(2.6)
+    window.__downloadCropHarness!.reopenDialog()
+  })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Crop', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Preview clip', exact: true }).click()
+  await expect(stopBtn).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const t = window.__downloadCropHarness?.currentTime() ?? -1
+    return t >= 0.25 && t < 1.5 && window.__downloadCropHarness?.paused() === false
+  })).toBe(true)
+
+  await stopBtn.click()
+  await expect(dialog.getByRole('button', { name: 'Preview clip', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.paused() ?? false)).toBe(true)
+  const restoredPausedTime = await page.evaluate(() => window.__downloadCropHarness?.currentTime() ?? 0)
+  expect(restoredPausedTime).toBeGreaterThanOrEqual(2.3)
+  expect(restoredPausedTime).toBeLessThanOrEqual(2.9)
+
+  // Cycle 4: preview again while paused, then Close dialog -> stays paused at ~2.6s.
+  await dialog.getByRole('button', { name: 'Preview clip', exact: true }).click()
+  await expect(stopBtn).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const t = window.__downloadCropHarness?.currentTime() ?? -1
+    return t >= 0.25 && t < 1.5
+  })).toBe(true)
+
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.isDialogOpen() ?? true)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__downloadCropHarness?.paused() ?? false)).toBe(true)
+  const closedPausedTime = await page.evaluate(() => window.__downloadCropHarness?.currentTime() ?? 0)
+  expect(closedPausedTime).toBeGreaterThanOrEqual(2.3)
+  expect(closedPausedTime).toBeLessThanOrEqual(2.9)
+})
