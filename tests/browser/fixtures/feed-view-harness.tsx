@@ -179,7 +179,7 @@ const CHANNEL_VIDEOS = [
     title: 'Channel Video Alpha',
     durationSeconds: 540,
     publishedText: 'il y a 5 h',
-    descriptionSnippet: 'First channel description visible when toggled.',
+    descriptionSnippet: 'First channel description visible when toggled, with extra detail across multiple lines so line clamp differences show up cleanly on cards.',
   }),
   makeChannelVideo({
     id: 'ch-video-2',

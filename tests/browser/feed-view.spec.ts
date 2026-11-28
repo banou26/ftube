@@ -340,3 +340,42 @@ test('lazily loads missing video descriptions only when descriptions are enabled
   const gammaCard = channelRoot.locator('article', { hasText: 'Channel Video Gamma' })
   await expect(gammaCard.locator('.description')).toContainText('Lazy description for ch-video-3 with normalized whitespace.')
 })
+
+test('applies channel card description length 1-4 lines cleanly without header CSS leak and clears override when clicking Off', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Visit Home/Subscriptions first so VideoCard styles are inserted before ChannelPage styles, as in real browsing.
+  await openFeedPage(page, '/feed/subscriptions')
+  const channelRoot = await openFeedPage(page, '/channel/UC_DEMO/videos')
+  await channelRoot.getByRole('button', { name: 'Feed display settings', exact: true }).click()
+
+  const panel = channelRoot.getByRole('complementary', { name: 'Feed display settings' })
+  const showChannelToggle = panel.getByLabel('Show descriptions on channel Videos')
+  await showChannelToggle.check()
+
+  const alphaDescription = channelRoot.locator('article', { hasText: 'Channel Video Alpha' }).locator('.description')
+  await expect(alphaDescription).toBeVisible()
+
+  const lengthGroup = panel.getByRole('group', { name: 'Description length' })
+  for (const lines of [1, 3, 4] as const) {
+    await lengthGroup.getByRole('button', { name: String(lines), exact: true }).click()
+    const computed = await alphaDescription.evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return {
+        display: cs.display,
+        clamp: cs.getPropertyValue('-webkit-line-clamp') || cs.webkitLineClamp,
+        height: el.getBoundingClientRect().height,
+        fontSize: cs.fontSize,
+      }
+    })
+    expect(computed.display).not.toBe('flex')
+    expect(computed.fontSize).toBe('13px')
+    expect(computed.clamp).toBe(String(lines))
+    if (lines === 1) expect(computed.height).toBeLessThanOrEqual(20)
+    else expect(computed.height).toBeGreaterThan(22)
+  }
+
+  await lengthGroup.getByRole('button', { name: 'Off', exact: true }).click()
+  await expect(channelRoot.locator('article .description')).toHaveCount(0)
+  await expect(showChannelToggle).not.toBeChecked()
+})

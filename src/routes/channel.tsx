@@ -415,7 +415,7 @@ const style = css`
     color: var(--text-secondary);
   }
 
-  .description {
+  .header .description {
     display: flex;
     max-width: min(60rem, 100%);
     margin-top: 0.8rem;
@@ -429,24 +429,24 @@ const style = css`
     text-align: left;
   }
 
-  button.description {
+  .header button.description {
     cursor: pointer;
   }
 
-  .description-text {
+  .header .description-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  button.description .description-text {
+  .header button.description .description-text {
     text-overflow: clip;
     mask-image: linear-gradient(to right, #000 calc(100% - 2.4rem), transparent);
   }
 
-  .description .more,
-  .more-links {
+  .header .description .more,
+  .header .more-links {
     flex: none;
     margin-left: 0.4rem;
     padding: 0;
@@ -871,13 +871,13 @@ const style = css`
       width: 100%;
     }
 
-    .description,
-    .links,
-    .subscribe-row {
+    .header .description,
+    .header .links,
+    .header .subscribe-row {
       justify-content: center;
     }
 
-    .description {
+    .header .description {
       margin-inline: auto;
     }
 

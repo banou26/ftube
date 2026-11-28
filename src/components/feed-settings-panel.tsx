@@ -795,7 +795,12 @@ export const FeedSettingsPanel = (
                         type='button'
                         className='seg-btn'
                         aria-pressed={cardStyle.descriptionLines === lines}
-                        onClick={() => patchCard({ descriptionLines: lines })}
+                        onClick={() => {
+                          patchCard({ descriptionLines: lines })
+                          if (lines === 0 && surface === 'channel' && editMode === 'grid' && settings.showChannelDescriptions) {
+                            updateFeedViewSettings({ showChannelDescriptions: false })
+                          }
+                        }}
                       >
                         {lines === 0 ? 'Off' : String(lines)}
                       </button>
