@@ -225,6 +225,7 @@ test('continues an active Short in a vertical 9:16 miniplayer on leave, supports
 
   // Pre-seed a landscape miniplayer width to verify resizing a vertical Short leaves it untouched.
   await page.addInitScript(() => {
+    if (window.top !== window) return
     if (!localStorage.getItem('yt-client:settings')) {
       localStorage.setItem('yt-client:settings', JSON.stringify({ miniplayerWidth: 480 }))
     }
