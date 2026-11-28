@@ -6,6 +6,7 @@ import { useState } from 'preact/hooks'
 import { Client, fetchExchange, Provider } from 'urql'
 
 import { LiveChat, LiveChatTeaser } from '../../../src/components/live-chat'
+import { useOverScreenSettings } from '../../../src/components/over-screen-messages'
 import { createCache } from '../../../src/graphql'
 import { resolvers } from '../../../src/worker/resolvers'
 import typeDefs from '../../../src/worker/schema.gql?raw'
@@ -31,11 +32,13 @@ const CUSTOM_EMOJI_IMG =
 
 const PanelWrapper = () => {
   const [hidden, setHidden] = useState(false)
+  const overScreen = useOverScreenSettings()
+  const keepMounted = !hidden || overScreen.enabled
   return (
     <div style={{ width: '40rem', margin: '0 auto' }}>
-      {hidden
-        ? <LiveChatTeaser onShow={() => setHidden(false)} />
-        : <LiveChat videoId='live-1' onHide={() => setHidden(true)} />}
+      {keepMounted
+        ? <LiveChat videoId='live-1' hidden={hidden} onHide={() => setHidden(true)} onShow={() => setHidden(false)} />
+        : <LiveChatTeaser onShow={() => setHidden(false)} />}
     </div>
   )
 }

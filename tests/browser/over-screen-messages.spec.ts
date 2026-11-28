@@ -118,3 +118,65 @@ test('projects incremental chat and emoji-only messages over the screen with cus
   await reloadedChat.getByRole('button', { name: 'Over-screen chat messages', exact: true }).click()
   await expect(page.locator('[data-over-screen-overlay="true"]')).toHaveCount(0)
 })
+
+test('keeps over-screen messages active after closing the live chat panel and stops them once turned off after reopening', async ({ page }) => {
+  const harness = await mountHarness(page)
+  const chat = harness.getByRole('region', { name: 'Live chat' })
+  const toggleBtn = chat.getByRole('button', { name: 'Over-screen chat messages', exact: true })
+
+  await toggleBtn.click()
+  await expect(toggleBtn).toHaveAttribute('aria-pressed', 'true')
+  const overlay = page.locator('[data-over-screen-overlay="true"]')
+  await expect(overlay).toBeVisible()
+
+  // Closing the chat panel hides it without interrupting live over-screen messages
+  await chat.getByRole('button', { name: 'Hide chat', exact: true }).click()
+  await expect(chat).toBeHidden()
+  const showBtn = harness.getByRole('button', { name: 'Show chat', exact: true })
+  await expect(showBtn).toBeVisible()
+  await expect(overlay).toBeVisible()
+
+  await page.evaluate(() => {
+    window.__liveChatHarness?.pushPage({
+      items: [
+        {
+          id: 'after-close-msg',
+          kind: 'TEXT',
+          text: 'Still streaming while closed',
+          runs: [{ text: 'Still streaming while closed' }],
+          author: { id: 'UCbob', name: 'Bob', handle: '@bob' },
+        },
+      ],
+    })
+  })
+  await expect(overlay.locator('[data-overlay-item="after-close-msg"]')).toContainText('Still streaming while closed')
+  expect(await page.evaluate(() => window.__liveChatHarness?.closedVideoIds ?? [])).toEqual([])
+
+  // Reopening chat keeps Over-screen enabled, and turning it off stops subsequent overlay messages
+  await showBtn.click()
+  const reopenedChat = harness.getByRole('region', { name: 'Live chat' })
+  const reopenedToggle = reopenedChat.getByRole('button', { name: 'Over-screen chat messages', exact: true })
+  await expect(reopenedChat).toBeVisible()
+  await expect(reopenedToggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(reopenedChat.locator('.log')).toContainText('Still streaming while closed')
+
+  await reopenedToggle.click()
+  await expect(reopenedToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(overlay).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.__liveChatHarness?.pushPage({
+      items: [
+        {
+          id: 'after-disable-msg',
+          kind: 'TEXT',
+          text: 'Panel only after disabling',
+          runs: [{ text: 'Panel only after disabling' }],
+          author: { id: 'UCalice', name: 'Alice', handle: '@alice' },
+        },
+      ],
+    })
+  })
+  await expect(reopenedChat.locator('.log')).toContainText('Panel only after disabling')
+  await expect(overlay).toHaveCount(0)
+})

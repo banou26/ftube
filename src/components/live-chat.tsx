@@ -1513,14 +1513,19 @@ const LiveChatPollCard = (
 export const LiveChat = ({
   videoId,
   subscribed,
+  hidden = false,
   onHide,
+  onShow,
   onCustomEmojis,
 }: {
   videoId: string
   subscribed?: boolean
+  hidden?: boolean
   onHide?: () => void
+  onShow?: () => void
   onCustomEmojis?: (emojis: readonly CustomEmoji[]) => void
 }) => {
+  const overScreen = useOverScreenSettings()
   const {
     ready,
     signedIn,
@@ -1587,9 +1592,8 @@ export const LiveChat = ({
     inputRef,
     switchView,
     hideChat,
-  } = useLiveChatSession({ videoId, subscribed, onHide })
+  } = useLiveChatSession({ videoId, subscribed, keepAliveOnHide: overScreen.enabled, onHide })
   const [reactionsHovered, setReactionsHovered] = useState(false)
-  const overScreen = useOverScreenSettings()
   const [overScreenOpen, setOverScreenOpen] = useState(false)
   const [previewSeq, setPreviewSeq] = useState(0)
   const overScreenTriggerRef = useRef<HTMLButtonElement>(null)
@@ -1618,6 +1622,21 @@ export const LiveChat = ({
   useEffect(() => {
     onCustomEmojisRef.current?.(customEmojis)
   }, [customEmojis])
+
+  useEffect(() => {
+    if (hidden) return
+    const log = logRef.current
+    if (!log || !pinned) return
+    log.scrollTop = log.scrollHeight
+  }, [hidden, pinned, logRef])
+
+  const handleHide = () => {
+    setOverScreenOpen(false)
+    setLeaderboardOpen(false)
+    setReactionsOpen(false)
+    setReactionsHovered(false)
+    hideChat()
+  }
 
   const reactionsVisible = !ended && (reactionsOpen || reactionsHovered)
 
@@ -1695,6 +1714,24 @@ export const LiveChat = ({
       </div>
     )
     : undefined
+
+  if (hidden) {
+    return (
+      <>
+        <LiveChatTeaser onShow={onShow ?? (() => {})} />
+        {!page?.disabled
+          ? (
+            <OverScreenOverlay
+              settings={overScreen}
+              event={overlayEvent}
+              resetSeq={overlayResetSeq}
+              previewSeq={previewSeq}
+            />
+          )
+          : undefined}
+      </>
+    )
+  }
 
   return (
     <section css={[chatStyles, liveChatMobileStyle]} className='live-chat' aria-label='Live chat'>
@@ -1777,7 +1814,7 @@ export const LiveChat = ({
             : undefined}
           {onHide
             ? (
-              <button type='button' className='close' aria-label='Hide chat' onClick={hideChat}>
+              <button type='button' className='close' aria-label='Hide chat' onClick={handleHide}>
                 <X size={20} strokeWidth={1.5} />
               </button>
             )

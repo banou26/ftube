@@ -241,10 +241,12 @@ export type OverlayChatEvent = {
 export const useLiveChatSession = ({
   videoId,
   subscribed,
+  keepAliveOnHide = false,
   onHide,
 }: {
   videoId: string
   subscribed?: boolean
+  keepAliveOnHide?: boolean
   onHide?: () => void
 }) => {
   const { ready, signedIn, name, avatar, handle } = useSession()
@@ -302,6 +304,8 @@ export const useLiveChatSession = ({
   const leaderboardPanelRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef(client)
   clientRef.current = client
+  const keepAliveOnHideRef = useRef(keepAliveOnHide)
+  keepAliveOnHideRef.current = keepAliveOnHide
   const closedByUserRef = useRef(false)
 
   useLayoutEffect(() => {
@@ -324,6 +328,10 @@ export const useLiveChatSession = ({
   }, [videoId])
 
   const hideChat = () => {
+    if (keepAliveOnHideRef.current) {
+      onHide?.()
+      return
+    }
     closedByUserRef.current = true
     setEnded(true)
     void clientRef.current.mutation(CLOSE_LIVE_CHAT, { videoId }).toPromise().catch(() => {})

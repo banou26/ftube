@@ -23,6 +23,7 @@ import { parseStartSeconds } from '../components/format'
 import { GroupsDialog } from '../components/groups-button'
 import { actionTooltipStyle, LikePill } from '../components/like-pill'
 import LiveChat, { LiveChatTeaser } from '../components/live-chat'
+import { useOverScreenSettings } from '../components/over-screen-messages'
 import { openDownloadDialog } from '../downloads/store'
 import PlaylistPanel from '../components/playlist-panel'
 import { QueuePanel } from '../components/queue-panel'
@@ -860,20 +861,24 @@ const WatchPage = () => {
   const replay = replayOpen
     ? <ChatReplay key={`replay:${videoId}`} videoId={videoId} onClose={() => setReplayFor(undefined)} />
     : undefined
+  const overScreen = useOverScreenSettings()
   const chatHidden = chatHiddenFor === videoId
+  const keepChatMounted = !chatHidden || overScreen.enabled
   const theaterChatDocked = inTheater && !oneColumn && ((watch?.isLive === true && !chatHidden) || replayOpen)
   const liveChat = watch?.isLive
-    ? chatHidden
-      ? <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
-      : (
+    ? keepChatMounted
+      ? (
         <LiveChat
           key={`chat:${videoId}`}
           videoId={videoId}
           subscribed={channel?.isSubscribed ?? undefined}
+          hidden={chatHidden}
           onHide={() => setChatHiddenFor(videoId)}
+          onShow={() => setChatHiddenFor(undefined)}
           onCustomEmojis={handleChatEmojis}
         />
       )
+      : <LiveChatTeaser onShow={() => setChatHiddenFor(undefined)} />
     : undefined
 
   const chapters = watch?.chapters ?? []
