@@ -57,12 +57,13 @@ test('defaults off, toggles from regular settings menu (hidden on live), and wor
   await expect(overlay.locator('[data-overlay-item]')).toHaveCount(1)
   await expect(overlay.locator('[data-overlay-item]')).toContainText('Guitar riff hits')
 
-  // Non-default 2x speed crossing 1:00 shows highest-liked comment and replaces previous active item
+  // Non-default 2x speed crossing 1:00 shows highest-liked comment without its triggering timestamp and replaces previous item
   await page.evaluate(() => window.__timedCommentsHarness?.setRate(2))
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(59.4))
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.6))
   await expect(overlay.locator('[data-overlay-item]')).toHaveCount(1)
-  await expect(overlay.locator('[data-overlay-item]')).toContainText('1:00 Top liked reaction!')
+  await expect(overlay.locator('[data-overlay-item]')).toContainText('Top liked reaction!')
+  await expect(overlay.locator('[data-overlay-item]')).not.toContainText('1:00')
   await expect(overlay.locator('[data-overlay-item]')).not.toContainText('Lower likes comment')
 
   // Toggle hidden on live streams cleanly
@@ -85,7 +86,8 @@ test('clears and skips on seek, replays after rewind, clears on video switch and
   // Trigger 1:00 cue
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(59.5))
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
-  await expect(overlay.locator('[data-overlay-item]')).toContainText('1:00 Top liked reaction!')
+  await expect(overlay.locator('[data-overlay-item]')).toContainText('Top liked reaction!')
+  await expect(overlay.locator('[data-overlay-item]')).not.toContainText('1:00')
 
   // Player controls remain usable while overlay message is active
   const pauseBtn = player.getByRole('button', { name: 'Pause', exact: true })
@@ -98,7 +100,7 @@ test('clears and skips on seek, replays after rewind, clears on video switch and
   await page.evaluate(() => window.__timedCommentsHarness?.seekTo(55))
   await expect(overlay.locator('[data-overlay-item]')).toHaveCount(0)
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.4))
-  await expect(overlay.locator('[data-overlay-item]')).toContainText('1:00 Top liked reaction!')
+  await expect(overlay.locator('[data-overlay-item]')).toContainText('Top liked reaction!')
 
   // Forward seek past 2:00 clears active message and skips intermediate 2:00 cue
   await page.evaluate(() => window.__timedCommentsHarness?.seekTo(135))
@@ -115,7 +117,8 @@ test('clears and skips on seek, replays after rewind, clears on video switch and
     await expect(player.getByRole('button', { name: 'Exit full screen', exact: true })).toBeVisible()
   }
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(150.2))
-  await expect(overlay.locator('[data-overlay-item]')).toContainText('2:30 Finale note')
+  await expect(overlay.locator('[data-overlay-item]')).toContainText('Finale note')
+  await expect(overlay.locator('[data-overlay-item]')).not.toContainText('2:30')
   if (fsElement) {
     await player.getByRole('button', { name: 'Exit full screen', exact: true }).click()
     await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false)
@@ -189,7 +192,7 @@ test('exposes timed comment cues once to screen readers without moving focus and
 
   // Crossing 1:00 announces the cue once without moving focus away from Seek
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
-  await expect(announcer).toHaveText('Viewer: 1:00 Top liked reaction!')
+  await expect(announcer).toHaveText('Viewer: Top liked reaction!')
   await expect(announcer).toHaveAttribute('data-announcement-seq', '1')
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.5))
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.9))
@@ -208,7 +211,7 @@ test('exposes timed comment cues once to screen readers without moving focus and
   await page.evaluate(() => window.__timedCommentsHarness?.seekTo(55))
   await expect(announcer).toHaveText('')
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(60.2))
-  await expect(announcer).toHaveText('Viewer: 1:00 Top liked reaction!')
+  await expect(announcer).toHaveText('Viewer: Top liked reaction!')
   await expect(announcer).toHaveAttribute('data-announcement-seq', '2')
 
   // Turning Timed comments off removes the announcer and stays silent past 2:00
@@ -278,9 +281,11 @@ test('wraps long Pop timed comments within narrow 390px and desktop player bound
   await expect(overlay).toBeAttached()
   await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.requestedVideos() ?? [])).toEqual(['video-long-pop'])
 
-  // 0:10 Metrik comment (long multi-word) wraps cleanly at 390px with 28px font
+  // 0:10 Metrik comment (long multi-word) wraps cleanly at 390px with 28px font and omits triggering 10:15 timestamp
   await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(10.2))
   await expectContainedPopBubble(player, overlay, 'timed-comment:lp-10:10', 60)
+  await expect(overlay.locator('[data-overlay-item="timed-comment:lp-10:10"]')).toContainText('Absolute perfection! Highlight, i miss this in 2014, poor me!')
+  await expect(overlay.locator('[data-overlay-item="timed-comment:lp-10:10"]')).not.toContainText('10:15')
   await expect(overlay.locator('[data-overlay-item="timed-comment:lp-10:10"] img.overlay-avatar')).toHaveCount(1)
   await page.waitForTimeout(700)
   await expectContainedPopBubble(player, overlay, 'timed-comment:lp-10:10', 60)
@@ -395,4 +400,34 @@ test('Space toggles Timed comments inside real /watch Player settings on desktop
     await page.keyboard.press(' ')
     await expect.poll(() => page.evaluate(() => (window as unknown as { __playCalls?: number }).__playCalls ?? 0)).toBe(1)
   }
+})
+
+test('hides triggering timestamp in Timed comments overlay bubble while keeping clickable timestamp intact in Comments panel (APP-1107)', async ({ page }) => {
+  const player = await mountHarness(page, { videoId: 'video-metrik', duration: 700, showCommentsPanel: true })
+
+  await player.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('menu', { name: 'Player settings' }).getByRole('menuitemcheckbox', { name: /Timed comments/ }).click()
+  await page.keyboard.press('Escape')
+
+  const panel = page.locator('[data-timed-comments-panel]')
+  const panelTimestamp = panel.getByRole('button', { name: '10:15', exact: true })
+  await expect(panelTimestamp).toBeVisible({ timeout: 10_000 })
+  await expect(panel.locator('.comment-text')).toContainText('Absolute perfection!10:15 Highlight, i miss this in 2014, poor me!')
+
+  await panelTimestamp.click()
+  await expect.poll(() => page.evaluate(() => window.__timedCommentsHarness?.currentTime() ?? 0)).toBe(615)
+
+  await page.evaluate(() => window.__timedCommentsHarness?.seekTo(610))
+  const overlay = player.locator('[data-overlay-source="timed-comments"]')
+  await expect(overlay.locator('[data-overlay-item]')).toHaveCount(0)
+
+  await page.evaluate(() => window.__timedCommentsHarness?.advanceTime(615.2))
+  const item = overlay.locator('[data-overlay-item="timed-comment:metrik-1015:615"]')
+  await expect(item).toHaveCount(1)
+  await expect(item).toContainText('Absolute perfection! Highlight, i miss this in 2014, poor me!')
+  await expect(item).not.toContainText('10:15')
+  await expect(player.locator('[data-timed-comments-announcer="true"]')).toHaveText('@Thompson7177: Absolute perfection! Highlight, i miss this in 2014, poor me!')
+
+  // Comments panel retains clickable 10:15 link untouched
+  await expect(panelTimestamp).toBeVisible()
 })

@@ -6,8 +6,10 @@ import { render } from 'preact'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Client, fetchExchange, Provider } from 'urql'
 
+import { Comments } from '../../../src/components/comments'
 import { createCache } from '../../../src/graphql'
 import { PlayerControls } from '../../../src/player/controls'
+import { clearSeek, registerSeek } from '../../../src/player/seek'
 import { TimedCommentsOverlay } from '../../../src/player/timed-comments-overlay'
 import { updateSettings, useSetting } from '../../../src/settings'
 import { resolvers } from '../../../src/worker/resolvers'
@@ -21,6 +23,7 @@ export type TimedCommentsScenario = {
   initialTime?: number
   playerWidth?: number
   playerHeight?: number
+  showCommentsPanel?: boolean
 }
 
 declare global {
@@ -168,6 +171,23 @@ const Harness = ({
     setVideo(el)
   }, [])
 
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    registerSeek(
+      videoId,
+      (seconds, play) => {
+        el.dispatchEvent(new Event('seeking'))
+        el.currentTime = seconds
+        el.dispatchEvent(new Event('seeked'))
+        el.dispatchEvent(new Event('timeupdate'))
+        if (play) void el.play()
+      },
+      () => clockStateRef.current.time,
+    )
+    return () => clearSeek(videoId)
+  }, [videoId])
+
   const state: PlayerState = {
     paused,
     ended: false,
@@ -182,60 +202,69 @@ const Harness = ({
   }
 
   return (
-    <div
-      ref={rootRef}
-      data-timed-comments-harness={videoId}
-      data-player-root=''
-      data-player-surface=''
-      data-paused={String(paused)}
-      style={{
-        position: 'relative',
-        width: `${playerWidth}px`,
-        height: `${playerHeight}px`,
-        background: '#000',
-        containerType: 'inline-size',
-        containerName: 'player',
-        overflow: 'hidden',
-      }}
-    >
-      <video ref={videoRef} width={playerWidth} height={playerHeight} muted style={{ width: '100%', height: '100%', display: 'block' }} />
-      {video
+    <>
+      <div
+        ref={rootRef}
+        data-timed-comments-harness={videoId}
+        data-player-root=''
+        data-player-surface=''
+        data-paused={String(paused)}
+        style={{
+          position: 'relative',
+          width: `${playerWidth}px`,
+          height: `${playerHeight}px`,
+          background: '#000',
+          containerType: 'inline-size',
+          containerName: 'player',
+          overflow: 'hidden',
+        }}
+      >
+        <video ref={videoRef} width={playerWidth} height={playerHeight} muted style={{ width: '100%', height: '100%', display: 'block' }} />
+        {video
+          ? (
+            <TimedCommentsOverlay
+              video={video}
+              videoId={videoId}
+              duration={duration}
+              enabled={timedComments}
+              isLive={isLive}
+              docked={false}
+              commentsHidden={commentsHidden}
+            />
+          )
+          : undefined}
+        {video
+          ? (
+            <PlayerControls
+              video={video}
+              player={undefined}
+              state={state}
+              heights={[1080, 720]}
+              storyboards={[]}
+              quality='auto'
+              onQuality={() => {}}
+              captionTracks={[]}
+              caption={undefined}
+              onCaption={() => {}}
+              onToggleCaption={() => {}}
+              theater='default'
+              onTheater={() => {}}
+              visible
+              isLive={isLive}
+              timedComments={timedComments}
+              onTimedComments={() => updateSettings({ timedComments: !timedComments })}
+            />
+          )
+          : undefined}
+      </div>
+      {scenario.showCommentsPanel
         ? (
-          <TimedCommentsOverlay
-            video={video}
-            videoId={videoId}
-            duration={duration}
-            enabled={timedComments}
-            isLive={isLive}
-            docked={false}
-            commentsHidden={commentsHidden}
-          />
+          <div data-timed-comments-panel='' style={{ maxWidth: `${playerWidth}px`, marginTop: '1.6rem' }}>
+            <Comments videoId={videoId} />
+          </div>
         )
         : undefined}
-      {video
-        ? (
-          <PlayerControls
-            video={video}
-            player={undefined}
-            state={state}
-            heights={[1080, 720]}
-            storyboards={[]}
-            quality='auto'
-            onQuality={() => {}}
-            captionTracks={[]}
-            caption={undefined}
-            onCaption={() => {}}
-            onToggleCaption={() => {}}
-            theater='default'
-            onTheater={() => {}}
-            visible
-            isLive={isLive}
-            timedComments={timedComments}
-            onTimedComments={() => updateSettings({ timedComments: !timedComments })}
-          />
-        )
-        : undefined}
-    </div>
+    </>
   )
 }
 
@@ -263,6 +292,27 @@ export const mountTimedCommentsHarness = (initialScenario: TimedCommentsScenario
       }
       if (videoId === 'video-error') {
         throw new Error('Comments unavailable')
+      }
+      if (videoId === 'video-metrik') {
+        return {
+          items: [
+            makeComment({
+              id: 'metrik-1015',
+              text: 'Absolute perfection!10:15 Highlight, i miss this in 2014, poor me!',
+              likeCountText: '14',
+              authorName: '@Thompson7177',
+              runs: [
+                { text: 'Absolute perfection!' },
+                { text: '10:15', videoId: 'video-metrik', startSeconds: 615 },
+                { text: ' Highlight, i miss this in 2014, poor me!' },
+              ],
+            }),
+          ],
+          cursor: null,
+          disabled: false,
+          countText: '1 Comment',
+          customEmojis: [],
+        }
       }
       if (videoId === 'video-long-pop') {
         return {

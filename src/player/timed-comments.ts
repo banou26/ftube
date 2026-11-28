@@ -103,6 +103,112 @@ const collapseRunWhitespace = (runs: readonly TimedCommentRun[]): TimedCommentRu
   return collapsed.filter((run) => run.text.length > 0)
 }
 
+const PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
+const LEADING_SEP_RE = /^(?:[-\u2013\u2014|/\\\u2022\u00b7]+(?:\s+|$)|:+(?:\s+|$))/
+const TRAILING_SEP_RE = /(?:^|\s+)[-\u2013\u2014|/\\\u2022\u00b7]+$/
+const TRAILING_COLON_RE = /:+$/
+
+const trimEndRuns = (list: TimedCommentRun[]) => {
+  const out = list.map((run) => ({ ...run }))
+  let trimmed = false
+  while (out.length > 0) {
+    const last = out[out.length - 1]!
+    const next = last.text.trimEnd()
+    if (next.length !== last.text.length) trimmed = true
+    if (next.length > 0) {
+      last.text = next
+      break
+    }
+    out.pop()
+  }
+  return { runs: out, trimmed }
+}
+
+const trimStartRuns = (list: TimedCommentRun[]) => {
+  const out = list.map((run) => ({ ...run }))
+  let trimmed = false
+  while (out.length > 0) {
+    const first = out[0]!
+    const next = first.text.trimStart()
+    if (next.length !== first.text.length) trimmed = true
+    if (next.length > 0) {
+      first.text = next
+      break
+    }
+    out.shift()
+  }
+  return { runs: out, trimmed }
+}
+
+const isPlainTextRun = (run: TimedCommentRun) => !run.url && !run.videoId && !run.browseId
+
+/**
+ * Removes the triggering timestamp run at `triggerIndex` from overlay display runs without
+ * mutating the source comment runs, normalizing wrapper punctuation, boundary separators, and spaces.
+ */
+export const stripTriggeringTimestampRuns = (
+  runs: readonly TimedCommentRun[],
+  triggerIndex: number,
+): TimedCommentRun[] => {
+  const normalized = runs.map((run) => ({ ...run, text: (run.text ?? '').replace(/\s+/g, ' ') }))
+  if (triggerIndex < 0 || triggerIndex >= normalized.length) return collapseRunWhitespace(normalized)
+
+  const triggerText = normalized[triggerIndex]?.text ?? ''
+  const leftInit = trimEndRuns(normalized.slice(0, triggerIndex))
+  const rightInit = trimStartRuns(normalized.slice(triggerIndex + 1))
+  let left = leftInit.runs
+  let right = rightInit.runs
+  let hadSpaceBefore = leftInit.trimmed || /^\s/.test(triggerText)
+  let hadSpaceAfter = rightInit.trimmed || /\s$/.test(triggerText)
+
+  while (left.length > 0 && right.length > 0) {
+    const last = left[left.length - 1]!
+    const first = right[0]!
+    if (PAIRS[last.text.slice(-1)] !== first.text[0]) break
+    last.text = last.text.slice(0, -1)
+    first.text = first.text.slice(1)
+    const nextLeft = trimEndRuns(left)
+    const nextRight = trimStartRuns(right)
+    left = nextLeft.runs
+    right = nextRight.runs
+    hadSpaceBefore = hadSpaceBefore || nextLeft.trimmed
+    hadSpaceAfter = hadSpaceAfter || nextRight.trimmed
+  }
+
+  if (left.length === 0 && right.length > 0) {
+    while (right.length > 0) {
+      const next = right[0]!.text.replace(LEADING_SEP_RE, '')
+      if (next === right[0]!.text) break
+      right[0]!.text = next
+      right = trimStartRuns(right).runs
+    }
+  } else if (right.length === 0 && left.length > 0) {
+    while (left.length > 0) {
+      const current = left[left.length - 1]!.text
+      const next = current.replace(TRAILING_SEP_RE, '')
+      const cleaned = next !== current ? next : (hadSpaceBefore ? current.replace(TRAILING_COLON_RE, '') : current)
+      if (cleaned === current) break
+      left[left.length - 1]!.text = cleaned
+      const trimmed = trimEndRuns(left)
+      left = trimmed.runs
+      hadSpaceBefore = trimmed.trimmed
+    }
+  } else if (left.length > 0 && right.length > 0) {
+    const prev = left[left.length - 1]!.text
+    const next = right[0]!.text
+    const noSpaceBeforeNext = /^[,.;:!?)\]}]/.test(next)
+    const noSpaceAfterOpen = /[(["'\u201c\u2018[{]$/.test(prev) && !hadSpaceBefore
+    const needsWordBoundary = /[\p{L}\p{N}.!?;:,]$/u.test(prev) && /^[\p{L}\p{N}]/u.test(next)
+    if (!noSpaceBeforeNext && !noSpaceAfterOpen && (hadSpaceBefore || hadSpaceAfter || needsWordBoundary)) {
+      if (isPlainTextRun(left[left.length - 1]!)) left[left.length - 1]!.text += ' '
+      else if (isPlainTextRun(right[0]!)) right[0]!.text = ` ${right[0]!.text}`
+      else left.push({ text: ' ' })
+    }
+  }
+
+  return collapseRunWhitespace([...left, ...right])
+}
+
 /**
  * Extracts at most one timed cue per top-level comment using its first valid structured
  * timestamp targeting `videoId` within `[0, durationSeconds)`, skipping timestamp-only
@@ -121,7 +227,7 @@ export const extractTimedCommentCues = (
   for (const comment of comments) {
     if (!comment || typeof comment !== 'object' || !comment.id) continue
     const runs: readonly TimedCommentRun[] = Array.isArray(comment.runs) ? comment.runs : []
-    const match = runs.find(
+    const matchIndex = runs.findIndex(
       (run) =>
         run.videoId === videoId
         && typeof run.startSeconds === 'number'
@@ -129,13 +235,12 @@ export const extractTimedCommentCues = (
         && run.startSeconds >= 0
         && run.startSeconds < durationSeconds,
     )
-    if (!match) continue
+    if (matchIndex === -1) continue
+    const match = runs[matchIndex]!
     if (isTimestampOnlyComment(runs)) continue
 
-    const cleanRuns = collapseRunWhitespace(runs)
-    const collapsedText = (cleanRuns.length > 0 ? cleanRuns.map((r) => r.text).join('') : comment.text)
-      .replace(/\s+/g, ' ')
-      .trim()
+    const cleanRuns = stripTriggeringTimestampRuns(runs, matchIndex)
+    const collapsedText = cleanRuns.map((r) => r.text).join('').replace(/\s+/g, ' ').trim()
     if (!collapsedText) continue
 
     const timestampSeconds = match.startSeconds!

@@ -9,6 +9,7 @@ import {
   isTimestampOnlyComment,
   parseLikeCountText,
   stepTimedCommentClock,
+  stripTriggeringTimestampRuns,
   timedCommentCueToChatRow,
 } from '../../../src/player/timed-comments'
 
@@ -119,16 +120,184 @@ describe('timed comments helpers and media clock', () => {
     ], 'v1', 200)
 
     expect(cues.map((cue) => ({ id: cue.id, ts: cue.timestampSeconds, likes: cue.likeCount, text: cue.text }))).toEqual([
-      { id: 'zero-cue', ts: 0, likes: 5, text: '0:00 opening frame' },
-      { id: 'first-valid', ts: 42, likes: 12, text: 'Skip 0:10 use 0:42 then 1:20' },
-      { id: 'higher-likes', ts: 60, likes: 1500, text: '1:00 most liked' },
+      { id: 'zero-cue', ts: 0, likes: 5, text: 'opening frame' },
+      { id: 'first-valid', ts: 42, likes: 12, text: 'Skip 0:10 use then 1:20' },
+      { id: 'higher-likes', ts: 60, likes: 1500, text: 'most liked' },
     ])
 
     const row = timedCommentCueToChatRow(cues[2]!)
     expect(row.id).toBe('timed-comment:higher-likes:60')
-    expect(row.text).toBe('1:00 most liked')
+    expect(row.text).toBe('most liked')
     expect(extractTimedCommentCues([], 'v1', 200)).toEqual([])
     expect(extractTimedCommentCues(cues.map((c) => ({ id: c.id, text: c.text, runs: c.runs })), 'v1', 0)).toEqual([])
+  })
+
+  it('strips only the triggering timestamp and normalizes surrounding spacing across overlay edge cases', () => {
+    const metrikOriginalRuns = [
+      { text: 'Absolute perfection!' },
+      { text: '10:15', videoId: 'uvQJfHp6gVk', startSeconds: 615 },
+      { text: ' Highlight, i miss this in 2014, poor me!' },
+    ]
+    const metrikSnapshot = structuredClone(metrikOriginalRuns)
+
+    const cases: Array<{
+      id: string
+      videoId?: string
+      duration?: number
+      runs: Array<{ text: string, videoId?: string | null, startSeconds?: number | null }>
+      expected: string
+    }> = [
+      {
+        id: 'metrik-exact',
+        videoId: 'uvQJfHp6gVk',
+        duration: 700,
+        runs: metrikOriginalRuns,
+        expected: 'Absolute perfection! Highlight, i miss this in 2014, poor me!',
+      },
+      {
+        id: 'metrik-newlines',
+        videoId: 'uvQJfHp6gVk',
+        duration: 700,
+        runs: [
+          { text: 'Absolute perfection!\n' },
+          { text: '10:15', videoId: 'uvQJfHp6gVk', startSeconds: 615 },
+          { text: '\nHighlight, i miss this in 2014, poor me!' },
+        ],
+        expected: 'Absolute perfection! Highlight, i miss this in 2014, poor me!',
+      },
+      {
+        id: 'no-spaces-either-side',
+        videoId: 'uvQJfHp6gVk',
+        duration: 700,
+        runs: [
+          { text: 'Absolute perfection!' },
+          { text: '10:15', videoId: 'uvQJfHp6gVk', startSeconds: 615 },
+          { text: 'Highlight' },
+        ],
+        expected: 'Absolute perfection! Highlight',
+      },
+      {
+        id: 'leading-plain',
+        runs: [{ text: '1:00', videoId: 'v1', startSeconds: 60 }, { text: ' most liked' }],
+        expected: 'most liked',
+      },
+      {
+        id: 'leading-hyphen-sep',
+        runs: [{ text: '1:00', videoId: 'v1', startSeconds: 60 }, { text: ' - most liked' }],
+        expected: 'most liked',
+      },
+      {
+        id: 'leading-colon-sep',
+        runs: [{ text: '1:00', videoId: 'v1', startSeconds: 60 }, { text: ': most liked' }],
+        expected: 'most liked',
+      },
+      {
+        id: 'leading-negative-number',
+        runs: [{ text: '1:00', videoId: 'v1', startSeconds: 60 }, { text: ' -5 degrees' }],
+        expected: '-5 degrees',
+      },
+      {
+        id: 'mid-sentence',
+        runs: [
+          { text: 'Check out ' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ' for the drop' },
+        ],
+        expected: 'Check out for the drop',
+      },
+      {
+        id: 'before-exclamation',
+        runs: [
+          { text: 'Drop at ' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: '! Wild' },
+        ],
+        expected: 'Drop at! Wild',
+      },
+      {
+        id: 'before-comma',
+        runs: [
+          { text: 'Wait for ' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ', trust me' },
+        ],
+        expected: 'Wait for, trust me',
+      },
+      {
+        id: 'wrapped-parens',
+        runs: [
+          { text: 'Best part (' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ') is here' },
+        ],
+        expected: 'Best part is here',
+      },
+      {
+        id: 'leading-wrapped-parens',
+        runs: [
+          { text: '(' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ') Best part' },
+        ],
+        expected: 'Best part',
+      },
+      {
+        id: 'wrapped-brackets-punct',
+        runs: [
+          { text: 'Best part [' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ']!' },
+        ],
+        expected: 'Best part!',
+      },
+      {
+        id: 'trailing-plain',
+        runs: [{ text: 'Best drop ' }, { text: '10:15', videoId: 'v1', startSeconds: 615 }],
+        expected: 'Best drop',
+      },
+      {
+        id: 'trailing-hyphen-sep',
+        runs: [{ text: 'Best drop - ' }, { text: '10:15', videoId: 'v1', startSeconds: 615 }],
+        expected: 'Best drop',
+      },
+      {
+        id: 'trailing-colon-sep',
+        runs: [{ text: 'Best drop: ' }, { text: '10:15', videoId: 'v1', startSeconds: 615 }],
+        expected: 'Best drop',
+      },
+      {
+        id: 'multi-timestamp-first-triggers',
+        runs: [
+          { text: '0:10', videoId: 'v1', startSeconds: 10 },
+          { text: ' intro\n' },
+          { text: '10:15', videoId: 'v1', startSeconds: 615 },
+          { text: ' drop\n' },
+          { text: '12:00', videoId: 'v1', startSeconds: 720 },
+          { text: ' outro' },
+        ],
+        expected: 'intro 10:15 drop 12:00 outro',
+      },
+      {
+        id: 'emoji-reaction',
+        runs: [{ text: '2:14', videoId: 'v1', startSeconds: 134 }, { text: ' 🔥' }],
+        expected: '🔥',
+      },
+    ]
+
+    for (const c of cases) {
+      const cues = extractTimedCommentCues(
+        [{ id: c.id, text: c.runs.map((r) => r.text).join(''), runs: c.runs }],
+        c.videoId ?? 'v1',
+        c.duration ?? 1000,
+      )
+      expect(cues, c.id).toHaveLength(1)
+      expect(cues[0]!.text, c.id).toBe(c.expected)
+    }
+
+    expect(metrikOriginalRuns).toEqual(metrikSnapshot)
+    expect(stripTriggeringTimestampRuns(metrikOriginalRuns, 1).map((r) => r.text).join('')).toBe(
+      'Absolute perfection! Highlight, i miss this in 2014, poor me!',
+    )
   })
 
   it('schedules cues on forward playback, clears and skips across seeks, and re-triggers after rewind', () => {
